@@ -2,6 +2,6 @@
   import Editor from "$lib/components/editor/Editor.svelte";
 </script>
 
-<main class="container mx-auto p-4 flex flex-col h-screen">
+<main class="flex flex-col h-screen w-full">
   <Editor />
 </main>

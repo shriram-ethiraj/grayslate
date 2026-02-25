@@ -22,6 +22,7 @@
     "codemirror": "^6.0.2"
   },
   "devDependencies": {
+    "@lezer/highlight": "^1.2.3",
     "@lucide/svelte": "^0.575.0",
     "@sveltejs/adapter-static": "^3.0.6",
     "@sveltejs/kit": "^2.9.0",

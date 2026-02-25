@@ -30,6 +30,9 @@ importers:
         specifier: ^6.0.2
         version: 6.0.2
     devDependencies:
+      '@lezer/highlight':
+        specifier: ^1.2.3
+        version: 1.2.3
       '@lucide/svelte':
         specifier: ^0.575.0
         version: 0.575.0(svelte@5.53.3)
