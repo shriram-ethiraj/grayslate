@@ -16,7 +16,7 @@
 			<Sidebar.Trigger class="-ml-1" />
 			<ThemeToggle />
 		</header>
-		<div class="flex flex-1 flex-col">
+		<div class="flex flex-1 flex-col min-h-0">
 			{@render children()}
 		</div>
 	</Sidebar.Inset>

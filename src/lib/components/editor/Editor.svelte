@@ -1,6 +1,7 @@
 <script lang="ts">
     import { EditorState } from "@codemirror/state";
     import { EditorView, basicSetup } from "codemirror";
+    import { scrollPastEnd } from "@codemirror/view";
     import { createTheme } from "$lib/hooks/create-theme";
     import { andromedaConfig } from "$lib/themes/andromeda";
     import { materialLightConfig } from "$lib/themes/material-light";
@@ -26,6 +27,7 @@
             doc: initialValue,
             extensions: [
                 basicSetup,
+                scrollPastEnd(),
                 themeCompartment.of(initialThemeExt),
                 // Listen for editor changes and sync back to the Svelte state
                 EditorView.updateListener.of((update) => {
