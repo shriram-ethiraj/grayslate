@@ -3,19 +3,30 @@
     import { EditorView, basicSetup } from "codemirror";
     import { createTheme } from "$lib/hooks/create-theme";
     import { andromedaConfig } from "$lib/themes/andromeda";
+    import { materialLightConfig } from "$lib/themes/material-light";
+    import { Compartment } from "@codemirror/state";
+    import { onMount, onDestroy } from "svelte";
 
     // Use Svelte 5 runes for the bound value
     let { value = $bindable() } = $props();
     let view: EditorView;
+    let themeCompartment: Compartment;
 
     function editor(node: HTMLElement, initialValue: string) {
-        const themeExtension = createTheme(andromedaConfig);
+        // Create an extension compartment to dynamically swap themes
+        themeCompartment = new Compartment();
+
+        // Determine initial theme
+        const isDark = document.documentElement.classList.contains("dark");
+        const initialThemeExt = createTheme(
+            isDark ? andromedaConfig : materialLightConfig,
+        );
 
         let state = EditorState.create({
             doc: initialValue,
             extensions: [
                 basicSetup,
-                themeExtension,
+                themeCompartment.of(initialThemeExt),
                 // Listen for editor changes and sync back to the Svelte state
                 EditorView.updateListener.of((update) => {
                     if (update.docChanged) {
@@ -28,6 +39,27 @@
         view = new EditorView({
             state,
             parent: node,
+        });
+
+        // Set up mutation observer to watch for theme changes on HTML
+        const observer = new MutationObserver((mutations) => {
+            mutations.forEach((mutation) => {
+                if (mutation.attributeName === "class") {
+                    const isDarkNow =
+                        document.documentElement.classList.contains("dark");
+                    const newTheme = createTheme(
+                        isDarkNow ? andromedaConfig : materialLightConfig,
+                    );
+                    view?.dispatch({
+                        effects: themeCompartment.reconfigure(newTheme),
+                    });
+                }
+            });
+        });
+
+        observer.observe(document.documentElement, {
+            attributes: true,
+            attributeFilter: ["class"],
         });
 
         return {
@@ -44,6 +76,7 @@
                 }
             },
             destroy() {
+                observer.disconnect();
                 view.destroy();
             },
         };
