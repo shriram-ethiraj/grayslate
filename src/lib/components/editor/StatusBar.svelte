@@ -9,6 +9,8 @@
         activeLanguage = "text",
         showPreview = $bindable(false),
         showCsvTable = $bindable(false),
+        isCsvTableActive = false,
+        csvInfo = { rows: 0, cols: 0, delimiter: "", errors: 0 },
     } = $props();
 
     import { SquareSplitHorizontal, Table2 } from "@lucide/svelte";
@@ -67,11 +69,31 @@
                 Preview
             </button>
         {/if}
-        <button
-            class="flex items-center hover:bg-muted/50 hover:text-foreground h-full px-2 transition-colors cursor-default"
-        >
-            Ln {line}, Col {col}
-        </button>
+        {#if isCsvTableActive}
+            <div
+                class="flex items-center gap-3 px-2 h-full cursor-default border-r border-border/40"
+            >
+                <span>{csvInfo.rows} rows × {csvInfo.cols} cols</span>
+                <span
+                    >Delimiter: <strong class="font-semibold"
+                        >{csvInfo.delimiter}</strong
+                    ></span
+                >
+                {#if csvInfo.errors > 0}
+                    <span class="text-[hsl(0,80%,60%)]">
+                        ⚠ {csvInfo.errors} parse error{csvInfo.errors > 1
+                            ? "s"
+                            : ""}
+                    </span>
+                {/if}
+            </div>
+        {:else}
+            <button
+                class="flex items-center hover:bg-muted/50 hover:text-foreground h-full px-2 transition-colors cursor-default"
+            >
+                Ln {line}, Col {col}
+            </button>
+        {/if}
         <Select.Root type="single" bind:value={language}>
             <Select.Trigger
                 class="flex items-center hover:bg-muted/50 hover:text-foreground h-full px-2 transition-colors cursor-default border-0 shadow-none focus:ring-0 rounded-none bg-transparent hocus:bg-muted/50 text-[11px] w-auto gap-2"

@@ -39,13 +39,15 @@
 
     // Derive whether CSV table view is active
     let isCsvTableActive = $derived(activeLanguage === "csv" && showCsvTable);
+
+    let csvInfo = $state({ rows: 0, cols: 0, delimiter: "", errors: 0 });
 </script>
 
 <div class="flex flex-1 flex-col w-full relative min-h-0 min-w-0 h-full">
     <div class="flex flex-1 min-h-0 min-w-0 relative">
         {#if isCsvTableActive}
             <!-- CSV Table View (replaces editor) -->
-            <CsvTableView bind:content={value} />
+            <CsvTableView bind:content={value} bind:tableInfo={csvInfo} />
         {:else}
             <!-- Editor View -->
             <div
@@ -77,5 +79,7 @@
         {activeLanguage}
         bind:showPreview
         bind:showCsvTable
+        {isCsvTableActive}
+        {csvInfo}
     />
 </div>
