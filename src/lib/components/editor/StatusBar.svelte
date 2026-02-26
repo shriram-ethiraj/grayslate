@@ -8,9 +8,10 @@
         detectedLanguage = "text",
         activeLanguage = "text",
         showPreview = $bindable(false),
+        showCsvTable = $bindable(false),
     } = $props();
 
-    import { SquareSplitHorizontal } from "@lucide/svelte";
+    import { SquareSplitHorizontal, Table2 } from "@lucide/svelte";
 
     const languages = [
         { value: "auto", label: "Auto Detect" },
@@ -42,6 +43,18 @@
         <!-- Left side could have errors, branch, etc. in future -->
     </div>
     <div class="flex items-center h-full">
+        {#if activeLanguage === "csv"}
+            <button
+                class="flex items-center hover:bg-muted/50 {showCsvTable
+                    ? 'text-primary'
+                    : 'text-muted-foreground'} h-full px-2 transition-colors cursor-pointer gap-1.5 border-r border-border/40"
+                onclick={() => (showCsvTable = !showCsvTable)}
+                title="Toggle Table View"
+            >
+                <Table2 class="w-3.5 h-3.5" />
+                Table
+            </button>
+        {/if}
         {#if activeLanguage === "markdown"}
             <button
                 class="flex items-center hover:bg-muted/50 {showPreview
