@@ -40,10 +40,13 @@ export function useCsvEditorState(
                 case 'cell': {
                     const rowArr = parsed.rows[op.row];
                     if (rowArr) {
-                        while (rowArr.length <= op.col) {
-                            rowArr.push("");
+                        const newRow = [...rowArr];
+                        while (newRow.length <= op.col) {
+                            newRow.push("");
                         }
-                        rowArr[op.col] = op.newValue;
+                        newRow[op.col] = op.newValue;
+                        parsed.rows[op.row] = newRow;
+                        rowChange = true;
                     }
                     break;
                 }
@@ -85,10 +88,13 @@ export function useCsvEditorState(
                 case 'cell': {
                     const rowArr = parsed.rows[op.row];
                     if (rowArr) {
-                        while (rowArr.length <= op.col) {
-                            rowArr.push("");
+                        const newRow = [...rowArr];
+                        while (newRow.length <= op.col) {
+                            newRow.push("");
                         }
-                        rowArr[op.col] = op.oldValue;
+                        newRow[op.col] = op.oldValue;
+                        parsed.rows[op.row] = newRow;
+                        rowChange = true;
                     }
                     break;
                 }

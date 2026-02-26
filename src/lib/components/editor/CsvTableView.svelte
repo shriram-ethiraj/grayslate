@@ -4,11 +4,9 @@
         getCoreRowModel,
         type ColumnDef,
     } from "@tanstack/svelte-table";
-    import { createVirtualizer } from "@tanstack/svelte-virtual";
-    import { parseCsv, serializeCsv } from "$lib/utils/editor/csvParser";
+    import { useScrollVirtualizer } from "./csv/useScrollVirtualizer.svelte";
+    import { editorState } from "$lib/state/editor.svelte";
     import { debounce } from "lodash-es";
-
-    // Extracted logic and components
     import { useCsvHistory } from "./csv/useCsvHistory.svelte";
     import { useCsvEditorState } from "./csv/useCsvEditorState.svelte";
     import CsvTableHeader from "./csv/CsvTableHeader.svelte";
@@ -19,97 +17,119 @@
         tableInfo = $bindable({ rows: 0, cols: 0, delimiter: "", errors: 0 }),
     } = $props();
 
-    // 1. Parse once on mount — parsed data is the mutable source of truth
-    let parsed = $state(parseCsv(content));
+    // 1. Parsed data — starts empty, filled by worker
+    let parsed = $state.raw<{
+        headers: string[];
+        rows: string[][];
+        delimiter: string;
+        errors: string[];
+    }>({ headers: [], rows: [], delimiter: ",", errors: [] });
+
+    let loading = $state(true);
+    let loadProgress = $state("");
+    let pendingRows: string[][] = [];
 
     // Track the last content we synced from, to detect external changes
     let lastSyncedContent = $state(content);
-    let worker: Worker;
+    let serializeWorker: Worker;
+    let parseWorker: Worker;
 
+    // Kick off initial parse via worker
     $effect(() => {
-        // Initialize Web Worker for background serialization
-        worker = new Worker(
+        // Parser worker
+        parseWorker = new Worker(
+            new URL("../../workers/csvParser.worker.ts", import.meta.url),
+            { type: "module" },
+        );
+
+        parseWorker.onmessage = (e) => {
+            const msg = e.data;
+            switch (msg.type) {
+                case "parsed-chunk": {
+                    const chunk: string[][] = msg.chunk;
+                    for (let i = 0; i < chunk.length; i++) {
+                        pendingRows.push(chunk[i]);
+                    }
+                    loadProgress = `${(pendingRows.length / 1_000_000).toFixed(1)}M rows loaded…`;
+                    break;
+                }
+                case "parsed-complete":
+                    parsed = {
+                        headers: msg.headers,
+                        rows: pendingRows,
+                        delimiter: msg.delimiter,
+                        errors: msg.errors,
+                    };
+                    pendingRows = [];
+                    loading = false;
+                    loadProgress = "";
+                    break;
+                case "error":
+                    console.error("CSV Parse Worker Error:", msg.error);
+                    loading = false;
+                    break;
+            }
+        };
+
+        // Start initial parse
+        loading = true;
+        loadProgress = "Starting…";
+        parseWorker.postMessage({ text: content });
+
+        // Serializer worker
+        serializeWorker = new Worker(
             new URL("../../workers/csvSerializer.worker.ts", import.meta.url),
             { type: "module" },
         );
 
-        worker.onmessage = (e) => {
+        serializeWorker.onmessage = (e) => {
             if (e.data.serialized) {
                 lastSyncedContent = e.data.serialized;
                 content = e.data.serialized;
+
+                // If we were serializing for a view transition, complete it
+                if (editorState.csv.serializing) {
+                    editorState.csv.serializing = false;
+                }
             } else if (e.data.error) {
                 console.error("CSV Serialization Worker Error:", e.data.error);
             }
         };
 
         return () => {
-            // On unmount: commit any in-progress edit, cancel pending debounce,
-            // and synchronously serialize so content is up-to-date for the editor.
-            editorState.commitEdit();
+            // On unmount: just terminate workers.
+            // Serialization is handled by the showTable watcher above.
             debouncedSerialize.cancel();
-            const snapshot = fastCloneParsed();
-            content = serializeCsv(
-                snapshot.headers,
-                snapshot.rows,
-                snapshot.delimiter,
-            );
-            lastSyncedContent = content;
-            worker.terminate();
+            parseWorker.terminate();
+            serializeWorker.terminate();
         };
     });
 
     // Re-parse when content changes externally (e.g. switching from text mode)
     $effect(() => {
         if (content !== lastSyncedContent) {
-            parsed = parseCsv(content);
+            loading = true;
             lastSyncedContent = content;
             history.clear();
+            parseWorker?.postMessage({ text: content });
         }
     });
 
     // 2. History — structural, lightweight ops
     const history = useCsvHistory();
 
-    // Svelte 5's generic $state.snapshot() is extremely slow for large 2D arrays
-    // because it recursively unwraps proxies and checks object types.
-    // This manual clone is heavily optimized for a strict `string[][]` structure.
-    function fastCloneParsed() {
-        const sourceRows = parsed.rows;
-        const length = sourceRows.length;
-        const rows = new Array(length);
-
-        for (let i = 0; i < length; i++) {
-            const row = sourceRows[i];
-            const rowLen = row.length;
-            const newRow = new Array(rowLen);
-            for (let j = 0; j < rowLen; j++) {
-                newRow[j] = row[j];
-            }
-            rows[i] = newRow;
-        }
-
-        return {
-            headers: parsed.headers.slice(),
-            rows,
-            delimiter: parsed.delimiter,
-        };
-    }
-
     // Debounced serialization: sync parsed rows → content string using Web Worker
     const debouncedSerialize = debounce(() => {
-        if (!worker) return;
-        // Use manual clone to bypass Svelte 5's slow deep clone and avoid DataCloneError
-        const snapshot = fastCloneParsed();
-        worker.postMessage({
-            headers: snapshot.headers,
-            rows: snapshot.rows,
-            delimiter: snapshot.delimiter,
+        if (!serializeWorker) return;
+
+        serializeWorker.postMessage({
+            headers: parsed.headers,
+            rows: parsed.rows,
+            delimiter: parsed.delimiter,
         });
     }, 500);
 
     // Trigger debounced serialization whenever history marks dirty.
-    // queueMicrotask defers the call so the current reactive flush
-    // (which needs to complete for focus to move) isn't blocked.
     $effect(() => {
         if (history.isDirty) {
             history.isDirty = false;
@@ -117,13 +137,9 @@
         }
     });
 
-    // 3. TanStack Table Data & Columns
-    let data = $derived(parsed.rows);
+    // 3. TanStack Table Columns (no data passed — we render raw rows directly)
 
     // Stabilise columns reference — only rebuild when headers actually change
-    // by value, not just by object reference. Cell edits replace `parsed` but
-    // leave `headers` identical, so this prevents a full TanStack row-model
-    // rebuild on every keystroke.
     let prevHeaderKey = "";
     let stableColumns: ColumnDef<string[], string>[] = [];
 
@@ -147,20 +163,35 @@
     let tableContainerRef = $state<HTMLDivElement | undefined>(undefined);
 
     // 5. Editor State (Keyboard, Editing, Focus)
-    const editorState = useCsvEditorState(
+    const csvEditorState = useCsvEditorState(
         history,
         () => parsed,
         (p) => {
             parsed = p;
         },
         () => columns,
-        (index, options) => $virtualizer.scrollToIndex(index, options),
+        (index) => virtualizer.scrollToIndex(index),
     );
 
-    // 6. TanStack Table Instance
+    // Deferred transition: when user toggles showTable → false,
+    // serialize via worker BEFORE allowing unmount.
+    $effect(() => {
+        if (!editorState.csv.showTable && !loading) {
+            editorState.csv.serializing = true;
+            csvEditorState.commitEdit();
+            debouncedSerialize.cancel();
+
+            // Send immediate serialization request to the worker
+            serializeWorker.postMessage({
+                headers: parsed.headers,
+                rows: parsed.rows,
+                delimiter: parsed.delimiter,
+            });
+        }
+    });
+
+    // 6. TanStack Table Instance — empty data, only used for column sizing/headers
     let columnSizing = $state<Record<string, number>>({});
-    // We need to track the internal columnSizingInfo state to know if a column is actively being resized
-    // and manually reset it if the user dragging leaves the window or a `mouseup` happens outside the table.
     let columnSizingInfo = $state({
         startOffset: null,
         startSize: null,
@@ -172,7 +203,7 @@
 
     const table = createTable({
         get data() {
-            return data;
+            return [] as string[][];
         },
         get columns() {
             return columns;
@@ -207,20 +238,11 @@
     });
 
     // 7. Virtualizer Instance
-    const virtualizer = createVirtualizer({
-        count: table.getRowModel().rows.length,
-        getScrollElement: () => tableContainerRef ?? null,
+    const virtualizer = useScrollVirtualizer({
+        count: () => parsed.rows.length,
+        getScrollElement: () => tableContainerRef,
         estimateSize: () => 32,
         overscan: 20,
-    });
-
-    $effect(() => {
-        $virtualizer.setOptions({
-            count: table.getRowModel().rows.length,
-            getScrollElement: () => tableContainerRef ?? null,
-            estimateSize: () => 32,
-            overscan: 20,
-        });
     });
 
     // Delimiter display label
@@ -272,34 +294,50 @@
     }}
 />
 
-<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-<div
-    class="csv-table-wrapper"
-    tabindex="0"
-    role="grid"
-    onkeydown={(e) => editorState.handleCellKeydown(e)}
-    onclick={(e) => {
-        // If clicking outside a cell, give focus to wrapper for keyboard capture
-        const target = e.target as HTMLElement;
-        if (!target.closest(".csv-cell")) {
-            // Keep existing focusedCell or default to 0,0
-            if (!editorState.focusedCell && parsed.rows.length > 0) {
-                editorState.focusedCell = { rowIndex: 0, colIndex: 0 };
-                editorState.navigateAndFocus();
+{#if loading}
+    <div class="csv-loading">
+        <div class="csv-loading-spinner"></div>
+        <p>Parsing CSV…</p>
+        <p class="csv-loading-progress">{loadProgress}</p>
+    </div>
+{:else if editorState.csv.serializing}
+    <div class="csv-loading">
+        <div class="csv-loading-spinner"></div>
+        <p>Preparing text view…</p>
+    </div>
+{:else}
+    <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+    <div
+        class="csv-table-wrapper"
+        tabindex="0"
+        role="grid"
+        onkeydown={(e) => csvEditorState.handleCellKeydown(e)}
+        onclick={(e) => {
+            const target = e.target as HTMLElement;
+            if (!target.closest(".csv-cell")) {
+                if (!csvEditorState.focusedCell && parsed.rows.length > 0) {
+                    csvEditorState.focusedCell = { rowIndex: 0, colIndex: 0 };
+                    csvEditorState.navigateAndFocus();
+                }
             }
-        }
-    }}
->
-    <!-- Table Container -->
-    <div class="csv-table-container" bind:this={tableContainerRef}>
-        <div
-            style="height: {$virtualizer.getTotalSize()}px; width: 100%; min-width: max-content; padding-right: 200px; position: relative;"
-        >
-            <CsvTableHeader {table} {editorState} />
-            <CsvTableBody {table} virtualizer={$virtualizer} {editorState} />
+        }}
+    >
+        <!-- Table Container -->
+        <div class="csv-table-container" bind:this={tableContainerRef}>
+            <div
+                style="height: {virtualizer.totalSize}px; width: 100%; min-width: max-content; padding-right: 200px; position: relative; overflow: hidden;"
+            >
+                <CsvTableHeader {table} editorState={csvEditorState} />
+                <CsvTableBody
+                    {table}
+                    {virtualizer}
+                    editorState={csvEditorState}
+                    rawRows={parsed.rows}
+                />
+            </div>
         </div>
     </div>
-</div>
+{/if}
 
 <style>
     .csv-table-wrapper {
@@ -318,5 +356,38 @@
         overflow: auto;
         overscroll-behavior: none;
         position: relative;
+    }
+
+    .csv-loading {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        gap: 16px;
+        color: var(--muted-foreground);
+        font-size: 14px;
+    }
+
+    .csv-loading-spinner {
+        width: 32px;
+        height: 32px;
+        border: 3px solid var(--border);
+        border-top-color: var(--primary);
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+        to {
+            transform: rotate(360deg);
+        }
+    }
+
+    .csv-loading-progress {
+        font-size: 12px;
+        color: var(--muted-foreground);
+        opacity: 0.7;
+        font-variant-numeric: tabular-nums;
     }
 </style>

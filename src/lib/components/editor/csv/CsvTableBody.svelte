@@ -1,24 +1,24 @@
 <script lang="ts">
     import type { Table } from "@tanstack/svelte-table";
-    import { type SvelteVirtualizer } from "@tanstack/svelte-virtual";
+    import type { useScrollVirtualizer } from "./useScrollVirtualizer.svelte";
     import type { useCsvEditorState } from "./useCsvEditorState.svelte";
 
     let {
         table,
         virtualizer,
         editorState,
+        rawRows,
     }: {
         table: Table<string[]>;
-        virtualizer: SvelteVirtualizer<HTMLDivElement, Element>;
+        virtualizer: ReturnType<typeof useScrollVirtualizer>;
         editorState: ReturnType<typeof useCsvEditorState>;
+        rawRows: string[][];
     } = $props();
-
-    let rows = $derived(table.getRowModel().rows);
 </script>
 
 <div
-    style="position: absolute; top: 0; left: 0; width: 100%; transform: translateY({virtualizer.getVirtualItems()[0]
-        ?.start ?? 0}px); padding-top: 33px;"
+    style="position: absolute; top: 0; left: 0; width: 100%; transform: translateY({virtualizer
+        .virtualItems[0]?.start ?? 0}px); padding-top: 33px;"
 >
     <table class="csv-table csv-table-body">
         <colgroup>
@@ -30,14 +30,17 @@
             {/each}
         </colgroup>
         <tbody>
-            {#each virtualizer.getVirtualItems() as virtualRow}
-                {@const row = rows[virtualRow.index]}
+            {#each virtualizer.virtualItems as virtualRow}
+                {@const row = rawRows[virtualRow.index]}
                 {#if row}
                     <tr class:csv-row-even={virtualRow.index % 2 === 0}>
-                        <td class="csv-row-num">
+                        <td
+                            class="csv-row-num"
+                            style="height: {virtualRow.size}px;"
+                        >
                             {virtualRow.index + 1}
                         </td>
-                        {#each row.getVisibleCells() as cell, colIndex}
+                        {#each table.getFlatHeaders() as header, colIndex}
                             {@const isEditing =
                                 editorState.editingCell?.rowIndex ===
                                     virtualRow.index &&
@@ -47,7 +50,7 @@
                                     virtualRow.index &&
                                 editorState.focusedCell?.colIndex === colIndex}
                             <td
-                                style="width: {cell.column.getSize()}px; min-width: {cell.column.getSize()}px; max-width: {cell.column.getSize()}px;"
+                                style="width: {header.getSize()}px; min-width: {header.getSize()}px; max-width: {header.getSize()}px;"
                                 class="csv-cell"
                                 class:focused={isFocused}
                                 data-row={virtualRow.index}
@@ -62,7 +65,7 @@
                                     editorState.startEditing(
                                         virtualRow.index,
                                         colIndex,
-                                        row.original[colIndex],
+                                        row[colIndex] ?? "",
                                     )}
                                 role="gridcell"
                                 tabindex={isFocused ? 0 : -1}
@@ -79,7 +82,7 @@
                                     />
                                 {:else}
                                     <div class="csv-cell-content">
-                                        {row.original[colIndex]}
+                                        {row[colIndex] ?? ""}
                                     </div>
                                 {/if}
                             </td>

@@ -42,7 +42,8 @@
 
     // Derive whether CSV table view is active
     let isCsvTableActive = $derived(
-        activeLanguage === "csv" && editorState.csv.showTable,
+        activeLanguage === "csv" &&
+            (editorState.csv.showTable || editorState.csv.serializing),
     );
 
     let csvInfo = $state({ rows: 0, cols: 0, delimiter: "", errors: 0 });

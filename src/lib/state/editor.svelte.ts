@@ -11,6 +11,7 @@ export const editorState = $state<{
     fileType: FileType;
     csv: {
         showTable: boolean;
+        serializing: boolean;
     };
     markdown: {
         showPreview: boolean;
@@ -19,6 +20,7 @@ export const editorState = $state<{
     fileType: "text",
     csv: {
         showTable: false,
+        serializing: false,
     },
     markdown: {
         showPreview: true,
