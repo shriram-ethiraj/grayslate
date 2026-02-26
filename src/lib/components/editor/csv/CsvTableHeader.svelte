@@ -87,6 +87,10 @@
                             class:resizing={header.column.getIsResizing()}
                             onmousedown={header.getResizeHandler()}
                             ontouchstart={header.getResizeHandler()}
+                            ondblclick={(e) => {
+                                e.stopPropagation();
+                                header.column.resetSize();
+                            }}
                             role="separator"
                             aria-orientation="vertical"
                             tabindex="-1"

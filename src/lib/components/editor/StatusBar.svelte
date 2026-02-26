@@ -7,8 +7,6 @@
         language = $bindable("auto"),
         detectedLanguage = "text",
         activeLanguage = "text",
-        showPreview = $bindable(false),
-        showCsvTable = $bindable(false),
         isCsvTableActive = false,
         csvInfo = { rows: 0, cols: 0, delimiter: "", errors: 0 },
     } = $props();
@@ -45,30 +43,6 @@
         <!-- Left side could have errors, branch, etc. in future -->
     </div>
     <div class="flex items-center h-full">
-        {#if activeLanguage === "csv"}
-            <button
-                class="flex items-center hover:bg-muted/50 {showCsvTable
-                    ? 'text-primary'
-                    : 'text-muted-foreground'} h-full px-2 transition-colors cursor-pointer gap-1.5 border-r border-border/40"
-                onclick={() => (showCsvTable = !showCsvTable)}
-                title="Toggle Table View"
-            >
-                <Table2 class="w-3.5 h-3.5" />
-                Table
-            </button>
-        {/if}
-        {#if activeLanguage === "markdown"}
-            <button
-                class="flex items-center hover:bg-muted/50 {showPreview
-                    ? 'text-primary'
-                    : 'text-muted-foreground'} h-full px-2 transition-colors cursor-pointer gap-1.5 border-r border-border/40"
-                onclick={() => (showPreview = !showPreview)}
-                title="Toggle Markdown Preview"
-            >
-                <SquareSplitHorizontal class="w-3.5 h-3.5" />
-                Preview
-            </button>
-        {/if}
         {#if isCsvTableActive}
             <div
                 class="flex items-center gap-3 px-2 h-full cursor-default border-r border-border/40"

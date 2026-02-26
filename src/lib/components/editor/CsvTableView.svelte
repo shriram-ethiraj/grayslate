@@ -158,6 +158,18 @@
     );
 
     // 6. TanStack Table Instance
+    let columnSizing = $state<Record<string, number>>({});
+    // We need to track the internal columnSizingInfo state to know if a column is actively being resized
+    // and manually reset it if the user dragging leaves the window or a `mouseup` happens outside the table.
+    let columnSizingInfo = $state({
+        startOffset: null,
+        startSize: null,
+        deltaOffset: null,
+        deltaPercentage: null,
+        isResizingColumn: false,
+        columnSizingStart: [],
+    });
+
     const table = createTable({
         get data() {
             return data;
@@ -165,7 +177,32 @@
         get columns() {
             return columns;
         },
+        state: {
+            get columnSizing() {
+                return columnSizing;
+            },
+            get columnSizingInfo() {
+                return columnSizingInfo as any;
+            },
+        },
+        onColumnSizingChange: (updater) => {
+            if (typeof updater === "function") {
+                columnSizing = updater(columnSizing);
+            } else {
+                columnSizing = updater;
+            }
+        },
+        onColumnSizingInfoChange: (updater) => {
+            if (typeof updater === "function") {
+                columnSizingInfo = updater(columnSizingInfo as any) as any;
+            } else {
+                columnSizingInfo = updater as any;
+            }
+        },
+        onStateChange: () => {},
+        renderFallbackValue: null,
         getCoreRowModel: getCoreRowModel(),
+        enableColumnResizing: true,
         columnResizeMode: "onChange" as const,
     });
 
@@ -216,6 +253,25 @@
     });
 </script>
 
+<!-- Reset dragging if mouse leaves window or loses focus -->
+<svelte:window
+    onmouseup={() => {
+        if (columnSizingInfo?.isResizingColumn) {
+            table.resetColumnSizing();
+        }
+    }}
+    onblur={() => {
+        if (columnSizingInfo?.isResizingColumn) {
+            table.resetColumnSizing();
+        }
+    }}
+    onmouseleave={() => {
+        if (columnSizingInfo?.isResizingColumn) {
+            table.resetColumnSizing();
+        }
+    }}
+/>
+
 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 <div
     class="csv-table-wrapper"
@@ -237,7 +293,7 @@
     <!-- Table Container -->
     <div class="csv-table-container" bind:this={tableContainerRef}>
         <div
-            style="height: {$virtualizer.getTotalSize()}px; width: 100%; position: relative;"
+            style="height: {$virtualizer.getTotalSize()}px; width: 100%; min-width: max-content; padding-right: 200px; position: relative;"
         >
             <CsvTableHeader {table} {editorState} />
             <CsvTableBody {table} virtualizer={$virtualizer} {editorState} />

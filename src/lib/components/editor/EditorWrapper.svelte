@@ -1,11 +1,12 @@
 <script lang="ts">
     import Editor from "$lib/components/editor/Editor.svelte";
-    import MarkdownPreview from "$lib/components/editor/MarkdownPreview.svelte";
+    import MarkdownPreview from "$lib/components/editor/markdown/MarkdownPreview.svelte";
     import CsvTableView from "$lib/components/editor/CsvTableView.svelte";
     import StatusBar from "$lib/components/editor/StatusBar.svelte";
     import { languageDetector } from "$lib/utils/language";
     import { debounce } from "lodash-es";
     import type { EditorView } from "codemirror";
+    import { editorState, type FileType } from "$lib/state/editor.svelte";
 
     let value = $state("");
     let line = $state(1);
@@ -18,8 +19,10 @@
         language === "auto" ? detectedLanguage : language,
     );
 
-    let showPreview = $state(true);
-    let showCsvTable = $state(false);
+    // Sync activeLanguage to global editorState
+    $effect(() => {
+        editorState.fileType = activeLanguage as FileType;
+    });
 
     const checkLanguage = debounce(async (content: string) => {
         if (language === "auto" && content) {
@@ -38,7 +41,9 @@
     let editorView = $state<EditorView | undefined>(undefined);
 
     // Derive whether CSV table view is active
-    let isCsvTableActive = $derived(activeLanguage === "csv" && showCsvTable);
+    let isCsvTableActive = $derived(
+        activeLanguage === "csv" && editorState.csv.showTable,
+    );
 
     let csvInfo = $state({ rows: 0, cols: 0, delimiter: "", errors: 0 });
 </script>
@@ -52,7 +57,7 @@
             <!-- Editor View -->
             <div
                 class="flex-1 w-full min-w-0 {activeLanguage === 'markdown' &&
-                showPreview
+                editorState.markdown.showPreview
                     ? 'border-r border-border md:w-1/2 flex-none'
                     : ''}"
             >
@@ -66,7 +71,7 @@
             </div>
 
             <!-- Markdown Preview -->
-            {#if activeLanguage === "markdown" && showPreview}
+            {#if activeLanguage === "markdown" && editorState.markdown.showPreview}
                 <MarkdownPreview content={value} {editorView} />
             {/if}
         {/if}
@@ -77,8 +82,6 @@
         bind:language
         {detectedLanguage}
         {activeLanguage}
-        bind:showPreview
-        bind:showCsvTable
         {isCsvTableActive}
         {csvInfo}
     />
