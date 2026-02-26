@@ -5,16 +5,18 @@
     let {
         table,
         editorState,
+        indexColWidth = 50,
     }: {
         table: Table<string[]>;
         editorState: ReturnType<typeof useCsvEditorState>;
+        indexColWidth?: number;
     } = $props();
 </script>
 
 <!-- Sticky Header -->
 <table class="csv-table">
     <colgroup>
-        <col style="width: 50px; min-width: 50px;" />
+        <col style="width: {indexColWidth}px; min-width: {indexColWidth}px;" />
         {#each table.getFlatHeaders() as header}
             <col
                 style="width: {header.getSize()}px; min-width: {header.getSize()}px;"
@@ -24,7 +26,11 @@
     <thead>
         {#each table.getHeaderGroups() as headerGroup}
             <tr>
-                <th class="csv-row-num-header">#</th>
+                <th
+                    class="csv-row-num-header"
+                    style="width: {indexColWidth}px; min-width: {indexColWidth}px; max-width: {indexColWidth}px;"
+                    >#</th
+                >
                 {#each headerGroup.headers as header, colIndex}
                     {@const isEditing =
                         editorState.editingCell?.rowIndex === -1 &&
@@ -202,9 +208,6 @@
 
     /* Row number column */
     .csv-row-num-header {
-        width: 50px;
-        min-width: 50px;
-        max-width: 50px;
         text-align: right;
         padding: 6px 8px;
         color: var(--muted-foreground);

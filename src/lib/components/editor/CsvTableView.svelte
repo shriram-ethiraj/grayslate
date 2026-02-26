@@ -245,6 +245,13 @@
         overscan: 20,
     });
 
+    // 8. Dynamic Index column width
+    // Base 32px + 8px per digit (approx)
+    // for 7M rows, 7 digits * 8 = 56 + 32 = 88px
+    let indexColWidth = $derived(
+        Math.max(50, 24 + String(parsed.rows.length).length * 8),
+    );
+
     // Delimiter display label
     let delimiterLabel = $derived.by(() => {
         switch (parsed.delimiter) {
@@ -327,10 +334,15 @@
             <div
                 style="height: {virtualizer.totalSize}px; width: 100%; min-width: max-content; padding-right: 200px; position: relative; overflow: hidden;"
             >
-                <CsvTableHeader {table} editorState={csvEditorState} />
+                <CsvTableHeader
+                    {table}
+                    {indexColWidth}
+                    editorState={csvEditorState}
+                />
                 <CsvTableBody
                     {table}
                     {virtualizer}
+                    {indexColWidth}
                     editorState={csvEditorState}
                     rawRows={parsed.rows}
                 />

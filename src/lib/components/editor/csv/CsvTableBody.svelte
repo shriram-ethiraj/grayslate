@@ -8,11 +8,13 @@
         virtualizer,
         editorState,
         rawRows,
+        indexColWidth = 50,
     }: {
         table: Table<string[]>;
         virtualizer: ReturnType<typeof useScrollVirtualizer>;
         editorState: ReturnType<typeof useCsvEditorState>;
         rawRows: string[][];
+        indexColWidth?: number;
     } = $props();
 </script>
 
@@ -22,7 +24,9 @@
 >
     <table class="csv-table csv-table-body">
         <colgroup>
-            <col style="width: 50px; min-width: 50px;" />
+            <col
+                style="width: {indexColWidth}px; min-width: {indexColWidth}px;"
+            />
             {#each table.getFlatHeaders() as header}
                 <col
                     style="width: {header.getSize()}px; min-width: {header.getSize()}px;"
@@ -36,7 +40,7 @@
                     <tr class:csv-row-even={virtualRow.index % 2 === 0}>
                         <td
                             class="csv-row-num"
-                            style="height: {virtualRow.size}px;"
+                            style="height: {virtualRow.size}px; width: {indexColWidth}px; min-width: {indexColWidth}px; max-width: {indexColWidth}px;"
                         >
                             {virtualRow.index + 1}
                         </td>
@@ -106,9 +110,6 @@
 
     /* Row number column */
     .csv-row-num {
-        width: 50px;
-        min-width: 50px;
-        max-width: 50px;
         text-align: right;
         padding: 6px 8px;
         color: var(--muted-foreground);
