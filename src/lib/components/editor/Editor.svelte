@@ -11,6 +11,7 @@
     import { javascript } from "@codemirror/lang-javascript";
     import { python } from "@codemirror/lang-python";
     import { csv } from "codemirror-lang-csv";
+    import { markdown } from "@codemirror/lang-markdown";
     import { jsonInlayHints } from "$lib/utils/editor/jsonInlayHints";
 
     // Use Svelte 5 runes for the bound value
@@ -19,6 +20,7 @@
         line = $bindable(1),
         col = $bindable(1),
         language = $bindable("text"),
+        editorView = $bindable<EditorView | undefined>(undefined),
     } = $props();
     let view: EditorView;
     let themeCompartment: Compartment;
@@ -34,6 +36,8 @@
                 return python();
             case "csv":
                 return csv();
+            case "markdown":
+                return markdown();
             default:
                 return [];
         }
@@ -87,6 +91,8 @@
             state,
             parent: node,
         });
+
+        editorView = view;
 
         // Set up mutation observer to watch for theme changes on HTML
         const observer = new MutationObserver((mutations) => {

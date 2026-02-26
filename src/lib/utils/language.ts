@@ -6,7 +6,7 @@ class LanguageDetector {
 
     // We only map languages we currently support in our Editor.
     // If the model recommends something else, we ignore it for now or default to text.
-    private supportedLanguages = new Set(['json', 'javascript', 'python', 'csv', 'text']);
+    private supportedLanguages = new Set(['json', 'javascript', 'python', 'csv', 'markdown', 'text']);
 
     private getModelOperations(): Promise<ModelOperations> {
         if (this.modelOperations) {
@@ -112,6 +112,11 @@ class LanguageDetector {
             }
         }
 
+        // Markdown Heuristic: Fast check for common markdown headers
+        if (trimmed.startsWith('# ') || trimmed.startsWith('## ') || trimmed.startsWith('### ')) {
+            return 'markdown';
+        }
+
         return null;
     }
 
@@ -123,6 +128,7 @@ class LanguageDetector {
             'ts': 'javascript', // Treat TS as JS for our basic editor
             'tsx': 'javascript',
             'py': 'python',
+            'md': 'markdown',
         };
 
         return mappings[id] ?? id;

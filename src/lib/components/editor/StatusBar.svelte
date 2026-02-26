@@ -6,7 +6,11 @@
         col,
         language = $bindable("auto"),
         detectedLanguage = "text",
+        activeLanguage = "text",
+        showPreview = $bindable(false),
     } = $props();
+
+    import { SquareSplitHorizontal } from "@lucide/svelte";
 
     const languages = [
         { value: "auto", label: "Auto Detect" },
@@ -15,6 +19,7 @@
         { value: "javascript", label: "JavaScript" },
         { value: "python", label: "Python" },
         { value: "csv", label: "CSV" },
+        { value: "markdown", label: "Markdown" },
     ];
 
     let selectedLabel = $derived.by(() => {
@@ -37,6 +42,18 @@
         <!-- Left side could have errors, branch, etc. in future -->
     </div>
     <div class="flex items-center h-full">
+        {#if activeLanguage === "markdown"}
+            <button
+                class="flex items-center hover:bg-muted/50 {showPreview
+                    ? 'text-primary'
+                    : 'text-muted-foreground'} h-full px-2 transition-colors cursor-pointer gap-1.5 border-r border-border/40"
+                onclick={() => (showPreview = !showPreview)}
+                title="Toggle Markdown Preview"
+            >
+                <SquareSplitHorizontal class="w-3.5 h-3.5" />
+                Preview
+            </button>
+        {/if}
         <button
             class="flex items-center hover:bg-muted/50 hover:text-foreground h-full px-2 transition-colors cursor-default"
         >

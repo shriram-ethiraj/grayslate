@@ -1,0 +1,253 @@
+<script lang="ts">
+    import DOMPurify from "dompurify";
+    import { Marked } from "marked";
+    import { createScrollSync } from "$lib/utils/editor/scrollSync";
+    import type { EditorView } from "codemirror";
+
+    let { content, editorView }: { content: string; editorView?: EditorView } =
+        $props();
+
+    let previewEl = $state<HTMLElement | undefined>(undefined);
+
+    /**
+     * Build a line-offset lookup from source text.
+     * lineStarts[i] = character offset where line (i+1) begins.
+     */
+    function buildLineStarts(src: string): number[] {
+        const starts = [0];
+        for (let i = 0; i < src.length; i++) {
+            if (src[i] === "\n") starts.push(i + 1);
+        }
+        return starts;
+    }
+
+    function offsetToLine(lineStarts: number[], offset: number): number {
+        let lo = 0,
+            hi = lineStarts.length - 1;
+        while (lo < hi) {
+            const mid = (lo + hi + 1) >> 1;
+            if (lineStarts[mid] <= offset) lo = mid;
+            else hi = mid - 1;
+        }
+        return lo + 1; // 1-indexed
+    }
+
+    /**
+     * Renders markdown to HTML with data-line attributes on block-level elements.
+     *
+     * Strategy: Use marked's `walkTokens` hook to compute line numbers from
+     * token positions, then use a custom renderer extension to inject
+     * `data-line` attributes into the opening tags.
+     */
+    function renderMarkdown(src: string): string {
+        if (!src) return "";
+
+        try {
+            const lineStarts = buildLineStarts(src);
+
+            // Track token positions: we search for each token's `raw` in the source
+            // sequentially to compute its starting line number.
+            const tokenLineMap = new WeakMap<object, number>();
+            let searchOffset = 0;
+
+            const markedInstance = new Marked();
+            markedInstance.use({
+                walkTokens(token: any) {
+                    if (token.raw && typeof token.raw === "string") {
+                        const idx = src.indexOf(token.raw, searchOffset);
+                        if (idx !== -1) {
+                            tokenLineMap.set(
+                                token,
+                                offsetToLine(lineStarts, idx),
+                            );
+                            // Only advance for top-level block tokens
+                            if (
+                                [
+                                    "heading",
+                                    "paragraph",
+                                    "code",
+                                    "blockquote",
+                                    "list",
+                                    "table",
+                                    "hr",
+                                    "html",
+                                ].includes(token.type)
+                            ) {
+                                searchOffset = idx + token.raw.length;
+                            }
+                        }
+                    }
+                },
+                extensions: [
+                    {
+                        name: "heading",
+                        renderer(this: any, token: any) {
+                            const line = tokenLineMap.get(token);
+                            const text = this.parser.parseInline(token.tokens);
+                            const attr =
+                                line != null ? ` data-line="${line}"` : "";
+                            return `<h${token.depth}${attr}>${text}</h${token.depth}>\n`;
+                        },
+                    },
+                    {
+                        name: "paragraph",
+                        renderer(this: any, token: any) {
+                            const line = tokenLineMap.get(token);
+                            const text = this.parser.parseInline(token.tokens);
+                            const attr =
+                                line != null ? ` data-line="${line}"` : "";
+                            return `<p${attr}>${text}</p>\n`;
+                        },
+                    },
+                    {
+                        name: "code",
+                        renderer(this: any, token: any) {
+                            const line = tokenLineMap.get(token);
+                            const attr =
+                                line != null ? ` data-line="${line}"` : "";
+                            const langClass = token.lang
+                                ? ` class="language-${token.lang}"`
+                                : "";
+                            const escaped = token.text
+                                .replace(/&/g, "&amp;")
+                                .replace(/</g, "&lt;")
+                                .replace(/>/g, "&gt;")
+                                .replace(/"/g, "&quot;");
+                            return `<pre${attr}><code${langClass}>${escaped}</code></pre>\n`;
+                        },
+                    },
+                    {
+                        name: "blockquote",
+                        renderer(this: any, token: any) {
+                            const line = tokenLineMap.get(token);
+                            const body = this.parser.parse(token.tokens);
+                            const attr =
+                                line != null ? ` data-line="${line}"` : "";
+                            return `<blockquote${attr}>${body}</blockquote>\n`;
+                        },
+                    },
+                    {
+                        name: "list",
+                        renderer(this: any, token: any) {
+                            const line = tokenLineMap.get(token);
+                            const tag = token.ordered ? "ol" : "ul";
+                            let body = "";
+                            for (const item of token.items) {
+                                const itemLine = tokenLineMap.get(item);
+                                const itemAttr =
+                                    itemLine != null
+                                        ? ` data-line="${itemLine}"`
+                                        : "";
+                                let itemBody = "";
+                                if (item.tokens) {
+                                    itemBody = this.parser.parse(
+                                        item.tokens,
+                                        !!item.loose,
+                                    );
+                                }
+                                if (item.task) {
+                                    const checked = item.checked
+                                        ? ' checked="" disabled=""'
+                                        : ' disabled=""';
+                                    itemBody = `<input type="checkbox"${checked}> ${itemBody}`;
+                                }
+                                body += `<li${itemAttr}>${itemBody}</li>\n`;
+                            }
+                            const attr =
+                                line != null ? ` data-line="${line}"` : "";
+                            const startAttr =
+                                token.ordered && token.start !== 1
+                                    ? ` start="${token.start}"`
+                                    : "";
+                            return `<${tag}${attr}${startAttr}>\n${body}</${tag}>\n`;
+                        },
+                    },
+                    {
+                        name: "table",
+                        renderer(this: any, token: any) {
+                            const line = tokenLineMap.get(token);
+                            const attr =
+                                line != null ? ` data-line="${line}"` : "";
+
+                            // Header
+                            let header = "<tr>";
+                            for (let i = 0; i < token.header.length; i++) {
+                                const cell = token.header[i];
+                                const align = token.align[i];
+                                const alignAttr = align
+                                    ? ` style="text-align:${align}"`
+                                    : "";
+                                const text = this.parser.parseInline(
+                                    cell.tokens,
+                                );
+                                header += `<th${alignAttr}>${text}</th>`;
+                            }
+                            header += "</tr>\n";
+
+                            // Body
+                            let body = "";
+                            for (const row of token.rows) {
+                                body += "<tr>";
+                                for (let i = 0; i < row.length; i++) {
+                                    const cell = row[i];
+                                    const align = token.align[i];
+                                    const alignAttr = align
+                                        ? ` style="text-align:${align}"`
+                                        : "";
+                                    const text = this.parser.parseInline(
+                                        cell.tokens,
+                                    );
+                                    body += `<td${alignAttr}>${text}</td>`;
+                                }
+                                body += "</tr>\n";
+                            }
+
+                            return `<table${attr}>\n<thead>\n${header}</thead>\n<tbody>\n${body}</tbody>\n</table>\n`;
+                        },
+                    },
+                    {
+                        name: "hr",
+                        renderer(this: any, token: any) {
+                            const line = tokenLineMap.get(token);
+                            const attr =
+                                line != null ? ` data-line="${line}"` : "";
+                            return `<hr${attr}>\n`;
+                        },
+                    },
+                ],
+            });
+
+            const html = markedInstance.parse(src) as string;
+            return DOMPurify.sanitize(html, {
+                ADD_ATTR: ["data-line"],
+            });
+        } catch {
+            return "<p>Error parsing markdown</p>";
+        }
+    }
+
+    let htmlPreview = $derived(renderMarkdown(content));
+
+    // Bidirectional scroll sync
+    $effect(() => {
+        if (!previewEl || !editorView) return;
+
+        // Small delay so the preview DOM updates with new content first
+        let syncCleanup: (() => void) | undefined;
+        const timer = setTimeout(() => {
+            syncCleanup = createScrollSync(editorView!, previewEl!);
+        }, 50);
+
+        return () => {
+            clearTimeout(timer);
+            syncCleanup?.();
+        };
+    });
+</script>
+
+<div
+    bind:this={previewEl}
+    class="flex-1 w-full min-w-0 bg-background overflow-y-auto p-8 prose prose-sm dark:prose-invert max-w-none prose-pre:bg-muted prose-pre:border prose-pre:border-border"
+>
+    {@html htmlPreview}
+</div>
