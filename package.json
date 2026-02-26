@@ -14,12 +14,18 @@
   "license": "MIT",
   "dependencies": {
     "@codemirror/commands": "^6.10.2",
+    "@codemirror/lang-javascript": "^6.2.4",
+    "@codemirror/lang-json": "^6.0.2",
+    "@codemirror/lang-python": "^6.2.1",
     "@codemirror/language": "^6.12.1",
     "@codemirror/state": "^6.5.4",
     "@codemirror/view": "^6.39.15",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-opener": "^2",
-    "codemirror": "^6.0.2"
+    "@vscode/vscode-languagedetection": "^1.0.23",
+    "codemirror": "^6.0.2",
+    "codemirror-lang-csv": "^0.1.1",
+    "lodash-es": "^4.17.23"
   },
   "devDependencies": {
     "@internationalized/date": "^3.11.0",
@@ -30,6 +36,7 @@
     "@sveltejs/vite-plugin-svelte": "^5.0.0",
     "@tailwindcss/vite": "^4.1.18",
     "@tauri-apps/cli": "^2",
+    "@types/lodash-es": "^4.17.12",
     "bits-ui": "^2.16.2",
     "clsx": "^2.1.1",
     "svelte": "^5.0.0",

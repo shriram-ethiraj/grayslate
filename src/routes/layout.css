@@ -53,16 +53,18 @@
     @apply outline-ring/50 outline outline-2 outline-offset-2;
   }
 
-  /* Minimal custom scrollbars for inner scrollable containers */
+  /* Custom scrollbars for inner scrollable containers (wider, similar to VS Code) */
   ::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+    width: 14px;
+    height: 14px;
   }
   ::-webkit-scrollbar-track {
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    @apply bg-muted-foreground/30 rounded-full border-[2px] border-solid border-transparent bg-clip-padding;
+    @apply bg-muted-foreground/30 rounded border-[2px] border-solid border-transparent bg-clip-padding;
+    min-height: 48px;
+    min-width: 48px;
   }
   ::-webkit-scrollbar-thumb:hover {
     @apply bg-muted-foreground/50;

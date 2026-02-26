@@ -7,15 +7,52 @@
     import { materialLightConfig } from "$lib/themes/material-light";
     import { Compartment } from "@codemirror/state";
     import { onMount, onDestroy } from "svelte";
+    import { json } from "@codemirror/lang-json";
+    import { javascript } from "@codemirror/lang-javascript";
+    import { python } from "@codemirror/lang-python";
+    import { csv } from "codemirror-lang-csv";
+    import { jsonInlayHints } from "$lib/utils/editor/jsonInlayHints";
 
     // Use Svelte 5 runes for the bound value
-    let { value = $bindable() } = $props();
+    let {
+        value = $bindable(),
+        line = $bindable(1),
+        col = $bindable(1),
+        language = $bindable("text"),
+    } = $props();
     let view: EditorView;
     let themeCompartment: Compartment;
+    let langCompartment: Compartment;
+
+    function getLanguageExtension(langId: string) {
+        switch (langId) {
+            case "json":
+                return [json(), jsonInlayHints];
+            case "javascript":
+                return javascript();
+            case "python":
+                return python();
+            case "csv":
+                return csv();
+            default:
+                return [];
+        }
+    }
+
+    $effect(() => {
+        if (view && langCompartment) {
+            view.dispatch({
+                effects: langCompartment.reconfigure(
+                    getLanguageExtension(language),
+                ),
+            });
+        }
+    });
 
     function editor(node: HTMLElement, initialValue: string) {
         // Create an extension compartment to dynamically swap themes
         themeCompartment = new Compartment();
+        langCompartment = new Compartment();
 
         // Determine initial theme
         const isDark = document.documentElement.classList.contains("dark");
@@ -29,8 +66,16 @@
                 basicSetup,
                 scrollPastEnd(),
                 themeCompartment.of(initialThemeExt),
+                langCompartment.of(getLanguageExtension(language)),
                 // Listen for editor changes and sync back to the Svelte state
                 EditorView.updateListener.of((update) => {
+                    if (update.selectionSet || update.docChanged) {
+                        const state = update.state;
+                        const main = state.selection.main;
+                        const lineInfo = state.doc.lineAt(main.head);
+                        line = lineInfo.number;
+                        col = main.head - lineInfo.from + 1;
+                    }
                     if (update.docChanged) {
                         value = update.state.doc.toString();
                     }
@@ -92,7 +137,7 @@
         width: 100%;
         height: 100%;
         overflow: hidden;
-        overscroll-behavior-y: none;
+        overscroll-behavior: none;
     }
 
     /* Target the CodeMirror editor to fill the container and prevent rubber-banding */
@@ -101,7 +146,7 @@
     }
 
     :global(.cm-scroller) {
-        overscroll-behavior-y: none;
+        overscroll-behavior: none;
     }
 
     /* Style the line numbers column to resemble VS Code */

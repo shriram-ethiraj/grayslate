@@ -9,14 +9,14 @@
 
 <Sidebar.Provider>
 	<AppSidebar />
-	<Sidebar.Inset>
+	<Sidebar.Inset class="min-w-0">
 		<header
-			class="flex h-12 w-full items-center justify-between border-b bg-background px-4"
+			class="flex h-12 w-full shrink-0 items-center justify-between border-b bg-background px-4"
 		>
 			<Sidebar.Trigger class="-ml-1" />
 			<ThemeToggle />
 		</header>
-		<div class="flex flex-1 flex-col min-h-0">
+		<div class="flex flex-1 flex-col min-h-0 min-w-0">
 			{@render children()}
 		</div>
 	</Sidebar.Inset>

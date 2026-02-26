@@ -1,7 +1,5 @@
 <script lang="ts">
-  import Editor from "$lib/components/editor/Editor.svelte";
+  import EditorWrapper from "$lib/components/editor/EditorWrapper.svelte";
 </script>
 
-<div class="flex flex-1 flex-col w-full relative min-h-0">
-  <Editor />
-</div>
+<EditorWrapper />
