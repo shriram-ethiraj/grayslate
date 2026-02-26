@@ -173,26 +173,36 @@ export function createScrollSync(
     }
     previewEl.addEventListener('load', onImageLoad, { capture: true });
 
-    // --- Pointer tracking ---
-    function onEditorPointerEnter() {
-        activePane = 'editor';
-        if (editorLerpRafId) {
-            cancelAnimationFrame(editorLerpRafId);
-            editorLerpRafId = null;
+    // --- Active pane tracking ---
+    function onEditorInteraction() {
+        if (activePane !== 'editor') {
+            activePane = 'editor';
+            if (editorLerpRafId) {
+                cancelAnimationFrame(editorLerpRafId);
+                editorLerpRafId = null;
+            }
         }
     }
 
-    function onPreviewPointerEnter() {
-        activePane = 'preview';
-        if (previewLerpRafId) {
-            cancelAnimationFrame(previewLerpRafId);
-            previewLerpRafId = null;
+    function onPreviewInteraction() {
+        if (activePane !== 'preview') {
+            activePane = 'preview';
+            if (previewLerpRafId) {
+                cancelAnimationFrame(previewLerpRafId);
+                previewLerpRafId = null;
+            }
         }
     }
 
     const editorContainer = editorScrollEl.closest('.cm-editor') || editorScrollEl;
-    editorContainer.addEventListener('pointerenter', onEditorPointerEnter);
-    previewEl.addEventListener('pointerenter', onPreviewPointerEnter);
+
+    // Add multiple interaction listeners to accurately track the active pane
+    const interactionEvents = ['pointerenter', 'pointermove', 'pointerdown', 'focusin', 'wheel', 'touchstart'];
+
+    interactionEvents.forEach(evt => {
+        editorContainer.addEventListener(evt, onEditorInteraction, { passive: true });
+        previewEl.addEventListener(evt, onPreviewInteraction, { passive: true });
+    });
 
     // --- Lerp animations ---
     function animatePreviewScroll() {
@@ -219,6 +229,7 @@ export function createScrollSync(
 
     // --- Sync handlers ---
     function syncPreviewFromEditor() {
+        if (!activePane) activePane = 'editor';
         if (activePane !== 'editor') return;
 
         const maxEditorScroll = editorScrollEl.scrollHeight - editorScrollEl.clientHeight;
@@ -235,6 +246,7 @@ export function createScrollSync(
     }
 
     function syncEditorFromPreview() {
+        if (!activePane) activePane = 'preview';
         if (activePane !== 'preview') return;
 
         const maxEditorScroll = editorScrollEl.scrollHeight - editorScrollEl.clientHeight;
@@ -256,8 +268,10 @@ export function createScrollSync(
     return () => {
         editorScrollEl.removeEventListener('scroll', syncPreviewFromEditor);
         previewEl.removeEventListener('scroll', syncEditorFromPreview);
-        editorContainer.removeEventListener('pointerenter', onEditorPointerEnter);
-        previewEl.removeEventListener('pointerenter', onPreviewPointerEnter);
+        interactionEvents.forEach(evt => {
+            editorContainer.removeEventListener(evt, onEditorInteraction);
+            previewEl.removeEventListener(evt, onPreviewInteraction);
+        });
         previewEl.removeEventListener('load', onImageLoad, { capture: true });
         observer.disconnect();
         if (previewLerpRafId) cancelAnimationFrame(previewLerpRafId);
