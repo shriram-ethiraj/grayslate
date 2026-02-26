@@ -240,7 +240,7 @@
 
 <div
     bind:this={previewEl}
-    class="flex-1 w-full min-w-0 bg-background overflow-y-auto p-8 prose prose-sm dark:prose-invert max-w-none prose-pre:bg-muted prose-pre:border prose-pre:border-border"
+    class="flex-1 w-full min-w-0 bg-background overflow-y-auto overscroll-none p-8 prose prose-sm dark:prose-invert max-w-none prose-pre:bg-muted prose-pre:border prose-pre:border-border"
 >
     {@html htmlPreview}
 </div>

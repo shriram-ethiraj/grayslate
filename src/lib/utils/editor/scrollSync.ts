@@ -8,8 +8,8 @@ import type { EditorView } from 'codemirror';
  * while the anchor map controls the interpolation curve in between.
  */
 export interface ScrollAnchor {
-    editorFraction: number;  // 0.0 to 1.0
-    previewFraction: number; // 0.0 to 1.0
+    editorFraction: number;
+    previewFraction: number;
 }
 
 /**
@@ -132,12 +132,10 @@ function previewToEditorFraction(anchors: ScrollAnchor[], previewFrac: number): 
 /**
  * Creates a bidirectional scroll sync controller.
  *
- * Uses mouse/pointer tracking to determine which pane the user is interacting
- * with, and only syncs FROM the active pane TO the passive pane. This
- * completely eliminates feedback loops — scroll events on the passive pane
- * (caused by our syncing) never try to sync back.
+ * Uses pointer tracking to determine which pane the user is interacting with,
+ * and only syncs FROM the active pane TO the passive pane.
  *
- * The preview side uses lerp-based smooth animation for fluid scrolling.
+ * Both directions use lerp-based smooth animation for fluid scrolling.
  */
 export function createScrollSync(
     editorView: EditorView,
@@ -145,16 +143,19 @@ export function createScrollSync(
 ): () => void {
     const editorScrollEl = editorView.scrollDOM;
     let anchors: ScrollAnchor[] = [];
-
-    // Track which pane the user's pointer is over.
-    // Only the active pane drives scroll sync.
     let activePane: 'editor' | 'preview' | null = null;
 
-    // Lerp animation state for smooth preview scrolling
-    let previewTargetScroll = previewEl.scrollTop;
-    let previewLerpRafId: number | null = null;
+    // Lerp constants — both panes use the same easing
     const LERP_FACTOR = 0.25;
     const LERP_THRESHOLD = 0.5;
+
+    // Preview lerp state
+    let previewTargetScroll = previewEl.scrollTop;
+    let previewLerpRafId: number | null = null;
+
+    // Editor lerp state
+    let editorTargetScroll = editorScrollEl.scrollTop;
+    let editorLerpRafId: number | null = null;
 
     function refreshAnchors() {
         anchors = buildAnchorMap(editorView, previewEl);
@@ -173,12 +174,12 @@ export function createScrollSync(
     previewEl.addEventListener('load', onImageLoad, { capture: true });
 
     // --- Pointer tracking ---
-    // We need to track the parent container of both panes for mouseenter,
-    // but since we only have references to the scroll elements, we track
-    // them individually.
-
     function onEditorPointerEnter() {
         activePane = 'editor';
+        if (editorLerpRafId) {
+            cancelAnimationFrame(editorLerpRafId);
+            editorLerpRafId = null;
+        }
     }
 
     function onPreviewPointerEnter() {
@@ -189,23 +190,31 @@ export function createScrollSync(
         }
     }
 
-    // Use the editor's parent (which wraps the CodeMirror DOM) for pointer tracking
     const editorContainer = editorScrollEl.closest('.cm-editor') || editorScrollEl;
     editorContainer.addEventListener('pointerenter', onEditorPointerEnter);
     previewEl.addEventListener('pointerenter', onPreviewPointerEnter);
 
-    // --- Lerp animation for smooth preview scroll ---
+    // --- Lerp animations ---
     function animatePreviewScroll() {
         const diff = previewTargetScroll - previewEl.scrollTop;
-
         if (Math.abs(diff) < LERP_THRESHOLD) {
             previewEl.scrollTop = previewTargetScroll;
             previewLerpRafId = null;
             return;
         }
-
         previewEl.scrollTop += diff * LERP_FACTOR;
         previewLerpRafId = requestAnimationFrame(animatePreviewScroll);
+    }
+
+    function animateEditorScroll() {
+        const diff = editorTargetScroll - editorScrollEl.scrollTop;
+        if (Math.abs(diff) < LERP_THRESHOLD) {
+            editorScrollEl.scrollTop = editorTargetScroll;
+            editorLerpRafId = null;
+            return;
+        }
+        editorScrollEl.scrollTop += diff * LERP_FACTOR;
+        editorLerpRafId = requestAnimationFrame(animateEditorScroll);
     }
 
     // --- Sync handlers ---
@@ -214,7 +223,6 @@ export function createScrollSync(
 
         const maxEditorScroll = editorScrollEl.scrollHeight - editorScrollEl.clientHeight;
         const maxPreviewScroll = previewEl.scrollHeight - previewEl.clientHeight;
-
         if (maxEditorScroll <= 0 || maxPreviewScroll <= 0) return;
 
         const editorFrac = editorScrollEl.scrollTop / maxEditorScroll;
@@ -229,20 +237,17 @@ export function createScrollSync(
     function syncEditorFromPreview() {
         if (activePane !== 'preview') return;
 
-        requestAnimationFrame(() => {
-            const maxEditorScroll = editorScrollEl.scrollHeight - editorScrollEl.clientHeight;
-            const maxPreviewScroll = previewEl.scrollHeight - previewEl.clientHeight;
+        const maxEditorScroll = editorScrollEl.scrollHeight - editorScrollEl.clientHeight;
+        const maxPreviewScroll = previewEl.scrollHeight - previewEl.clientHeight;
+        if (maxEditorScroll <= 0 || maxPreviewScroll <= 0) return;
 
-            if (maxEditorScroll <= 0 || maxPreviewScroll <= 0) return;
+        const previewFrac = previewEl.scrollTop / maxPreviewScroll;
+        const editorFrac = previewToEditorFraction(anchors, previewFrac);
+        editorTargetScroll = editorFrac * maxEditorScroll;
 
-            const previewFrac = previewEl.scrollTop / maxPreviewScroll;
-            const editorFrac = previewToEditorFraction(anchors, previewFrac);
-            const targetScrollTop = editorFrac * maxEditorScroll;
-
-            if (Math.abs(editorScrollEl.scrollTop - targetScrollTop) > 1) {
-                editorScrollEl.scrollTop = targetScrollTop;
-            }
-        });
+        if (!editorLerpRafId) {
+            editorLerpRafId = requestAnimationFrame(animateEditorScroll);
+        }
     }
 
     editorScrollEl.addEventListener('scroll', syncPreviewFromEditor, { passive: true });
@@ -256,5 +261,6 @@ export function createScrollSync(
         previewEl.removeEventListener('load', onImageLoad, { capture: true });
         observer.disconnect();
         if (previewLerpRafId) cancelAnimationFrame(previewLerpRafId);
+        if (editorLerpRafId) cancelAnimationFrame(editorLerpRafId);
     };
 }
