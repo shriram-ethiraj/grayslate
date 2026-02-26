@@ -12,9 +12,9 @@
                 {#if editorState.csv.showTable}
                     <!-- In Table Mode: Show button to switch to Plain CSV -->
                     <Button
-                        variant="secondary"
-                        size="sm"
-                        class="h-8 px-2 gap-1.5 text-xs font-medium bg-muted/50 hover:bg-muted"
+                        variant="ghost"
+                        size="icon"
+                        aria-label="Plain CSV"
                         {...props}
                         onclick={(e) => {
                             editorState.csv.showTable = false;
@@ -23,15 +23,16 @@
                             }
                         }}
                     >
-                        <FileText class="w-4 h-4" />
-                        Plain CSV
+                        <FileText
+                            class="h-[1.2rem] w-[1.2rem] transition-all"
+                        />
                     </Button>
                 {:else}
                     <!-- In Text Mode: Show button to switch to Table -->
                     <Button
                         variant="ghost"
-                        size="sm"
-                        class="h-8 px-2 gap-1.5 text-xs font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                        size="icon"
+                        aria-label="Table View"
                         {...props}
                         onclick={(e) => {
                             editorState.csv.showTable = true;
@@ -40,8 +41,7 @@
                             }
                         }}
                     >
-                        <Table2 class="w-4 h-4" />
-                        Table
+                        <Table2 class="h-[1.2rem] w-[1.2rem] transition-all" />
                     </Button>
                 {/if}
             {/snippet}
@@ -60,14 +60,12 @@
         <Tooltip.Trigger>
             {#snippet child({ props }: { props: Record<string, unknown> })}
                 <Button
-                    variant={editorState.markdown.showPreview
-                        ? "secondary"
-                        : "ghost"}
-                    size="sm"
-                    class="h-8 px-2 gap-1.5 text-xs font-medium {editorState
-                        .markdown.showPreview
-                        ? 'bg-primary/10 text-primary hover:bg-primary/20'
-                        : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'}"
+                    variant="ghost"
+                    size="icon"
+                    aria-label="Toggle Preview"
+                    class={editorState.markdown.showPreview
+                        ? "bg-accent text-accent-foreground"
+                        : ""}
                     {...props}
                     onclick={(e) => {
                         editorState.markdown.showPreview =
@@ -77,8 +75,7 @@
                         }
                     }}
                 >
-                    <Eye class="w-4 h-4" />
-                    Preview
+                    <Eye class="h-[1.2rem] w-[1.2rem] transition-all" />
                 </Button>
             {/snippet}
         </Tooltip.Trigger>
