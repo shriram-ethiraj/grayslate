@@ -9,6 +9,18 @@
 
     let previewEl = $state<HTMLElement | undefined>(undefined);
 
+    /** Block-level token types that advance the search offset in walkTokens. */
+    const BLOCK_TOKENS = new Set([
+        "heading",
+        "paragraph",
+        "code",
+        "blockquote",
+        "list",
+        "table",
+        "hr",
+        "html",
+    ]);
+
     /**
      * Build a line-offset lookup from source text.
      * lineStarts[i] = character offset where line (i+1) begins.
@@ -29,24 +41,20 @@
             if (lineStarts[mid] <= offset) lo = mid;
             else hi = mid - 1;
         }
-        return lo + 1; // 1-indexed
+        return lo + 1;
     }
 
     /**
      * Renders markdown to HTML with data-line attributes on block-level elements.
      *
-     * Strategy: Use marked's `walkTokens` hook to compute line numbers from
-     * token positions, then use a custom renderer extension to inject
-     * `data-line` attributes into the opening tags.
+     * Uses marked's walkTokens hook to compute line numbers from token positions,
+     * then custom renderer extensions inject data-line attributes.
      */
     function renderMarkdown(src: string): string {
         if (!src) return "";
 
         try {
             const lineStarts = buildLineStarts(src);
-
-            // Track token positions: we search for each token's `raw` in the source
-            // sequentially to compute its starting line number.
             const tokenLineMap = new WeakMap<object, number>();
             let searchOffset = 0;
 
@@ -60,19 +68,7 @@
                                 token,
                                 offsetToLine(lineStarts, idx),
                             );
-                            // Only advance for top-level block tokens
-                            if (
-                                [
-                                    "heading",
-                                    "paragraph",
-                                    "code",
-                                    "blockquote",
-                                    "list",
-                                    "table",
-                                    "hr",
-                                    "html",
-                                ].includes(token.type)
-                            ) {
+                            if (BLOCK_TOKENS.has(token.type)) {
                                 searchOffset = idx + token.raw.length;
                             }
                         }
@@ -138,13 +134,12 @@
                                     itemLine != null
                                         ? ` data-line="${itemLine}"`
                                         : "";
-                                let itemBody = "";
-                                if (item.tokens) {
-                                    itemBody = this.parser.parse(
-                                        item.tokens,
-                                        !!item.loose,
-                                    );
-                                }
+                                let itemBody = item.tokens
+                                    ? this.parser.parse(
+                                          item.tokens,
+                                          !!item.loose,
+                                      )
+                                    : "";
                                 if (item.task) {
                                     const checked = item.checked
                                         ? ' checked="" disabled=""'
@@ -169,7 +164,6 @@
                             const attr =
                                 line != null ? ` data-line="${line}"` : "";
 
-                            // Header
                             let header = "<tr>";
                             for (let i = 0; i < token.header.length; i++) {
                                 const cell = token.header[i];
@@ -184,7 +178,6 @@
                             }
                             header += "</tr>\n";
 
-                            // Body
                             let body = "";
                             for (const row of token.rows) {
                                 body += "<tr>";

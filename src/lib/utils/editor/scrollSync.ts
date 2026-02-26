@@ -179,13 +179,10 @@ export function createScrollSync(
 
     function onEditorPointerEnter() {
         activePane = 'editor';
-        // Cancel any in-progress preview lerp when user moves to editor
-        // (they're now in control of the editor)
     }
 
     function onPreviewPointerEnter() {
         activePane = 'preview';
-        // Cancel lerp if running — user is now scrolling preview manually
         if (previewLerpRafId) {
             cancelAnimationFrame(previewLerpRafId);
             previewLerpRafId = null;
@@ -213,7 +210,6 @@ export function createScrollSync(
 
     // --- Sync handlers ---
     function syncPreviewFromEditor() {
-        // Only sync if the user is interacting with the editor
         if (activePane !== 'editor') return;
 
         const maxEditorScroll = editorScrollEl.scrollHeight - editorScrollEl.clientHeight;
@@ -231,7 +227,6 @@ export function createScrollSync(
     }
 
     function syncEditorFromPreview() {
-        // Only sync if the user is interacting with the preview
         if (activePane !== 'preview') return;
 
         requestAnimationFrame(() => {

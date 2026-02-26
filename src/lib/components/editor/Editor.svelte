@@ -6,7 +6,7 @@
     import { andromedaConfig } from "$lib/themes/andromeda";
     import { materialLightConfig } from "$lib/themes/material-light";
     import { Compartment } from "@codemirror/state";
-    import { onMount, onDestroy } from "svelte";
+
     import { json } from "@codemirror/lang-json";
     import { javascript } from "@codemirror/lang-javascript";
     import { python } from "@codemirror/lang-python";
