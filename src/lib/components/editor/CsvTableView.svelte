@@ -47,7 +47,7 @@
             // and synchronously serialize so content is up-to-date for the editor.
             editorState.commitEdit();
             debouncedSerialize.cancel();
-            const snapshot = $state.snapshot(parsed);
+            const snapshot = fastCloneParsed();
             content = serializeCsv(
                 snapshot.headers,
                 snapshot.rows,
@@ -70,12 +70,36 @@
     // 2. History — structural, lightweight ops
     const history = useCsvHistory();
 
+    // Svelte 5's generic $state.snapshot() is extremely slow for large 2D arrays
+    // because it recursively unwraps proxies and checks object types.
+    // This manual clone is heavily optimized for a strict `string[][]` structure.
+    function fastCloneParsed() {
+        const sourceRows = parsed.rows;
+        const length = sourceRows.length;
+        const rows = new Array(length);
+
+        for (let i = 0; i < length; i++) {
+            const row = sourceRows[i];
+            const rowLen = row.length;
+            const newRow = new Array(rowLen);
+            for (let j = 0; j < rowLen; j++) {
+                newRow[j] = row[j];
+            }
+            rows[i] = newRow;
+        }
+
+        return {
+            headers: [...parsed.headers],
+            rows,
+            delimiter: parsed.delimiter,
+        };
+    }
+
     // Debounced serialization: sync parsed rows → content string using Web Worker
     const debouncedSerialize = debounce(() => {
         if (!worker) return;
-        // $state.snapshot() strips Svelte 5 reactive proxies so the data
-        // can be structurally cloned by postMessage (avoids DataCloneError).
-        const snapshot = $state.snapshot(parsed);
+        // Use manual clone to bypass Svelte 5's slow deep clone and avoid DataCloneError
+        const snapshot = fastCloneParsed();
         worker.postMessage({
             headers: snapshot.headers,
             rows: snapshot.rows,

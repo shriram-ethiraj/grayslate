@@ -60,7 +60,7 @@
                                     editorState.startEditing(
                                         virtualRow.index,
                                         colIndex,
-                                        cell.getValue() as string,
+                                        row.original[colIndex],
                                     )}
                                 role="gridcell"
                                 tabindex={isFocused ? 0 : -1}
@@ -77,7 +77,7 @@
                                     />
                                 {:else}
                                     <div class="csv-cell-content">
-                                        {cell.getValue()}
+                                        {row.original[colIndex]}
                                     </div>
                                 {/if}
                             </td>

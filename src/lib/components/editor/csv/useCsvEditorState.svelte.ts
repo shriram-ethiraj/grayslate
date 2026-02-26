@@ -32,78 +32,79 @@ export function useCsvEditorState(
     /** Apply a list of operations forward (for redo and normal edits) */
     function applyOps(ops: TableOp[]) {
         const parsed = getParsed();
-        // Copy the rows array so we hand setParsed a new reference
-        // (Svelte 5 $state needs a new reference to trigger reactivity).
-        const rows = [...parsed.rows];
+        let structuralChange = false;
 
         for (const op of ops) {
             switch (op.type) {
-                case 'cell':
-                    if (rows[op.row]) {
-                        const newRow = [...rows[op.row]];
-                        while (newRow.length <= op.col) {
-                            newRow.push("");
+                case 'cell': {
+                    const rowArr = parsed.rows[op.row];
+                    if (rowArr) {
+                        while (rowArr.length <= op.col) {
+                            rowArr.push("");
                         }
-                        newRow[op.col] = op.newValue;
-                        rows[op.row] = newRow;
+                        rowArr[op.col] = op.newValue;
                     }
                     break;
+                }
                 case 'header-cell': {
-                    const newHeaders = [...parsed.headers];
-                    newHeaders[op.col] = op.newValue;
-                    parsed.headers = newHeaders;
+                    parsed.headers[op.col] = op.newValue;
+                    structuralChange = true;
                     break;
                 }
                 case 'row-add':
-                    rows.splice(op.index, 0, [...op.data]);
+                    parsed.rows.splice(op.index, 0, [...op.data]);
+                    structuralChange = true;
                     break;
                 case 'row-delete':
-                    rows.splice(op.index, 1);
+                    parsed.rows.splice(op.index, 1);
+                    structuralChange = true;
                     break;
             }
         }
 
-        // Must update parsed reference completely to trigger root reactivity if header changes
-        // but since we spread, we just need to ensure `parsed` is passed back
-        setParsed({ ...parsed, rows });
+        if (structuralChange) {
+            setParsed({ ...parsed, rows: [...parsed.rows], headers: [...parsed.headers] });
+        }
     }
 
     /** Reverse a list of operations (for undo) */
     function reverseOps(ops: TableOp[]) {
         const parsed = getParsed();
-        // Copy the rows array so we hand setParsed a new reference
-        const rows = [...parsed.rows];
+        let structuralChange = false;
 
         // Apply in reverse order
         for (let i = ops.length - 1; i >= 0; i--) {
             const op = ops[i];
             switch (op.type) {
-                case 'cell':
-                    if (rows[op.row]) {
-                        const newRow = [...rows[op.row]];
-                        while (newRow.length <= op.col) {
-                            newRow.push("");
+                case 'cell': {
+                    const rowArr = parsed.rows[op.row];
+                    if (rowArr) {
+                        while (rowArr.length <= op.col) {
+                            rowArr.push("");
                         }
-                        newRow[op.col] = op.oldValue;
-                        rows[op.row] = newRow;
+                        rowArr[op.col] = op.oldValue;
                     }
                     break;
+                }
                 case 'header-cell': {
-                    const newHeaders = [...parsed.headers];
-                    newHeaders[op.col] = op.oldValue;
-                    parsed.headers = newHeaders;
+                    parsed.headers[op.col] = op.oldValue;
+                    structuralChange = true;
                     break;
                 }
                 case 'row-add':
-                    rows.splice(op.index, 1);
+                    parsed.rows.splice(op.index, 1);
+                    structuralChange = true;
                     break;
                 case 'row-delete':
-                    rows.splice(op.index, 0, [...op.data]);
+                    parsed.rows.splice(op.index, 0, [...op.data]);
+                    structuralChange = true;
                     break;
             }
         }
 
-        setParsed({ ...parsed, rows });
+        if (structuralChange) {
+            setParsed({ ...parsed, rows: [...parsed.rows], headers: [...parsed.headers] });
+        }
     }
 
     function handleUndo() {
