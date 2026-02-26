@@ -12,6 +12,8 @@
         virtualizer: SvelteVirtualizer<HTMLDivElement, Element>;
         editorState: ReturnType<typeof useCsvEditorState>;
     } = $props();
+
+    let rows = $derived(table.getRowModel().rows);
 </script>
 
 <div
@@ -29,7 +31,7 @@
         </colgroup>
         <tbody>
             {#each virtualizer.getVirtualItems() as virtualRow}
-                {@const row = table.getRowModel().rows[virtualRow.index]}
+                {@const row = rows[virtualRow.index]}
                 {#if row}
                     <tr class:csv-row-even={virtualRow.index % 2 === 0}>
                         <td class="csv-row-num">

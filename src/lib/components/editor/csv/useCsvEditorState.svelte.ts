@@ -32,7 +32,8 @@ export function useCsvEditorState(
     /** Apply a list of operations forward (for redo and normal edits) */
     function applyOps(ops: TableOp[]) {
         const parsed = getParsed();
-        let structuralChange = false;
+        let rowChange = false;
+        let headerChange = false;
 
         for (const op of ops) {
             switch (op.type) {
@@ -48,29 +49,34 @@ export function useCsvEditorState(
                 }
                 case 'header-cell': {
                     parsed.headers[op.col] = op.newValue;
-                    structuralChange = true;
+                    headerChange = true;
                     break;
                 }
                 case 'row-add':
                     parsed.rows.splice(op.index, 0, [...op.data]);
-                    structuralChange = true;
+                    rowChange = true;
                     break;
                 case 'row-delete':
                     parsed.rows.splice(op.index, 1);
-                    structuralChange = true;
+                    rowChange = true;
                     break;
             }
         }
 
-        if (structuralChange) {
-            setParsed({ ...parsed, rows: [...parsed.rows], headers: [...parsed.headers] });
+        if (rowChange || headerChange) {
+            setParsed({
+                ...parsed,
+                rows: rowChange ? [...parsed.rows] : parsed.rows,
+                headers: headerChange ? [...parsed.headers] : parsed.headers
+            });
         }
     }
 
     /** Reverse a list of operations (for undo) */
     function reverseOps(ops: TableOp[]) {
         const parsed = getParsed();
-        let structuralChange = false;
+        let rowChange = false;
+        let headerChange = false;
 
         // Apply in reverse order
         for (let i = ops.length - 1; i >= 0; i--) {
@@ -88,22 +94,26 @@ export function useCsvEditorState(
                 }
                 case 'header-cell': {
                     parsed.headers[op.col] = op.oldValue;
-                    structuralChange = true;
+                    headerChange = true;
                     break;
                 }
                 case 'row-add':
                     parsed.rows.splice(op.index, 1);
-                    structuralChange = true;
+                    rowChange = true;
                     break;
                 case 'row-delete':
                     parsed.rows.splice(op.index, 0, [...op.data]);
-                    structuralChange = true;
+                    rowChange = true;
                     break;
             }
         }
 
-        if (structuralChange) {
-            setParsed({ ...parsed, rows: [...parsed.rows], headers: [...parsed.headers] });
+        if (rowChange || headerChange) {
+            setParsed({
+                ...parsed,
+                rows: rowChange ? [...parsed.rows] : parsed.rows,
+                headers: headerChange ? [...parsed.headers] : parsed.headers
+            });
         }
     }
 
@@ -129,32 +139,21 @@ export function useCsvEditorState(
         });
     }
 
+    function pushAndApply(op: TableOp) {
+        history.push(op);
+        applyOps([op]);
+    }
+
     function commitEdit() {
         if (!editingCell) return;
         const { rowIndex, colIndex } = editingCell;
         const oldValue = getCellValue(rowIndex, colIndex);
 
         if (oldValue !== editValue) {
-            if (rowIndex === -1) {
-                const op: TableOp = {
-                    type: 'header-cell',
-                    col: colIndex,
-                    oldValue,
-                    newValue: editValue,
-                };
-                history.push(op);
-                applyOps([op]);
-            } else {
-                const op: TableOp = {
-                    type: 'cell',
-                    row: rowIndex,
-                    col: colIndex,
-                    oldValue,
-                    newValue: editValue,
-                };
-                history.push(op);
-                applyOps([op]);
-            }
+            const op: TableOp = rowIndex === -1
+                ? { type: 'header-cell', col: colIndex, oldValue, newValue: editValue }
+                : { type: 'cell', row: rowIndex, col: colIndex, oldValue, newValue: editValue };
+            pushAndApply(op);
         }
         editingCell = null;
     }
@@ -167,26 +166,10 @@ export function useCsvEditorState(
         if (!focusedCell) return;
         const oldValue = getCellValue(focusedCell.rowIndex, focusedCell.colIndex);
         if (oldValue !== "") {
-            if (focusedCell.rowIndex === -1) {
-                const op: TableOp = {
-                    type: 'header-cell',
-                    col: focusedCell.colIndex,
-                    oldValue,
-                    newValue: "",
-                };
-                history.push(op);
-                applyOps([op]);
-            } else {
-                const op: TableOp = {
-                    type: 'cell',
-                    row: focusedCell.rowIndex,
-                    col: focusedCell.colIndex,
-                    oldValue,
-                    newValue: "",
-                };
-                history.push(op);
-                applyOps([op]);
-            }
+            const op: TableOp = focusedCell.rowIndex === -1
+                ? { type: 'header-cell', col: focusedCell.colIndex, oldValue, newValue: "" }
+                : { type: 'cell', row: focusedCell.rowIndex, col: focusedCell.colIndex, oldValue, newValue: "" };
+            pushAndApply(op);
         }
     }
 

@@ -89,7 +89,7 @@
         }
 
         return {
-            headers: [...parsed.headers],
+            headers: parsed.headers.slice(),
             rows,
             delimiter: parsed.delimiter,
         };
@@ -124,22 +124,23 @@
     // by value, not just by object reference. Cell edits replace `parsed` but
     // leave `headers` identical, so this prevents a full TanStack row-model
     // rebuild on every keystroke.
-    let lastHeaderJson = $state("");
-    let columns = $state<ColumnDef<string[], string>[]>([]);
-    $effect(() => {
-        const json = JSON.stringify(parsed.headers);
-        if (json !== lastHeaderJson) {
-            lastHeaderJson = json;
-            columns = parsed.headers.map(
-                (header, index): ColumnDef<string[], string> => ({
-                    id: `col_${index}`,
-                    accessorFn: (row: string[]) => row[index] ?? "",
-                    header: header || `Column ${index + 1}`,
-                    size: 150,
-                    minSize: 60,
-                }),
-            );
-        }
+    let prevHeaderKey = "";
+    let stableColumns: ColumnDef<string[], string>[] = [];
+
+    let columns = $derived.by(() => {
+        const headerKey = parsed.headers.join("\0");
+        if (headerKey === prevHeaderKey) return stableColumns;
+        prevHeaderKey = headerKey;
+        stableColumns = parsed.headers.map(
+            (header, index): ColumnDef<string[], string> => ({
+                id: `col_${index}`,
+                accessorFn: (row: string[]) => row[index] ?? "",
+                header: header || `Column ${index + 1}`,
+                size: 150,
+                minSize: 60,
+            }),
+        );
+        return stableColumns;
     });
 
     // 4. Virtualizer Ref
