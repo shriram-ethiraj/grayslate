@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@codemirror/autocomplete':
+        specifier: ^6.20.0
+        version: 6.20.0
       '@codemirror/commands':
         specifier: ^6.10.2
         version: 6.10.2
@@ -56,6 +59,9 @@ importers:
       lodash-es:
         specifier: ^4.17.23
         version: 4.17.23
+      lucide:
+        specifier: ^0.575.0
+        version: 0.575.0
       marked:
         specifier: ^17.0.3
         version: 17.0.3
@@ -938,6 +944,9 @@ packages:
 
   lodash-es@4.17.23:
     resolution: {integrity: sha512-kVI48u3PZr38HdYz98UmfPnXl2DXrpdctLrFLCd3kOx1xUkOmpFPx7gCWWM5MPkL/fD8zb+Ph0QzjGFs4+hHWg==}
+
+  lucide@0.575.0:
+    resolution: {integrity: sha512-+xwqZpvrqPioU8bSH49zH2xARfnKyZgIjdnfbex0CrURB3q4wNFhinYN1Z9Q3lE16Q/6N9iEXnStvyS3c70RKw==}
 
   lz-string@1.5.0:
     resolution: {integrity: sha512-h5bgJWpxJNswbU7qCrV0tIKQCaS3blPDrqKWx+QxzuzL1zGUzij9XCWLrSLsJPu5t+eWA/ycetzYAO5IOMcWAQ==}
@@ -1849,6 +1858,8 @@ snapshots:
   locate-character@3.0.0: {}
 
   lodash-es@4.17.23: {}
+
+  lucide@0.575.0: {}
 
   lz-string@1.5.0: {}
 

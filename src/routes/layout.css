@@ -70,4 +70,42 @@
   ::-webkit-scrollbar-thumb:hover {
     @apply bg-muted-foreground/50;
   }
+
+  /* CodeMirror Autocomplete Shadcn Styling */
+  .cm-tooltip.cm-tooltip-autocomplete {
+    @apply border border-border bg-popover text-popover-foreground shadow-md outline-none rounded-xl !important;
+    padding: 4px !important; /* p-1 */
+    margin-top: 4px !important;
+    overflow: hidden;
+  }
+
+  .cm-tooltip.cm-tooltip-autocomplete > ul {
+    font-family: inherit;
+    max-height: 16rem !important; /* 64 * 4px to match shadcn popover limits approx */
+  }
+
+  .cm-tooltip.cm-tooltip-autocomplete > ul > li {
+    @apply relative flex cursor-default select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none transition-colors !important;
+    line-height: 1;
+  }
+
+  .cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected] {
+    @apply bg-accent text-accent-foreground !important;
+  }
+
+  /* Since we replaced the label/detail with our own renderer, hide the default ones */
+  /* Keep the custom rendered DOM element (`.cm-completionInfo` acts as our wrapper now due to the custom renderer using info) */
+  .cm-tooltip-autocomplete .cm-completionLabel,
+  .cm-tooltip-autocomplete .cm-completionDetail,
+  .cm-tooltip-autocomplete .cm-completionMatchedText {
+    display: none !important;
+  }
+  
+  .cm-completionInfo {
+    @apply w-full;
+  }
+
+  .cm-tooltip-autocomplete .cm-completionIcon {
+    @apply hidden !important; /* Hide default icon to keep it clean like Shadcn Command/Select items */
+  }
 }

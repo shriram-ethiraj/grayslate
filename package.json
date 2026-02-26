@@ -13,6 +13,7 @@
   },
   "license": "MIT",
   "dependencies": {
+    "@codemirror/autocomplete": "^6.20.0",
     "@codemirror/commands": "^6.10.2",
     "@codemirror/lang-javascript": "^6.2.4",
     "@codemirror/lang-json": "^6.0.2",
@@ -29,6 +30,7 @@
     "codemirror-lang-csv": "^0.1.1",
     "dompurify": "^3.3.1",
     "lodash-es": "^4.17.23",
+    "lucide": "^0.575.0",
     "marked": "^17.0.3"
   },
   "devDependencies": {

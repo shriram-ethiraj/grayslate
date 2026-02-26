@@ -13,6 +13,8 @@
     import { csv } from "codemirror-lang-csv";
     import { markdown } from "@codemirror/lang-markdown";
     import { jsonInlayHints } from "$lib/utils/editor/jsonInlayHints";
+    import { markdownAutocompleteProvider } from "$lib/utils/editor/markdownAutocomplete";
+    import { autocompletion } from "@codemirror/autocomplete";
 
     // Use Svelte 5 runes for the bound value
     let {
@@ -37,7 +39,12 @@
             case "csv":
                 return csv();
             case "markdown":
-                return markdown();
+                return [
+                    markdown(),
+                    autocompletion({
+                        override: [markdownAutocompleteProvider],
+                    }),
+                ];
             default:
                 return [];
         }
