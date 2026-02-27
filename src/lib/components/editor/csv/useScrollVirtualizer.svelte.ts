@@ -23,10 +23,9 @@ export function useScrollVirtualizer(options: {
     // True pixel height if every row were rendered at full size
     const trueTotalHeight = $derived(totalCount * rowHeight);
     const needsScaling = $derived(trueTotalHeight > MAX_SCROLL_HEIGHT);
-    const headerHeight = 34; // Sticky header offset
-    const bottomPadding = 0; // Visual scroll headroom removed to fix empty row space
+    const headerHeight = 34; // Sticky header height (must match padding-top in CsvTableBody)
     const virtualTotalHeight = $derived(
-        (needsScaling ? MAX_SCROLL_HEIGHT : trueTotalHeight) + headerHeight + bottomPadding,
+        (needsScaling ? MAX_SCROLL_HEIGHT : trueTotalHeight) + headerHeight,
     );
 
     // Observe the scroll element
@@ -74,7 +73,8 @@ export function useScrollVirtualizer(options: {
         } else {
             // Scaled mode – use scroll fraction
             const maxScroll = Math.max(1, virtualTotalHeight - containerHeight);
-            const fraction = Math.min(1, Math.max(0, scrollTop - headerHeight) / maxScroll);
+            const scrollableRange = Math.max(1, maxScroll - headerHeight);
+            const fraction = Math.min(1, Math.max(0, scrollTop - headerHeight) / scrollableRange);
             const maxFirstRow = Math.max(0, totalCount - visibleCount);
             firstVisibleRow = Math.round(fraction * maxFirstRow);
         }
