@@ -25,7 +25,6 @@ export const editorState = $state<{
     markdown: {
         showPreview: boolean;
     };
-    /** Shared overlay loader for the editor content area. */
     loader: {
         visible: boolean;
         message: string;

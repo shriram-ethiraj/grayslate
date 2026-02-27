@@ -32,7 +32,7 @@ class LanguageDetector {
                     minContentSize: 5
                 });
 
-                // HACK: runModel might need an empty warmup or the loaders need to be explicitly called
+                // NOTE: runModel might need an empty warmup or the loaders need to be explicitly called
                 // but the library does this internally on first runModel.
                 this.modelOperations = ops;
                 return ops;

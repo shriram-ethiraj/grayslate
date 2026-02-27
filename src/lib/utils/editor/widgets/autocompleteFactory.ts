@@ -33,7 +33,6 @@ export function createAutocompleteRenderer(iconHtml?: string, iconNode?: IconNod
                 const svg = createElement(iconNode);
                 svg.setAttribute("width", "18");
                 svg.setAttribute("height", "18");
-                // svg.setAttribute("class", "lucide");
                 iconContainer.appendChild(svg);
             } else if (iconHtml) {
                 iconContainer.innerHTML = iconHtml;
