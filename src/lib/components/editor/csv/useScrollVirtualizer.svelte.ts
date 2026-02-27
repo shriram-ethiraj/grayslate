@@ -1,6 +1,6 @@
 /**
  * Custom scroll-scaled virtualizer that bypasses WebKit's max element height
- * limit (33,554,432px / 2^25).  For datasets whose total pixel height exceeds
+ * limit (33,554,432px / 2^25). For datasets whose total pixel height exceeds
  * a safe cap, scroll position is mapped proportionally to row indices so all
  * rows remain reachable via the native scrollbar.
  */
@@ -10,8 +10,8 @@ export function useScrollVirtualizer(options: {
     estimateSize: () => number;
     overscan?: number;
 }) {
-    // Well under WebKit's hard 33,554,432 px limit
     const MAX_SCROLL_HEIGHT = 30_000_000;
+    const HEADER_HEIGHT = 34;
 
     let scrollTop = $state(0);
     let containerHeight = $state(600);
@@ -20,15 +20,12 @@ export function useScrollVirtualizer(options: {
     const totalCount = $derived(options.count());
     const overscan = $derived(options.overscan ?? 10);
 
-    // True pixel height if every row were rendered at full size
-    const trueTotalHeight = $derived(totalCount * rowHeight);
-    const needsScaling = $derived(trueTotalHeight > MAX_SCROLL_HEIGHT);
-    const headerHeight = 34; // Sticky header height (must match padding-top in CsvTableBody)
+    const trueTotalRowHeight = $derived(totalCount * rowHeight);
+    const needsScaling = $derived(trueTotalRowHeight > MAX_SCROLL_HEIGHT);
     const virtualTotalHeight = $derived(
-        (needsScaling ? MAX_SCROLL_HEIGHT : trueTotalHeight) + headerHeight,
+        (needsScaling ? MAX_SCROLL_HEIGHT : trueTotalRowHeight) + HEADER_HEIGHT,
     );
 
-    // Observe the scroll element
     $effect(() => {
         const el = options.getScrollElement();
         if (!el) return;
@@ -47,7 +44,6 @@ export function useScrollVirtualizer(options: {
         };
         el.addEventListener("scroll", onScroll, { passive: true });
 
-        // Seed initial values
         containerHeight = el.clientHeight;
         scrollTop = el.scrollTop;
 
@@ -57,48 +53,41 @@ export function useScrollVirtualizer(options: {
         };
     });
 
-    // ---------- Core: map scroll position → visible row window ----------
     const virtualItems = $derived.by(() => {
         if (totalCount === 0) return [];
 
-        // Reduce available visual container size by the header so you don't overcount rows
-        const visibleCount = Math.ceil(containerHeight / rowHeight);
+        const visibleCount = Math.ceil(
+            Math.max(0, containerHeight - HEADER_HEIGHT) / rowHeight,
+        );
+        const rowScrollTop = Math.max(0, scrollTop - HEADER_HEIGHT);
 
         let firstVisibleRow: number;
 
         if (!needsScaling) {
-            // Normal mode – direct pixel mapping
-            // Offset scroll by header explicitly so row 0 starts after header
-            firstVisibleRow = Math.floor(Math.max(0, scrollTop - headerHeight) / rowHeight);
+            firstVisibleRow = Math.floor(rowScrollTop / rowHeight);
         } else {
-            // Scaled mode – use scroll fraction
             const maxScroll = Math.max(1, virtualTotalHeight - containerHeight);
-            const scrollableRange = Math.max(1, maxScroll - headerHeight);
-            const fraction = Math.min(1, Math.max(0, scrollTop - headerHeight) / scrollableRange);
+            const fraction = Math.min(1, rowScrollTop / Math.max(1, maxScroll));
             const maxFirstRow = Math.max(0, totalCount - visibleCount);
             firstVisibleRow = Math.round(fraction * maxFirstRow);
         }
 
-        // Clamp
-        firstVisibleRow = Math.max(
-            0,
-            Math.min(firstVisibleRow, Math.max(0, totalCount - visibleCount)),
-        );
+        const maxFirst = Math.max(0, totalCount - visibleCount);
+        firstVisibleRow = Math.max(0, Math.min(firstVisibleRow, maxFirst));
 
-        // Apply overscan
         const startIdx = Math.max(0, firstVisibleRow - overscan);
-        const endIdx = Math.min(
-            totalCount - 1,
-            firstVisibleRow + visibleCount + overscan,
-        );
+        const endIdx = Math.min(totalCount - 1, firstVisibleRow + visibleCount + overscan);
 
-        // Position the block so the first *visible* row lines up with scrollTop
-        // when unscaled. When scaled, we calculate its intended pixel start relative 
-        // to the real scrolled position so items compress correctly.
-        const blockStart = !needsScaling
-            ? startIdx * rowHeight
-            : Math.max(0, scrollTop - headerHeight) -
-            (firstVisibleRow - startIdx) * rowHeight;
+        let blockStart: number;
+        if (!needsScaling) {
+            blockStart = HEADER_HEIGHT + startIdx * rowHeight;
+        } else {
+            blockStart = scrollTop - (firstVisibleRow - startIdx) * rowHeight;
+            if (endIdx === totalCount - 1) {
+                const renderedHeight = (endIdx - startIdx + 1) * rowHeight;
+                blockStart = Math.max(blockStart, virtualTotalHeight - renderedHeight);
+            }
+        }
 
         const items: { index: number; start: number; size: number }[] = [];
         for (let i = startIdx; i <= endIdx; i++) {
@@ -126,18 +115,20 @@ export function useScrollVirtualizer(options: {
             if (!el) return;
 
             if (!needsScaling) {
-                let top = index * rowHeight;
+                let top = HEADER_HEIGHT + index * rowHeight;
                 if (scrollOpts?.align === "center") {
-                    top -= containerHeight / 2;
+                    top -= (containerHeight - rowHeight) / 2;
                 } else if (scrollOpts?.align === "end") {
                     top -= containerHeight - rowHeight;
                 }
                 el.scrollTo({ top: Math.max(0, top) });
             } else {
-                const visibleCount = Math.ceil(containerHeight / rowHeight);
+                const visibleCount = Math.ceil(
+                    Math.max(0, containerHeight - HEADER_HEIGHT) / rowHeight,
+                );
                 const maxFirstRow = Math.max(1, totalCount - visibleCount);
                 const fraction = Math.min(1, index / maxFirstRow);
-                const maxScroll = virtualTotalHeight - containerHeight;
+                const maxScroll = Math.max(0, virtualTotalHeight - containerHeight);
                 el.scrollTo({ top: fraction * maxScroll });
             }
         },

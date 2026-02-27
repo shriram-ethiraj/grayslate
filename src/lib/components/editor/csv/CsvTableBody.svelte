@@ -20,7 +20,7 @@
 
 <div
     style="position: absolute; top: 0; left: 0; width: 100%; transform: translateY({virtualizer
-        .virtualItems[0]?.start ?? 0}px); padding-top: 34px;"
+        .virtualItems[0]?.start ?? 0}px);"
 >
     <table class="csv-table csv-table-body">
         <colgroup>
