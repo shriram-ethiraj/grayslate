@@ -31,6 +31,10 @@
   --sidebar-accent-foreground: oklch(0.208 0.042 265.755);
   --sidebar-border: #e2e8f0;
   --sidebar-ring: oklch(0.704 0.04 256.788);
+  /* CodeMirror widget hint colors */
+  --cm-hint-color: #888888;
+  --cm-hint-bg: rgba(128, 128, 128, 0.1);
+  --cm-hint-bg-hover: rgba(128, 128, 128, 0.2);
 }
 
 .dark {
@@ -65,6 +69,10 @@
   --sidebar-accent-foreground: oklch(0.984 0.003 247.858);
   --sidebar-border: #30343d;
   --sidebar-ring: oklch(0.984 0.003 247.858);
+  /* CodeMirror widget hint colors — brighter for dark backgrounds */
+  --cm-hint-color: #a8b2c8;
+  --cm-hint-bg: rgba(155, 170, 210, 0.15);
+  --cm-hint-bg-hover: rgba(155, 170, 210, 0.28);
 }
 
 @theme inline {

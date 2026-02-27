@@ -111,8 +111,8 @@
 
   /* JSON Fold Placeholder - styled to match cm-json-array-index inlay hints */
   .cm-foldPlaceholder {
-    background-color: rgba(128, 128, 128, 0.1) !important;
-    color: var(--text-muted, #888) !important;
+    background-color: var(--cm-hint-bg, rgba(128, 128, 128, 0.1)) !important;
+    color: var(--cm-hint-color, #888) !important;
     border: none !important;
     padding: 0 4px !important;
     border-radius: 3px !important;
@@ -124,7 +124,7 @@
   }
 
   .cm-foldPlaceholder:hover {
-    background-color: rgba(128, 128, 128, 0.2) !important;
+    background-color: var(--cm-hint-bg-hover, rgba(128, 128, 128, 0.2)) !important;
   }
 
   /* JSON Key Path Tooltip */
@@ -136,7 +136,7 @@
     font-family: monospace;
     font-size: 0.82em;
     padding: 3px 10px;
-    color: var(--text-muted, #888);
+    color: var(--cm-hint-color, #888);
     user-select: text;
     white-space: nowrap;
   }

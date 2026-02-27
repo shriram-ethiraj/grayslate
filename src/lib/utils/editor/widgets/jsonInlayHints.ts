@@ -18,12 +18,12 @@ class ArrayIndexWidget extends WidgetType {
         span.textContent = `${this.index}`;
 
         // Styling matches VS Code / IntelliJ inlay hints style roughly
-        span.style.color = "var(--text-muted, #888)";
+        span.style.color = "var(--cm-hint-color, #888)";
         span.style.fontSize = "0.9em";
         span.style.marginRight = "6px";
         span.style.padding = "0px 4px";
         span.style.borderRadius = "3px";
-        span.style.backgroundColor = "rgba(128, 128, 128, 0.1)";
+        span.style.backgroundColor = "var(--cm-hint-bg, rgba(128, 128, 128, 0.1))";
         span.style.userSelect = "none";
         span.style.pointerEvents = "none";
         span.style.fontFamily = "monospace";
