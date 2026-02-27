@@ -349,7 +349,7 @@
         <!-- Table Container -->
         <div class="csv-table-container" bind:this={tableContainerRef}>
             <div
-                style="height: {virtualizer.totalSize}px; width: 100%; min-width: max-content; padding-right: 200px; padding-bottom: 24px; position: relative;"
+                style="height: {virtualizer.totalSize}px; width: 100%; min-width: max-content; padding-right: 200px; position: relative;"
             >
                 <CsvTableHeader
                     {table}

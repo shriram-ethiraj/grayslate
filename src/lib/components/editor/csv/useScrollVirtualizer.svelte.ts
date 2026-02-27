@@ -24,7 +24,7 @@ export function useScrollVirtualizer(options: {
     const trueTotalHeight = $derived(totalCount * rowHeight);
     const needsScaling = $derived(trueTotalHeight > MAX_SCROLL_HEIGHT);
     const headerHeight = 34; // Sticky header offset
-    const bottomPadding = 24; // Visual scroll headroom
+    const bottomPadding = 0; // Visual scroll headroom removed to fix empty row space
     const virtualTotalHeight = $derived(
         (needsScaling ? MAX_SCROLL_HEIGHT : trueTotalHeight) + headerHeight + bottomPadding,
     );
