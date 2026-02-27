@@ -4,8 +4,17 @@ export type FileType =
     | "markdown"
     | "json"
     | "javascript"
+    | "typescript"
     | "python"
-    | "auto"; // plus other supported languages
+    | "html"
+    | "css"
+    | "yaml"
+    | "c"
+    | "cpp"
+    | "java"
+    | "go"
+    | "xml"
+    | "auto";
 
 export const editorState = $state<{
     fileType: FileType;

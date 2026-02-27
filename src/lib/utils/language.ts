@@ -6,7 +6,10 @@ class LanguageDetector {
 
     // We only map languages we currently support in our Editor.
     // If the model recommends something else, we ignore it for now or default to text.
-    private supportedLanguages = new Set(['json', 'javascript', 'python', 'csv', 'markdown', 'text']);
+    private supportedLanguages = new Set([
+        'json', 'javascript', 'typescript', 'python', 'csv', 'markdown', 'text',
+        'html', 'css', 'yaml', 'c', 'cpp', 'java', 'go', 'xml'
+    ]);
 
     private getModelOperations(): Promise<ModelOperations> {
         if (this.modelOperations) {
@@ -117,6 +120,21 @@ class LanguageDetector {
             return 'markdown';
         }
 
+        // XML Heuristic: starts with an XML declaration or a tag
+        if (trimmed.startsWith('<?xml') || trimmed.startsWith('<!--')) {
+            return 'xml';
+        }
+
+        // HTML Heuristic: starts with <!DOCTYPE html or <html
+        if (/^<!doctype\s+html/i.test(trimmed) || /^<html[\s>]/i.test(trimmed)) {
+            return 'html';
+        }
+
+        // YAML Heuristic: document separator or key: value pattern
+        if (trimmed.startsWith('---') || /^[a-zA-Z_][\w.-]*\s*:/m.test(trimmed)) {
+            return 'yaml';
+        }
+
         return null;
     }
 
@@ -125,10 +143,21 @@ class LanguageDetector {
         const mappings: Record<string, string> = {
             'js': 'javascript',
             'jsx': 'javascript',
-            'ts': 'javascript', // Treat TS as JS for our basic editor
-            'tsx': 'javascript',
+            'ts': 'typescript',
+            'tsx': 'typescript',
             'py': 'python',
             'md': 'markdown',
+            'c': 'c',
+            'cpp': 'cpp',
+            'c++': 'cpp',
+            'java': 'java',
+            'go': 'go',
+            'golang': 'go',
+            'html': 'html',
+            'css': 'css',
+            'yaml': 'yaml',
+            'yml': 'yaml',
+            'xml': 'xml',
         };
 
         return mappings[id] ?? id;

@@ -10,9 +10,17 @@
     import { json } from "@codemirror/lang-json";
     import { javascript } from "@codemirror/lang-javascript";
     import { python } from "@codemirror/lang-python";
+    import { html } from "@codemirror/lang-html";
+    import { css } from "@codemirror/lang-css";
+    import { yaml } from "@codemirror/lang-yaml";
+    import { cpp } from "@codemirror/lang-cpp";
+    import { java } from "@codemirror/lang-java";
+    import { go } from "@codemirror/lang-go";
+    import { xml } from "@codemirror/lang-xml";
     import { csv } from "codemirror-lang-csv";
     import { markdown } from "@codemirror/lang-markdown";
     import { jsonInlayHints } from "$lib/utils/editor/jsonInlayHints";
+    import { colorHints } from "$lib/utils/editor/colorHints";
     import { markdownAutocompleteProvider } from "$lib/utils/editor/markdown/markdownAutocomplete";
     import { autocompletion } from "@codemirror/autocomplete";
 
@@ -33,9 +41,28 @@
             case "json":
                 return [json(), jsonInlayHints];
             case "javascript":
-                return javascript();
+                return javascript({ jsx: true });
+            case "typescript":
+                return javascript({ typescript: true, jsx: true });
             case "python":
                 return python();
+            case "html":
+                return html();
+            case "css":
+                return css();
+            case "yaml":
+                return yaml();
+            case "c":
+                // cpp() covers both C and C++ syntax
+                return cpp();
+            case "cpp":
+                return cpp();
+            case "java":
+                return java();
+            case "go":
+                return go();
+            case "xml":
+                return xml();
             case "csv":
                 return csv();
             case "markdown":
@@ -78,6 +105,7 @@
                 scrollPastEnd(),
                 themeCompartment.of(initialThemeExt),
                 langCompartment.of(getLanguageExtension(language)),
+                colorHints,
                 // Listen for editor changes and sync back to the Svelte state
                 EditorView.updateListener.of((update) => {
                     if (update.selectionSet || update.docChanged) {

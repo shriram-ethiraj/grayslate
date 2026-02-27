@@ -15,6 +15,7 @@
                         variant="ghost"
                         size="icon"
                         aria-label="Plain CSV"
+                        disabled={editorState.loader.visible}
                         {...props}
                         onclick={(e) => {
                             editorState.csv.serializing = true;
@@ -34,6 +35,7 @@
                         variant="ghost"
                         size="icon"
                         aria-label="Table View"
+                        disabled={editorState.loader.visible}
                         {...props}
                         onclick={(e) => {
                             editorState.csv.showTable = true;
@@ -64,6 +66,7 @@
                     variant="ghost"
                     size="icon"
                     aria-label="Toggle Preview"
+                    disabled={editorState.loader.visible}
                     class={editorState.markdown.showPreview
                         ? "bg-accent text-accent-foreground"
                         : ""}
