@@ -110,6 +110,9 @@
 
     /* Row number column */
     .csv-row-num {
+        position: sticky;
+        left: 0;
+        z-index: 2;
         text-align: right;
         padding: 6px 8px;
         color: var(--muted-foreground);

@@ -110,19 +110,15 @@
 
 <style>
     .csv-table {
+        position: sticky;
+        top: 0;
+        z-index: 10;
         width: max-content;
         border-collapse: collapse;
         font-size: 13px;
         font-family: "SF Mono", "Fira Code", "JetBrains Mono", Consolas,
             monospace;
         table-layout: fixed;
-    }
-
-    /* Sticky header */
-    thead {
-        position: sticky;
-        top: 0;
-        z-index: 2;
     }
 
     thead th {
@@ -208,6 +204,9 @@
 
     /* Row number column */
     .csv-row-num-header {
+        position: sticky;
+        left: 0;
+        z-index: 11;
         text-align: right;
         padding: 6px 8px;
         color: var(--muted-foreground);
