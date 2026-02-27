@@ -55,13 +55,39 @@
             return;
         }
 
+        // posAtCoords without a second argument (precise mode) returns null
+        // when the click does NOT land directly on a rendered character (e.g.
+        // gutter, empty padding below the last line, space to the right).
         const pos = view.posAtCoords({ x: e.clientX, y: e.clientY });
-        if (!pos) {
+        if (pos === null) {
+            e.preventDefault();
             e.stopPropagation();
             return;
         }
 
         const tree = syntaxTree(view.state);
+
+        // Even in precise mode, indentation / whitespace characters within a
+        // line are valid positions. Suppress the menu unless the whitespace
+        // is inside a JSON string literal (e.g. a space in "hello world").
+        const charAtPos = view.state.sliceDoc(pos, pos + 1);
+        if (!charAtPos || /\s/.test(charAtPos)) {
+            const innerNode = tree.resolveInner(pos);
+            if (
+                innerNode.name !== "String" &&
+                innerNode.name !== "PropertyName"
+            ) {
+                e.preventDefault();
+                e.stopPropagation();
+                return;
+            }
+            // Also verify pos is actually inside that token's range
+            if (pos < innerNode.from || pos >= innerNode.to) {
+                e.preventDefault();
+                e.stopPropagation();
+                return;
+            }
+        }
         let node = tree.resolveInner(pos, -1);
 
         let targetNode = node;
@@ -94,6 +120,7 @@
             !validNames.includes(targetNode.name) &&
             targetNode.name !== "JsonText"
         ) {
+            e.preventDefault();
             e.stopPropagation();
             return;
         }
@@ -329,7 +356,14 @@
     }
 </script>
 
-<ContextMenu.Root>
+<ContextMenu.Root
+    onOpenChange={(open) => {
+        // When the menu closes (by any means – Escape, click-outside, or
+        // clicking a menu item) refocus the editor so the cursor that was
+        // placed at the right-click position becomes visible again.
+        if (!open) view?.focus();
+    }}
+>
     <ContextMenu.Trigger class="h-full w-full block">
         <div
             class="editor-container"

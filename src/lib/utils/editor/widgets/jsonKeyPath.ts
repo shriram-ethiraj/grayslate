@@ -141,10 +141,10 @@ export const jsonKeyPath = hoverTooltip((view, pos, side) => {
 
             dom.addEventListener("click", () => {
                 navigator.clipboard.writeText(path).then(() => {
-                    toast.success("Key copied to clipboard");
+                    toast.success("Copied path to clipboard");
                 }).catch((err) => {
-                    console.error("Failed to copy key path:", err);
-                    toast.error("Failed to copy key");
+                    console.error("Failed to copy path:", err);
+                    toast.error("Failed to copy path");
                 });
             });
 
