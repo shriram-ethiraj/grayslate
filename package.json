@@ -40,7 +40,8 @@
     "lodash-es": "^4.17.23",
     "lucide": "^0.575.0",
     "marked": "^17.0.3",
-    "papaparse": "^5.5.3"
+    "papaparse": "^5.5.3",
+    "simple-icons": "^16.9.0"
   },
   "devDependencies": {
     "@internationalized/date": "^3.11.0",

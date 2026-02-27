@@ -92,6 +92,9 @@ importers:
       papaparse:
         specifier: ^5.5.3
         version: 5.5.3
+      simple-icons:
+        specifier: ^16.9.0
+        version: 16.9.0
     devDependencies:
       '@internationalized/date':
         specifier: ^3.11.0
@@ -1105,6 +1108,10 @@ packages:
 
   set-cookie-parser@3.0.1:
     resolution: {integrity: sha512-n7Z7dXZhJbwuAHhNzkTti6Aw9QDDjZtm3JTpTGATIdNzdQz5GuFs22w90BcvF4INfnrL5xrX3oGsuqO5Dx3A1Q==}
+
+  simple-icons@16.9.0:
+    resolution: {integrity: sha512-aKst2C7cLkFyaiQ/Crlwxt9xYOpGPk05XuJZ0ZTJNNCzHCKYrGWz2ebJSi5dG8CmTCxUF/BGs6A8uyJn/EQxqw==}
+    engines: {node: '>=0.12.18'}
 
   sirv@3.0.2:
     resolution: {integrity: sha512-2wcC/oGxHis/BoHkkPwldgiPSYcpZK3JU28WoMVv55yHJgcZ8rlXvuG9iZggz+sU1d4bRgIGASwyWqjxu3FM0g==}
@@ -2123,6 +2130,8 @@ snapshots:
       mri: 1.2.0
 
   set-cookie-parser@3.0.1: {}
+
+  simple-icons@16.9.0: {}
 
   sirv@3.0.2:
     dependencies:

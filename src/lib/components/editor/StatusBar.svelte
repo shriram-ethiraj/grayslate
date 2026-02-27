@@ -12,36 +12,16 @@
     } = $props();
 
     import { SquareSplitHorizontal, Table2 } from "@lucide/svelte";
-
-    const languages = [
-        { value: "auto", label: "Auto Detect" },
-        { value: "text", label: "Plain text" },
-        { value: "json", label: "JSON" },
-        { value: "javascript", label: "JavaScript" },
-        { value: "typescript", label: "TypeScript" },
-        { value: "python", label: "Python" },
-        { value: "html", label: "HTML" },
-        { value: "css", label: "CSS" },
-        { value: "yaml", label: "YAML" },
-        { value: "c", label: "C" },
-        { value: "cpp", label: "C++" },
-        { value: "java", label: "Java" },
-        { value: "go", label: "Go" },
-        { value: "xml", label: "XML" },
-        { value: "csv", label: "CSV" },
-        { value: "markdown", label: "Markdown" },
-    ];
+    import { languages } from "$lib/utils/languages";
 
     let selectedLabel = $derived.by(() => {
         if (language === "auto") {
-            const detectedLabel =
-                languages.find((l) => l.value === detectedLanguage)?.label ??
-                "Plain text";
-            return `Auto (${detectedLabel})`;
+            const detectedLang = languages.find((l) => l.value === detectedLanguage);
+            const detectedLabel = detectedLang?.label ?? "Plain text";
+            return { label: `Auto (${detectedLabel})`, icon: detectedLang?.icon };
         }
-        return (
-            languages.find((l) => l.value === language)?.label ?? "Plain text"
-        );
+        const lang = languages.find((l) => l.value === language);
+        return { label: lang?.label ?? "Plain text", icon: lang?.icon };
     });
 </script>
 
@@ -81,13 +61,35 @@
             <Select.Trigger
                 class="flex items-center hover:bg-muted/50 hover:text-foreground h-full px-2 transition-colors cursor-default border-0 shadow-none focus:ring-0 rounded-none bg-transparent hocus:bg-muted/50 text-[11px] w-auto gap-2"
             >
-                {selectedLabel}
+                {#if selectedLabel.icon}
+                    {#if "svg" in selectedLabel.icon}
+                        <div class="w-3 h-3 flex items-center justify-center" style="fill: currentColor;">
+                            {@html selectedLabel.icon.svg}
+                        </div>
+                    {:else}
+                        {@const Icon = selectedLabel.icon}
+                        <Icon class="w-3 h-3" />
+                    {/if}
+                {/if}
+                {selectedLabel.label}
             </Select.Trigger>
             <Select.Content class="text-[11px]">
                 {#each languages as lang}
-                    <Select.Item class="text-[11px]" value={lang.value}
-                        >{lang.label}</Select.Item
-                    >
+                    <Select.Item class="text-[11px] flex items-center gap-2" value={lang.value}>
+                        {#if lang.icon}
+                            {#if "svg" in lang.icon}
+                                <div class="w-3 h-3 flex items-center justify-center" style="fill: currentColor;">
+                                    {@html lang.icon.svg}
+                                </div>
+                            {:else}
+                                {@const Icon = lang.icon}
+                                <Icon class="w-3 h-3" />
+                            {/if}
+                        {:else}
+                            <div class="w-3 h-3"></div>
+                        {/if}
+                        {lang.label}
+                    </Select.Item>
                 {/each}
             </Select.Content>
         </Select.Root>
