@@ -17,6 +17,7 @@ export function useCsvEditorState(
     setParsed: (p: ParsedCsv) => void,
     columns: () => ColumnDef<string[], string>[],
     scrollToIndex: (index: number, options?: { align?: "auto" | "start" | "center" | "end" }) => void,
+    onOpsApplied?: (ops: TableOp[], reverse: boolean) => void,
 ) {
     let editingCell = $state<{ rowIndex: number; colIndex: number } | null>(null);
     let focusedCell = $state<{ rowIndex: number; colIndex: number } | null>(null);
@@ -73,6 +74,8 @@ export function useCsvEditorState(
                 headers: headerChange ? [...parsed.headers] : parsed.headers
             });
         }
+
+        onOpsApplied?.(ops, false);
     }
 
     /** Reverse a list of operations (for undo) */
@@ -121,6 +124,8 @@ export function useCsvEditorState(
                 headers: headerChange ? [...parsed.headers] : parsed.headers
             });
         }
+
+        onOpsApplied?.(ops, true);
     }
 
     function handleUndo() {

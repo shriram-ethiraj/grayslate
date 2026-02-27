@@ -1,6 +1,6 @@
 import Papa from "papaparse";
 
-const CHUNK_SIZE = 500_000;
+const CHUNK_SIZE = 50_000;
 
 self.onmessage = (e: MessageEvent) => {
     const text: string = e.data.text;

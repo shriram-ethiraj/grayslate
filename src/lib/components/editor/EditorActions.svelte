@@ -17,6 +17,7 @@
                         aria-label="Plain CSV"
                         {...props}
                         onclick={(e) => {
+                            editorState.csv.serializing = true;
                             editorState.csv.showTable = false;
                             if (typeof props.onclick === "function") {
                                 props.onclick(e);

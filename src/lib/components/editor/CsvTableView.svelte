@@ -7,6 +7,7 @@
     import { useScrollVirtualizer } from "./csv/useScrollVirtualizer.svelte";
     import { editorState } from "$lib/state/editor.svelte";
     import { debounce } from "lodash-es";
+    import { untrack } from "svelte";
     import { useCsvHistory } from "./csv/useCsvHistory.svelte";
     import { useCsvEditorState } from "./csv/useCsvEditorState.svelte";
     import CsvTableHeader from "./csv/CsvTableHeader.svelte";
@@ -36,47 +37,7 @@
 
     // Kick off initial parse via worker
     $effect(() => {
-        // Parser worker
-        parseWorker = new Worker(
-            new URL("../../workers/csvParser.worker.ts", import.meta.url),
-            { type: "module" },
-        );
-
-        parseWorker.onmessage = (e) => {
-            const msg = e.data;
-            switch (msg.type) {
-                case "parsed-chunk": {
-                    const chunk: string[][] = msg.chunk;
-                    for (let i = 0; i < chunk.length; i++) {
-                        pendingRows.push(chunk[i]);
-                    }
-                    loadProgress = `${(pendingRows.length / 1_000_000).toFixed(1)}M rows loaded…`;
-                    break;
-                }
-                case "parsed-complete":
-                    parsed = {
-                        headers: msg.headers,
-                        rows: pendingRows,
-                        delimiter: msg.delimiter,
-                        errors: msg.errors,
-                    };
-                    pendingRows = [];
-                    loading = false;
-                    loadProgress = "";
-                    break;
-                case "error":
-                    console.error("CSV Parse Worker Error:", msg.error);
-                    loading = false;
-                    break;
-            }
-        };
-
-        // Start initial parse
-        loading = true;
-        loadProgress = "Starting…";
-        parseWorker.postMessage({ text: content });
-
-        // Serializer worker
+        // Serializer worker (initialized first to receive messages)
         serializeWorker = new Worker(
             new URL("../../workers/csvSerializer.worker.ts", import.meta.url),
             { type: "module" },
@@ -96,6 +57,53 @@
             }
         };
 
+        // Parser worker
+        parseWorker = new Worker(
+            new URL("../../workers/csvParser.worker.ts", import.meta.url),
+            { type: "module" },
+        );
+
+        parseWorker.onmessage = (e) => {
+            const msg = e.data;
+            switch (msg.type) {
+                case "parsed-chunk": {
+                    const chunk: string[][] = msg.chunk;
+                    for (let i = 0; i < chunk.length; i++) {
+                        pendingRows.push(chunk[i]);
+                    }
+                    serializeWorker.postMessage({ type: "INIT_CHUNK", chunk });
+                    loadProgress = `${(pendingRows.length / 1_000_000).toFixed(1)}M rows loaded…`;
+                    break;
+                }
+                case "parsed-complete":
+                    parsed = {
+                        headers: msg.headers,
+                        rows: pendingRows,
+                        delimiter: msg.delimiter,
+                        errors: msg.errors,
+                    };
+                    serializeWorker.postMessage({
+                        type: "INIT_DONE",
+                        headers: msg.headers,
+                        delimiter: msg.delimiter,
+                    });
+                    pendingRows = [];
+                    loading = false;
+                    loadProgress = "";
+                    break;
+                case "error":
+                    console.error("CSV Parse Worker Error:", msg.error);
+                    loading = false;
+                    break;
+            }
+        };
+
+        // Start initial parse
+        loading = true;
+        loadProgress = "Starting…";
+        serializeWorker.postMessage({ type: "INIT_START" });
+        parseWorker.postMessage({ text: untrack(() => content) });
+
         return () => {
             // On unmount: just terminate workers.
             // Serialization is handled by the showTable watcher above.
@@ -107,10 +115,11 @@
 
     // Re-parse when content changes externally (e.g. switching from text mode)
     $effect(() => {
-        if (content !== lastSyncedContent) {
+        if (content !== untrack(() => lastSyncedContent)) {
             loading = true;
             lastSyncedContent = content;
             history.clear();
+            serializeWorker?.postMessage({ type: "INIT_START" });
             parseWorker?.postMessage({ text: content });
         }
     });
@@ -123,9 +132,7 @@
         if (!serializeWorker) return;
 
         serializeWorker.postMessage({
-            headers: parsed.headers,
-            rows: parsed.rows,
-            delimiter: parsed.delimiter,
+            type: "SERIALIZE",
         });
     }, 500);
 
@@ -171,22 +178,32 @@
         },
         () => columns,
         (index) => virtualizer.scrollToIndex(index),
+        (ops, reverse) => {
+            serializeWorker?.postMessage({
+                type: "UPDATE_OPS",
+                ops,
+                reverse,
+            });
+        },
     );
 
     // Deferred transition: when user toggles showTable → false,
     // serialize via worker BEFORE allowing unmount.
     $effect(() => {
-        if (!editorState.csv.showTable && !loading) {
-            editorState.csv.serializing = true;
-            csvEditorState.commitEdit();
-            debouncedSerialize.cancel();
+        if (!editorState.csv.showTable) {
+            if (loading) {
+                // If they exit before finishing load, don't serialize, just unmount
+                editorState.csv.serializing = false;
+            } else if (editorState.csv.serializing) {
+                // Trigger the serialization if not loading and serializing is true
+                csvEditorState.commitEdit();
+                debouncedSerialize.cancel();
 
-            // Send immediate serialization request to the worker
-            serializeWorker.postMessage({
-                headers: parsed.headers,
-                rows: parsed.rows,
-                delimiter: parsed.delimiter,
-            });
+                // Send immediate serialization request to the worker
+                serializeWorker.postMessage({
+                    type: "SERIALIZE",
+                });
+            }
         }
     });
 
@@ -332,7 +349,7 @@
         <!-- Table Container -->
         <div class="csv-table-container" bind:this={tableContainerRef}>
             <div
-                style="height: {virtualizer.totalSize}px; width: 100%; min-width: max-content; padding-right: 200px; position: relative;"
+                style="height: {virtualizer.totalSize}px; width: 100%; min-width: max-content; padding-right: 200px; padding-bottom: 24px; position: relative;"
             >
                 <CsvTableHeader
                     {table}

@@ -23,8 +23,10 @@ export function useScrollVirtualizer(options: {
     // True pixel height if every row were rendered at full size
     const trueTotalHeight = $derived(totalCount * rowHeight);
     const needsScaling = $derived(trueTotalHeight > MAX_SCROLL_HEIGHT);
+    const headerHeight = 34; // Sticky header offset
+    const bottomPadding = 24; // Visual scroll headroom
     const virtualTotalHeight = $derived(
-        needsScaling ? MAX_SCROLL_HEIGHT : trueTotalHeight,
+        (needsScaling ? MAX_SCROLL_HEIGHT : trueTotalHeight) + headerHeight + bottomPadding,
     );
 
     // Observe the scroll element
@@ -60,17 +62,19 @@ export function useScrollVirtualizer(options: {
     const virtualItems = $derived.by(() => {
         if (totalCount === 0) return [];
 
+        // Reduce available visual container size by the header so you don't overcount rows
         const visibleCount = Math.ceil(containerHeight / rowHeight);
 
         let firstVisibleRow: number;
 
         if (!needsScaling) {
             // Normal mode – direct pixel mapping
-            firstVisibleRow = Math.floor(scrollTop / rowHeight);
+            // Offset scroll by header explicitly so row 0 starts after header
+            firstVisibleRow = Math.floor(Math.max(0, scrollTop - headerHeight) / rowHeight);
         } else {
             // Scaled mode – use scroll fraction
             const maxScroll = Math.max(1, virtualTotalHeight - containerHeight);
-            const fraction = Math.min(1, scrollTop / maxScroll);
+            const fraction = Math.min(1, Math.max(0, scrollTop - headerHeight) / maxScroll);
             const maxFirstRow = Math.max(0, totalCount - visibleCount);
             firstVisibleRow = Math.round(fraction * maxFirstRow);
         }
@@ -78,7 +82,7 @@ export function useScrollVirtualizer(options: {
         // Clamp
         firstVisibleRow = Math.max(
             0,
-            Math.min(firstVisibleRow, totalCount - visibleCount),
+            Math.min(firstVisibleRow, Math.max(0, totalCount - visibleCount)),
         );
 
         // Apply overscan
@@ -88,11 +92,13 @@ export function useScrollVirtualizer(options: {
             firstVisibleRow + visibleCount + overscan,
         );
 
-        // Position the block so the first *visible* row lines up with scrollTop.
-        // Overscan rows sit above the viewport (negative visual offset from
-        // scrollTop).
-        const blockStart =
-            scrollTop - (firstVisibleRow - startIdx) * rowHeight;
+        // Position the block so the first *visible* row lines up with scrollTop
+        // when unscaled. When scaled, we calculate its intended pixel start relative 
+        // to the real scrolled position so items compress correctly.
+        const blockStart = !needsScaling
+            ? startIdx * rowHeight
+            : Math.max(0, scrollTop - headerHeight) -
+            (firstVisibleRow - startIdx) * rowHeight;
 
         const items: { index: number; start: number; size: number }[] = [];
         for (let i = startIdx; i <= endIdx; i++) {
