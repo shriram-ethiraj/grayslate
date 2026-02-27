@@ -5,6 +5,7 @@
     let {
         line,
         col,
+        selectionSize = 0,
         language = $bindable("auto"),
         detectedLanguage = "text",
         activeLanguage = "text",
@@ -42,7 +43,7 @@
             <button
                 class="flex items-center hover:bg-muted/50 hover:text-foreground h-full px-2 transition-colors cursor-default"
             >
-                Ln {line}, Col {col}
+                Ln {line}, Col {col}{#if selectionSize > 0}&nbsp;({selectionSize} selected){/if}
             </button>
         {/if}
         <LanguagePicker bind:language {detectedLanguage} />

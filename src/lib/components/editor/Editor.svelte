@@ -29,6 +29,7 @@
         value = $bindable(),
         line = $bindable(1),
         col = $bindable(1),
+        selectionSize = $bindable(0),
         language = $bindable("text"),
         editorView = $bindable<EditorView | undefined>(undefined),
     } = $props();
@@ -114,6 +115,11 @@
                         const lineInfo = state.doc.lineAt(main.head);
                         line = lineInfo.number;
                         col = main.head - lineInfo.from + 1;
+                        // Sum character counts across all selection ranges
+                        selectionSize = state.selection.ranges.reduce(
+                            (sum, r) => sum + (r.to - r.from),
+                            0,
+                        );
                     }
                     if (update.docChanged) {
                         value = update.state.doc.toString();

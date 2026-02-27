@@ -12,6 +12,7 @@
     let value = $state("");
     let line = $state(1);
     let col = $state(1);
+    let selectionSize = $state(0);
     let language = $state("auto");
     let detectedLanguage = $state("text");
 
@@ -72,6 +73,7 @@
                     bind:value
                     bind:line
                     bind:col
+                    bind:selectionSize
                     language={activeLanguage}
                     bind:editorView
                 />
@@ -86,6 +88,7 @@
     <StatusBar
         {line}
         {col}
+        {selectionSize}
         bind:language
         {detectedLanguage}
         {activeLanguage}
