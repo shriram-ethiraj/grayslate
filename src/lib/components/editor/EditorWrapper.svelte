@@ -3,6 +3,7 @@
     import MarkdownPreview from "$lib/components/editor/markdown/MarkdownPreview.svelte";
     import CsvTableView from "$lib/components/editor/CsvTableView.svelte";
     import StatusBar from "$lib/components/editor/StatusBar.svelte";
+    import EditorLoader from "$lib/components/editor/EditorLoader.svelte";
     import { languageDetector } from "$lib/utils/language";
     import { debounce } from "lodash-es";
     import type { EditorView } from "codemirror";
@@ -51,6 +52,11 @@
 
 <div class="flex flex-1 flex-col w-full relative min-h-0 min-w-0 h-full">
     <div class="flex flex-1 min-h-0 min-w-0 relative">
+        <EditorLoader
+            visible={editorState.loader.visible}
+            message={editorState.loader.message}
+            subMessage={editorState.loader.subMessage}
+        />
         {#if isCsvTableActive}
             <!-- CSV Table View (replaces editor) -->
             <CsvTableView bind:content={value} bind:tableInfo={csvInfo} />

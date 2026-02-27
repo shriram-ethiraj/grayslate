@@ -5,7 +5,7 @@
         type ColumnDef,
     } from "@tanstack/svelte-table";
     import { useScrollVirtualizer } from "./csv/useScrollVirtualizer.svelte";
-    import { editorState } from "$lib/state/editor.svelte";
+    import { editorState, showEditorLoader, hideEditorLoader } from "$lib/state/editor.svelte";
     import { debounce } from "lodash-es";
     import { untrack } from "svelte";
     import { useCsvHistory } from "./csv/useCsvHistory.svelte";
@@ -27,7 +27,6 @@
     }>({ headers: [], rows: [], delimiter: ",", errors: [] });
 
     let loading = $state(true);
-    let loadProgress = $state("");
     let pendingRows: string[][] = [];
 
     // Track the last content we synced from, to detect external changes
@@ -51,6 +50,7 @@
                 // If we were serializing for a view transition, complete it
                 if (editorState.csv.serializing) {
                     editorState.csv.serializing = false;
+                    hideEditorLoader();
                 }
             } else if (e.data.error) {
                 console.error("CSV Serialization Worker Error:", e.data.error);
@@ -72,7 +72,10 @@
                         pendingRows.push(chunk[i]);
                     }
                     serializeWorker.postMessage({ type: "INIT_CHUNK", chunk });
-                    loadProgress = `${(pendingRows.length / 1_000_000).toFixed(1)}M rows loaded…`;
+                    showEditorLoader(
+                        "Parsing CSV…",
+                        `${(pendingRows.length / 1_000_000).toFixed(1)}M rows loaded…`,
+                    );
                     break;
                 }
                 case "parsed-complete":
@@ -89,18 +92,19 @@
                     });
                     pendingRows = [];
                     loading = false;
-                    loadProgress = "";
+                    hideEditorLoader();
                     break;
                 case "error":
                     console.error("CSV Parse Worker Error:", msg.error);
                     loading = false;
+                    hideEditorLoader();
                     break;
             }
         };
 
         // Start initial parse
         loading = true;
-        loadProgress = "Starting…";
+        showEditorLoader("Parsing CSV…", "Starting…");
         serializeWorker.postMessage({ type: "INIT_START" });
         parseWorker.postMessage({ text: untrack(() => content) });
 
@@ -110,6 +114,7 @@
             debouncedSerialize.cancel();
             parseWorker.terminate();
             serializeWorker.terminate();
+            hideEditorLoader();
         };
     });
 
@@ -117,6 +122,7 @@
     $effect(() => {
         if (content !== untrack(() => lastSyncedContent)) {
             loading = true;
+            showEditorLoader("Parsing CSV…", "Starting…");
             lastSyncedContent = content;
             history.clear();
             serializeWorker?.postMessage({ type: "INIT_START" });
@@ -194,8 +200,10 @@
             if (loading) {
                 // If they exit before finishing load, don't serialize, just unmount
                 editorState.csv.serializing = false;
+                hideEditorLoader();
             } else if (editorState.csv.serializing) {
                 // Trigger the serialization if not loading and serializing is true
+                showEditorLoader("Preparing text view…");
                 csvEditorState.commitEdit();
                 debouncedSerialize.cancel();
 
@@ -318,18 +326,7 @@
     }}
 />
 
-{#if loading}
-    <div class="csv-loading">
-        <div class="csv-loading-spinner"></div>
-        <p>Parsing CSV…</p>
-        <p class="csv-loading-progress">{loadProgress}</p>
-    </div>
-{:else if editorState.csv.serializing}
-    <div class="csv-loading">
-        <div class="csv-loading-spinner"></div>
-        <p>Preparing text view…</p>
-    </div>
-{:else}
+{#if !loading && !editorState.csv.serializing}
     <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
     <div
         class="csv-table-wrapper"
@@ -387,36 +384,5 @@
         position: relative;
     }
 
-    .csv-loading {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        height: 100%;
-        gap: 16px;
-        color: var(--muted-foreground);
-        font-size: 14px;
-    }
 
-    .csv-loading-spinner {
-        width: 32px;
-        height: 32px;
-        border: 3px solid var(--border);
-        border-top-color: var(--primary);
-        border-radius: 50%;
-        animation: spin 0.8s linear infinite;
-    }
-
-    @keyframes spin {
-        to {
-            transform: rotate(360deg);
-        }
-    }
-
-    .csv-loading-progress {
-        font-size: 12px;
-        color: var(--muted-foreground);
-        opacity: 0.7;
-        font-variant-numeric: tabular-nums;
-    }
 </style>
