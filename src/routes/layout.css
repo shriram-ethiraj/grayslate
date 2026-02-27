@@ -133,11 +133,16 @@
   }
 
   .cm-json-key-path-tooltip {
+    @apply cursor-pointer transition-colors;
     font-family: monospace;
     font-size: 0.82em;
     padding: 3px 10px;
     color: var(--cm-hint-color, #888);
     user-select: text;
     white-space: nowrap;
+  }
+
+  .cm-json-key-path-tooltip:hover {
+    @apply bg-muted text-foreground;
   }
 }

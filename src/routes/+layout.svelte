@@ -4,6 +4,7 @@
 	import AppSidebar from "$lib/components/app-sidebar.svelte";
 	import ThemeToggle from "$lib/components/theme-toggle.svelte";
 	import EditorActions from "$lib/components/editor/EditorActions.svelte";
+	import { Toaster } from "$lib/components/ui/sonner/index.js";
 
 	const { children } = $props();
 </script>
@@ -25,3 +26,4 @@
 		</div>
 	</Sidebar.Inset>
 </Sidebar.Provider>
+<Toaster position="top-right" />

@@ -2,6 +2,7 @@ import { hoverTooltip } from "@codemirror/view";
 import { syntaxTree } from "@codemirror/language";
 import type { EditorView } from "@codemirror/view";
 import type { SyntaxNode } from "@lezer/common";
+import { toast } from "svelte-sonner";
 
 /**
  * Extracts the unquoted key string from a `Property` node by reading its
@@ -132,7 +133,20 @@ export const jsonKeyPath = hoverTooltip((view, pos, side) => {
         create() {
             const dom = document.createElement("div");
             dom.className = "cm-json-key-path-tooltip";
-            dom.textContent = path;
+
+            const textSpan = document.createElement("span");
+            textSpan.textContent = path;
+            dom.appendChild(textSpan);
+
+            dom.addEventListener("click", () => {
+                navigator.clipboard.writeText(path).then(() => {
+                    toast.success("Key copied to clipboard");
+                }).catch((err) => {
+                    console.error("Failed to copy key path:", err);
+                    toast.error("Failed to copy key");
+                });
+            });
+
             return { dom };
         },
     };
