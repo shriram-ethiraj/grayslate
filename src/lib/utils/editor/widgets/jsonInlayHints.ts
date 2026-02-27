@@ -19,7 +19,7 @@ class ArrayIndexWidget extends WidgetType {
 
         // Styling matches VS Code / IntelliJ inlay hints style roughly
         span.style.color = "var(--text-muted, #888)";
-        span.style.fontSize = "0.85em";
+        span.style.fontSize = "0.9em";
         span.style.marginRight = "6px";
         span.style.padding = "0px 4px";
         span.style.borderRadius = "3px";

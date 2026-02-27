@@ -108,4 +108,36 @@
   .cm-tooltip-autocomplete .cm-completionIcon {
     @apply !hidden; /* Hide default icon to keep it clean like Shadcn Command/Select items */
   }
+
+  /* JSON Fold Placeholder - styled to match cm-json-array-index inlay hints */
+  .cm-foldPlaceholder {
+    background-color: rgba(128, 128, 128, 0.1) !important;
+    color: var(--text-muted, #888) !important;
+    border: none !important;
+    padding: 0 4px !important;
+    border-radius: 3px !important;
+    font-size: 0.9em !important;
+    font-family: monospace !important;
+    vertical-align: middle !important;
+    cursor: pointer !important;
+    transition: background-color 0.15s ease;
+  }
+
+  .cm-foldPlaceholder:hover {
+    background-color: rgba(128, 128, 128, 0.2) !important;
+  }
+
+  /* JSON Key Path Tooltip */
+  .cm-tooltip.cm-tooltip-hover {
+    @apply !border !border-border !bg-popover !text-popover-foreground !shadow-md !rounded-lg;
+  }
+
+  .cm-json-key-path-tooltip {
+    font-family: monospace;
+    font-size: 0.82em;
+    padding: 3px 10px;
+    color: var(--text-muted, #888);
+    user-select: text;
+    white-space: nowrap;
+  }
 }

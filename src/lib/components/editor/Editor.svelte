@@ -19,8 +19,10 @@
     import { xml } from "@codemirror/lang-xml";
     import { csv } from "codemirror-lang-csv";
     import { markdown } from "@codemirror/lang-markdown";
-    import { jsonInlayHints } from "$lib/utils/editor/jsonInlayHints";
-    import { colorHints } from "$lib/utils/editor/colorHints";
+    import { jsonInlayHints } from "$lib/utils/editor/widgets/jsonInlayHints";
+    import { jsonFoldWidget } from "$lib/utils/editor/widgets/jsonFoldWidget";
+    import { jsonKeyPath } from "$lib/utils/editor/widgets/jsonKeyPath";
+    import { colorHints } from "$lib/utils/editor/widgets/colorHints";
     import { markdownAutocompleteProvider } from "$lib/utils/editor/markdown/markdownAutocomplete";
     import { autocompletion } from "@codemirror/autocomplete";
 
@@ -40,7 +42,7 @@
     function getLanguageExtension(langId: string) {
         switch (langId) {
             case "json":
-                return [json(), jsonInlayHints];
+                return [json(), jsonInlayHints, jsonFoldWidget, jsonKeyPath];
             case "javascript":
                 return javascript({ jsx: true });
             case "typescript":

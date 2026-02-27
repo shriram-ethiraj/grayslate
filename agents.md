@@ -61,3 +61,7 @@ When generating code or proposing architectural changes, adhere to the following
 ## 🚀 Commits & Workflow
 *   Keep `.gitignore` respected (e.g., `node_modules`, `target`, `.svelte-kit`).
 *   Verify code works with `pnpm run check` (runs `svelte-check`) and compiles with `pnpm run tauri build`.
+
+## 📚 Additional Documentation
+- Editor widget conventions: [`src/lib/utils/editor/widgets/README.md`](src/lib/utils/editor/widgets/README.md)
+- CSV component docs: [`src/lib/components/editor/csv/README.md`](src/lib/components/editor/csv/README.md)
