@@ -1,5 +1,6 @@
 <script lang="ts">
-    import * as Select from "$lib/components/ui/select/index.js";
+    import { SquareSplitHorizontal, Table2 } from "@lucide/svelte";
+    import LanguagePicker from "./LanguagePicker.svelte";
 
     let {
         line,
@@ -10,19 +11,6 @@
         isCsvTableActive = false,
         csvInfo = { rows: 0, cols: 0, delimiter: "", errors: 0 },
     } = $props();
-
-    import { SquareSplitHorizontal, Table2 } from "@lucide/svelte";
-    import { languages } from "$lib/utils/languages";
-
-    let selectedLabel = $derived.by(() => {
-        if (language === "auto") {
-            const detectedLang = languages.find((l) => l.value === detectedLanguage);
-            const detectedLabel = detectedLang?.label ?? "Plain text";
-            return { label: `Auto (${detectedLabel})`, icon: detectedLang?.icon };
-        }
-        const lang = languages.find((l) => l.value === language);
-        return { label: lang?.label ?? "Plain text", icon: lang?.icon };
-    });
 </script>
 
 <div
@@ -57,41 +45,6 @@
                 Ln {line}, Col {col}
             </button>
         {/if}
-        <Select.Root type="single" bind:value={language}>
-            <Select.Trigger
-                class="flex items-center hover:bg-muted/50 hover:text-foreground h-full px-2 transition-colors cursor-default border-0 shadow-none focus:ring-0 rounded-none bg-transparent hocus:bg-muted/50 text-[11px] w-auto gap-2"
-            >
-                {#if selectedLabel.icon}
-                    {#if "svg" in selectedLabel.icon}
-                        <div class="w-3 h-3 flex items-center justify-center" style="fill: currentColor;">
-                            {@html selectedLabel.icon.svg}
-                        </div>
-                    {:else}
-                        {@const Icon = selectedLabel.icon}
-                        <Icon class="w-3 h-3" />
-                    {/if}
-                {/if}
-                {selectedLabel.label}
-            </Select.Trigger>
-            <Select.Content class="text-[11px]">
-                {#each languages as lang}
-                    <Select.Item class="text-[11px] flex items-center gap-2" value={lang.value}>
-                        {#if lang.icon}
-                            {#if "svg" in lang.icon}
-                                <div class="w-3 h-3 flex items-center justify-center" style="fill: currentColor;">
-                                    {@html lang.icon.svg}
-                                </div>
-                            {:else}
-                                {@const Icon = lang.icon}
-                                <Icon class="w-3 h-3" />
-                            {/if}
-                        {:else}
-                            <div class="w-3 h-3"></div>
-                        {/if}
-                        {lang.label}
-                    </Select.Item>
-                {/each}
-            </Select.Content>
-        </Select.Root>
+        <LanguagePicker bind:language {detectedLanguage} />
     </div>
 </div>
