@@ -8,13 +8,15 @@ import { toast } from "svelte-sonner";
  * Extracts the unquoted key string from a `Property` node by reading its
  * first child (which is always the `PropertyName` node in the lezer-json grammar).
  */
-function extractPropertyKey(view: EditorView, propertyNode: SyntaxNode): string | null {
+export function extractPropertyKey(view: EditorView, propertyNode: SyntaxNode): string | null {
     const keyNode = propertyNode.firstChild;
     // lezer-json grammar names object keys "PropertyName", not "String".
-    // "String" is used only for string *values*.
+    // "String" is reserved for string *values* only.
     if (!keyNode || keyNode.name !== "PropertyName") return null;
     const raw = view.state.sliceDoc(keyNode.from, keyNode.to);
-    return raw.length >= 2 ? raw.slice(1, -1) : raw;
+    // A valid PropertyName token is always a quoted string (minimum `""` = 2 chars).
+    // Returning null for anything shorter guards against a malformed/partial parse.
+    return raw.length >= 2 ? raw.slice(1, -1) : null;
 }
 
 /**
@@ -43,12 +45,14 @@ function extractPropertyKey(view: EditorView, propertyNode: SyntaxNode): string 
  *   {"users": [{"name": "Alice"}]}
  *   cursor on `"Alice"`  →  "$.users[0].name"
  */
-function buildJsonPath(view: EditorView, pos: number, side: -1 | 1): string | null {
+export function buildJsonPath(view: EditorView, pos: number, side: -1 | 1): string | null {
     const tree = syntaxTree(view.state);
     // Use the side value from CodeMirror (left/right half of character) so that
     // resolveInner snaps to the correct node at every cursor position.
     let current: SyntaxNode | null = tree.resolveInner(pos, side);
 
+    // Segments are collected bottom-up (innermost → outermost) and reversed once
+    // at the end — O(n) total vs. the O(n²) cost of repeated unshift.
     const parts: string[] = [];
 
     while (current !== null) {
@@ -57,21 +61,21 @@ function buildJsonPath(view: EditorView, pos: number, side: -1 | 1): string | nu
 
         if (current.name === "Property") {
             // Case (b): `current` IS the Property node.
-            // This happens when the cursor is over the anonymous `:` token —
+            // This happens when the cursor lands on the anonymous `:` token —
             // lezer has no named node for `:`, so resolveInner returns Property.
             const key = extractPropertyKey(view, current);
-            if (key !== null) parts.unshift(key);
-            // Jump past Property → its parent is the Object that owns it.
-            current = parent; // parent === Object
+            if (key !== null) parts.push(key);
+            // Advance past this Property; its parent is the enclosing Object.
+            current = parent;
         } else if (parent.name === "Property") {
             // Case (a): `current` is a named child of Property
-            // (the key String, the value node, etc.)
+            // (the key PropertyName node, or the value node).
             const key = extractPropertyKey(view, parent);
-            if (key !== null) parts.unshift(key);
-            // Jump past Property AND the intermediate Object node.
-            current = parent.parent; // Object that owns this Property
+            if (key !== null) parts.push(key);
+            // Skip Property AND its enclosing Object in one step.
+            current = parent.parent;
         } else if (parent.name === "Array") {
-            // Count non-structural siblings BEFORE `current` to get its 0-based index.
+            // Count non-structural siblings before `current` to derive the 0-based index.
             let index = 0;
             let sibling: SyntaxNode | null = parent.firstChild;
             while (sibling !== null && sibling.from !== current.from) {
@@ -81,28 +85,25 @@ function buildJsonPath(view: EditorView, pos: number, side: -1 | 1): string | nu
                 }
                 sibling = sibling.nextSibling;
             }
-            parts.unshift(`[${index}]`);
-            current = parent; // continue from the Array node
+            parts.push(`[${index}]`);
+            current = parent;
         } else {
-            // Object, JsonText, punctuation tokens — walk upward without adding a segment
+            // Object, JsonText, or punctuation tokens — walk upward without adding a segment.
             current = parent;
         }
     }
 
-    // Always prefix with JSONPath root `$`
+    // Reverse to convert bottom-up collection order into top-down path order.
+    parts.reverse();
+
+    // Assemble the JSONPath string, always prefixed with the root `$`.
     // e.g. parts = ["users", "[0]", "address"] → "$.users[0].address"
     //      parts = ["[0]", "id"]               → "$[0].id"
-    //      parts = []                           → "$"  (hovering on root value)
-    let path = "$";
-    for (const part of parts) {
-        if (part.startsWith("[")) {
-            path += part;          // array index attaches directly: $[0]
-        } else {
-            path += "." + part;    // object key uses dot: $.key
-        }
-    }
-
-    return path;
+    //      parts = []                           → "$"  (cursor on root value)
+    return parts.reduce(
+        (acc, part) => acc + (part.startsWith("[") ? part : "." + part),
+        "$",
+    );
 }
 
 /**
