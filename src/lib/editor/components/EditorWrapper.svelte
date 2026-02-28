@@ -26,9 +26,9 @@
         editorState.fileType = activeLanguage as FileType;
     });
 
-    const checkLanguage = debounce(async (content: string) => {
+    const checkLanguage = debounce((content: string) => {
         if (language === "auto" && content) {
-            const result = await languageDetector.detect(content);
+            const result = languageDetector.detect(content);
             if (result) {
                 detectedLanguage = result;
             }

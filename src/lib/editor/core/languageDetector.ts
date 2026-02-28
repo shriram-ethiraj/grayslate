@@ -1,168 +1,857 @@
-import { ModelOperations, type ModelResult } from "@vscode/vscode-languagedetection";
+/**
+ * languageDetector.ts
+ *
+ * Production-grade content-based language detection for Grayslate.
+ *
+ * Fully synchronous, deterministic pipeline — no ML model dependency.
+ *
+ * Detection cascade (ordered by priority & reliability):
+ * ┌────────┬──────────────────────────────────────────────────┐
+ * │ Phase 1│ File extension      (instant, deterministic)     │
+ * │ Phase 2│ Shebang line        (instant, deterministic)     │
+ * │ Phase 3│ Structural signals  (fast, high confidence)      │
+ * │ Phase 4│ Heuristic scoring   (fast, medium confidence)    │
+ * └────────┴──────────────────────────────────────────────────┘
+ *
+ * Each phase either returns a confident result or defers to the next.
+ * Structural detection handles deterministic formats (JSON, XML, HTML,
+ * CSV, Dockerfile, Markdown, YAML). Heuristic scoring handles
+ * programming languages via weighted pattern matching with a best-guess
+ * fallback for ambiguous content.
+ */
+
+// ════════════════════════════════════════════════════════════════
+// Configuration
+// ════════════════════════════════════════════════════════════════
+
+/** Max bytes analysed — keeps detection < 10 ms even for huge pastes. */
+const MAX_CONTENT_LENGTH = 50_000;
+
+/** Minimum total score for heuristic scoring to return a confident result. */
+const HEURISTIC_SCORE_THRESHOLD = 3;
+
+// ════════════════════════════════════════════════════════════════
+// Phase 1 — File Extension Map
+// ════════════════════════════════════════════════════════════════
+
+/**
+ * Maps lowercase file extensions to internal language IDs.
+ * Covers all common extensions for languages the editor supports.
+ */
+const EXTENSION_MAP: Record<string, string> = {
+    // ── Data formats ─────────────────────────────────────────
+    ".json": "json", ".jsonc": "json", ".json5": "json",
+    ".geojson": "json", ".webmanifest": "json", ".har": "json",
+    ".csv": "csv", ".tsv": "csv",
+    ".xml": "xml", ".svg": "xml", ".plist": "xml", ".xsl": "xml",
+    ".xslt": "xml", ".xsd": "xml", ".wsdl": "xml", ".rss": "xml",
+    ".atom": "xml", ".xaml": "xml", ".csproj": "xml", ".fsproj": "xml",
+    ".vcxproj": "xml",
+
+    // ── Config ───────────────────────────────────────────────
+    ".yaml": "yaml", ".yml": "yaml",
+    ".toml": "text", ".ini": "text", ".cfg": "text", ".env": "text",
+
+    // ── Markup ───────────────────────────────────────────────
+    ".html": "html", ".htm": "html", ".xhtml": "html",
+    ".svelte": "html", ".vue": "html",
+    ".md": "markdown", ".markdown": "markdown", ".mdx": "markdown",
+
+    // ── Web languages ────────────────────────────────────────
+    ".js": "javascript", ".mjs": "javascript", ".cjs": "javascript",
+    ".jsx": "javascript",
+    ".ts": "typescript", ".tsx": "typescript", ".mts": "typescript",
+    ".cts": "typescript",
+    ".css": "css", ".scss": "css", ".sass": "css", ".less": "css",
+
+    // ── Systems / compiled ───────────────────────────────────
+    ".py": "python", ".pyi": "python", ".pyw": "python",
+    ".c": "c", ".h": "c",
+    ".cpp": "cpp", ".cxx": "cpp", ".cc": "cpp",
+    ".hpp": "cpp", ".hxx": "cpp", ".hh": "cpp",
+    ".java": "java",
+    ".go": "go",
+    ".rs": "text", ".rb": "text", ".php": "text",
+    ".swift": "text", ".kt": "text", ".kts": "text",
+    ".lua": "text", ".pl": "text", ".pm": "text",
+
+    // ── Shell ────────────────────────────────────────────────
+    ".sh": "shell", ".bash": "shell", ".zsh": "shell",
+    ".fish": "shell", ".ksh": "shell",
+    ".ps1": "text", ".bat": "text", ".cmd": "text",
+
+    // ── Dockerfile (explicit extension) ──────────────────────
+    ".dockerfile": "dockerfile",
+
+    // ── SQL ──────────────────────────────────────────────────
+    ".sql": "text",
+};
+
+/**
+ * Maps full (lowercased) filenames to language IDs.
+ * Handles extensionless files like Dockerfile, Makefile, .bashrc, etc.
+ */
+const FILENAME_MAP: Record<string, string> = {
+    "dockerfile":      "dockerfile",
+    "makefile":        "shell",
+    "gnumakefile":     "shell",
+    ".bashrc":         "shell",
+    ".bash_profile":   "shell",
+    ".bash_aliases":   "shell",
+    ".zshrc":          "shell",
+    ".zprofile":       "shell",
+    ".profile":        "shell",
+    ".editorconfig":   "yaml",
+    ".gitignore":      "text",
+    ".gitattributes":  "text",
+    ".env":            "text",
+    ".env.local":      "text",
+    "jenkinsfile":     "text",
+    "vagrantfile":     "text",
+};
+
+// ════════════════════════════════════════════════════════════════
+// Phase 2 — Shebang Patterns
+// ════════════════════════════════════════════════════════════════
+
+/** Regex → language pairs for shebang detection. First match wins. */
+const SHEBANG_PATTERNS: [RegExp, string][] = [
+    [/\bpython[23w]?\b/,       "python"],
+    [/\bnode(js)?\b/,          "javascript"],
+    [/\bdeno\b/,               "typescript"],
+    [/\b(ba|z|k|fi)?sh\b/,    "shell"],
+    [/\bperl\b/,               "text"],
+    [/\bruby\b/,               "text"],
+    [/\bphp\b/,                "text"],
+];
+
+// ════════════════════════════════════════════════════════════════
+// Phase 4 — Heuristic Pattern Signatures
+// ════════════════════════════════════════════════════════════════
+
+/** A weighted pattern: [regex, score_if_matched]. */
+type WeightedPattern = [RegExp, number];
+
+interface LanguageSignature {
+    language: string;
+    patterns: WeightedPattern[];
+}
+
+/**
+ * Weighted pattern sets for heuristic-based language scoring.
+ *   • Higher weight → more distinctive / unique to that language.
+ *   • Total score ≥ HEURISTIC_SCORE_THRESHOLD triggers detection.
+ */
+const LANGUAGE_SIGNATURES: LanguageSignature[] = [
+    // ── Python ───────────────────────────────────────────────
+    {
+        language: "python",
+        patterns: [
+            [/^\s*def\s+\w+\s*\(/m,                        3],
+            [/^\s*class\s+\w+[^:\n]{0,80}:/m,              3],
+            [/^\s*from\s+\w+\s+import\s/m,                  3],
+            [/^\s*import\s+\w+/m,                           2],
+            [/^\s*elif\s+/m,                                5],  // unique to Python
+            [/if\s+__name__\s*==\s*['"]__main__['"]/,       5],
+            [/\bself\.\w+/,                                 3],
+            [/^\s*@\w+(\.\w+)*(\(.*\))?\s*$/m,             2],  // decorators
+            [/^\s*(try|except|finally)\s*:/m,               2],
+            [/\b(None|True|False)\b/,                       1],
+            [/^\s*with\s+\w+[^:\n]{0,80}\s+as\s+/m,        3],
+            [/^\s*raise\s+\w+/m,                            2],
+            [/^\s*yield\s+/m,                               2],
+            [/\bprint\s*\(/,                                1],
+            [/\blen\s*\(/,                                  1],
+            [/;\s*$/m,                                      -2],  // Python never uses trailing semicolons
+        ],
+    },
+    // ── JavaScript ───────────────────────────────────────────
+    {
+        language: "javascript",
+        patterns: [
+            [/\b(const|let|var)\s+\w+\s*=/m,               2],
+            [/\bfunction\s+\w*\s*\(/m,                     2],
+            [/=>\s*[{(\n]/m,                                3],  // arrow functions
+            [/\brequire\s*\(['"`]/m,                        4],  // CommonJS
+            [/\bmodule\.exports\b/,                         4],
+            [/\bconsole\.\w+\s*\(/,                         2],
+            [/===|!==/,                                     2],  // strict equality
+            [/\bdocument\.\w+/,                             2],
+            [/\bwindow\.\w+/,                               1],
+            [/\bPromise\.(all|resolve|reject)\b/,           2],
+            [/\.then\s*\(/,                                 1],
+            [/\.catch\s*\(/,                                1],
+            [/\basync\s+(function|\w+\s*=>|\w+\s*\()/m,     2],
+            [/\bawait\s+/,                                  1],
+        ],
+    },
+    // ── TypeScript ───────────────────────────────────────────
+    {
+        language: "typescript",
+        patterns: [
+            [/\binterface\s+\w+/m,                         4],
+            [/\btype\s+\w+\s*=\s*/m,                       4],
+            [/:\s*(string|number|boolean|void|any|never|unknown|undefined)\b/, 3],
+            [/\benum\s+\w+\s*\{/m,                         4],
+            [/\bnamespace\s+\w+/m,                         3],
+            [/\bdeclare\s+(const|function|class|module|type|interface)/m, 4],
+            [/\b(Readonly|Partial|Record|Pick|Omit|Required)</, 4],
+            [/\bas\s+(string|number|any|unknown|\w+)\b/,   3],
+            [/<\w+(\s+extends\s+\w+)?>/,                   2],  // generics
+            [/\b(const|let|var)\s+\w+\s*=/m,               1],  // also JS features
+            [/=>\s*[{(\n]/m,                                1],
+            [/===|!==/,                                     1],
+        ],
+    },
+    // ── CSS ──────────────────────────────────────────────────
+    {
+        language: "css",
+        patterns: [
+            [/[.#][\w-]+\s*\{/m,                           3],  // .class { or #id {
+            [/@media\s*[\s(]/m,                             4],
+            [/@keyframes\s+\w+/m,                           4],
+            [/@import\s+/m,                                 2],
+            [/!important\s*;/,                              3],
+            [/:hover|:focus|:active|::before|::after/,      3],
+            [/\bvar\s*\(--[\w-]+\)/,                        3],  // CSS custom properties
+            [/\b(color|margin|padding|display|font-size|background|border|width|height)\s*:/m, 2],
+            [/\b(flex|grid|block|inline|none)\s*;/,         1],
+            [/@tailwind|@apply/,                            3],
+        ],
+    },
+    // ── Shell / Bash ─────────────────────────────────────────
+    {
+        language: "shell",
+        patterns: [
+            [/^\s*echo\s+["$']/m,                          2],
+            [/^\s*if\s+\[\[?\s/m,                          3],
+            [/^\s*fi\s*$/m,                                 5],  // nearly unique to shell
+            [/^\s*done\s*$/m,                               4],
+            [/^\s*esac\s*$/m,                               5],  // nearly unique to shell
+            [/^\s*export\s+\w+=/m,                          3],
+            [/\$\{[\w?!#@*+-]+/,                            2],  // parameter expansion
+            [/\$\(.*\)/,                                    2],  // command substitution
+            [/^\s*case\s+.*\s+in\s*$/m,                     3],
+            [/^\s*(alias|source|chmod|mkdir|rm\s|cp\s|mv\s|cd\s|grep|sed|awk)\s/m, 2],
+            [/<<-?\s*['"]?\w+['"]?/,                        3],  // heredoc
+            [/\bconsole\.\w+\s*\(/,                        -5],  // console.log is never shell
+        ],
+    },
+    // ── Java ─────────────────────────────────────────────────
+    {
+        language: "java",
+        patterns: [
+            [/\bpublic\s+class\s+\w+/m,                    4],
+            [/\bpublic\s+static\s+void\s+main/m,           5],
+            [/\bSystem\.out\.print(ln)?\s*\(/,              5],
+            [/\bimport\s+java\.\w+/m,                       5],
+            [/\bimport\s+javax\.\w+/m,                      5],
+            [/@Override\b/,                                  3],
+            [/\bthrows\s+\w+/m,                             2],
+            [/\bextends\s+\w+/m,                            1],
+            [/\bimplements\s+\w+/m,                         2],
+            [/\bprivate\s+(final\s+)?\w+\s+\w+/m,          2],
+        ],
+    },
+    // ── Go ───────────────────────────────────────────────────
+    {
+        language: "go",
+        patterns: [
+            [/^package\s+\w+\s*$/m,                         5],
+            [/^\s*func\s+\w+\s*\(/m,                        3],
+            [/^\s*func\s+\(\w+\s+\*?\w+\)\s+\w+/m,         5],  // method receivers
+            [/\bfmt\.\w+/,                                   4],
+            [/\bimport\s+\(/m,                               3],
+            [/\bgo\s+func\b/,                                4],  // goroutines
+            [/\bchan\s+\w+/,                                 4],
+            [/:=\s/,                                         2],  // short var declaration
+            [/\bdefer\s+\w+/,                                3],
+            [/\bpackage\s+main\b/,                           4],
+            [/\bclass\s+\w+/m,                              -5],  // Go has no class keyword
+        ],
+    },
+    // ── C ────────────────────────────────────────────────────
+    {
+        language: "c",
+        patterns: [
+            [/#include\s*[<"]/m,                             3],
+            [/\bint\s+main\s*\(/m,                           4],
+            [/\bprintf\s*\(/,                                3],
+            [/\b(malloc|calloc|realloc|free)\s*\(/,          4],
+            [/#define\s+\w+/m,                               2],
+            [/\btypedef\s+/m,                                2],
+            [/\bstruct\s+\w+\s*\{/m,                        2],
+            [/\bsizeof\s*\(/,                                2],
+            [/\bNULL\b/,                                     2],
+            [/->\w+/,                                        1],
+            [/\bvoid\s+\w+\s*\(/m,                           1],
+        ],
+    },
+    // ── C++ ──────────────────────────────────────────────────
+    {
+        language: "cpp",
+        patterns: [
+            [/\bstd::\w+/,                                   5],
+            [/\bcout\s*<</,                                   5],
+            [/\bcin\s*>>/,                                    5],
+            [/#include\s*<(iostream|string|vector|map|set|algorithm|memory|functional)>/m, 5],
+            [/\busing\s+namespace\s+std\b/,                   5],
+            [/\bnullptr\b/,                                   4],
+            [/\btemplate\s*</m,                               3],
+            [/\bauto\s+\w+\s*=/m,                             2],
+            [/\bclass\s+\w+\s*[:{]/m,                         2],
+            [/\bvirtual\s+/m,                                 2],
+            [/#include\s*[<"]/m,                               2],  // shared with C
+            [/->\w+/,                                          1],
+        ],
+    },
+];
+
+// ════════════════════════════════════════════════════════════════
+// Supported Language Set
+// ════════════════════════════════════════════════════════════════
+
+/** Languages the editor can handle. IDs outside this set fall back to 'text'. */
+const SUPPORTED_LANGUAGES = new Set([
+    "json", "javascript", "typescript", "python", "html", "css",
+    "yaml", "c", "cpp", "java", "go", "xml", "csv", "markdown",
+    "shell", "dockerfile", "text",
+]);
+
+// ════════════════════════════════════════════════════════════════
+// LanguageDetector
+// ════════════════════════════════════════════════════════════════
 
 class LanguageDetector {
-    private modelOperations: ModelOperations | null = null;
-    private initPromise: Promise<ModelOperations> | null = null;
-
-    // We only map languages we currently support in our Editor.
-    // If the model recommends something else, we ignore it for now or default to text.
-    private supportedLanguages = new Set([
-        'json', 'javascript', 'typescript', 'python', 'csv', 'markdown', 'text',
-        'html', 'css', 'yaml', 'c', 'cpp', 'java', 'go', 'xml'
-    ]);
-
-    private getModelOperations(): Promise<ModelOperations> {
-        if (this.modelOperations) {
-            return Promise.resolve(this.modelOperations);
-        }
-
-        if (!this.initPromise) {
-            this.initPromise = (async () => {
-                const ops = new ModelOperations({
-                    modelJsonLoaderFunc: async () => {
-                        const response = await fetch('/model/model.json');
-                        if (!response.ok) throw new Error("HTTP " + response.status);
-                        return await response.json();
-                    },
-                    weightsLoaderFunc: async () => {
-                        const response = await fetch('/model/group1-shard1of1.bin');
-                        if (!response.ok) throw new Error("HTTP " + response.status);
-                        return await response.arrayBuffer();
-                    },
-                    minContentSize: 5
-                });
-
-                // NOTE: runModel might need an empty warmup or the loaders need to be explicitly called
-                // but the library does this internally on first runModel.
-                this.modelOperations = ops;
-                return ops;
-            })();
-        }
-
-        return this.initPromise;
-    }
-
-    async detect(content: string): Promise<string | null> {
-        if (!content || content.trim().length === 0) {
-            return null;
-        }
-
-        // Extremely large files (100MB+) will crash heuristics / ML model and freeze the UI.
-        // We only need the first ~50KB to accurately guess the language.
-        const MAX_CONTENT_LENGTH = 50000;
-        const boundedContent = content.length > MAX_CONTENT_LENGTH
-            ? content.slice(0, MAX_CONTENT_LENGTH)
-            : content;
-
-        // 1. Production-grade Fast Heuristics for common data formats
-        const heuristicMatch = this.detectByHeuristics(boundedContent);
-        if (heuristicMatch) {
-            return heuristicMatch;
-        }
-
-        if (boundedContent.trim().length < 5) {
-            return null;
-        }
-
-        // 2. ML Model Fallback (for complex code like JS/Python/TS)
-        try {
-            const ops = await this.getModelOperations();
-            const results: ModelResult[] = await ops.runModel(boundedContent);
-
-            if (results && results.length > 0) {
-                const bestMatch = this.mapLanguageId(results[0].languageId);
-
-                // We require at least an 10% confidence score to switch automatically
-                if (this.supportedLanguages.has(bestMatch) && results[0].confidence > 0.1) {
-                    return bestMatch;
-                }
-            }
-        } catch (error) {
-            // Language ML detection failed silently
-        }
-
-        return null; // Not enough confidence or unsupported language
-    }
+    // ──────────────────────────────────────────────────────────
+    // Public API
+    // ──────────────────────────────────────────────────────────
 
     /**
-     * Fast, basic heuristic checks for formats that the ML model struggles with, 
-     * especially when the input is very short (e.g. `{"test": 1}`)
+     * Synchronous detection pipeline (Phases 1–4).
+     *
+     * @param content  - The document text to analyse
+     * @param filename - Optional filename (e.g. "Dockerfile", "config.yml")
+     * @returns A language ID or `null` when uncertain
      */
-    private detectByHeuristics(content: string): string | null {
-        const trimmed = content.trim();
+    detect(content: string, filename?: string): string | null {
+        if (!content || content.trim().length === 0) return null;
+
+        // Phase 1 — file extension / filename
+        if (filename) {
+            const extResult = this.detectByExtension(filename);
+            if (extResult) return extResult;
+        }
+
+        const { content: bounded, wasSliced } = this.boundContent(content);
+        // Strip BOM if present (not removed by trim())
+        const trimmed = bounded.replace(/^\uFEFF/, "").trim();
         if (!trimmed) return null;
 
-        // JSON Heuristic: Fast try-catch parse
-        if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
-            try {
-                JSON.parse(trimmed);
-                return 'json';
-            } catch (e) {
-                // Not valid JSON, fall through
-            }
+        // Phase 2 — shebang line
+        const firstLine = trimmed.split("\n", 1)[0];
+        if (firstLine.startsWith("#!")) {
+            const shebangResult = this.detectByShebang(firstLine);
+            if (shebangResult) return shebangResult;
         }
 
-        // CSV Heuristic: Multiple lines with consistent commas, no obvious JSON/HTML wrappers
-        // A very basic check: does the first line have commas, and do subsequent lines match the comma count?
-        const lines = trimmed.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-        if (lines.length > 1 && lines.every(line => line.includes(','))) {
-            const firstLineCommaCount = (lines[0].match(/,/g) || []).length;
-            if (firstLineCommaCount > 0) {
-                const isConsistentCsv = lines.every(line => (line.match(/,/g) || []).length === firstLineCommaCount);
-                if (isConsistentCsv && !trimmed.startsWith('{') && !trimmed.startsWith('[')) {
-                    return 'csv';
-                }
-            }
-        }
+        // Phase 3 — structural signals (data formats & markup)
+        const structuralResult = this.detectStructural(trimmed, wasSliced);
+        if (structuralResult) return structuralResult;
 
-        // Markdown Heuristic: Fast check for common markdown headers
-        if (trimmed.startsWith('# ') || trimmed.startsWith('## ') || trimmed.startsWith('### ')) {
-            return 'markdown';
-        }
-
-        // XML Heuristic: starts with an XML declaration or a tag
-        if (trimmed.startsWith('<?xml') || trimmed.startsWith('<!--')) {
-            return 'xml';
-        }
-
-        // HTML Heuristic: starts with <!DOCTYPE html or <html
-        if (/^<!doctype\s+html/i.test(trimmed) || /^<html[\s>]/i.test(trimmed)) {
-            return 'html';
-        }
-
-        // YAML Heuristic: document separator or key: value pattern
-        if (trimmed.startsWith('---') || /^[a-zA-Z_][\w.-]*\s*:/m.test(trimmed)) {
-            return 'yaml';
+        // Phase 4 — heuristic scoring (programming languages)
+        if (trimmed.length >= 5) {
+            const scoringResult = this.detectByScoring(trimmed);
+            if (scoringResult) return scoringResult;
         }
 
         return null;
     }
 
-    // Maps standard vs-languagedetection IDs to CodeMirror/Internal IDs
-    private mapLanguageId(id: string): string {
-        const mappings: Record<string, string> = {
-            'js': 'javascript',
-            'jsx': 'javascript',
-            'ts': 'typescript',
-            'tsx': 'typescript',
-            'py': 'python',
-            'md': 'markdown',
-            'c': 'c',
-            'cpp': 'cpp',
-            'c++': 'cpp',
-            'java': 'java',
-            'go': 'go',
-            'golang': 'go',
-            'html': 'html',
-            'css': 'css',
-            'yaml': 'yaml',
-            'yml': 'yaml',
-            'xml': 'xml',
-        };
+    // ──────────────────────────────────────────────────────────
+    // Phase 1 — Extension / Filename Detection
+    // ──────────────────────────────────────────────────────────
 
-        return mappings[id] ?? id;
+    private detectByExtension(filename: string): string | null {
+        const lower = filename.toLowerCase();
+        const base = lower.split("/").pop() || lower;
+
+        // Full-filename match first (Dockerfile, .bashrc, etc.)
+        if (FILENAME_MAP[base]) return this.ensureSupported(FILENAME_MAP[base]);
+
+        // Extension match
+        const dotIdx = base.lastIndexOf(".");
+        if (dotIdx === -1) return null;
+        const ext = base.slice(dotIdx);
+        const mapped = EXTENSION_MAP[ext];
+        return mapped ? this.ensureSupported(mapped) : null;
+    }
+
+    // ──────────────────────────────────────────────────────────
+    // Phase 2 — Shebang Detection
+    // ──────────────────────────────────────────────────────────
+
+    private detectByShebang(firstLine: string): string | null {
+        for (const [pattern, language] of SHEBANG_PATTERNS) {
+            if (pattern.test(firstLine)) return this.ensureSupported(language);
+        }
+        return null;
+    }
+
+    // ──────────────────────────────────────────────────────────
+    // Phase 3 — Structural Detection
+    // ──────────────────────────────────────────────────────────
+
+    /**
+     * Deterministic checks for formats identifiable by their syntax skeleton.
+     *
+     * ORDER MATTERS — most-unambiguous formats are checked first to prevent
+     * false positives (e.g. HTML before XML, XML before Markdown).
+     */
+    private detectStructural(trimmed: string, wasSliced: boolean): string | null {
+        if (this.isLikelyJson(trimmed, wasSliced))  return "json";
+        if (this.isLikelyHtml(trimmed))             return "html";
+        if (this.isLikelyXml(trimmed))              return "xml";
+        if (this.isLikelyDockerfile(trimmed))        return "dockerfile";
+        if (this.isLikelyCsv(trimmed))              return "csv";
+        if (this.isLikelyMarkdown(trimmed))         return "markdown";
+        if (this.isLikelyYaml(trimmed))             return "yaml";  // after markdown to avoid eating frontmatter
+        return null;
+    }
+
+    // ── 3a. JSON ─────────────────────────────────────────────
+
+    /**
+     * Detects JSON, JSONL (JSON-Lines), and JSONC (JSON with comments).
+     *
+     * Strategy:
+     *   1. Content must start with `{` or `[`.
+     *   2. If full content is available, try JSON.parse() — authoritative.
+     *   3. If parse fails, try JSONL (each line is independent JSON).
+     *   4. Fall back to structural heuristic ("key": value patterns)
+     *      while ruling out JS/TS object literals.
+     */
+    private isLikelyJson(trimmed: string, wasSliced: boolean): boolean {
+        const first = trimmed[0];
+        if (first !== "{" && first !== "[") return false;
+
+        // Authoritative parse (only when we have the complete content)
+        if (!wasSliced) {
+            try { JSON.parse(trimmed); return true; } catch { /* fall through */ }
+        }
+
+        // JSONL — each non-empty line is its own JSON value
+        const lines = trimmed.split("\n").filter(l => l.trim().length > 0);
+        if (lines.length >= 2) {
+            const sample = lines.slice(0, 5);
+            const allJsonLines = sample.every(line => {
+                const t = line.trim();
+                if (t[0] !== "{" && t[0] !== "[") return false;
+                try { JSON.parse(t); return true; } catch { return false; }
+            });
+            if (allJsonLines) return true;
+        }
+
+        // Structural heuristic for sliced / JSONC content:
+        // Requires "key": <value-start> patterns AND no programming-language signals.
+        const hasJsonPairs = /"[\w$][\w\s$.-]*"\s*:\s*["{\[\dtfn-]/.test(trimmed);
+        if (!hasJsonPairs) return false;
+
+        const firstLines = trimmed.split("\n").slice(0, 10);
+        const codeSignals = firstLines.filter(l =>
+            /^\s*(const|let|var|function|class|import|export|module|return)\b/.test(l),
+        ).length;
+        return codeSignals === 0;
+    }
+
+    // ── 3b. HTML ─────────────────────────────────────────────
+
+    /**
+     * Checks for `<!DOCTYPE html>`, `<html>`, or a combination of
+     * HTML-specific tags. Must be checked BEFORE XML so that HTML
+     * documents are not misclassified as generic XML.
+     */
+    private isLikelyHtml(trimmed: string): boolean {
+        // Instant bailout: If it explicitly declares XML, let the XML detector handle it
+        if (trimmed.startsWith("<?xml")) return false;
+
+        if (/^<!doctype\s+html/i.test(trimmed)) return true;
+        if (/^<html[\s>]/i.test(trimmed)) return true;
+
+        if (trimmed[0] !== "<") return false;
+
+        const htmlTags = [
+            "head", "body", "div", "span", "script", "style",
+            "meta", "link", "form", "input", "button",
+            "table", "section", "article", "nav", "footer",
+            "header", "main", "aside",
+        ];
+
+        let matchCount = 0;
+        for (const tag of htmlTags) {
+            // Ensure the tag is followed by a space or > (prevents <head from matching <heading>)
+            const regex = new RegExp(`<${tag}[\\s>]`, "i");
+            if (regex.test(trimmed)) matchCount++;
+        }
+
+        return matchCount >= 2;
+    }
+
+    // ── 3c. XML ──────────────────────────────────────────────
+
+    /**
+     * Detects XML by:
+     *   • `<?xml` processing instruction  (definitive)
+     *   • `xmlns` attribute               (definitive)
+     *   • `<!--` comment followed by tags (high confidence)
+     *   • Non-HTML opening tag with matching close tags
+     *
+     * This runs AFTER the HTML check, so `<html>` / `<!DOCTYPE html>`
+     * are already classified — avoiding the classic XML-vs-HTML clash.
+     */
+    private isLikelyXml(trimmed: string): boolean {
+        if (trimmed.startsWith("<?xml")) return true;
+        if (trimmed[0] !== "<") return false;
+        if (/\bxmlns\s*=/.test(trimmed)) return true;
+
+        // Leading XML comment — check for tags after it
+        if (trimmed.startsWith("<!--")) {
+            const afterComments = trimmed.replace(/<!--[\s\S]*?-->\s*/g, "").trim();
+            if (afterComments.startsWith("<")) return true;
+        }
+
+        // Opening tag that is NOT a common HTML tag
+        const openTagMatch = trimmed.match(/^<([a-zA-Z_][\w:.-]*)/);
+        if (!openTagMatch) return false;
+
+        const tagName = openTagMatch[1].toLowerCase();
+        const htmlTopLevelTags = new Set([
+            "html", "head", "body", "div", "span", "p", "a", "script",
+            "style", "link", "meta", "title", "form", "input", "button",
+            "table", "ul", "ol", "li", "h1", "h2", "h3", "h4", "h5", "h6",
+            "img", "br", "hr", "section", "article", "nav", "footer",
+            "header", "main", "aside", "template",
+        ]);
+        if (htmlTopLevelTags.has(tagName)) return false;
+
+        // Namespace prefix (e.g. <ns:tag>) → XML
+        if (tagName.includes(":")) return true;
+
+        // Require both opening and closing tags to confirm structure
+        const openTags  = (trimmed.match(/<[a-zA-Z_][\w:.-]*/g) || []).length;
+        const closeTags = (trimmed.match(/<\/[a-zA-Z_][\w:.-]*/g) || []).length;
+        return openTags >= 2 && closeTags >= 1;
+    }
+
+    // ── 3d. Dockerfile ───────────────────────────────────────
+
+    /**
+     * Dockerfiles have a very distinctive structure:
+     *   • First non-comment line is `FROM` (or `ARG` before `FROM`).
+     *   • Subsequent lines use Docker instructions (RUN, COPY, CMD…).
+     *   • At least 2 instruction lines required for confidence.
+     */
+    private isLikelyDockerfile(trimmed: string): boolean {
+        const lines = trimmed
+            .split("\n")
+            .map(l => l.trim())
+            .filter(l => l.length > 0 && !l.startsWith("#"));
+
+        if (lines.length === 0) return false;
+        if (!/^(FROM|ARG)\s/i.test(lines[0])) return false;
+
+        // Exhaustive list of Dockerfile instructions
+        const instruction =
+            /^(FROM|RUN|CMD|LABEL|MAINTAINER|EXPOSE|ENV|ADD|COPY|ENTRYPOINT|VOLUME|USER|WORKDIR|ARG|ONBUILD|STOPSIGNAL|HEALTHCHECK|SHELL)\s/i;
+        const matchCount = lines.filter(l => instruction.test(l)).length;
+        return matchCount >= 2;
+    }
+
+    // ── 3e. CSV / TSV ────────────────────────────────────────
+
+    /**
+     * Checks for consistent delimiter usage across lines.
+     * Handles comma, tab, semicolon, and pipe delimiters.
+     *
+     * Guard rails:
+     *   • Must NOT start with `{`, `[`, or `<` (JSON / XML / HTML).
+     *   • Requires ≥2 data lines.
+     *   • Lines that look like YAML `key: value` reject CSV.
+     *   • Pipe-delimited markdown tables are excluded.
+     */
+    private isLikelyCsv(trimmed: string): boolean {
+        if (trimmed[0] === "{" || trimmed[0] === "[" || trimmed[0] === "<") return false;
+
+        const lines = trimmed.split("\n").map(l => l.trim()).filter(l => l.length > 0);
+        if (lines.length < 2) return false;
+
+        // If most lines look like YAML key: value, skip CSV
+        const yamlKvPattern = /^[a-zA-Z_][\w.-]*\s*:\s/;
+        const yamlLikeCount = lines.filter(l => yamlKvPattern.test(l)).length;
+        if (yamlLikeCount / lines.length > 0.5) return false;
+
+        // If most lines look like script/source code, reject CSV.
+        // Shell scripts in particular can trigger the delimiter heuristic
+        // (e.g. lines separated by spaces or pipes that look like columns).
+        const scriptOrCommentPattern = /^\s*(#|\/\/|echo|import|from|const|let|var|def|class|function)\b/;
+        const scriptLikeCount = lines.filter(l => scriptOrCommentPattern.test(l)).length;
+        if (scriptLikeCount / lines.length > 0.3) return false;
+
+        for (const delim of [",", "\t", ";", "|"]) {
+            if (this.hasConsistentDelimiter(lines, delim)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Returns true when ≥80 % of sampled lines share the same delimiter count
+     * as the header row, with at least 1 delimiter per line.
+     */
+    private hasConsistentDelimiter(lines: string[], delimiter: string): boolean {
+        const escaped = delimiter.replace(/[|\\{}()[\]^$+*?.]/g, "\\$&");
+        const re = new RegExp(escaped, "g");
+
+        const headerCount = (lines[0].match(re) || []).length;
+        if (headerCount < 1) return false;
+
+        // Pipe delimiter: exclude markdown tables (every line starts & ends with |)
+        if (delimiter === "|") {
+            const looksLikeTable = lines.every(l => l.startsWith("|") && l.endsWith("|"));
+            if (looksLikeTable) return false;
+        }
+
+        const sample = lines.slice(0, Math.min(lines.length, 20));
+        const matching = sample.filter(l => (l.match(re) || []).length === headerCount).length;
+        return matching / sample.length >= 0.8;
+    }
+
+    // ── 3f. YAML ─────────────────────────────────────────────
+
+    /**
+     * YAML detection strategy:
+     *   1. Recognise `---` document separators (and distinguish from
+     *      Markdown frontmatter by checking for trailng content).
+     *   2. Count lines matching `key: value` and `- item` patterns.
+     *   3. Reject if more lines look like code than YAML.
+     *   4. Require >50 % YAML-like lines (>30 % with `---` leader).
+     */
+    private isLikelyYaml(trimmed: string): boolean {
+        const lines = trimmed.split("\n");
+        const startsWithSeparator = lines[0].trim() === "---";
+
+        const kvPattern        = /^\s*[a-zA-Z_][\w.-]*\s*:\s/;
+        const yamlListPattern  = /^\s*-\s+\S/;
+        const codePatterns = [
+            /^\s*(def|class|if|for|while|return|import|from|try|except|with|async|yield)\s/,
+            /^\s*(function|const|let|var|if|for|while|return|import|export|switch|case)\s/,
+            /^\s*(#include|int\s+main|typedef|struct)\s/,
+            /^\s*(public|private|protected)\s+(class|static|void|int|String)/,
+            /^\s*(func|package|type|defer|go)\s/,
+        ];
+
+        const nonEmpty = lines.filter(l => l.trim().length > 0 && !l.trim().startsWith("#"));
+        if (nonEmpty.length === 0) return false;
+
+        let yamlLines = 0;
+        let codeLines = 0;
+        for (const line of nonEmpty) {
+            if (codePatterns.some(p => p.test(line)))   codeLines++;
+            else if (kvPattern.test(line) || yamlListPattern.test(line)) yamlLines++;
+        }
+
+        if (codeLines > yamlLines) return false;
+
+        const yamlRatio = yamlLines / nonEmpty.length;
+        if (startsWithSeparator && yamlRatio > 0.3) return true;
+        return yamlRatio > 0.5;
+    }
+
+    // ── 3g. Markdown ─────────────────────────────────────────
+
+    /**
+     * Markdown detection uses a weighted signal approach.
+     * Score ≥ 4 is required — this avoids false positives from content
+     * that happens to contain a single `#` line or a stray `*bold*`.
+     *
+     * Also handles the special case of YAML frontmatter (`---`) at the
+     * top of a markdown document.
+     */
+    private isLikelyMarkdown(trimmed: string): boolean {
+        // Anti-signals: clearly not markdown
+        if (trimmed[0] === "<" || trimmed[0] === "{" || trimmed[0] === "[") return false;
+
+        // Anti-signal: programming language patterns.
+        // If the content shows strong code signals the markdown "hits" are
+        // almost certainly embedded in string literals / comments.
+        const codeAntiSignals: [RegExp, number][] = [
+            [/^\/\*\*?\s/m,                                3],   // block-comment opener
+            [/^\s*(import|export)\s+/m,                    3],   // ES modules / Python
+            [/^\s*(const|let|var)\s+\w+\s*[=:]/m,         2],   // variable declarations
+            [/^\s*function\s+\w*\s*\(/m,                   2],   // function decl
+            [/^\s*(interface|type|enum)\s+\w+/m,           3],   // TypeScript specifics
+            [/^\s*class\s+\w+/m,                           2],   // class decl
+            [/=>\s*[{(\n]/m,                               2],   // arrow functions
+            [/^\s*def\s+\w+\s*\(/m,                        3],   // Python functions
+            [/^\s*#include\s*[<"]/m,                        3],   // C/C++
+            [/^\s*(if|for|while)\s*\(/m,                   1],   // control flow (parens)
+            [/;\s*$/m,                                     1],   // trailing semicolons
+            [/^\s*async\s+(function|\w+\s*[=(])/m,         2],   // async
+            [/^\s*[a-zA-Z_][\w.-]*\s*:\s+(?!http)/m,          4],   // YAML key-value pairs
+        ];
+
+        let codeScore = 0;
+        for (const [pattern, weight] of codeAntiSignals) {
+            if (pattern.test(trimmed)) codeScore += weight;
+        }
+
+        // Strong code signals → not markdown (embedded examples don't count)
+        if (codeScore >= 6) return false;
+
+        // Special case: YAML frontmatter → almost certainly markdown
+        if (this.hasMarkdownFrontmatter(trimmed)) return true;
+
+        let score = 0;
+        const signals: [RegExp, number][] = [
+            [/^#{1,6}\s+\S/m,              3],   // ATX headings
+            [/\[.+?\]\(.+?\)/,             2],   // links
+            [/!\[.*?\]\(.+?\)/,            2],   // images
+            [/^\s*[-*+]\s+\S/m,            1],   // unordered lists
+            [/^\s*\d+\.\s+\S/m,            1],   // ordered lists
+            [/^\s*>\s+/m,                  1],   // blockquotes
+            [/\*\*.+?\*\*/,               1],   // bold
+            [/^```/m,                      2],   // fenced code blocks
+            [/^\|.+\|.+\|/m,              2],   // tables
+            [/^---\s*$/m,                  1],   // horizontal rules
+        ];
+
+        for (const [pattern, weight] of signals) {
+            if (pattern.test(trimmed)) score += weight;
+        }
+
+        // Moderate code signals → require higher markdown score to override
+        const threshold = codeScore >= 3 ? 8 : 4;
+        return score >= threshold;
+    }
+
+    /**
+     * Returns true when the content begins with YAML frontmatter
+     * (`---` … `---`) AND has content afterwards — a near-definitive
+     * sign of Markdown (Jekyll, Hugo, Gatsby, etc.).
+     */
+    private hasMarkdownFrontmatter(trimmed: string): boolean {
+        if (!trimmed.startsWith("---")) return false;
+
+        const lines = trimmed.split("\n");
+        const closeIdx = lines.findIndex((l, i) => i > 0 && l.trim() === "---");
+        if (closeIdx <= 0) return false;
+
+        const afterFrontmatter = lines.slice(closeIdx + 1).join("\n").trim();
+        return afterFrontmatter.length > 0;
+    }
+
+    // ──────────────────────────────────────────────────────────
+    // Phase 4 — Heuristic Scoring (Programming Languages)
+    // ──────────────────────────────────────────────────────────
+
+    /**
+     * Scores the content against every language signature.
+     *
+     * Returns the highest-scoring language above `HEURISTIC_SCORE_THRESHOLD`.
+     * If no language clears the threshold, returns the top scorer as a
+     * best-guess fallback (provided at least one pattern matched).
+     *
+     * Superset tie-breaking ensures TypeScript beats JavaScript
+     * and C++ beats C when both score well.
+     */
+    private detectByScoring(content: string): string | null {
+        const scores = new Map<string, number>();
+
+        // Track the best partial scorer (below threshold) for fallback
+        let partialBest: string | null = null;
+        let partialBestScore = 0;
+
+        for (const sig of LANGUAGE_SIGNATURES) {
+            let score = 0;
+            for (const [pattern, weight] of sig.patterns) {
+                if (pattern.test(content)) score += weight;
+            }
+
+            // Negative final score → this language is definitively ruled out;
+            // skip both confident and partial-fallback paths entirely.
+            if (score < 0) continue;
+
+            if (score >= HEURISTIC_SCORE_THRESHOLD) {
+                scores.set(sig.language, score);
+            } else if (score > partialBestScore) {
+                partialBest = sig.language;
+                partialBestScore = score;
+            }
+        }
+
+        // Confident matches — pick the best
+        if (scores.size > 0) {
+            // Superset tie-breaking: TypeScript ⊃ JavaScript, C++ ⊃ C
+            this.resolveSuperset(scores, "typescript", "javascript");
+            this.resolveSuperset(scores, "cpp", "c");
+
+            let best: string | null = null;
+            let bestScore = 0;
+            for (const [lang, score] of scores) {
+                if (score > bestScore) {
+                    best = lang;
+                    bestScore = score;
+                }
+            }
+
+            return best ? this.ensureSupported(best) : null;
+        }
+
+        // Best-guess fallback: return the top partial scorer only when
+        // at least two weighted points matched (avoids single weak hits)
+        if (partialBest && partialBestScore >= 2) {
+            return this.ensureSupported(partialBest);
+        }
+
+        return null;
+    }
+
+    /**
+     * If both a superset language and its base language scored above
+     * threshold, and the superset's score is ≥ 60 % of the base, the
+     * base is removed so the superset wins.
+     */
+    private resolveSuperset(
+        scores: Map<string, number>,
+        superset: string,
+        base: string,
+    ): void {
+        const superScore = scores.get(superset);
+        const baseScore = scores.get(base);
+        if (superScore && baseScore && superScore >= baseScore * 0.6) {
+            scores.delete(base);
+        }
+    }
+
+    // ──────────────────────────────────────────────────────────
+    // Utilities
+    // ──────────────────────────────────────────────────────────
+
+    /** Slice content to MAX_CONTENT_LENGTH for safe analysis. */
+    private boundContent(content: string): { content: string; wasSliced: boolean } {
+        if (content.length <= MAX_CONTENT_LENGTH) {
+            return { content, wasSliced: false };
+        }
+        return { content: content.slice(0, MAX_CONTENT_LENGTH), wasSliced: true };
+    }
+
+    /** Returns the language ID if supported, otherwise 'text'. */
+    private ensureSupported(lang: string): string {
+        return SUPPORTED_LANGUAGES.has(lang) ? lang : "text";
     }
 }
 
-// Export a singleton instance
+// ════════════════════════════════════════════════════════════════
+// Singleton Export
+// ════════════════════════════════════════════════════════════════
+
 export const languageDetector = new LanguageDetector();

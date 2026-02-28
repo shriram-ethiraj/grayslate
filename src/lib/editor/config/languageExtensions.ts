@@ -59,6 +59,9 @@ export function getLanguageExtension(langId: string): Extension | Extension[] {
             return xml();
         case "csv":
             return csv();
+        case "shell":
+        case "dockerfile":
+            return [];  // Plain-text mode (no CM extension yet)
         case "markdown":
             return [
                 markdown(),

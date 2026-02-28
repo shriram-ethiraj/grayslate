@@ -14,6 +14,8 @@ export type FileType =
     | "java"
     | "go"
     | "xml"
+    | "shell"
+    | "dockerfile"
     | "auto";
 
 export const editorState = $state<{

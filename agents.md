@@ -42,7 +42,7 @@ Welcome to the Grayslate project. This document serves as a "production-grade" r
 
 ### 4. Application Features & Core Libraries
 *   **Supported Languages:** The editor explicitly supports and provides syntax/tooling for `Text`, `JSON`, `JavaScript/TypeScript`, `Python`, `CSV`, and `Markdown`.
-*   **Language Detection:** Automatic file type detection is primarily handled by `@vscode/vscode-languagedetection` (a TensorFlow ML model) running locally, preceded by fast custom heuristics for common data formats (JSON, CSV, Markdown) to ensure performance.
+*   **Language Detection:** Automatic file type detection uses a fast, fully synchronous heuristic pipeline: file extension lookup → shebang matching → structural format detection (JSON, XML, HTML, CSV, Dockerfile, Markdown, YAML) → weighted pattern scoring for programming languages with character-profile pre-filtering and best-guess fallback.
 *   **CSV Table View:** For structured data, the app uses a virtualized spreadsheet mode powered by `@tanstack/svelte-table` for headless data grid logic and `@tanstack/svelte-virtual` for performant DOM virtualization of large datasets.
 *   **Markdown Preview:** Markdown is parsed into an AST and converted to HTML using `marked`, then heavily sanitized using `dompurify`. Custom renderer hooks inject `data-line` attributes to achieve seamless, bi-directional scroll synchronization between the editor and the preview pane.
 

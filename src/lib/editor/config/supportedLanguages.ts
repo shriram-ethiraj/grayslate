@@ -15,7 +15,7 @@ import {
 } from "simple-icons";
 import type { SimpleIcon } from "simple-icons";
 import type { Component } from "svelte";
-import { FileText, FileCode } from "@lucide/svelte";
+import { FileText, FileCode, Terminal, Container } from "@lucide/svelte";
 import type { IconProps } from "@lucide/svelte";
 
 export type LanguageIcon = SimpleIcon | Component<IconProps>;
@@ -42,5 +42,5 @@ export const languages: Language[] = [
     { value: "go",         label: "Go",          icon: siGo },
     { value: "xml",        label: "XML",         icon: FileCode },
     { value: "csv",        label: "CSV",         icon: siGooglesheets },
-    { value: "markdown",   label: "Markdown",    icon: siMarkdown },
-];
+    { value: "markdown",   label: "Markdown",    icon: siMarkdown },    { value: "shell",      label: "Shell",       icon: Terminal },
+    { value: "dockerfile", label: "Dockerfile",  icon: Container },];
