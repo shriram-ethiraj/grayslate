@@ -28,6 +28,10 @@ import { ViewPlugin, Decoration, EditorView } from "@codemirror/view";
 import type { DecorationSet, ViewUpdate } from "@codemirror/view";
 import { RangeSetBuilder } from "@codemirror/state";
 import type { Extension } from "@codemirror/state";
+import {
+    createStickyHeaderPanel,
+    stickyHeaderBaseTheme,
+} from "./stickyHeader";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -148,6 +152,58 @@ function getFieldRanges(line: string, delimiter: string): FieldRange[] {
 }
 
 // ---------------------------------------------------------------------------
+// Sticky header — CSV-specific render + change detection
+// ---------------------------------------------------------------------------
+
+/**
+ * Populate `dom` with rainbow-coloured column spans for line 1.
+ * Direct DOM manipulation — no framework overhead.
+ */
+function renderCsvHeader(dom: HTMLElement, view: EditorView): void {
+    dom.replaceChildren();
+    const lineText = view.state.doc.line(1).text;
+    if (!lineText) return;
+
+    const delimiter = detectDelimiter(view.state.doc.sliceString(0, 5000));
+    const fields = getFieldRanges(lineText, delimiter);
+
+    for (let col = 0; col < fields.length; col++) {
+        const { from, to } = fields[col];
+
+        if (col > 0) {
+            const sep = document.createElement("span");
+            sep.className = "csv-hdr-sep";
+            sep.textContent = delimiter;
+            dom.appendChild(sep);
+        }
+
+        const span = document.createElement("span");
+        span.className = `csv-col-${col % NUM_COLORS}`;
+        span.textContent = lineText.slice(from, to);
+        dom.appendChild(span);
+    }
+}
+
+/** Track line-1 text so we can skip unnecessary re-renders. */
+let _lastCsvHeaderText = "";
+
+const csvStickyHeader: Extension = createStickyHeaderPanel({
+    class: "csv-sticky-header",
+    anchorLine: 1,
+    getLineNumber: () => 1,
+    render(dom, view) {
+        _lastCsvHeaderText = view.state.doc.line(1).text;
+        renderCsvHeader(dom, view);
+    },
+    shouldRerender(update) {
+        if (!update.docChanged) return false;
+        const newText = update.state.doc.line(1).text;
+        if (newText === _lastCsvHeaderText) return false;
+        return true;
+    },
+});
+
+// ---------------------------------------------------------------------------
 // ViewPlugin
 // ---------------------------------------------------------------------------
 
@@ -264,6 +320,10 @@ class CsvRainbowPlugin {
 // token spans.  Without it a `HighlightStyle` for `tags.string` would
 // silently override the decorations.
 const rainbowTheme: Extension = EditorView.baseTheme({
+    // Dimmed delimiter glyphs between header fields
+    ".csv-hdr-sep": {
+        opacity: "0.4",
+    },
     // ── Light palette ────────────────────────────────────────────────────────
     ".csv-col-0": { color: "#7a5200 !important" },  // dark amber
     ".csv-col-1": { color: "#0b6b7a !important" },  // dark teal
@@ -297,5 +357,7 @@ export const csvRainbowHighlight: Extension[] = [
     ViewPlugin.fromClass(CsvRainbowPlugin, {
         decorations: (plugin) => plugin.decorations,
     }),
+    csvStickyHeader,
+    stickyHeaderBaseTheme,
     rainbowTheme,
 ];

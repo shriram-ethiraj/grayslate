@@ -4,6 +4,48 @@ This document describes all custom CodeMirror extensions and editor utilities in
 
 ---
 
+## `stickyHeader.ts`
+
+**Type:** CodeMirror extension factory + base theme
+
+Provides a reusable top‑panel that behaves like a "sticky header". The
+panel is initially hidden and only becomes visible once a designated
+"anchor" line scrolls out of view; it hides again when the line returns
+onscreen. It also keeps its content aligned with the editable text area by
+shadowing the gutter width.
+
+The implementation is intentionally minimal and highly performant:
+
+* a passive `scroll` listener on `view.scrollDOM` toggles `display`
+* visibility check uses `scrollTop` vs `lineBlockAt().bottom` (no layout)
+* content rendering occurs only when the consumer's `shouldRerender`
+  callback returns `true` (usually just a string equality test)
+* gutter padding sync reads `contentDOM.offsetLeft` (composited style)
+
+### Usage example (csvRainbowHighlight)
+
+```ts
+import { createStickyHeaderPanel, stickyHeaderBaseTheme } from "./stickyHeader";
+
+const csvStickyHeader = createStickyHeaderPanel({
+  class: "csv-sticky-header",
+  anchorLine: 1,
+  render(dom, view) { /* paint header row */ },
+  shouldRerender(update) { /* compare line‑1 text */ }
+});
+
+// then include `csvStickyHeader` and `stickyHeaderBaseTheme` in
+// the extension array for CSV files (see csvRainbowHighlight.ts).
+```
+
+### Future use
+
+This utility will also power the JSON path breadcrumb that appears when
+scrolling through large JSON documents; simply provide a different render
+function and re-render predicate.
+
+---
+
 ## `jsonFoldWidget.ts`
 
 **Type:** CodeMirror extension (`Prec.highest`)
