@@ -1,7 +1,7 @@
 /**
  * languageDetector.ts
  *
- * Production-grade content-based language detection for Grayslate.
+ * Production-grade content-based language detection for MOS.
  *
  * Fully synchronous, deterministic pipeline — no ML model dependency.
  *
@@ -611,7 +611,10 @@ class LanguageDetector {
         const escaped = delimiter.replace(/[|\\{}()[\]^$+*?.]/g, "\\$&");
         const re = new RegExp(escaped, "g");
 
-        const headerCount = (lines[0].match(re) || []).length;
+        // Strip content inside double quotes to avoid counting grammatical delimiters
+        const cleanHeader = lines[0].replace(/"[^"]*"/g, "");
+        const headerCount = (cleanHeader.match(re) || []).length;
+        
         if (headerCount < 1) return false;
 
         // Pipe delimiter: exclude markdown tables (every line starts & ends with |)
@@ -621,7 +624,11 @@ class LanguageDetector {
         }
 
         const sample = lines.slice(0, Math.min(lines.length, 20));
-        const matching = sample.filter(l => (l.match(re) || []).length === headerCount).length;
+        const matching = sample.filter(l => {
+            const cleanLine = l.replace(/"[^"]*"/g, "");
+            return (cleanLine.match(re) || []).length === headerCount;
+        }).length;
+        
         return matching / sample.length >= 0.8;
     }
 

@@ -69,9 +69,9 @@ export const createTheme = (config: ThemeConfig): Extension => {
             '.cm-cursor, .cm-dropCursor': {
                 borderLeftColor: config.settings.caret,
             },
-            '&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection':
+            '&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, &.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection':
             {
-                backgroundColor: config.settings.selection,
+                backgroundColor: config.settings.selection + ' !important',
             },
             '.cm-activeLine': {
                 backgroundColor: config.settings.lineHighlight,

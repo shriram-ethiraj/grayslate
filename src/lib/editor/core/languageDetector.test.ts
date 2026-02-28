@@ -107,6 +107,14 @@ assert("package.json style", languageDetector.detect(`{
   }
 }`), "json");
 
+assert("JSONC with comments", languageDetector.detect(`{
+  // A comment
+  "compilerOptions": {
+    "target": "es2020", /* inline comment */
+    "module": "esnext"
+  }
+}`), "json");
+
 // ════════════════════════════════════════════════════════════════
 // Phase 3b — HTML Detection
 // ════════════════════════════════════════════════════════════════
@@ -182,6 +190,10 @@ assert("TSV (tab-separated)", languageDetector.detect(
 
 assert("Semicolon-delimited", languageDetector.detect(
     "name;age;city\nAlice;30;NYC\nBob;25;LA"
+), "csv");
+
+assert("CSV with nested quotes", languageDetector.detect(
+    'id,category\n979594,"ANZSIC06 divisions A-S (excluding classes K6330, L6711...)"\n979595,"Sales, government..., ANZSIC06..."'
 ), "csv");
 
 // ════════════════════════════════════════════════════════════════
