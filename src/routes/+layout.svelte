@@ -3,7 +3,7 @@
 	import * as Sidebar from "$lib/components/ui/sidebar/index.js";
 	import AppSidebar from "$lib/components/app-sidebar.svelte";
 	import ThemeToggle from "$lib/components/theme-toggle.svelte";
-	import EditorActions from "$lib/components/editor/EditorActions.svelte";
+	import EditorActions from "$lib/editor/components/EditorActions.svelte";
 	import { Toaster } from "$lib/components/ui/sonner/index.js";
 
 	const { children } = $props();

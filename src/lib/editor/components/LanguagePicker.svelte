@@ -1,7 +1,7 @@
 <script lang="ts">
     import * as Command from "$lib/components/ui/command/index.js";
     import * as Dialog from "$lib/components/ui/dialog/index.js";
-    import { languages } from "$lib/utils/languages";
+    import { languages } from "$lib/editor/config/supportedLanguages";
     import { Check } from "@lucide/svelte";
 
     let {

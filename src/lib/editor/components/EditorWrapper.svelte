@@ -1,10 +1,10 @@
 <script lang="ts">
-    import Editor from "$lib/components/editor/Editor.svelte";
-    import MarkdownPreview from "$lib/components/editor/markdown/MarkdownPreview.svelte";
-    import CsvTableView from "$lib/components/editor/CsvTableView.svelte";
-    import StatusBar from "$lib/components/editor/StatusBar.svelte";
-    import EditorLoader from "$lib/components/editor/EditorLoader.svelte";
-    import { languageDetector } from "$lib/utils/language";
+    import Editor from "$lib/editor/components/Editor.svelte";
+    import MarkdownPreview from "$lib/editor/components/markdown/MarkdownPreview.svelte";
+    import CsvTableView from "./csv/CsvTableView.svelte";
+    import StatusBar from "$lib/editor/components/StatusBar.svelte";
+    import EditorLoader from "$lib/editor/components/EditorLoader.svelte";
+    import { languageDetector } from "$lib/editor/core/languageDetector";
     import { debounce } from "lodash-es";
     import type { EditorView } from "codemirror";
     import { editorState, type FileType } from "$lib/state/editor.svelte";

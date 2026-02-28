@@ -1,6 +1,6 @@
-# Editor Widgets & Extensions
+# Editor Extensions
 
-This document describes all custom CodeMirror extensions and editor utilities in `src/lib/utils/editor/`.
+This document describes all custom CodeMirror extensions and editor utilities in `src/lib/editor/extensions/`.
 
 ---
 

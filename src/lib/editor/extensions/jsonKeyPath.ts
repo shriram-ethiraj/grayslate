@@ -39,7 +39,7 @@ export function extractPropertyKey(view: EditorView, propertyNode: SyntaxNode): 
  * Examples:
  *   [{"id": 1, "address": {"city": "NY"}}]
  *   cursor on `"NY"`  →  "$[0].address.city"
- *   cursor on key `"id"`   →  "$[0].id"
+ *   cursor on `"id"`   →  "$[0].id"
  *   cursor on `:` after `"id"` →  "$[0].id"   (was "$[0]" before this fix)
  *   cursor on `{` of first object  →  "$[0]"
  *   {"users": [{"name": "Alice"}]}
@@ -99,7 +99,7 @@ export function buildJsonPath(view: EditorView, pos: number, side: -1 | 1): stri
     // Assemble the JSONPath string, always prefixed with the root `$`.
     // e.g. parts = ["users", "[0]", "address"] → "$.users[0].address"
     //      parts = ["[0]", "id"]               → "$[0].id"
-    //      parts = []                           → "$"  (cursor on root value)
+    //      parts = []                           → "$"  ()
     return parts.reduce(
         (acc, part) => acc + (part.startsWith("[") ? part : "." + part),
         "$",

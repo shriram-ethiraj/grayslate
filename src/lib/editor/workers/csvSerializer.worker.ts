@@ -1,5 +1,5 @@
 import Papa from "papaparse";
-import type { TableOp } from "../components/editor/csv/useCsvHistory.svelte";
+import type { TableOp } from "$lib/editor/components/csv/useCsvHistory.svelte";
 
 let internalHeaders: string[] = [];
 let internalRows: string[][] = [];

@@ -4,14 +4,18 @@
         getCoreRowModel,
         type ColumnDef,
     } from "@tanstack/svelte-table";
-    import { useScrollVirtualizer } from "./csv/useScrollVirtualizer.svelte";
-    import { editorState, showEditorLoader, hideEditorLoader } from "$lib/state/editor.svelte";
+    import { useScrollVirtualizer } from "./useScrollVirtualizer.svelte";
+    import {
+        editorState,
+        showEditorLoader,
+        hideEditorLoader,
+    } from "$lib/state/editor.svelte";
     import { debounce } from "lodash-es";
     import { untrack } from "svelte";
-    import { useCsvHistory } from "./csv/useCsvHistory.svelte";
-    import { useCsvEditorState } from "./csv/useCsvEditorState.svelte";
-    import CsvTableHeader from "./csv/CsvTableHeader.svelte";
-    import CsvTableBody from "./csv/CsvTableBody.svelte";
+    import { useCsvHistory } from "./useCsvHistory.svelte";
+    import { useCsvEditorState } from "./useCsvEditorState.svelte";
+    import CsvTableHeader from "./CsvTableHeader.svelte";
+    import CsvTableBody from "./CsvTableBody.svelte";
 
     let {
         content = $bindable(""),
@@ -38,7 +42,10 @@
     $effect(() => {
         // Serializer worker (initialized first to receive messages)
         serializeWorker = new Worker(
-            new URL("../../workers/csvSerializer.worker.ts", import.meta.url),
+            new URL(
+                "../../workers/csvSerializer.worker.ts",
+                import.meta.url,
+            ),
             { type: "module" },
         );
 
@@ -383,6 +390,4 @@
         overscroll-behavior: none;
         position: relative;
     }
-
-
 </style>

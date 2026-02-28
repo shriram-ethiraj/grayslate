@@ -1,7 +1,7 @@
 <script lang="ts">
     import DOMPurify from "dompurify";
     import { Marked } from "marked";
-    import { createScrollSync } from "$lib/utils/editor/markdown/scrollSync";
+    import { createScrollSync } from "./scrollSync";
     import type { EditorView } from "codemirror";
 
     let { content, editorView }: { content: string; editorView?: EditorView } =

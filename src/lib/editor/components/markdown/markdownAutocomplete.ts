@@ -1,4 +1,4 @@
-import { createAutocompleteProvider, type AutocompleteConfig } from "../widgets/autocompleteFactory";
+import { createAutocompleteProvider, type AutocompleteConfig } from "../../extensions/autocompleteFactory";
 import {
     Heading1,
     Heading2,
