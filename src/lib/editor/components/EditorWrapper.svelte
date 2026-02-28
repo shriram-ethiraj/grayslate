@@ -8,6 +8,10 @@
     import { debounce } from "lodash-es";
     import type { EditorView } from "codemirror";
     import { editorState, type FileType } from "$lib/state/editor.svelte";
+    import { listen } from "@tauri-apps/api/event";
+    import { open as openFilePicker } from "@tauri-apps/plugin-dialog";
+    import { invoke } from "@tauri-apps/api/core";
+    import { toast } from "svelte-sonner";
 
     let value = $state("");
     let line = $state(1);
@@ -41,6 +45,58 @@
     });
 
     let editorView = $state<EditorView | undefined>(undefined);
+
+    // -----------------------------------------------------------------------
+    // Menu: "File > Open File..."
+    //
+    // The Tauri menu emits "menu://open-file" when the user clicks the item
+    // (or presses Ctrl/Cmd+O via its accelerator). We open a native file
+    // picker, then invoke read_file_content on the Rust side which enforces
+    // the 50 MB size limit before returning the text.
+    // -----------------------------------------------------------------------
+    async function openFile(): Promise<void> {
+        const selected = await openFilePicker({
+            multiple: false,
+            directory: false,
+        });
+
+        // User cancelled the dialog
+        if (!selected) return;
+
+        // selected is a string (single-file mode returns string | null)
+        const filePath = selected as string;
+
+        try {
+            const content = await invoke<string>("read_file_content", {
+                path: filePath,
+            });
+
+            // Derive the bare filename for language detection (e.g. "foo.json")
+            const filename = filePath.replace(/\\/g, "/").split("/").pop() ?? "";
+
+            // Detect language from filename + content; fall back to "text"
+            const detected = languageDetector.detect(content, filename) ?? "text";
+
+            // Reset language selector to "auto" and update the detected language
+            // so the status-bar shows the right label without forcing a fixed choice.
+            language = "auto";
+            detectedLanguage = detected;
+
+            // Load content into editor
+            value = content;
+        } catch (err: unknown) {
+            const msg = typeof err === "string" ? err : "Failed to open file.";
+            toast.error(msg);
+        }
+    }
+
+    // Register (and later clean up) the menu-event listener.
+    $effect(() => {
+        const unlisten = listen("menu://open-file", () => openFile());
+        return () => {
+            unlisten.then((fn) => fn());
+        };
+    });
 
     // Derive whether CSV table view is active
     let isCsvTableActive = $derived(

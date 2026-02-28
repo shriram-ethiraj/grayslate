@@ -319,14 +319,19 @@ export function createStickyHeaderPanel(config: StickyHeaderConfig): Extension {
         // ── Click-to-navigate ────────────────────────────────────────
         // Clicking the sticky header scrolls to and focuses the anchor
         // line, matching VS Code's sticky-scroll behaviour.
+        //
+        // We set scrollDOM.scrollTop manually (instead of
+        // `scrollIntoView: true`) to position the anchor line exactly
+        // at the viewport top.  This guarantees `isAnchorLineVisible`
+        // returns true immediately, hiding the panel without a
+        // flicker or "shown-twice" glitch.
         function handleClick(): void {
             const lineNum = config.getLineNumber?.(view) ?? anchor;
             if (lineNum < 1 || lineNum > view.state.doc.lines) return;
             const pos = view.state.doc.line(lineNum).from;
-            view.dispatch({
-                selection: { anchor: pos },
-                scrollIntoView: true,
-            });
+            const block = view.lineBlockAt(pos);
+            view.dispatch({ selection: { anchor: pos } });
+            view.scrollDOM.scrollTop = block.top;
             view.focus();
         }
         root.addEventListener("click", handleClick);

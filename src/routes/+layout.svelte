@@ -9,7 +9,7 @@
 	const { children } = $props();
 </script>
 
-<Sidebar.Provider>
+<Sidebar.Provider open={false}>
 	<AppSidebar />
 	<Sidebar.Inset class="min-w-0">
 		<header

@@ -22,22 +22,41 @@
  *   - Delimiter detection samples only the first 5 000 chars and caches.
  *   - Viewport-only scrolls reuse the cached decoration set unless the
  *     visible line range actually changed.
+ *
+ * ## Standalone usage
+ *
+ * This extension is fully self-contained — just add it to your CodeMirror
+ * extension array:
+ *
+ * ```ts
+ * import { csvRainbowHighlight } from "./csvRainbowHighlight";
+ *
+ * new EditorView({
+ *     extensions: [csvRainbowHighlight],
+ * });
+ * ```
+ *
+ * Pair with `csvStickyScroll` for a frozen-header-row experience:
+ *
+ * ```ts
+ * import { csvRainbowHighlight } from "./csvRainbowHighlight";
+ * import { csvStickyScroll } from "./csvStickyScroll";
+ *
+ * new EditorView({
+ *     extensions: [csvRainbowHighlight, csvStickyScroll],
+ * });
+ * ```
  */
 
 import { ViewPlugin, Decoration, EditorView } from "@codemirror/view";
 import type { DecorationSet, ViewUpdate } from "@codemirror/view";
 import { RangeSetBuilder } from "@codemirror/state";
 import type { Extension } from "@codemirror/state";
-import {
-    createStickyHeaderPanel,
-    stickyHeaderBaseTheme,
-} from "./stickyHeader";
+import { NUM_COLORS, detectDelimiter, getFieldRanges } from "./csvUtils";
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-
-const NUM_COLORS = 10;
 
 /**
  * Pre-built mark decorations — one per colour slot.
@@ -48,160 +67,6 @@ const NUM_COLORS = 10;
 const FIELD_MARKS = Array.from({ length: NUM_COLORS }, (_, i) =>
     Decoration.mark({ class: `csv-col-${i}` }),
 );
-
-// ---------------------------------------------------------------------------
-// Delimiter detection
-// ---------------------------------------------------------------------------
-
-const CANDIDATE_DELIMITERS = [",", "\t", ";", "|"] as const;
-
-/**
- * Heuristically determine the field delimiter by counting occurrences of each
- * candidate in the first `sampleSize` characters of the document.
- * Returns the delimiter with the highest occurrence count; falls back to `,`.
- */
-function detectDelimiter(sample: string): string {
-    let best = ",";
-    let bestCount = -1;
-    for (const d of CANDIDATE_DELIMITERS) {
-        let count = 0;
-        let from = 0;
-        while ((from = sample.indexOf(d, from)) !== -1) {
-            count++;
-            from += d.length;
-        }
-        if (count > bestCount) {
-            bestCount = count;
-            best = d;
-        }
-    }
-    return best;
-}
-
-// ---------------------------------------------------------------------------
-// RFC-4180 field-range extractor
-// ---------------------------------------------------------------------------
-
-interface FieldRange {
-    /** Inclusive start within the line string. */
-    from: number;
-    /** Exclusive end within the line string (character *after* last field char). */
-    to: number;
-}
-
-/**
- * Parse a single CSV line and return the character ranges of each field.
- *
- * Handles:
- *  - Unquoted fields separated by `delimiter`
- *  - Double-quoted fields (RFC 4180), including embedded delimiters and
- *    doubled-quote escape sequences `""`
- *
- * @param line      Raw line text (no trailing newline)
- * @param delimiter Field separator string (typically one char)
- */
-function getFieldRanges(line: string, delimiter: string): FieldRange[] {
-    const ranges: FieldRange[] = [];
-    const dlen = delimiter.length;
-    let i = 0;
-
-    while (i <= line.length) {
-        const fieldStart = i;
-
-        if (i < line.length && line[i] === '"') {
-            // ── Quoted field ──────────────────────────────────────────────
-            let j = i + 1;
-            while (j < line.length) {
-                if (line[j] === '"') {
-                    if (line[j + 1] === '"') {
-                        // doubled-quote escape: skip both
-                        j += 2;
-                    } else {
-                        // closing quote
-                        j++;
-                        break;
-                    }
-                } else {
-                    j++;
-                }
-            }
-            // j is now one past the closing quote (or at line.length if
-            // the field was never properly closed — be tolerant)
-            ranges.push({ from: fieldStart, to: j });
-
-            if (j < line.length && line.slice(j, j + dlen) === delimiter) {
-                i = j + dlen;
-            } else {
-                // end of line (or malformed — stop gracefully)
-                break;
-            }
-        } else {
-            // ── Unquoted field ────────────────────────────────────────────
-            const delimIdx = line.indexOf(delimiter, i);
-            if (delimIdx === -1) {
-                ranges.push({ from: fieldStart, to: line.length });
-                break;
-            } else {
-                ranges.push({ from: fieldStart, to: delimIdx });
-                i = delimIdx + dlen;
-            }
-        }
-    }
-
-    return ranges;
-}
-
-// ---------------------------------------------------------------------------
-// Sticky header — CSV-specific render + change detection
-// ---------------------------------------------------------------------------
-
-/**
- * Populate `dom` with rainbow-coloured column spans for line 1.
- * Direct DOM manipulation — no framework overhead.
- */
-function renderCsvHeader(dom: HTMLElement, view: EditorView): void {
-    dom.replaceChildren();
-    const lineText = view.state.doc.line(1).text;
-    if (!lineText) return;
-
-    const delimiter = detectDelimiter(view.state.doc.sliceString(0, 5000));
-    const fields = getFieldRanges(lineText, delimiter);
-
-    for (let col = 0; col < fields.length; col++) {
-        const { from, to } = fields[col];
-
-        if (col > 0) {
-            const sep = document.createElement("span");
-            sep.className = "csv-hdr-sep";
-            sep.textContent = delimiter;
-            dom.appendChild(sep);
-        }
-
-        const span = document.createElement("span");
-        span.className = `csv-col-${col % NUM_COLORS}`;
-        span.textContent = lineText.slice(from, to);
-        dom.appendChild(span);
-    }
-}
-
-/** Track line-1 text so we can skip unnecessary re-renders. */
-let _lastCsvHeaderText = "";
-
-const csvStickyHeader: Extension = createStickyHeaderPanel({
-    class: "csv-sticky-header",
-    anchorLine: 1,
-    getLineNumber: () => 1,
-    render(dom, view) {
-        _lastCsvHeaderText = view.state.doc.line(1).text;
-        renderCsvHeader(dom, view);
-    },
-    shouldRerender(update) {
-        if (!update.docChanged) return false;
-        const newText = update.state.doc.line(1).text;
-        if (newText === _lastCsvHeaderText) return false;
-        return true;
-    },
-});
 
 // ---------------------------------------------------------------------------
 // ViewPlugin
@@ -353,11 +218,25 @@ const rainbowTheme: Extension = EditorView.baseTheme({
 // Public export
 // ---------------------------------------------------------------------------
 
-export const csvRainbowHighlight: Extension[] = [
+/**
+ * Self-contained CSV rainbow-highlight extension.
+ *
+ * Includes the `ViewPlugin` that decorates columns and the `baseTheme`
+ * that defines the light / dark colour palettes.  Drop this directly
+ * into a CodeMirror extension array — no additional theme import needed.
+ */
+export const csvRainbowHighlight: Extension = [
     ViewPlugin.fromClass(CsvRainbowPlugin, {
         decorations: (plugin) => plugin.decorations,
     }),
-    csvStickyHeader,
-    stickyHeaderBaseTheme,
     rainbowTheme,
 ];
+
+/**
+ * Standalone colour-palette theme.
+ *
+ * Re-exported so consumers that only need the CSS classes (e.g.
+ * `csvStickyScroll`'s rainbow-coloured header) can include the palette
+ * without pulling in the full `ViewPlugin`.
+ */
+export { rainbowTheme as csvRainbowTheme };

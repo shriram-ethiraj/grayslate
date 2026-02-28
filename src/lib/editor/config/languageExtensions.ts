@@ -64,7 +64,10 @@ export function getLanguageExtension(langId: string): Extension | Extension[] {
             // would tag everything as `tags.string`, causing the theme's
             // green string colour to override the rainbow colours once
             // the async parse completes.
-            return csvRainbowHighlight;
+            //
+            // Each extension is self-contained and independently
+            // publishable — compose them here for the full experience.
+            return [csvRainbowHighlight];
         case "shell":
         case "dockerfile":
             return [];  // Plain-text mode (no CM extension yet)
