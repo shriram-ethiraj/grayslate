@@ -71,9 +71,6 @@ importers:
       codemirror:
         specifier: ^6.0.2
         version: 6.0.2
-      codemirror-lang-csv:
-        specifier: ^0.1.1
-        version: 0.1.1
       dompurify:
         specifier: ^3.3.1
         version: 3.3.1
@@ -1025,9 +1022,6 @@ packages:
   clsx@2.1.1:
     resolution: {integrity: sha512-eYm0QWBtUrBWZWG0d386OGAw16Z995PiOVo2B7bjWSbHedGl5e0ZWaq65kOGgUSNesEIDkB9ISbTg/JK9dhCZA==}
     engines: {node: '>=6'}
-
-  codemirror-lang-csv@0.1.1:
-    resolution: {integrity: sha512-BwGQNLtaEUa9Ck0kYiVeei05F1uZsGxqRzMEpqGmDR7WVKBoqMR2pjwPWoigyOeK8csxt3MZ2KAnV+M7L4lozw==}
 
   codemirror@6.0.2:
     resolution: {integrity: sha512-VhydHotNW5w1UGK0Qj96BwSk/Zqbp9WbnyK2W/eVMv4QyF41INRGpjUhFJY7/uDNuudSc33a/PKr4iDqRduvHw==}
@@ -2178,12 +2172,6 @@ snapshots:
       readdirp: 4.1.2
 
   clsx@2.1.1: {}
-
-  codemirror-lang-csv@0.1.1:
-    dependencies:
-      '@codemirror/language': 6.12.1
-      '@lezer/highlight': 1.2.3
-      '@lezer/lr': 1.4.8
 
   codemirror@6.0.2:
     dependencies:

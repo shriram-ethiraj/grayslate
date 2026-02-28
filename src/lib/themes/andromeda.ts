@@ -4,9 +4,12 @@ export const andromedaConfig = createThemeConfig('dark', {
     background: '#1b1e26', // base00
     foreground: '#e4dff0', // base01
     caret: '#ffffff', // base04
-    selection: '#db45a270', // base02
-    lineHighlight: '#30343d40', // highlightBackground
-    gutterBackground: '#242830', // darkBackground
+    selection: '#2e5b72', // cool blue-teal selection
+    lineHighlight: '#2d264040', // warm purple-tinted line highlight — semi-transparent so selection layer shows through
+    searchMatch: '#ffdd8055',         // golden yellow tint — all search matches
+    searchMatchSelected: '#ffdd80cc', // bright gold — currently focused search match
+    selectionMatch: '#24e3c340',      // teal — other occurrences of selected word
+    gutterBackground: '#1e212b', // darkBackground
     gutterForeground: '#748099',
 
     keyword: '#d667ff', // base05

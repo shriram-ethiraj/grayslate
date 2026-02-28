@@ -2,201 +2,131 @@
     /**
      * JsonContextMenu.svelte
      *
-     * Wraps an arbitrary child element in a shadcn ContextMenu that exposes
-     * JSON-aware "Copy Path / Key / Value" actions.  All context-menu state and
-     * the hit-testing logic are self-contained here so Editor.svelte stays thin.
+     * Renders a floating context menu with JSON-aware "Copy Path / Key / Value"
+     * actions.  Instead of wrapping the editor in a trigger element, this
+     * component listens for `contextmenu` events on the CodeMirror DOM and
+     * reads pre-computed data from the companion `jsonContextMenuExtension`
+     * CM extension (registered only for JSON via `getLanguageExtension`).
+     *
+     * For non-JSON files the CM extension is absent, so no data is stored and
+     * the native browser context menu is left untouched.
      *
      * Props:
-     *   view     – the live CodeMirror EditorView (may be undefined before mount)
-     *   language – the currently active language identifier
-     *   children – snippet rendered inside the trigger
+     *   view – the live CodeMirror EditorView (may be undefined before mount)
      */
     import type { EditorView } from "codemirror";
-    import type { Snippet } from "svelte";
-    import * as ContextMenu from "$lib/components/ui/context-menu/index.js";
-    import { syntaxTree } from "@codemirror/language";
     import {
-        buildJsonPath,
-        extractPropertyKey,
-    } from "$lib/editor/extensions/jsonKeyPath";
+        consumeJsonContextMenuData,
+        type JsonContextMenuData,
+    } from "$lib/editor/extensions/jsonContextMenu";
     import { toast } from "svelte-sonner";
+    import { tick } from "svelte";
 
-    let {
-        view,
-        language,
-        children,
-    }: {
-        view: EditorView | undefined;
-        language: string;
-        children: Snippet;
-    } = $props();
+    let { view }: { view: EditorView | undefined } = $props();
 
-    // Cached regex – compiled once per module load, not on every event.
-    const WHITESPACE_RE = /\s/;
+    // ── Menu state ──────────────────────────────────────────────────────────
+    let open = $state(false);
+    let menuX = $state(0);
+    let menuY = $state(0);
+    let menuData = $state<JsonContextMenuData | null>(null);
+    let menuRef = $state<HTMLDivElement | null>(null);
 
-    let jsonContextMenuPath = $state("");
-    let jsonContextMenuKey = $state("");
-    let jsonContextMenuValue = $state("");
+    // ── Open / close helpers ────────────────────────────────────────────────
 
-    // ---------------------------------------------------------------------------
-    // Context-menu hit testing
-    // ---------------------------------------------------------------------------
+    function openMenu(x: number, y: number, data: JsonContextMenuData) {
+        menuData = data;
+        menuX = x;
+        menuY = y;
+        open = true;
 
-    export function handleContextMenu(e: MouseEvent) {
-        if (language !== "json" || !view) {
-            e.stopPropagation();
-            return;
-        }
-
-        // posAtCoords returns null when the click lands outside any character
-        // (e.g. gutter, empty padding below the last line).
-        const pos = view.posAtCoords({ x: e.clientX, y: e.clientY });
-        if (pos === null) {
-            e.preventDefault();
-            e.stopPropagation();
-            return;
-        }
-
-        const tree = syntaxTree(view.state);
-
-        // Suppress the menu for bare whitespace that isn't inside a JSON string.
-        const charAtPos = view.state.sliceDoc(pos, pos + 1);
-        if (!charAtPos || WHITESPACE_RE.test(charAtPos)) {
-            const innerNode = tree.resolveInner(pos);
-            if (
-                innerNode.name !== "String" &&
-                innerNode.name !== "PropertyName"
-            ) {
-                e.preventDefault();
-                e.stopPropagation();
-                return;
-            }
-            // Guard: pos must be inside the matched token's range.
-            if (pos < innerNode.from || pos >= innerNode.to) {
-                e.preventDefault();
-                e.stopPropagation();
-                return;
-            }
-        }
-
-        let node = tree.resolveInner(pos, -1);
-
-        // Structural punctuation → walk up to the containing node instead.
-        let targetNode = node;
-        if (["{", "}", "[", "]", ":", ","].includes(node.name) && node.parent) {
-            targetNode = node.parent;
-        }
-
-        // Move cursor to click position without creating a range selection
-        // (a range would trigger highlightSelectionMatches across the doc).
-        view.dispatch({
-            selection: { anchor: pos },
-            scrollIntoView: false,
+        // After Svelte renders the menu, clamp to viewport edges.
+        tick().then(() => {
+            if (!menuRef) return;
+            const rect = menuRef.getBoundingClientRect();
+            const vw = window.innerWidth;
+            const vh = window.innerHeight;
+            if (menuX + rect.width > vw) menuX = vw - rect.width - 4;
+            if (menuY + rect.height > vh) menuY = vh - rect.height - 4;
         });
-
-        const validNames = [
-            "PropertyName",
-            "String",
-            "Number",
-            "Boolean",
-            "Null",
-            "Object",
-            "Array",
-            "Property",
-        ];
-        if (
-            !validNames.includes(targetNode.name) &&
-            targetNode.name !== "JsonText"
-        ) {
-            e.preventDefault();
-            e.stopPropagation();
-            return;
-        }
-
-        const path = buildJsonPath(view, pos, -1);
-        if (!path || path === "$") {
-            e.stopPropagation();
-            return;
-        }
-
-        // -----------------------------------------------------------------------
-        // Resolve the raw value text from the syntax tree
-        // -----------------------------------------------------------------------
-        let valueToCopy = "";
-
-        if (
-            targetNode.name === "PropertyName" ||
-            (targetNode.name === "Property" &&
-                targetNode.firstChild?.name === "PropertyName")
-        ) {
-            const propNode =
-                targetNode.name === "PropertyName"
-                    ? targetNode.parent
-                    : targetNode;
-            if (propNode?.name === "Property") {
-                const valNode = propNode.lastChild;
-                if (valNode) {
-                    valueToCopy = view.state.sliceDoc(valNode.from, valNode.to);
-                }
-            }
-        } else {
-            valueToCopy = view.state.sliceDoc(targetNode.from, targetNode.to);
-        }
-
-        // Pretty-print / unwrap the value for display in the clipboard.
-        try {
-            if (
-                targetNode.name === "Object" ||
-                targetNode.name === "Array" ||
-                targetNode.name === "Property"
-            ) {
-                valueToCopy = JSON.stringify(JSON.parse(valueToCopy), null, 2);
-            } else if (
-                targetNode.name === "String" ||
-                targetNode.name === "PropertyName"
-            ) {
-                const parsed = JSON.parse(valueToCopy);
-                if (typeof parsed === "string") valueToCopy = parsed;
-            } else {
-                const parsed = JSON.parse(valueToCopy);
-                if (typeof parsed !== "object") valueToCopy = String(parsed);
-            }
-        } catch {
-            // keep raw sliceDoc text on parse failure
-        }
-
-        // -----------------------------------------------------------------------
-        // Resolve the bare key name
-        // -----------------------------------------------------------------------
-        let keyName = "";
-        if (targetNode.name === "PropertyName") {
-            keyName = extractPropertyKey(view, targetNode.parent!) ?? "";
-        } else if (
-            targetNode.name === "Property" ||
-            (targetNode.name === "String" &&
-                targetNode.parent?.name === "Property" &&
-                targetNode.parent.firstChild === targetNode)
-        ) {
-            const propNode =
-                targetNode.name === "Property"
-                    ? targetNode
-                    : targetNode.parent!;
-            keyName = extractPropertyKey(view, propNode) ?? "";
-        }
-
-        jsonContextMenuPath = path;
-        jsonContextMenuKey = keyName;
-        jsonContextMenuValue = valueToCopy;
     }
 
-    // ---------------------------------------------------------------------------
-    // Clipboard helper
-    // ---------------------------------------------------------------------------
+    function close() {
+        if (!open) return;
+        open = false;
+        menuData = null;
+        view?.focus();
+    }
+
+    // ── Listen on the CM DOM for contextmenu ────────────────────────────────
+    // The CM extension's handler fires first (registered on the same element
+    // earlier), does hit-testing, and stores data in a module-level variable.
+    // Our handler runs immediately after and reads it.
+
+    $effect(() => {
+        if (!view) return;
+        const dom = view.dom;
+
+        function onContextMenu(e: MouseEvent) {
+            const data = consumeJsonContextMenuData();
+            if (!data) {
+                // Invalid target or no JSON extension — close any existing menu.
+                // Don't preventDefault — let the native menu show for non-JSON.
+                close();
+                return;
+            }
+            e.preventDefault(); // suppress native menu — we show our own
+            openMenu(e.clientX, e.clientY, data);
+        }
+
+        dom.addEventListener("contextmenu", onContextMenu);
+        return () => dom.removeEventListener("contextmenu", onContextMenu);
+    });
+
+    // ── Toggle a class on the CM DOM so tooltips can be hidden via CSS ─────
+
+    $effect(() => {
+        if (!view) return;
+        if (open) {
+            view.dom.classList.add("json-context-menu-open");
+        } else {
+            view.dom.classList.remove("json-context-menu-open");
+        }
+    });
+
+    // ── Dismiss handlers ────────────────────────────────────────────────────
+
+    $effect(() => {
+        if (!open) return;
+
+        function handlePointerDismiss(e: PointerEvent) {
+            if (menuRef && menuRef.contains(e.target as Node)) return;
+            // For right-clicks inside the editor, the CM extension + our
+            // contextmenu listener will decide whether to reopen the menu.
+            // Don't close prematurely — it causes a visual flash.
+            if (e.button === 2 && view?.dom.contains(e.target as Node)) return;
+            close();
+        }
+
+        function handleKeydown(e: KeyboardEvent) {
+            if (e.key === "Escape") {
+                e.preventDefault();
+                close();
+            }
+        }
+
+        window.addEventListener("pointerdown", handlePointerDismiss);
+        window.addEventListener("keydown", handleKeydown, true);
+
+        return () => {
+            window.removeEventListener("pointerdown", handlePointerDismiss);
+            window.removeEventListener("keydown", handleKeydown, true);
+        };
+    });
+
+    // ── Clipboard helper ────────────────────────────────────────────────────
 
     function copyToClipboard(text: string, label: string) {
-        // Refocus FIRST so the visual selection is restored immediately and the
-        // browser doesn't reset the editor's scroll position.
-        view?.focus();
+        close();
         navigator.clipboard
             .writeText(text)
             .then(() => toast.success(`Copied ${label} to clipboard`))
@@ -204,37 +134,45 @@
     }
 </script>
 
-<ContextMenu.Root
-    onOpenChange={(open) => {
-        // Restore editor focus when the menu closes for any reason.
-        if (!open) view?.focus();
-    }}
->
-    <ContextMenu.Trigger class="h-full w-full block" oncontextmenu={handleContextMenu}>
-        {@render children()}
-    </ContextMenu.Trigger>
-
-    <ContextMenu.Content
-        class="outline-none focus:outline-none focus-visible:outline-none"
+<!--
+    Floating menu — rendered with position:fixed and portalled to the top-level
+    DOM via Svelte's natural render flow (the component is a sibling of the
+    editor, not a child of .cm-editor, so overflow/clipping is not an issue).
+-->
+{#if open && menuData}
+    <!-- svelte-ignore a11y_no_static_element_interactions a11y_interactive_supports_focus -->
+    <div
+        bind:this={menuRef}
+        class="fixed z-50 min-w-[8rem] rounded-md border bg-popover p-1 text-popover-foreground shadow-md animate-in fade-in-0 zoom-in-95"
+        style="left: {menuX}px; top: {menuY}px;"
+        role="menu"
+        tabindex="-1"
+        oncontextmenu={(e) => e.preventDefault()}
     >
-        <ContextMenu.Item
-            onclick={() => copyToClipboard(jsonContextMenuPath, "path")}
+        <button
+            class="relative flex w-full cursor-pointer items-center rounded-sm px-2 py-1.5 text-sm outline-hidden select-none hover:bg-accent hover:text-accent-foreground"
+            role="menuitem"
+            onclick={() => copyToClipboard(menuData!.path, "path")}
         >
             Copy Path
-        </ContextMenu.Item>
+        </button>
 
-        {#if jsonContextMenuKey}
-            <ContextMenu.Item
-                onclick={() => copyToClipboard(jsonContextMenuKey, "key")}
+        {#if menuData.key}
+            <button
+                class="relative flex w-full cursor-pointer items-center rounded-sm px-2 py-1.5 text-sm outline-hidden select-none hover:bg-accent hover:text-accent-foreground"
+                role="menuitem"
+                onclick={() => copyToClipboard(menuData!.key, "key")}
             >
                 Copy Key
-            </ContextMenu.Item>
+            </button>
         {/if}
 
-        <ContextMenu.Item
-            onclick={() => copyToClipboard(jsonContextMenuValue, "value")}
+        <button
+            class="relative flex w-full cursor-pointer items-center rounded-sm px-2 py-1.5 text-sm outline-hidden select-none hover:bg-accent hover:text-accent-foreground"
+            role="menuitem"
+            onclick={() => copyToClipboard(menuData!.value, "value")}
         >
             Copy Value
-        </ContextMenu.Item>
-    </ContextMenu.Content>
-</ContextMenu.Root>
+        </button>
+    </div>
+{/if}

@@ -8,6 +8,9 @@ export interface ThemePalette {
     caret: string;
     selection: string;
     lineHighlight: string;
+    searchMatch: string;
+    searchMatchSelected: string;
+    selectionMatch: string;
     gutterBackground: string;
     gutterForeground: string;
 
@@ -46,6 +49,9 @@ export function createThemeConfig(
             caret: palette.caret,
             selection: palette.selection,
             lineHighlight: palette.lineHighlight,
+            searchMatch: palette.searchMatch,
+            searchMatchSelected: palette.searchMatchSelected,
+            selectionMatch: palette.selectionMatch,
             gutterBackground: palette.gutterBackground,
             gutterForeground: palette.gutterForeground,
         },

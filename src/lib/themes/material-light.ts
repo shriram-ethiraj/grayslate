@@ -6,6 +6,9 @@ export const materialLightConfig = createThemeConfig('light', {
     caret: '#9e9e9e', // base04
     selection: '#DDEEFF',
     lineHighlight: '#00000008',
+    searchMatch: '#ff980055',         // orange tint — all search matches
+    searchMatchSelected: '#ff9800cc', // bright orange — currently focused search match
+    selectionMatch: '#00acc120',      // subtle cyan — other occurrences of selected word
     gutterBackground: '#fafafa', // base07
     gutterForeground: '#757575', // base03
 

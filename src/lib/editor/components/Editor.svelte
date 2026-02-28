@@ -69,22 +69,6 @@
                 themeCompartment.of(initialThemeExt),
                 langCompartment.of(getLanguageExtension(language)),
                 colorHints,
-                // Prevent the browser's native right-click word-selection so
-                // JsonContextMenu can place an explicit cursor position instead.
-                EditorView.domEventHandlers({
-                    pointerdown(e) {
-                        if (e.button === 2) {
-                            e.preventDefault();
-                            return true;
-                        }
-                    },
-                    mousedown(e) {
-                        if (e.button === 2) {
-                            e.preventDefault();
-                            return true;
-                        }
-                    },
-                }),
                 // Sync cursor position, selection size, and document text back
                 // to the parent Svelte component via bindable props.
                 EditorView.updateListener.of((update) => {
@@ -153,13 +137,15 @@
     }
 </script>
 
+<div class="editor-container" use:editor={value}></div>
+
 <!--
-    JsonContextMenu is only visually active for JSON documents.  For all other
-    languages it renders a transparent wrapper that forwards events unchanged.
+    JsonContextMenu listens on the CM DOM for contextmenu events.
+    The companion jsonContextMenuExtension (registered only for JSON
+    in languageExtensions.ts) does the hit-testing; the Svelte component
+    just reads the result and renders the floating menu.
 -->
-<JsonContextMenu {view} {language}>
-    <div class="editor-container" use:editor={value}></div>
-</JsonContextMenu>
+<JsonContextMenu {view} />
 
 <style>
     .editor-container {
@@ -184,8 +170,8 @@
         padding-right: 0px !important;
     }
 
-    /* Hide CodeMirror tooltips while a context menu is open */
-    :global([data-state="open"] .cm-tooltip) {
+    /* Hide CodeMirror tooltips while the JSON context menu is open */
+    :global(.json-context-menu-open .cm-tooltip) {
         display: none !important;
     }
 </style>

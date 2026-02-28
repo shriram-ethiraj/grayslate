@@ -30,6 +30,21 @@ export interface ThemeSettings {
     lineHighlight: string;
 
     /**
+     * Background for non-active search/find matches.
+     */
+    searchMatch: string;
+
+    /**
+     * Background for the currently focused search/find match.
+     */
+    searchMatchSelected: string;
+
+    /**
+     * Background for other occurrences of the selected word.
+     */
+    selectionMatch: string;
+
+    /**
      * Gutter background.
      */
     gutterBackground: string;
@@ -75,6 +90,19 @@ export const createTheme = (config: ThemeConfig): Extension => {
             },
             '.cm-activeLine': {
                 backgroundColor: config.settings.lineHighlight,
+            },
+            // Find/search matches
+            '.cm-searchMatch': {
+                backgroundColor: config.settings.searchMatch + ' !important',
+                outline: '1px solid ' + config.settings.searchMatch,
+            },
+            '.cm-searchMatch.cm-searchMatch-selected': {
+                backgroundColor: config.settings.searchMatchSelected + ' !important',
+                outline: '1px solid ' + config.settings.searchMatchSelected,
+            },
+            // Other occurrences of the currently selected word
+            '.cm-selectionMatch': {
+                backgroundColor: config.settings.selectionMatch + ' !important',
             },
             '.cm-gutters': {
                 backgroundColor: config.settings.gutterBackground,

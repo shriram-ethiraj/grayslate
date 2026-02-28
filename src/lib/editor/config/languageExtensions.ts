@@ -17,13 +17,14 @@ import { cpp } from "@codemirror/lang-cpp";
 import { java } from "@codemirror/lang-java";
 import { go } from "@codemirror/lang-go";
 import { xml } from "@codemirror/lang-xml";
-import { csv } from "codemirror-lang-csv";
 import { markdown } from "@codemirror/lang-markdown";
 import { jsonInlayHints } from "$lib/editor/extensions/jsonInlayHints";
 import { jsonFoldWidget } from "$lib/editor/extensions/jsonFoldWidget";
 import { jsonKeyPath } from "$lib/editor/extensions/jsonKeyPath";
+import { jsonContextMenuExtension } from "$lib/editor/extensions/jsonContextMenu";
 import { markdownAutocompleteProvider } from "$lib/editor/components/markdown/markdownAutocomplete";
 import { autocompletion } from "@codemirror/autocomplete";
+import { csvRainbowHighlight } from "$lib/editor/extensions/csvRainbowHighlight";
 import type { Extension } from "@codemirror/state";
 
 /**
@@ -34,7 +35,7 @@ import type { Extension } from "@codemirror/state";
 export function getLanguageExtension(langId: string): Extension | Extension[] {
     switch (langId) {
         case "json":
-            return [json(), jsonInlayHints, jsonFoldWidget, jsonKeyPath];
+            return [json(), jsonInlayHints, jsonFoldWidget, jsonKeyPath, jsonContextMenuExtension];
         case "javascript":
             return javascript({ jsx: true });
         case "typescript":
@@ -58,7 +59,12 @@ export function getLanguageExtension(langId: string): Extension | Extension[] {
         case "xml":
             return xml();
         case "csv":
-            return csv();
+            // No Lezer grammar — the rainbow column highlighter IS the
+            // CSV syntax highlighting.  The codemirror-lang-csv grammar
+            // would tag everything as `tags.string`, causing the theme's
+            // green string colour to override the rainbow colours once
+            // the async parse completes.
+            return csvRainbowHighlight;
         case "shell":
         case "dockerfile":
             return [];  // Plain-text mode (no CM extension yet)
