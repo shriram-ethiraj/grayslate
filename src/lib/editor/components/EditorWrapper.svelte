@@ -15,7 +15,6 @@
         stopLoaderTicker,
         type FileType,
     } from "$lib/state/editor.svelte";
-    import { listen } from "@tauri-apps/api/event";
     import { open as openFilePicker } from "@tauri-apps/plugin-dialog";
     import { invoke } from "@tauri-apps/api/core";
     import { toast } from "svelte-sonner";
@@ -113,9 +112,15 @@
 
     // Register (and later clean up) the menu-event listener.
     $effect(() => {
-        const unlisten = listen("menu://open-file", () => openFile());
+        // load the event helper only when this effect runs so the static
+        // import can be removed. the promise resolves to an `unlisten` function
+        // which we call on cleanup.
+        const unlistenPromise = import("@tauri-apps/api/event").then(
+            ({ listen }) => listen("menu://open-file", () => openFile()),
+        );
+
         return () => {
-            unlisten.then((fn) => fn());
+            unlistenPromise.then((fn) => fn());
         };
     });
 
