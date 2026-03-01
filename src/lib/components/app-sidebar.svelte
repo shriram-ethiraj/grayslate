@@ -4,7 +4,6 @@
 
 <Sidebar.Root>
     <Sidebar.Header>
-        <div class="px-3 py-3 font-semibold">Grayslate</div>
     </Sidebar.Header>
     <Sidebar.Content>
         <Sidebar.Group>
