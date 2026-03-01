@@ -7,7 +7,8 @@
     import { materialLightConfig } from "$lib/themes/material-light";
     import { colorHints } from "$lib/editor/extensions/colorHints";
     import { getLanguageExtension } from "$lib/editor/config/languageExtensions";
-    import JsonContextMenu from "$lib/editor/components/json/JsonContextMenu.svelte";
+    import { contextMenuExtension } from "$lib/editor/extensions/contextMenuExtension";
+    import EditorContextMenu from "$lib/editor/components/EditorContextMenu.svelte";
 
     let {
         value = $bindable(),
@@ -69,6 +70,7 @@
                 themeCompartment.of(initialThemeExt),
                 langCompartment.of(getLanguageExtension(language)),
                 colorHints,
+                contextMenuExtension,
                 // Sync cursor position, selection size, and document text back
                 // to the parent Svelte component via bindable props.
                 EditorView.updateListener.of((update) => {
@@ -92,7 +94,7 @@
 
         const cmView = new EditorView({ state, parent: node });
         // Assign to both the local $state variable and the bindable prop so
-        // both JsonContextMenu and external consumers receive the live view.
+        // both EditorContextMenu and external consumers receive the live view.
         view = cmView;
         editorView = cmView;
 
@@ -140,12 +142,12 @@
 <div class="editor-container" use:editor={value}></div>
 
 <!--
-    JsonContextMenu listens on the CM DOM for contextmenu events.
-    The companion jsonContextMenuExtension (registered only for JSON
-    in languageExtensions.ts) does the hit-testing; the Svelte component
-    just reads the result and renders the floating menu.
+    EditorContextMenu listens on the CM DOM for contextmenu events.
+    The companion contextMenuExtension does the basic focus shifting,
+    and jsonContextMenuExtension (registered only for JSON) hit-tests JSON nodes.
+    The Svelte component renders the unified floating menu.
 -->
-<JsonContextMenu {view} />
+<EditorContextMenu {view} />
 
 <style>
     .editor-container {
@@ -170,8 +172,8 @@
         padding-right: 0px !important;
     }
 
-    /* Hide CodeMirror tooltips while the JSON context menu is open */
-    :global(.json-context-menu-open .cm-tooltip) {
+    /* Hide CodeMirror tooltips while the context menu is open */
+    :global(.editor-context-menu-open .cm-tooltip) {
         display: none !important;
     }
 </style>

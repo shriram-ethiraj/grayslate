@@ -21,7 +21,7 @@ import { markdown } from "@codemirror/lang-markdown";
 import { jsonInlayHints } from "$lib/editor/extensions/jsonInlayHints";
 import { jsonFoldWidget } from "$lib/editor/extensions/jsonFoldWidget";
 import { jsonKeyPath } from "$lib/editor/extensions/jsonKeyPath";
-import { jsonContextMenuExtension } from "$lib/editor/extensions/jsonContextMenu";
+
 import { markdownAutocompleteProvider } from "$lib/editor/components/markdown/markdownAutocomplete";
 import { autocompletion } from "@codemirror/autocomplete";
 import { csvRainbowHighlight } from "$lib/editor/extensions/csvRainbowHighlight";
@@ -35,7 +35,7 @@ import type { Extension } from "@codemirror/state";
 export function getLanguageExtension(langId: string): Extension | Extension[] {
     switch (langId) {
         case "json":
-            return [json(), jsonInlayHints, jsonFoldWidget, jsonKeyPath, jsonContextMenuExtension];
+            return [json(), jsonInlayHints, jsonFoldWidget, jsonKeyPath];
         case "javascript":
             return javascript({ jsx: true });
         case "typescript":

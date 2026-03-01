@@ -1,4 +1,4 @@
-use tauri::menu::{Menu, MenuItem, Submenu};
+use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::Emitter;
 
 /// Maximum file size allowed to be opened: 200 MB.
@@ -33,6 +33,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .setup(|app| {
             // Build "File" submenu
             let open_item = MenuItem::with_id(
@@ -45,7 +46,36 @@ pub fn run() {
             )?;
 
             let file_menu = Submenu::with_items(app, "File", true, &[&open_item])?;
-            let menu = Menu::with_items(app, &[&file_menu])?;
+
+            // Build "Edit" submenu with predefined clipboard items.
+            // On macOS these PredefinedMenuItems wire up the WKWebView responder
+            // chain so that Cmd+Z/X/C/V/A are forwarded to the focused web content.
+            let undo_item = PredefinedMenuItem::undo(app, Some("Undo"))?;
+            let redo_item = PredefinedMenuItem::redo(app, Some("Redo"))?;
+            let sep1 = PredefinedMenuItem::separator(app)?;
+            let cut_item = PredefinedMenuItem::cut(app, Some("Cut"))?;
+            let copy_item = PredefinedMenuItem::copy(app, Some("Copy"))?;
+            let paste_item = PredefinedMenuItem::paste(app, Some("Paste"))?;
+            let sep2 = PredefinedMenuItem::separator(app)?;
+            let select_all_item = PredefinedMenuItem::select_all(app, Some("Select All"))?;
+
+            let edit_menu = Submenu::with_items(
+                app,
+                "Edit",
+                true,
+                &[
+                    &undo_item,
+                    &redo_item,
+                    &sep1,
+                    &cut_item,
+                    &copy_item,
+                    &paste_item,
+                    &sep2,
+                    &select_all_item,
+                ],
+            )?;
+
+            let menu = Menu::with_items(app, &[&file_menu, &edit_menu])?;
             app.set_menu(menu)?;
 
             Ok(())
