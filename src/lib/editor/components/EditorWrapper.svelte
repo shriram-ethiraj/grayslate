@@ -9,9 +9,10 @@
     import type { EditorView } from "codemirror";
     import {
         editorState,
-        showEditorLoader,
         updateEditorLoader,
         hideEditorLoader,
+        startLoaderTicker,
+        stopLoaderTicker,
         type FileType,
     } from "$lib/state/editor.svelte";
     import { listen } from "@tauri-apps/api/event";
@@ -72,51 +73,39 @@
         const filePath = selected as string;
         const filename = filePath.replace(/\\/g, "/").split("/").pop() ?? "";
 
-        // Stage 1: show loader, start at 0 %
-        showEditorLoader("Opening file…", filename, 0);
-
-        // Slowly animate the bar from 5 % → 65 % while the Rust read is in-flight.
-        // The step shrinks each tick so it decelerates and never reaches 65 %
-        // on its own — we'll snap it forward once the read returns.
-        let simulated = 5;
-        updateEditorLoader("Reading file…", filename, simulated);
-        const ticker = setInterval(() => {
-            const remaining = 65 - simulated;
-            simulated += Math.max(0.3, remaining * 0.06);
-            if (simulated >= 64.9) simulated = 64.9;
-            updateEditorLoader("Reading file…", filename, simulated);
-        }, 80);
+        // Start a decelerating progress ticker while the Rust read is in-flight
+        startLoaderTicker("Reading file…", filename, {
+            ceiling: 65,
+            factor: 0.06,
+            minStep: 0.3,
+            interval: 80,
+            startAt: 5,
+        });
 
         try {
             const content = await invoke<string>("read_file_content", {
                 path: filePath,
             });
 
-            // Stage 2: read complete
-            clearInterval(ticker);
+            stopLoaderTicker();
             updateEditorLoader("Detecting language…", filename, 72);
 
-            // Detect language from filename + content; fall back to "text"
-            await new Promise<void>((r) => setTimeout(r, 0)); // yield to let UI repaint
+            // Yield to let the UI repaint before running language detection
+            await new Promise<void>((r) => setTimeout(r, 0));
             const detected = languageDetector.detect(content, filename) ?? "text";
 
-            // Stage 3: push into editor
             updateEditorLoader("Loading into editor…", filename, 88);
             await new Promise<void>((r) => setTimeout(r, 0));
 
             language = "auto";
             detectedLanguage = detected;
             value = content;
-
-            // Stage 4: done
-            updateEditorLoader("Done", "", 100);
-            // Brief pause so the user sees 100 % before the overlay disappears
-            await new Promise<void>((r) => setTimeout(r, 250));
         } catch (err: unknown) {
-            clearInterval(ticker);
             const msg = typeof err === "string" ? err : "Failed to open file.";
             toast.error(msg);
         } finally {
+            // Always clean up — idempotent in the success path
+            stopLoaderTicker();
             hideEditorLoader();
         }
     }
