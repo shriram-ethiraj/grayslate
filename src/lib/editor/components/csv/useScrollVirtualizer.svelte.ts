@@ -12,6 +12,13 @@ export function useScrollVirtualizer(options: {
 }) {
     const MAX_SCROLL_HEIGHT = 30_000_000;
     const HEADER_HEIGHT = 34;
+    /**
+     * Safety cap: never render more virtual items than this, regardless of
+     * what containerHeight the ResizeObserver reports.  Prevents runaway
+     * DOM creation when the scroll-container's CSS height is unconstrained
+     * (e.g. broken flex chain after a layout change).
+     */
+    const MAX_VIRTUAL_ITEMS = 200;
 
     let scrollTop = $state(0);
     let containerHeight = $state(600);
@@ -33,7 +40,12 @@ export function useScrollVirtualizer(options: {
         const observer = new ResizeObserver((entries) => {
             for (const entry of entries) {
                 if (entry.target === el) {
-                    containerHeight = entry.contentRect.height;
+                    const h = entry.contentRect.height;
+                    // Sanity-check: if the reported height is larger than
+                    // 3× the window, the container's CSS is unconstrained
+                    // (e.g. flex chain broken).  Clamp to the window height
+                    // so we never spawn millions of virtual items.
+                    containerHeight = Math.min(h, window.innerHeight * 3);
                 }
             }
         });
@@ -76,7 +88,10 @@ export function useScrollVirtualizer(options: {
         firstVisibleRow = Math.max(0, Math.min(firstVisibleRow, maxFirst));
 
         const startIdx = Math.max(0, firstVisibleRow - overscan);
-        const endIdx = Math.min(totalCount - 1, firstVisibleRow + visibleCount + overscan);
+        const rawEndIdx = Math.min(totalCount - 1, firstVisibleRow + visibleCount + overscan);
+        // Hard-cap the window to MAX_VIRTUAL_ITEMS so a broken layout can
+        // never cause us to create a DOM-exploding number of rows.
+        const endIdx = Math.min(rawEndIdx, startIdx + MAX_VIRTUAL_ITEMS - 1);
 
         let blockStart: number;
         if (!needsScaling) {

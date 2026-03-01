@@ -41,10 +41,25 @@ Welcome to the Grayslate project. This document serves as a "production-grade" r
 *   **Error Serialization:** Any Rust errors returned to the Svelte frontend via `#[tauri::command]` must implement `serde::Serialize`.
 *   **Async Commands:** Utilize async Rust functions for I/O operations (file system, network) to avoid blocking the main thread.
 
-### 4. Application Features & Core Libraries
+### 4. Layout & CSS — Critical Rules
+
+> **⚠️ Breaking these rules causes catastrophic virtualizer failures (CPU/memory spikes, app crash).**
+
+The app uses a deeply nested **flex-column** chain. Every flex item in that chain that participates in vertical sizing **MUST** have `min-h-0` (or equivalently `min-height: 0`). Without it, flex items default to `min-height: auto`, refuse to shrink below their content's intrinsic height, and the height containment chain breaks — content can expand to 30,000,000 px, which the virtualizer interprets as `containerHeight` and tries to render millions of DOM rows.
+
+**Rules:**
+- **Never use `height: 100%` inside flex children.** It only works when the parent has a definite/fixed height. Use `flex: 1; min-height: 0` (or Tailwind `flex-1 min-h-0`) instead.
+- **Every flex-column container and its flex children must have `min-h-0`.** This applies to `Sidebar.Inset`, wrapper `<div>`s in the content pane, `EditorWrapper`, and the CSV table wrapper.
+- **`Sidebar.Inset` must always have `min-h-0 overflow-hidden`** in addition to its default `flex: 1`. Its default shadcn styling does NOT include `min-h-0`.
+- **Do not remove `overflow-hidden` from the content pane chain.** Height containment depends on it.
+- **Paneforge (`ResizablePane`) applies `overflow: hidden` inline** on every pane — this is load-bearing for height containment and must not be overridden.
+
+Full layout chain documentation: [`src/routes/README.md`](src/routes/README.md)
+
+### 5. Application Features & Core Libraries
 *   **Supported Languages:** The editor explicitly supports and provides syntax/tooling for `Text`, `JSON`, `JavaScript/TypeScript`, `Python`, `CSV`, and `Markdown`.
 *   **Language Detection:** Automatic file type detection uses a fast, fully synchronous heuristic pipeline: file extension lookup → shebang matching → structural format detection (JSON, XML, HTML, CSV, Dockerfile, Markdown, YAML) → weighted pattern scoring for programming languages with character-profile pre-filtering and best-guess fallback.
-*   **CSV Table View:** For structured data, the app uses a virtualized spreadsheet mode powered by `@tanstack/svelte-table` for headless data grid logic and `@tanstack/svelte-virtual` for performant DOM virtualization of large datasets.
+*   **CSV Table View:** For structured data, the app uses a virtualized spreadsheet mode powered by `@tanstack/svelte-table` for headless data grid logic and a **custom scroll virtualizer** (`src/lib/editor/components/csv/useScrollVirtualizer.svelte.ts`) for performant DOM virtualization of large datasets. The custom virtualizer (not `@tanstack/svelte-virtual`) is required because WebKit enforces a ~33.5 MB max element height — the virtualizer maps scroll position proportionally for datasets that would exceed this limit. It also enforces a `MAX_VIRTUAL_ITEMS = 200` hard cap and clamps `containerHeight` to `window.innerHeight × 3` as safety nets against broken CSS height chains causing runaway DOM creation.
 *   **Markdown Preview:** Markdown is parsed into an AST and converted to HTML using `marked`, then heavily sanitized using `dompurify`. Custom renderer hooks inject `data-line` attributes to achieve seamless, bi-directional scroll synchronization between the editor and the preview pane.
 
 ---
@@ -64,5 +79,6 @@ When generating code or proposing architectural changes, adhere to the following
 *   Verify code works with `pnpm run check` (runs `svelte-check`) and compiles with `pnpm run tauri build`.
 
 ## 📚 Additional Documentation
+- Layout chain & CSS rules: [`src/routes/README.md`](src/routes/README.md)
 - Editor widget conventions: [`src/lib/utils/editor/widgets/README.md`](src/lib/utils/editor/widgets/README.md)
 - CSV component docs: [`src/lib/components/editor/csv/README.md`](src/lib/components/editor/csv/README.md)

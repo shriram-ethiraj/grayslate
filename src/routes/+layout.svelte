@@ -108,7 +108,7 @@
 					</ResizablePane>
 					<ResizableHandle />
 					<ResizablePane id="content" defaultSize={80} class="flex flex-col">
-						<Sidebar.Inset class="min-w-0">
+						<Sidebar.Inset class="min-w-0 min-h-0 overflow-hidden">
 							<header
 								class="flex h-12 w-full shrink-0 items-center justify-between border-b bg-background px-4"
 							>
