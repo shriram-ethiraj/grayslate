@@ -29,10 +29,11 @@ Welcome to the Grayslate project. This document serves as a "production-grade" r
 *   **Vite Native:** Keep assets optimized. Import static assets cleanly and let Vite handle caching and bundling.
 
 ### 2. Editor Integration (CodeMirror 6)
-*   CodeMirror 6 is highly modular. Do not import massive monolithic packages.
 *   Use `@codemirror/state` and `@codemirror/view` correctly.
 *   Keep the CodeMirror `EditorState` conceptually separated from Svelte's `$state` unless explicitly synchronizing document content. Avoid deep reactivity loops between the two.
 *   Dispatch `Transaction` objects cleanly for editor updates rather than violently replacing the document text.
+*   **Performance First:** When building extensions (Fold widgets, Tooltips, Inlay Hints), **never** write unbounded `while` loops that traverse the Lezer tree (e.g. counting every child of a JSON Array). Cap iterations aggressively (e.g. `MAX_SCAN_CHILDREN = 100`) to prevent the main thread from freezing when users paste gigabyte-sized files.
+*   **Experimental Extensions:** Unused or WIP CodeMirror extensions (like `stickyScroll`) are kept in `src/lib/editor/extensions/experimental/`. Do not delete these files, but do not import them into the main `languageExtensions.ts` config unless specifically requested.
 
 ### 3. Desktop / Backend (Tauri v2 & Rust)
 *   **Tauri v2 APIs:** Ensure we are using Tauri v2 IPC (`@tauri-apps/api/core` Invoke calls, not v1).

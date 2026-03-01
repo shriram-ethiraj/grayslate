@@ -7,7 +7,7 @@
     import { useScrollVirtualizer } from "./useScrollVirtualizer.svelte";
     import {
         editorState,
-        hideEditorLoader,
+            hideEditorLoader,
         startLoaderTicker,
         stopLoaderTicker,
         completeEditorLoader,

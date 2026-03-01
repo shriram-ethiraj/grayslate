@@ -46,6 +46,12 @@ const JSON_VALUE_TYPES = new Set([
 /** Maximum number of key-value pairs to preview in an object placeholder. */
 const MAX_PREVIEW_PAIRS = 2;
 
+/**
+ * Hard limit on how many children to scan when building the fold placeholder.
+ * Prevents main-thread freezes on files with gigabytes of data in a single array/object.
+ */
+const MAX_SCAN_CHILDREN = 100;
+
 /** Maximum characters for a single value before truncating with "…". */
 const MAX_VALUE_LEN = 20;
 
@@ -110,20 +116,23 @@ function preparePlaceholder(
     if (node.name === "Array") {
         // Count direct children that are JSON values (skip brackets/commas).
         let count = 0;
+        let scanned = 0;
         let child = node.firstChild;
-        while (child) {
+        while (child && scanned < MAX_SCAN_CHILDREN) {
             if (JSON_VALUE_TYPES.has(child.name)) count++;
+            scanned++;
             child = child.nextSibling;
         }
-        return { type: "array", count };
+        return { type: "array", count: scanned >= MAX_SCAN_CHILDREN ? Infinity : count };
     }
 
     if (node.name === "Object") {
         const preview: KeyValuePair[] = [];
         let total = 0;
+        let scanned = 0;
         let child = node.firstChild;
 
-        while (child) {
+        while (child && scanned < MAX_SCAN_CHILDREN) {
             if (child.name === "Property") {
                 total++;
                 if (preview.length < MAX_PREVIEW_PAIRS) {
@@ -144,10 +153,11 @@ function preparePlaceholder(
                     }
                 }
             }
+            scanned++;
             child = child.nextSibling;
         }
 
-        return { type: "object", preview, total };
+        return { type: "object", preview, total: scanned >= MAX_SCAN_CHILDREN ? Infinity : total };
     }
 
     return { type: "other" };
@@ -171,20 +181,27 @@ function placeholderDOM(
     span.addEventListener("click", onclick);
 
     if (info.type === "array") {
-        const label = info.count === 1 ? "1 item" : `${info.count} items`;
-        span.textContent = `… ${info.count}`;
+        const isCapped = info.count === Infinity;
+        const displayCount = isCapped ? `${MAX_SCAN_CHILDREN}+` : info.count;
+        const label = info.count === 1 ? "1 item" : `${displayCount} items`;
+
+        span.textContent = `… ${displayCount}`;
         span.title = `Click to unfold (${label})`;
 
     } else if (info.type === "object") {
         const { preview, total } = info;
-        const hasMore = total > preview.length;
+        const isCapped = total === Infinity;
+        const displayTotal = isCapped ? `${MAX_SCAN_CHILDREN}+` : total;
+
+        // hasMore is true if we stopped extracting preview pairs, or if we hit the limit
+        const hasMore = preview.length === MAX_PREVIEW_PAIRS || isCapped;
 
         // The editor already renders the surrounding { } braces — we only
         // provide the inner summary so the result reads as  { key: val, … }
         // without doubling up the braces.
         const pairs = preview.map(({ key, value }) => `${key}: ${value}`).join(", ");
         span.textContent = ` ${pairs}${hasMore ? ", …" : " "}`;
-        span.title = `Click to unfold (${total} ${total === 1 ? "key" : "keys"})`;
+        span.title = `Click to unfold (${displayTotal} ${total === 1 ? "key" : "keys"})`;
 
     } else {
         // Fallback for non-JSON fold targets.

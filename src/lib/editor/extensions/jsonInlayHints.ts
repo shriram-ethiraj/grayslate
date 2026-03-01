@@ -57,7 +57,8 @@ export const jsonInlayHints = ViewPlugin.fromClass(class {
                     if (node.name === "Array") {
                         let index = 0;
                         let child = node.node.firstChild;
-                        while (child) {
+                        let widgetsCreated = 0;
+                        while (child && widgetsCreated < 200) {
                             const name = child.name;
                             // Check if this child represents a value inside the array
                             if (name !== "[" && name !== "]" && name !== "," && name !== "⚠") {
@@ -67,6 +68,7 @@ export const jsonInlayHints = ViewPlugin.fromClass(class {
                                         widget: new ArrayIndexWidget(index),
                                         side: -1
                                     }).range(child.from));
+                                    widgetsCreated++;
                                 }
                                 index++;
                             }
