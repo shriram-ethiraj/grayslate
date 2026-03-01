@@ -9,6 +9,12 @@
 	let osType = $state("");
 	const appWindow = new Window("main");
 
+	const isMac = $derived(osType === "macos");
+	/** Platform modifier key label */
+	const mod = $derived(isMac ? "Cmd" : "Ctrl");
+	/** Redo shortcut differs between platforms */
+	const redoShortcut = $derived(isMac ? `${mod}+Shift+Z` : `${mod}+Y`);
+
 	onMount(async () => {
 		osType = await type();
 	});
@@ -22,11 +28,56 @@
 	}
 </script>
 
+{#snippet appMenubar()}
+	<Menubar.Root class="border-none bg-transparent">
+		<Menubar.Menu>
+			<Menubar.Trigger class="cursor-pointer">File</Menubar.Trigger>
+			<Menubar.Content>
+				<Menubar.Item onclick={handleOpen}>
+					Open File...
+					<Menubar.Shortcut>{mod}+O</Menubar.Shortcut>
+				</Menubar.Item>
+			</Menubar.Content>
+		</Menubar.Menu>
+		<Menubar.Menu>
+			<Menubar.Trigger class="cursor-pointer">Edit</Menubar.Trigger>
+			<Menubar.Content>
+				<Menubar.Item onclick={() => handleEdit("undo")}
+					>Undo<Menubar.Shortcut>{mod}+Z</Menubar.Shortcut
+					></Menubar.Item
+				>
+				<Menubar.Item onclick={() => handleEdit("redo")}
+					>Redo<Menubar.Shortcut>{redoShortcut}</Menubar.Shortcut
+					></Menubar.Item
+				>
+				<Menubar.Separator />
+				<Menubar.Item onclick={() => handleEdit("cut")}
+					>Cut<Menubar.Shortcut>{mod}+X</Menubar.Shortcut
+					></Menubar.Item
+				>
+				<Menubar.Item onclick={() => handleEdit("copy")}
+					>Copy<Menubar.Shortcut>{mod}+C</Menubar.Shortcut
+					></Menubar.Item
+				>
+				<Menubar.Item onclick={() => handleEdit("paste")}
+					>Paste<Menubar.Shortcut>{mod}+V</Menubar.Shortcut
+					></Menubar.Item
+				>
+				<Menubar.Separator />
+				<Menubar.Item onclick={() => handleEdit("selectAll")}
+					>Select All<Menubar.Shortcut>{mod}+A</Menubar.Shortcut
+					></Menubar.Item
+				>
+			</Menubar.Content>
+		</Menubar.Menu>
+	</Menubar.Root>
+{/snippet}
+
 <div
 	data-tauri-drag-region
 	class="flex h-10 w-full select-none items-center justify-between border-b bg-background shadow-sm"
 >
-	{#if osType === "macos"}
+	{#if isMac}
 		<!-- Mac Traffic Lights -->
 		<div
 			class="z-10 flex h-full w-[72px] items-center justify-start gap-2 pl-4 cursor-default"
@@ -48,125 +99,34 @@
 			></button>
 		</div>
 
-		<!-- Menubar for Mac -->
+		<!-- Menubar (Mac) -->
 		<div class="z-10 flex flex-1 justify-start pl-2 overflow-hidden">
-			<Menubar.Root class="border-none bg-transparent">
-				<Menubar.Menu>
-					<Menubar.Trigger class="cursor-pointer"
-						>File</Menubar.Trigger
-					>
-					<Menubar.Content>
-						<Menubar.Item onclick={handleOpen}>
-							Open File...
-							<Menubar.Shortcut>Cmd+O</Menubar.Shortcut>
-						</Menubar.Item>
-					</Menubar.Content>
-				</Menubar.Menu>
-				<Menubar.Menu>
-					<Menubar.Trigger class="cursor-pointer"
-						>Edit</Menubar.Trigger
-					>
-					<Menubar.Content>
-						<Menubar.Item onclick={() => handleEdit("undo")}
-							>Undo<Menubar.Shortcut>Cmd+Z</Menubar.Shortcut
-							></Menubar.Item
-						>
-						<Menubar.Item onclick={() => handleEdit("redo")}
-							>Redo<Menubar.Shortcut>Cmd+Shift+Z</Menubar.Shortcut
-							></Menubar.Item
-						>
-						<Menubar.Separator />
-						<Menubar.Item onclick={() => handleEdit("cut")}
-							>Cut<Menubar.Shortcut>Cmd+X</Menubar.Shortcut
-							></Menubar.Item
-						>
-						<Menubar.Item onclick={() => handleEdit("copy")}
-							>Copy<Menubar.Shortcut>Cmd+C</Menubar.Shortcut
-							></Menubar.Item
-						>
-						<Menubar.Item onclick={() => handleEdit("paste")}
-							>Paste<Menubar.Shortcut>Cmd+V</Menubar.Shortcut
-							></Menubar.Item
-						>
-						<Menubar.Separator />
-						<Menubar.Item onclick={() => handleEdit("selectAll")}
-							>Select All<Menubar.Shortcut>Cmd+A</Menubar.Shortcut
-							></Menubar.Item
-						>
-					</Menubar.Content>
-				</Menubar.Menu>
-			</Menubar.Root>
+			{@render appMenubar()}
 		</div>
 	{:else}
-		<!-- App Name and Menubar for Windows/Linux on the Left -->
+		<!-- App Name + Menubar (Windows / Linux) -->
 		<div class="z-10 flex items-center pl-3">
 			<span
 				class="pointer-events-none mr-2 text-xs font-semibold tracking-wide"
 				>Grayslate</span
 			>
-			<Menubar.Root class="border-none bg-transparent">
-				<Menubar.Menu>
-					<Menubar.Trigger class="cursor-pointer"
-						>File</Menubar.Trigger
-					>
-					<Menubar.Content>
-						<Menubar.Item onclick={handleOpen}>
-							Open File...
-							<Menubar.Shortcut>Ctrl+O</Menubar.Shortcut>
-						</Menubar.Item>
-					</Menubar.Content>
-				</Menubar.Menu>
-				<Menubar.Menu>
-					<Menubar.Trigger class="cursor-pointer"
-						>Edit</Menubar.Trigger
-					>
-					<Menubar.Content>
-						<Menubar.Item onclick={() => handleEdit("undo")}
-							>Undo<Menubar.Shortcut>Ctrl+Z</Menubar.Shortcut
-							></Menubar.Item
-						>
-						<Menubar.Item onclick={() => handleEdit("redo")}
-							>Redo<Menubar.Shortcut>Ctrl+Y</Menubar.Shortcut
-							></Menubar.Item
-						>
-						<Menubar.Separator />
-						<Menubar.Item onclick={() => handleEdit("cut")}
-							>Cut<Menubar.Shortcut>Ctrl+X</Menubar.Shortcut
-							></Menubar.Item
-						>
-						<Menubar.Item onclick={() => handleEdit("copy")}
-							>Copy<Menubar.Shortcut>Ctrl+C</Menubar.Shortcut
-							></Menubar.Item
-						>
-						<Menubar.Item onclick={() => handleEdit("paste")}
-							>Paste<Menubar.Shortcut>Ctrl+V</Menubar.Shortcut
-							></Menubar.Item
-						>
-						<Menubar.Separator />
-						<Menubar.Item onclick={() => handleEdit("selectAll")}
-							>Select All<Menubar.Shortcut
-								>Ctrl+A</Menubar.Shortcut
-							></Menubar.Item
-						>
-					</Menubar.Content>
-				</Menubar.Menu>
-			</Menubar.Root>
+			{@render appMenubar()}
 		</div>
 
 		<!-- Drag region filler -->
 		<div data-tauri-drag-region class="flex-1 h-full"></div>
 
-		<!-- Windows/Linux Controls on the Right -->
+		<!-- Window Controls (Windows / Linux) -->
 		<div class="z-10 flex h-full items-center">
 			<button
-				class="inline-flex h-full w-12 items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none"
+				class="inline-flex h-full w-12 items-center justify-center text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground focus:outline-none"
 				onclick={() => appWindow.minimize()}
 				aria-label="Minimize"
 			>
 				<Minus class="h-4 w-4" />
 			</button>
 			<button
-				class="inline-flex h-full w-12 items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none"
+				class="inline-flex h-full w-12 items-center justify-center text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground focus:outline-none"
 				onclick={() => appWindow.toggleMaximize()}
 				aria-label="Maximize"
 			>
