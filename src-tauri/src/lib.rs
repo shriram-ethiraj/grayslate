@@ -71,9 +71,9 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
-        .setup(|app| {
+        .setup(|_app| {
             #[cfg(target_os = "macos")]
-            apply_macos_window_styling(app);
+            apply_macos_window_styling(_app);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![read_file_content])
