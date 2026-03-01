@@ -1,4 +1,3 @@
-use tauri::Emitter;
 
 /// Maximum file size allowed to be opened: 200 MB.
 const MAX_FILE_SIZE: u64 = 200 * 1024 * 1024;
