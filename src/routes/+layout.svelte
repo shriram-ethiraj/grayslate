@@ -72,6 +72,12 @@
 <Tooltip.Provider delayDuration={400}>
 	<div class="flex h-screen w-full flex-col overflow-hidden">
 		<Titlebar />
+		<!-- Sidebar.Provider supplies open/close state & Ctrl+B shortcut.
+			 Actual sizing is handled by paneforge (ResizablePane), NOT the
+			 shadcn Sidebar component. The Sidebar.Sidebar component is omitted;
+			 only Provider (state), Trigger (button), and Inset (wrapper) are used.
+			 The "--sidebar-width: 100%" override lets AppSidebar fill whatever
+			 width paneforge allocates to the sidebar pane. -->
 		<div class="relative flex-1 overflow-hidden">
 			<Sidebar.Provider
 				bind:open={sidebarOpen}
@@ -102,7 +108,7 @@
 					</ResizablePane>
 					<ResizableHandle />
 					<ResizablePane id="content" defaultSize={80} class="flex flex-col">
-						<Sidebar.Inset class="h-full min-w-0">
+						<Sidebar.Inset class="min-w-0">
 							<header
 								class="flex h-12 w-full shrink-0 items-center justify-between border-b bg-background px-4"
 							>
