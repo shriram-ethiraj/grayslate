@@ -7,6 +7,13 @@
 
 @import "./shadcn.css";
 
+/* Indeterminate progress bar shuttle */
+@keyframes indeterminate {
+    0%   { transform: translateX(-100%); }
+    60%  { transform: translateX(300%); }
+    100% { transform: translateX(300%); }
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

@@ -31,6 +31,8 @@ export const editorState = $state<{
         visible: boolean;
         message: string;
         subMessage: string;
+        /** 0-100. Use -1 for indeterminate (pulsing bar). */
+        progress: number;
     };
 }>({
     fileType: "text",
@@ -45,14 +47,23 @@ export const editorState = $state<{
         visible: false,
         message: "",
         subMessage: "",
+        progress: -1,
     },
 });
 
-/** Show the editor-area loader overlay with an optional sub-message. */
-export function showEditorLoader(message: string, subMessage = "") {
+/** Show the editor-area loader overlay with optional sub-message and progress. */
+export function showEditorLoader(message: string, subMessage = "", progress = -1) {
     editorState.loader.visible = true;
     editorState.loader.message = message;
     editorState.loader.subMessage = subMessage;
+    editorState.loader.progress = progress;
+}
+
+/** Update loader progress and labels without toggling visibility. */
+export function updateEditorLoader(message: string, subMessage = "", progress = -1) {
+    editorState.loader.message = message;
+    editorState.loader.subMessage = subMessage;
+    editorState.loader.progress = progress;
 }
 
 /** Hide the editor-area loader overlay. */
@@ -60,4 +71,5 @@ export function hideEditorLoader() {
     editorState.loader.visible = false;
     editorState.loader.message = "";
     editorState.loader.subMessage = "";
+    editorState.loader.progress = -1;
 }

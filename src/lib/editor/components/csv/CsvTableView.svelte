@@ -8,6 +8,7 @@
     import {
         editorState,
         showEditorLoader,
+        updateEditorLoader,
         hideEditorLoader,
     } from "$lib/state/editor.svelte";
     import { debounce } from "lodash-es";
@@ -32,6 +33,12 @@
 
     let loading = $state(true);
     let pendingRows: string[][] = [];
+    // Ticker id for the decelerating progress animation during parse
+    let parseProgressTicker: ReturnType<typeof setInterval> | undefined;
+    let simParseProgress = 0;
+    // Ticker for the serialize (Table → plain text) transition
+    let serializeProgressTicker: ReturnType<typeof setInterval> | undefined;
+    let simSerializeProgress = 0;
 
     // Track the last content we synced from, to detect external changes
     let lastSyncedContent = $state(content);
@@ -54,10 +61,17 @@
                 lastSyncedContent = e.data.serialized;
                 content = e.data.serialized;
 
-                // If we were serializing for a view transition, complete it
+                // If we were serializing for a view transition, snap to 100 % then hide
                 if (editorState.csv.serializing) {
-                    editorState.csv.serializing = false;
-                    hideEditorLoader();
+                    if (serializeProgressTicker !== undefined) {
+                        clearInterval(serializeProgressTicker);
+                        serializeProgressTicker = undefined;
+                    }
+                    updateEditorLoader("Done", "", 100);
+                    setTimeout(() => {
+                        editorState.csv.serializing = false;
+                        hideEditorLoader();
+                    }, 250);
                 }
             } else if (e.data.error) {
                 console.error("CSV Serialization Worker Error:", e.data.error);
@@ -79,13 +93,29 @@
                         pendingRows.push(chunk[i]);
                     }
                     serializeWorker.postMessage({ type: "INIT_CHUNK", chunk });
-                    showEditorLoader(
-                        "Parsing CSV…",
-                        `${(pendingRows.length / 1_000_000).toFixed(1)}M rows loaded…`,
-                    );
+                    // Update sub-message with running row count; progress is
+                    // driven by the ticker started in the INIT_START block below.
+                    const rowCount = pendingRows.length;
+                    const rowLabel =
+                        rowCount >= 1_000_000
+                            ? `${(rowCount / 1_000_000).toFixed(1)}M rows…`
+                            : rowCount >= 1_000
+                              ? `${(rowCount / 1_000).toFixed(0)}K rows…`
+                              : `${rowCount} rows…`;
+                    updateEditorLoader("Parsing CSV…", rowLabel, simParseProgress);
                     break;
                 }
-                case "parsed-complete":
+                case "parsed-complete": {
+                    // Stop the ticker and snap to 100 %
+                    if (parseProgressTicker !== undefined) {
+                        clearInterval(parseProgressTicker);
+                        parseProgressTicker = undefined;
+                    }
+                    updateEditorLoader(
+                        "Building table…",
+                        `${pendingRows.length.toLocaleString()} rows`,
+                        100,
+                    );
                     parsed = {
                         headers: msg.headers,
                         rows: pendingRows,
@@ -99,9 +129,15 @@
                     });
                     pendingRows = [];
                     loading = false;
-                    hideEditorLoader();
+                    // Brief pause so user sees 100 % before overlay disappears
+                    setTimeout(() => hideEditorLoader(), 250);
                     break;
+                }
                 case "error":
+                    if (parseProgressTicker !== undefined) {
+                        clearInterval(parseProgressTicker);
+                        parseProgressTicker = undefined;
+                    }
                     console.error("CSV Parse Worker Error:", msg.error);
                     loading = false;
                     hideEditorLoader();
@@ -109,15 +145,35 @@
             }
         };
 
-        // Start initial parse
+        // Start initial parse with a decelerating progress ticker
         loading = true;
-        showEditorLoader("Parsing CSV…", "Starting…");
+        simParseProgress = 0;
+        showEditorLoader("Parsing CSV…", "Starting…", 0);
+
+        // Ticker: decelerate from 0 → ~85 % while the worker streams chunks.
+        // Each tick adds a fraction of the remaining gap so it never reaches 85
+        // on its own — the parsed-complete handler snaps it to 100.
+        parseProgressTicker = setInterval(() => {
+            const remaining = 85 - simParseProgress;
+            simParseProgress += Math.max(0.2, remaining * 0.05);
+            if (simParseProgress >= 84.9) simParseProgress = 84.9;
+            updateEditorLoader("Parsing CSV…", editorState.loader.subMessage, simParseProgress);
+        }, 100);
+
         serializeWorker.postMessage({ type: "INIT_START" });
         parseWorker.postMessage({ text: untrack(() => content) });
 
         return () => {
             // On unmount: just terminate workers.
             // Serialization is handled by the showTable watcher above.
+            if (parseProgressTicker !== undefined) {
+                clearInterval(parseProgressTicker);
+                parseProgressTicker = undefined;
+            }
+            if (serializeProgressTicker !== undefined) {
+                clearInterval(serializeProgressTicker);
+                serializeProgressTicker = undefined;
+            }
             debouncedSerialize.cancel();
             parseWorker.terminate();
             serializeWorker.terminate();
@@ -128,8 +184,20 @@
     // Re-parse when content changes externally (e.g. switching from text mode)
     $effect(() => {
         if (content !== untrack(() => lastSyncedContent)) {
+            // Clear any in-flight parse ticker before restarting
+            if (parseProgressTicker !== undefined) {
+                clearInterval(parseProgressTicker);
+                parseProgressTicker = undefined;
+            }
             loading = true;
-            showEditorLoader("Parsing CSV…", "Starting…");
+            simParseProgress = 0;
+            showEditorLoader("Parsing CSV…", "Starting…", 0);
+            parseProgressTicker = setInterval(() => {
+                const remaining = 85 - simParseProgress;
+                simParseProgress += Math.max(0.2, remaining * 0.05);
+                if (simParseProgress >= 84.9) simParseProgress = 84.9;
+                updateEditorLoader("Parsing CSV…", editorState.loader.subMessage, simParseProgress);
+            }, 100);
             lastSyncedContent = content;
             history.clear();
             serializeWorker?.postMessage({ type: "INIT_START" });
@@ -209,8 +277,16 @@
                 editorState.csv.serializing = false;
                 hideEditorLoader();
             } else if (editorState.csv.serializing) {
-                // Trigger the serialization if not loading and serializing is true
-                showEditorLoader("Preparing text view…");
+                // Start a decelerating ticker 0 → ~90 % while the worker serializes
+                simSerializeProgress = 0;
+                showEditorLoader("Preparing text view…", "", 0);
+                serializeProgressTicker = setInterval(() => {
+                    const remaining = 90 - simSerializeProgress;
+                    simSerializeProgress += Math.max(0.5, remaining * 0.08);
+                    if (simSerializeProgress >= 89.9) simSerializeProgress = 89.9;
+                    updateEditorLoader("Preparing text view…", "", simSerializeProgress);
+                }, 80);
+
                 csvEditorState.commitEdit();
                 debouncedSerialize.cancel();
 
