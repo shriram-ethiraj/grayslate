@@ -9,6 +9,7 @@
     import { getLanguageExtension } from "$lib/editor/config/languageExtensions";
     import { contextMenuExtension } from "$lib/editor/extensions/contextMenuExtension";
     import EditorContextMenu from "$lib/editor/components/EditorContextMenu.svelte";
+    import { editorState } from "$lib/state/editor.svelte";
 
     let {
         value = $bindable(),
@@ -97,6 +98,7 @@
         // both EditorContextMenu and external consumers receive the live view.
         view = cmView;
         editorView = cmView;
+        editorState.activeView = cmView;
 
         // Watch for light/dark class toggling on <html> and swap the theme.
         // attributeFilter already guarantees only class mutations arrive, so
@@ -134,6 +136,9 @@
             destroy() {
                 observer.disconnect();
                 cmView.destroy();
+                if (editorState.activeView === cmView) {
+                    editorState.activeView = undefined;
+                }
             },
         };
     }

@@ -92,7 +92,8 @@
 
             // Yield to let the UI repaint before running language detection
             await new Promise<void>((r) => setTimeout(r, 0));
-            const detected = languageDetector.detect(content, filename) ?? "text";
+            const detected =
+                languageDetector.detect(content, filename) ?? "text";
 
             updateEditorLoader("Loading into editor…", filename, 88);
             await new Promise<void>((r) => setTimeout(r, 0));
@@ -141,19 +142,21 @@
         {:else}
             <!-- Editor View -->
             <div
-                class="flex-1 w-full min-w-0 {activeLanguage === 'markdown' &&
-                editorState.markdown.showPreview
+                class="flex-1 w-full min-w-0 relative {activeLanguage ===
+                    'markdown' && editorState.markdown.showPreview
                     ? 'border-r border-border md:w-1/2 flex-none'
                     : ''}"
             >
-                <Editor
-                    bind:value
-                    bind:line
-                    bind:col
-                    bind:selectionSize
-                    language={activeLanguage}
-                    bind:editorView
-                />
+                <div class="absolute inset-0">
+                    <Editor
+                        bind:value
+                        bind:line
+                        bind:col
+                        bind:selectionSize
+                        language={activeLanguage}
+                        bind:editorView
+                    />
+                </div>
             </div>
 
             <!-- Markdown Preview -->

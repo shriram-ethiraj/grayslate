@@ -16,6 +16,12 @@
         type ContextMenuData,
     } from "$lib/editor/extensions/contextMenuExtension";
     import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
+    import {
+        editorCut,
+        editorCopy,
+        editorPaste,
+        editorSelectAll,
+    } from "$lib/editor/core/actions";
 
     let { view }: { view: EditorView | undefined } = $props();
 
@@ -137,61 +143,23 @@
 
     async function handleCut() {
         close();
-        if (!view) return;
-        const selection = view.state.selection.main;
-        if (selection.empty) return;
-        const text = view.state.sliceDoc(selection.from, selection.to);
-        try {
-            await writeText(text);
-            view.dispatch({
-                changes: { from: selection.from, to: selection.to, insert: "" },
-            });
-        } catch {
-            toast.error("Failed to cut text");
-        }
+        await editorCut(view);
     }
 
     async function handleCopy() {
         close();
-        if (!view) return;
-        const selection = view.state.selection.main;
-        if (selection.empty) return;
-        const text = view.state.sliceDoc(selection.from, selection.to);
-        try {
-            await writeText(text);
-        } catch {
-            toast.error("Failed to copy text");
-        }
+        await editorCopy(view);
     }
 
     async function handlePaste() {
         if (!clipboardHasText) return;
         close();
-        if (!view) return;
-        try {
-            const text = await readText();
-            if (text == null) return;
-            const selection = view.state.selection.main;
-            view.dispatch({
-                changes: {
-                    from: selection.from,
-                    to: selection.to,
-                    insert: text,
-                },
-                selection: { anchor: selection.from + text.length },
-                scrollIntoView: true,
-            });
-        } catch {
-            toast.error("Clipboard permission denied or failed to paste");
-        }
+        await editorPaste(view);
     }
 
     function handleSelectAll() {
         close();
-        if (!view) return;
-        view.dispatch({
-            selection: { anchor: 0, head: view.state.doc.length },
-        });
+        editorSelectAll(view);
     }
 </script>
 

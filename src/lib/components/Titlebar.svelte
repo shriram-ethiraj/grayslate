@@ -6,6 +6,15 @@
 	import * as Menubar from "$lib/components/ui/menubar/index.js";
 	import { Maximize2, Minus, Square, X } from "@lucide/svelte";
 	import * as Tooltip from "$lib/components/ui/tooltip/index.js";
+	import { editorState } from "$lib/state/editor.svelte";
+	import {
+		editorUndo,
+		editorRedo,
+		editorCut,
+		editorCopy,
+		editorPaste,
+		editorSelectAll,
+	} from "$lib/editor/core/actions";
 
 	let osType = $state("");
 	const appWindow = new Window("main");
@@ -24,8 +33,30 @@
 		await emit("menu://open-file");
 	}
 
-	function handleEdit(action: string) {
-		document.execCommand(action);
+	async function handleEdit(action: string) {
+		const view = editorState.activeView;
+		if (!view) return;
+
+		switch (action) {
+			case "undo":
+				editorUndo(view);
+				break;
+			case "redo":
+				editorRedo(view);
+				break;
+			case "cut":
+				await editorCut(view);
+				break;
+			case "copy":
+				await editorCopy(view);
+				break;
+			case "paste":
+				await editorPaste(view);
+				break;
+			case "selectAll":
+				editorSelectAll(view);
+				break;
+		}
 	}
 </script>
 
@@ -157,7 +188,7 @@
 		<!-- Window Controls (Windows / Linux) -->
 		<div class="pointer-events-none z-10 flex h-full items-center">
 			<Tooltip.Root>
-				<Tooltip.Trigger>
+				<Tooltip.Trigger class="h-full">
 					<button
 						class="pointer-events-auto inline-flex h-full w-12 items-center justify-center text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground focus:outline-none"
 						onclick={() => appWindow.minimize()}
@@ -172,7 +203,7 @@
 			</Tooltip.Root>
 
 			<Tooltip.Root>
-				<Tooltip.Trigger>
+				<Tooltip.Trigger class="h-full">
 					<button
 						class="pointer-events-auto inline-flex h-full w-12 items-center justify-center text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground focus:outline-none"
 						onclick={() => appWindow.toggleMaximize()}
@@ -187,7 +218,7 @@
 			</Tooltip.Root>
 
 			<Tooltip.Root>
-				<Tooltip.Trigger>
+				<Tooltip.Trigger class="h-full">
 					<button
 						class="pointer-events-auto inline-flex h-full w-12 items-center justify-center text-muted-foreground transition-colors hover:bg-destructive hover:text-destructive-foreground focus:outline-none"
 						onclick={() => appWindow.close()}

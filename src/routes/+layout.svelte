@@ -1,12 +1,12 @@
 <script lang="ts">
-	import "./layout.css";
-	import * as Sidebar from "$lib/components/ui/sidebar/index.js";
 	import AppSidebar from "$lib/components/app-sidebar.svelte";
 	import ThemeToggle from "$lib/components/theme-toggle.svelte";
-	import EditorActions from "$lib/editor/components/EditorActions.svelte";
-	import { Toaster } from "$lib/components/ui/sonner/index.js";
 	import Titlebar from "$lib/components/Titlebar.svelte";
+	import * as Sidebar from "$lib/components/ui/sidebar/index.js";
+	import { Toaster } from "$lib/components/ui/sonner/index.js";
 	import * as Tooltip from "$lib/components/ui/tooltip/index.js";
+	import EditorActions from "$lib/editor/components/EditorActions.svelte";
+	import "./layout.css";
 
 	const { children } = $props();
 </script>
@@ -15,7 +15,7 @@
 	<div class="flex h-screen w-full flex-col overflow-hidden">
 		<Titlebar />
 		<div class="relative flex-1 overflow-hidden">
-			<Sidebar.Provider open={false}>
+			<Sidebar.Provider open={false} class="h-full min-h-0">
 				<AppSidebar />
 				<Sidebar.Inset class="min-w-0">
 					<header

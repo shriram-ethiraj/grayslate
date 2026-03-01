@@ -1,3 +1,5 @@
+import type { EditorView } from "codemirror";
+
 export type FileType =
     | "text"
     | "csv"
@@ -19,6 +21,7 @@ export type FileType =
     | "auto";
 
 export const editorState = $state<{
+    activeView?: EditorView;
     fileType: FileType;
     csv: {
         showTable: boolean;
