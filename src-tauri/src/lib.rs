@@ -8,8 +8,10 @@ const MAX_FILE_SIZE: u64 = 200 * 1024 * 1024;
 /// We make the native window background transparent, then round the
 /// content-view's CALayer so the web content clips to rounded corners
 /// while preserving the window shadow.
+///
+/// Uses `objc2` + `objc2-app-kit` + `objc2-quartz-core` — the modern, maintained
+/// successors to the deprecated `cocoa` and `objc` 0.2 crates.
 #[cfg(target_os = "macos")]
-#[allow(deprecated)] // cocoa crate is deprecated in favor of objc2-app-kit, but still functional
 fn apply_macos_window_styling(app: &tauri::App) {
     use tauri::Manager;
 
@@ -19,26 +21,30 @@ fn apply_macos_window_styling(app: &tauri::App) {
 
     window
         .with_webview(|webview| {
-            use cocoa::appkit::{NSColor, NSView, NSWindow};
-            use cocoa::base::{id, nil, NO, YES};
-            use objc::{msg_send, sel, sel_impl};
+            use objc2_app_kit::{NSColor, NSWindow};
 
             unsafe {
-                let ns_window: id = webview.ns_window() as id;
+                let ns_window: &NSWindow = &*webview.ns_window().cast();
 
                 // Transparent window background so rounded corners don't
                 // show an opaque rectangle behind the web content.
-                ns_window.setOpaque_(NO);
-                ns_window.setBackgroundColor_(NSColor::clearColor(nil));
+                ns_window.setOpaque(false);
+                ns_window.setBackgroundColor(Some(&NSColor::clearColor()));
                 // Keep the system drop-shadow so the window doesn't look flat.
-                ns_window.setHasShadow_(YES);
+                // This shadow is what gives macOS apps their subtle border
+                // appearance (like Chrome).
+                ns_window.setHasShadow(true);
 
                 // Round the content view via its backing CALayer.
-                let content_view: id = ns_window.contentView();
-                content_view.setWantsLayer(YES);
-                let layer: id = msg_send![content_view, layer];
-                let _: () = msg_send![layer, setCornerRadius: 10.0_f64];
-                let _: () = msg_send![layer, setMasksToBounds: YES];
+                let content_view = ns_window
+                    .contentView()
+                    .expect("NSWindow.contentView() should not be null");
+
+                content_view.setWantsLayer(true);
+                if let Some(layer) = content_view.layer().as_ref() {
+                    layer.setCornerRadius(10.0);
+                    layer.setMasksToBounds(true);
+                }
             }
         })
         .ok();
