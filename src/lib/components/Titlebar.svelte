@@ -21,7 +21,7 @@
 
 	const isMac = $derived(osType === "macos");
 	/** Platform modifier key label */
-	const mod = $derived(isMac ? "Cmd" : "Ctrl");
+	const mod = $derived(isMac ? "⌘" : "Ctrl");
 	/** Redo shortcut differs between platforms */
 	const redoShortcut = $derived(isMac ? `${mod}+Shift+Z` : `${mod}+Y`);
 
