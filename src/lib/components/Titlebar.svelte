@@ -4,7 +4,7 @@
 	import { emit, listen } from "@tauri-apps/api/event";
 	import { onMount, onDestroy } from "svelte";
 	import * as Menubar from "$lib/components/ui/menubar/index.js";
-	import { Maximize2, Minus, Square, X } from "@lucide/svelte";
+	import { Check, Maximize2, Minus, Square, X } from "@lucide/svelte";
 	import * as Tooltip from "$lib/components/ui/tooltip/index.js";
 	import { editorState } from "$lib/state/editor.svelte";
 	import {
@@ -140,7 +140,12 @@
 				>
 				<Menubar.Separator />
 				<Menubar.CheckboxItem bind:checked={editorState.wordWrap}>
-					Word Wrap
+					<div class="flex items-center gap-2">
+						Word Wrap
+						{#if editorState.wordWrap}
+							<Check class="ml-2 h-4 w-4" />
+						{/if}
+					</div>
 					<Menubar.Shortcut>{wordWrapShortcut}</Menubar.Shortcut>
 				</Menubar.CheckboxItem>
 				<Menubar.Separator />

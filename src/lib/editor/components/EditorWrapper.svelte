@@ -4,6 +4,11 @@
     import CsvTableView from "./csv/CsvTableView.svelte";
     import StatusBar from "$lib/editor/components/StatusBar.svelte";
     import EditorLoader from "$lib/editor/components/EditorLoader.svelte";
+    import {
+        ResizablePaneGroup,
+        ResizablePane,
+        ResizableHandle,
+    } from "$lib/components/ui/resizable";
     import { languageDetector } from "$lib/editor/core/languageDetector";
     import { debounce } from "lodash-es";
     import type { EditorView } from "codemirror";
@@ -141,17 +146,59 @@
             subMessage={editorState.loader.subMessage}
             progress={editorState.loader.progress}
         />
+
         {#if isCsvTableActive}
-            <!-- CSV Table View (replaces editor) -->
-            <CsvTableView bind:content={value} bind:tableInfo={csvInfo} />
+            <!--
+                CSV mode: render only the table view — no ResizablePaneGroup
+                overhead. The flex-col container gives csv-table-wrapper the
+                flex parent it needs (flex: 1; min-height: 0) so the
+                virtualizer receives the correct containerHeight.
+            -->
+            <div class="flex flex-1 flex-col min-h-0 min-w-0">
+                <CsvTableView bind:content={value} bind:tableInfo={csvInfo} />
+            </div>
+        {:else if activeLanguage === "markdown"}
+            <!--
+                Markdown mode: ResizablePaneGroup keeps the Editor (pane 1)
+                permanently mounted. Only pane 2 (preview) is conditionally
+                appended so the editor never reloads when toggling the preview.
+            -->
+            <ResizablePaneGroup direction="horizontal" class="flex-1 min-h-0">
+                <ResizablePane
+                    defaultSize={50}
+                    minSize={15}
+                    class="relative min-h-0"
+                >
+                    <div class="absolute inset-0">
+                        <Editor
+                            bind:value
+                            bind:line
+                            bind:col
+                            bind:selectionSize
+                            language={activeLanguage}
+                            bind:editorView
+                        />
+                    </div>
+                </ResizablePane>
+
+                {#if editorState.markdown.showPreview}
+                    <ResizableHandle />
+                    <ResizablePane
+                        defaultSize={50}
+                        minSize={15}
+                        class="flex flex-col min-h-0"
+                    >
+                        <MarkdownPreview content={value} {editorView} />
+                    </ResizablePane>
+                {/if}
+            </ResizablePaneGroup>
         {:else}
-            <!-- Editor View -->
-            <div
-                class="flex-1 w-full min-w-0 relative {activeLanguage ===
-                    'markdown' && editorState.markdown.showPreview
-                    ? 'border-r border-border md:w-1/2 flex-none'
-                    : ''}"
-            >
+            <!--
+                All other modes: plain editor, no pane group overhead.
+                absolute inset-0 inside relative flex-1 min-h-0 is the
+                standard sizing pattern used throughout this app.
+            -->
+            <div class="relative flex-1 min-h-0 min-w-0">
                 <div class="absolute inset-0">
                     <Editor
                         bind:value
@@ -163,11 +210,6 @@
                     />
                 </div>
             </div>
-
-            <!-- Markdown Preview -->
-            {#if activeLanguage === "markdown" && editorState.markdown.showPreview}
-                <MarkdownPreview content={value} {editorView} />
-            {/if}
         {/if}
     </div>
     <StatusBar
