@@ -2,12 +2,146 @@
 /// Maximum file size allowed to be opened: 200 MB.
 const MAX_FILE_SIZE: u64 = 200 * 1024 * 1024;
 
+/// Build the macOS-native menu bar (File + Edit).
+///
+/// On macOS the in-window shadcn Menubar is hidden; this native menu
+/// provides the same actions via the system menu bar at the top of the
+/// screen.  Menu events are forwarded to the webview as Tauri events so
+/// the existing Svelte action handlers can process them unchanged.
+#[cfg(target_os = "macos")]
+fn build_native_menu(
+    app: &tauri::AppHandle,
+) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
+    use tauri::menu::{CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder, SubmenuBuilder};
+
+    let app_menu = SubmenuBuilder::new(app, "Grayslate")
+        .item(
+            &MenuItemBuilder::with_id("about", "About Grayslate")
+                .build(app)?,
+        )
+        .build()?;
+
+    let file_menu = SubmenuBuilder::new(app, "File")
+        .item(
+            &MenuItemBuilder::with_id("open-file", "Open File...")
+                .accelerator("CmdOrCtrl+O")
+                .build(app)?,
+        )
+        .build()?;
+
+    // Word Wrap is a checkbox whose default (unchecked) mirrors editorState.wordWrap = false.
+    // Each click toggles the check mark and emits an event; the Svelte side stays in sync
+    // provided all toggles go through this menu item or the keyboard shortcut captured here.
+    let word_wrap_item = CheckMenuItemBuilder::with_id("edit-word-wrap", "Word Wrap")
+        .accelerator("Alt+Z")
+        .build(app)?;
+
+    let edit_menu = SubmenuBuilder::new(app, "Edit")
+        .item(
+            &MenuItemBuilder::with_id("edit-undo", "Undo")
+                .accelerator("CmdOrCtrl+Z")
+                .build(app)?,
+        )
+        .item(
+            &MenuItemBuilder::with_id("edit-redo", "Redo")
+                .accelerator("CmdOrCtrl+Shift+Z")
+                .build(app)?,
+        )
+        .separator()
+        .item(
+            &MenuItemBuilder::with_id("edit-cut", "Cut")
+                .accelerator("CmdOrCtrl+X")
+                .build(app)?,
+        )
+        .item(
+            &MenuItemBuilder::with_id("edit-copy", "Copy")
+                .accelerator("CmdOrCtrl+C")
+                .build(app)?,
+        )
+        .item(
+            &MenuItemBuilder::with_id("edit-paste", "Paste")
+                .accelerator("CmdOrCtrl+V")
+                .build(app)?,
+        )
+        .separator()
+        .item(&word_wrap_item)
+        .separator()
+        .item(
+            &MenuItemBuilder::with_id("edit-select-all", "Select All")
+                .accelerator("CmdOrCtrl+A")
+                .build(app)?,
+        )
+        .build()?;
+
+    MenuBuilder::new(app)
+        .item(&app_menu)
+        .item(&file_menu)
+        .item(&edit_menu)
+        .build()
+}
+
+/// Handle macOS native menu events: forward each item click to the webview
+/// as a Tauri event so the Svelte action handlers can process them unchanged.
+///
+/// - `menu://open-file`    → EditorWrapper's openFile()
+/// - `menu://edit-action`  → Titlebar's handleEdit(action) / word-wrap toggle
+#[cfg(target_os = "macos")]
+fn handle_macos_menu_event(app: &tauri::AppHandle, event: tauri::menu::MenuEvent) {
+    use tauri::{Emitter, Manager};
+
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+
+    match event.id.as_ref() {
+        "open-file" => {
+            let _ = window.emit("menu://open-file", true);
+        }
+        "edit-undo" => {
+            let _ = window.emit("menu://edit-action", "undo");
+        }
+        "edit-redo" => {
+            let _ = window.emit("menu://edit-action", "redo");
+        }
+        "edit-cut" => {
+            let _ = window.emit("menu://edit-action", "cut");
+        }
+        "edit-copy" => {
+            let _ = window.emit("menu://edit-action", "copy");
+        }
+        "edit-paste" => {
+            let _ = window.emit("menu://edit-action", "paste");
+        }
+        "edit-select-all" => {
+            let _ = window.emit("menu://edit-action", "selectAll");
+        }
+        "edit-word-wrap" => {
+            // muda auto-toggled the CheckMenuItem; read the resulting
+            // checked state and emit it as an absolute boolean so the
+            // frontend can SET (not toggle) its mirror — avoids any
+            // possibility of the two sides drifting out of sync.
+            let mut checked = false;
+            if let Some(menu) = app.menu() {
+                if let Some(item) = menu.get("edit-word-wrap") {
+                    if let Some(ci) = item.as_check_menuitem() {
+                        checked = ci.is_checked().unwrap_or(false);
+                    }
+                }
+            }
+            let _ = window.emit("menu://word-wrap-state", checked);
+        }
+        _ => {}
+    }
+}
+
 /// Apply macOS-specific window styling: rounded corners + shadow.
 ///
-/// `decorations: false` gives a borderless NSWindow (sharp rectangle).
-/// We make the native window background transparent, then round the
-/// content-view's CALayer so the web content clips to rounded corners
-/// while preserving the window shadow.
+/// Decorations, titleBarStyle and trafficLightPosition are now set
+/// declaratively in `tauri.macos.conf.json` (platform-specific config),
+/// so this function only applies visual tweaks that require native APIs:
+///   • transparent NSWindow background  → rounded corners show through
+///   • CALayer corner radius            → clips web content to rounded rect
+///   • system shadow                    → native drop-shadow (like Chrome)
 ///
 /// Uses `objc2` + `objc2-app-kit` + `objc2-quartz-core` — the modern, maintained
 /// successors to the deprecated `cocoa` and `objc` 0.2 crates.
@@ -72,11 +206,20 @@ async fn read_file_content(path: String) -> Result<String, String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_clipboard_manager::init());
+
+    // Attach the native macOS menu bar and its event handler only on macOS.
+    // On Windows/Linux the existing in-window shadcn Menubar is used instead.
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .menu(build_native_menu)
+        .on_menu_event(handle_macos_menu_event);
+
+    builder
         .setup(|_app| {
             #[cfg(target_os = "macos")]
             apply_macos_window_styling(_app);

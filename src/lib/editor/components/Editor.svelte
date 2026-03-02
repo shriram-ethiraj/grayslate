@@ -60,37 +60,37 @@
     // anchoring the viewport jumps to an arbitrary position. We capture the
     // document position at the top of the viewport *before* the reconfigure,
     // then after the layout reflows we scroll that position back to the top.
+    //
+    // Unlike the language effect we do NOT skip the first run — we need
+    // `view` to be read so it becomes a tracked dependency.  On the very
+    // first evaluation `view` is still `undefined` and the inner block is
+    // skipped harmlessly; once the `editor` action assigns `view` the
+    // effect re-runs and keeps the compartment in sync.
     // ---------------------------------------------------------------------------
-    let wrapEffectInitialized = false;
 
     $effect(() => {
         const wrap = editorState.wordWrap;
-        if (!wrapEffectInitialized) {
-            wrapEffectInitialized = true;
-            return;
-        }
-        if (view && wordWrapCompartment) {
-            // Capture the document position visible at the top of the viewport.
-            const scrollTop = view.scrollDOM.scrollTop;
-            const topBlock = view.lineBlockAtHeight(scrollTop);
-            const topPos = topBlock.from;
+        if (!view || !wordWrapCompartment) return;
 
-            view.dispatch({
-                effects: wordWrapCompartment.reconfigure(
-                    wrap ? EditorView.lineWrapping : [],
-                ),
-            });
+        // Capture scroll position BEFORE the reconfigure changes layout.
+        const scrollTop = view.scrollDOM.scrollTop;
+        const topPos = view.lineBlockAtHeight(scrollTop).from;
 
-            // After layout reflows, scroll the same line back to the top.
-            view.requestMeasure({
-                read(v) {
-                    return v.lineBlockAt(topPos).top;
-                },
-                write(newTop, v) {
-                    v.scrollDOM.scrollTop = newTop;
-                },
-            });
-        }
+        view.dispatch({
+            effects: wordWrapCompartment.reconfigure(
+                wrap ? EditorView.lineWrapping : [],
+            ),
+        });
+
+        // After layout reflows, scroll the same line back to the top.
+        view.requestMeasure({
+            read(v) {
+                return v.lineBlockAt(topPos).top;
+            },
+            write(newTop, v) {
+                v.scrollDOM.scrollTop = newTop;
+            },
+        });
     });
 
     // ---------------------------------------------------------------------------

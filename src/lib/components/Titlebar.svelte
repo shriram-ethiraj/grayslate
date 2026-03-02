@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { Window } from "@tauri-apps/api/window";
 	import { type } from "@tauri-apps/plugin-os";
-	import { emit } from "@tauri-apps/api/event";
-	import { onMount } from "svelte";
+	import { emit, listen } from "@tauri-apps/api/event";
+	import { onMount, onDestroy } from "svelte";
 	import * as Menubar from "$lib/components/ui/menubar/index.js";
 	import { Maximize2, Minus, Square, X } from "@lucide/svelte";
 	import * as Tooltip from "$lib/components/ui/tooltip/index.js";
@@ -26,8 +26,40 @@
 	const redoShortcut = $derived(isMac ? `${mod}+Shift+Z` : `${mod}+Y`);
 	const wordWrapShortcut = $derived(isMac ? "⌥+Z" : "Alt+Z");
 
+	// Unlisten callback for the macOS native menu edit-action event.
+	let unlistenEditAction: (() => void) | undefined;
+	let unlistenWordWrap: (() => void) | undefined;
+
 	onMount(async () => {
 		osType = await type();
+
+		// On macOS, the in-window Menubar is hidden and the system menu bar is
+		// used instead. Forward native menu edit events to the same handlers
+		// used by the custom Menubar on Windows/Linux.
+		if (osType === "macos") {
+			unlistenEditAction = await listen<string>(
+				"menu://edit-action",
+				(event) => {
+					handleEdit(event.payload);
+				},
+			);
+
+			// Word wrap uses a separate event that carries the actual
+			// checked boolean from the native CheckMenuItem.  Setting
+			// the state directly (instead of toggling) keeps the two
+			// sides in lock-step regardless of muda's auto-toggle.
+			unlistenWordWrap = await listen<boolean>(
+				"menu://word-wrap-state",
+				(event) => {
+					editorState.wordWrap = event.payload;
+				},
+			);
+		}
+	});
+
+	onDestroy(() => {
+		unlistenEditAction?.();
+		unlistenWordWrap?.();
 	});
 
 	async function handleOpen() {
@@ -62,6 +94,7 @@
 
 	function handleKeydown(e: KeyboardEvent) {
 		if (e.altKey && e.key.toLowerCase() === "z") {
+			if (isMac) return;
 			e.preventDefault();
 			editorState.wordWrap = !editorState.wordWrap;
 		}
@@ -126,71 +159,14 @@
 	<div data-tauri-drag-region class="absolute inset-0 z-0"></div>
 
 	{#if isMac}
-		<!-- Mac Traffic Lights -->
+		<!-- Mac Traffic Lights Space -->
+		<!-- File & Edit menus are provided by the macOS native system menu bar -->
 		<div
 			class="group pointer-events-none z-10 flex h-full w-[72px] items-center justify-start gap-2 pl-4"
-		>
-			<Tooltip.Root>
-				<Tooltip.Trigger>
-					<button
-						class="pointer-events-auto flex h-3.5 w-3.5 items-center justify-center rounded-full border border-red-600/50 bg-red-500 hover:bg-red-600 focus:outline-none"
-						onclick={() => appWindow.close()}
-						aria-label="Close"
-					>
-						<X
-							class="pointer-events-none h-2 w-2 opacity-0 transition-opacity group-hover:opacity-100 text-[#4c0000]"
-							strokeWidth={2.5}
-						/>
-					</button>
-				</Tooltip.Trigger>
-				<Tooltip.Content side="bottom" sideOffset={13}
-					>Close</Tooltip.Content
-				>
-			</Tooltip.Root>
+		></div>
 
-			<Tooltip.Root>
-				<Tooltip.Trigger>
-					<button
-						class="pointer-events-auto flex h-3.5 w-3.5 items-center justify-center rounded-full border border-yellow-600/50 bg-yellow-500 hover:bg-yellow-600 focus:outline-none"
-						onclick={() => appWindow.minimize()}
-						aria-label="Minimize"
-					>
-						<Minus
-							class="pointer-events-none h-2 w-2 opacity-0 transition-opacity group-hover:opacity-100 text-[#5a4300]"
-							strokeWidth={2.5}
-						/>
-					</button>
-				</Tooltip.Trigger>
-				<Tooltip.Content side="bottom" sideOffset={13}
-					>Minimize</Tooltip.Content
-				>
-			</Tooltip.Root>
-
-			<Tooltip.Root>
-				<Tooltip.Trigger>
-					<button
-						class="pointer-events-auto flex h-3.5 w-3.5 items-center justify-center rounded-full border border-green-600/50 bg-green-500 hover:bg-green-600 focus:outline-none"
-						onclick={() => appWindow.toggleMaximize()}
-						aria-label="Maximize"
-					>
-						<Maximize2
-							class="pointer-events-none h-2 w-2 opacity-0 transition-opacity group-hover:opacity-100 text-[#004200]"
-							strokeWidth={2.5}
-						/>
-					</button>
-				</Tooltip.Trigger>
-				<Tooltip.Content side="bottom" sideOffset={13}
-					>Maximize</Tooltip.Content
-				>
-			</Tooltip.Root>
-		</div>
-
-		<!-- Menubar (Mac) -->
-		<div
-			class="pointer-events-none z-10 flex flex-1 justify-start pl-2 overflow-hidden"
-		>
-			{@render appMenubar()}
-		</div>
+		<!-- Empty flex spacer so the traffic-lights side doesn't collapse -->
+		<div class="pointer-events-none z-10 flex flex-1"></div>
 	{:else}
 		<!-- App Name + Menubar (Windows / Linux) -->
 		<div class="pointer-events-none z-10 flex items-center pl-3">
