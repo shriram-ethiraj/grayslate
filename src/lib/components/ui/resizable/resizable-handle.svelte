@@ -28,7 +28,7 @@
 	bind:ref
 	data-slot="resizable-handle"
 	class={cn(
-		"bg-border focus-visible:ring-ring relative flex w-px items-center justify-center after:absolute after:inset-y-0 after:left-[-6px] after:right-[-6px] focus-visible:ring-1 focus-visible:ring-offset-1 focus-visible:outline-hidden data-[direction=vertical]:h-px data-[direction=vertical]:w-full data-[direction=vertical]:after:inset-x-0 data-[direction=vertical]:after:top-[-6px] data-[direction=vertical]:after:bottom-[-6px] [&[data-direction=vertical]>div]:rotate-90",
+		"bg-border focus-visible:ring-ring relative z-10 flex w-px items-center justify-center after:absolute after:inset-y-0 after:left-[-6px] after:right-[-6px] focus-visible:ring-1 focus-visible:ring-offset-1 focus-visible:outline-hidden data-[direction=vertical]:h-px data-[direction=vertical]:w-full data-[direction=vertical]:after:inset-x-0 data-[direction=vertical]:after:top-[-6px] data-[direction=vertical]:after:bottom-[-6px] [&[data-direction=vertical]>div]:rotate-90",
 		className
 	)}
 	{...restProps}
