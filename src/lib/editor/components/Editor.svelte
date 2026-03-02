@@ -25,6 +25,7 @@
 
     let themeCompartment: Compartment;
     let langCompartment: Compartment;
+    let wordWrapCompartment: Compartment;
 
     // ---------------------------------------------------------------------------
     // Language compartment reconfiguration
@@ -52,11 +53,53 @@
     });
 
     // ---------------------------------------------------------------------------
+    // Word wrap compartment reconfiguration
+    //
+    // Toggling lineWrapping causes CodeMirror to reflow the entire document
+    // (line heights change as lines wrap / unwrap). Without explicit scroll
+    // anchoring the viewport jumps to an arbitrary position. We capture the
+    // document position at the top of the viewport *before* the reconfigure,
+    // then after the layout reflows we scroll that position back to the top.
+    // ---------------------------------------------------------------------------
+    let wrapEffectInitialized = false;
+
+    $effect(() => {
+        const wrap = editorState.wordWrap;
+        if (!wrapEffectInitialized) {
+            wrapEffectInitialized = true;
+            return;
+        }
+        if (view && wordWrapCompartment) {
+            // Capture the document position visible at the top of the viewport.
+            const scrollTop = view.scrollDOM.scrollTop;
+            const topBlock = view.lineBlockAtHeight(scrollTop);
+            const topPos = topBlock.from;
+
+            view.dispatch({
+                effects: wordWrapCompartment.reconfigure(
+                    wrap ? EditorView.lineWrapping : [],
+                ),
+            });
+
+            // After layout reflows, scroll the same line back to the top.
+            view.requestMeasure({
+                read(v) {
+                    return v.lineBlockAt(topPos).top;
+                },
+                write(newTop, v) {
+                    v.scrollDOM.scrollTop = newTop;
+                },
+            });
+        }
+    });
+
+    // ---------------------------------------------------------------------------
     // Svelte action — mounts and manages the CodeMirror instance
     // ---------------------------------------------------------------------------
     function editor(node: HTMLElement, initialValue: string) {
         themeCompartment = new Compartment();
         langCompartment = new Compartment();
+        wordWrapCompartment = new Compartment();
 
         const isDark = document.documentElement.classList.contains("dark");
         const initialThemeExt = createTheme(
@@ -70,6 +113,9 @@
                 scrollPastEnd(),
                 themeCompartment.of(initialThemeExt),
                 langCompartment.of(getLanguageExtension(language)),
+                wordWrapCompartment.of(
+                    editorState.wordWrap ? EditorView.lineWrapping : [],
+                ),
                 colorHints,
                 contextMenuExtension,
                 // Sync cursor position, selection size, and document text back

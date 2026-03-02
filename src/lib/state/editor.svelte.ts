@@ -23,6 +23,7 @@ export type FileType =
 export const editorState = $state<{
     activeView?: EditorView;
     fileType: FileType;
+    wordWrap: boolean;
     csv: {
         showTable: boolean;
         serializing: boolean;
@@ -39,6 +40,7 @@ export const editorState = $state<{
     };
 }>({
     fileType: "text",
+    wordWrap: false,
     csv: {
         showTable: false,
         serializing: false,

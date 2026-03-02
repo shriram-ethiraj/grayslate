@@ -24,6 +24,7 @@
 	const mod = $derived(isMac ? "⌘" : "Ctrl");
 	/** Redo shortcut differs between platforms */
 	const redoShortcut = $derived(isMac ? `${mod}+Shift+Z` : `${mod}+Y`);
+	const wordWrapShortcut = $derived(isMac ? "⌥+Z" : "Alt+Z");
 
 	onMount(async () => {
 		osType = await type();
@@ -58,7 +59,16 @@
 				break;
 		}
 	}
+
+	function handleKeydown(e: KeyboardEvent) {
+		if (e.altKey && e.key.toLowerCase() === "z") {
+			e.preventDefault();
+			editorState.wordWrap = !editorState.wordWrap;
+		}
+	}
 </script>
+
+<svelte:window onkeydown={handleKeydown} />
 
 {#snippet appMenubar()}
 	<Menubar.Root class="pointer-events-auto border-none bg-transparent">
@@ -95,6 +105,11 @@
 					>Paste<Menubar.Shortcut>{mod}+V</Menubar.Shortcut
 					></Menubar.Item
 				>
+				<Menubar.Separator />
+				<Menubar.CheckboxItem bind:checked={editorState.wordWrap}>
+					Word Wrap
+					<Menubar.Shortcut>{wordWrapShortcut}</Menubar.Shortcut>
+				</Menubar.CheckboxItem>
 				<Menubar.Separator />
 				<Menubar.Item onclick={() => handleEdit("selectAll")}
 					>Select All<Menubar.Shortcut>{mod}+A</Menubar.Shortcut
