@@ -1,6 +1,13 @@
+---
+name: Editor Extensions
+description: Documentation for custom CodeMirror extensions and editor utilities.
+---
+
 # Editor Extensions
 
 This document describes all custom CodeMirror extensions and editor utilities in `src/lib/editor/extensions/`.
+
+> **Note**: For fundamental guidelines on integrating CodeMirror with Svelte and `EditorState` management, see the [CodeMirror Core Integration](../codemirror-core/SKILL.md) skill.
 
 ---
 

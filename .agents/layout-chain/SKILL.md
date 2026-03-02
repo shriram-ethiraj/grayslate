@@ -1,3 +1,8 @@
+---
+name: Layout Chain Constraints
+description: Critical guidelines for modifying layout, sidebar, or CSV table view to prevent performance issues.
+---
+
 # Layout Chain Documentation
 
 > **⚠️ Critical reading for any agent or developer modifying layout, sidebar, or the CSV table view.**
@@ -34,7 +39,7 @@ The app has a deeply nested **flex-column** chain from `<html>` all the way to t
                         <CsvTableView>
                           <div class="csv-table-wrapper">   ← flex:1; min-height:0  ⚠️ NOT height:100%
                             <div class="csv-table-container">  ← flex:1; overflow:auto ← THE SCROLL ELEMENT
-                              <div style="height:{virtualizer.totalSize}px">  ← up to 30,000,000px tall
+                               <div style="height:{virtualizer.totalSize}px">  ← up to 30,000,000px tall
 ```
 
 ---

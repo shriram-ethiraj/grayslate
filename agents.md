@@ -19,48 +19,38 @@ Welcome to the Grayslate project. This document serves as a "production-grade" r
 ## 📐 Architecture & Coding Standards
 
 ### 1. Frontend (Svelte 5 & TypeScript)
-*   **Embrace Svelte 5 Runes:** Exclusively use modern Svelte 5 signals (Runes).
-    *   Use `$state()` for reactive state.
-    *   Use `$derived()` for computed values.
-    *   Use `$effect()` for side effects.
-    *   Use `$props()` instead of `export let` for component inputs.
-    *   Avoid legacy Svelte 4 features (`$:`, legacy slot architecture). Opt for Svelte 5 `{#snippet}` when handling template injection.
-*   **Strong Typing:** Do not use `any`. Define strictly typed interfaces and types for all component props, Tauri IPC payloads, and CodeMirror extensions.
-*   **Vite Native:** Keep assets optimized. Import static assets cleanly and let Vite handle caching and bundling.
+**> To know more about this topic, YOU MUST READ the `.agents/svelte-frontend/SKILL.md` file.**
+*   **Embrace Svelte 5 Runes:** Exclusively use modern Svelte 5 signals (`$state`, `$derived`, `$effect`, `$props`). Avoid Svelte 4 legacy features.
+*   **Strong Typing:** Do not use `any`. Use strict TypeScript interfaces.
+*   **Vite Native:** Let Vite handle assets and bundling.
 
 ### 2. Editor Integration (CodeMirror 6)
-*   Use `@codemirror/state` and `@codemirror/view` correctly.
-*   Keep the CodeMirror `EditorState` conceptually separated from Svelte's `$state` unless explicitly synchronizing document content. Avoid deep reactivity loops between the two.
-*   Dispatch `Transaction` objects cleanly for editor updates rather than violently replacing the document text.
-*   **Performance First:** When building extensions (Fold widgets, Tooltips, Inlay Hints), **never** write unbounded `while` loops that traverse the Lezer tree (e.g. counting every child of a JSON Array). Cap iterations aggressively (e.g. `MAX_SCAN_CHILDREN = 100`) to prevent the main thread from freezing when users paste gigabyte-sized files.
-*   **Experimental Extensions:** Unused or WIP CodeMirror extensions (like `stickyScroll`) are kept in `src/lib/editor/extensions/experimental/`. Do not delete these files, but do not import them into the main `languageExtensions.ts` config unless specifically requested.
+**> To know more about core integration, YOU MUST READ the `.agents/codemirror-core/SKILL.md` file.**
+**> To know more about custom extensions, YOU MUST READ the `.agents/editor-extensions/SKILL.md` file.**
+*   Keep `EditorState` separate from Svelte's `$state` to avoid reactivity loops. 
+*   Perform updates via `Transaction`s. 
+*   **Performance:** Cap Lezer tree traversals to avoid freezing the main thread.
 
 ### 3. Desktop / Backend (Tauri v2 & Rust)
-*   **Tauri v2 APIs:** Ensure we are using Tauri v2 IPC (`@tauri-apps/api/core` Invoke calls, not v1).
-*   **Rust Safety:** Follow strict memory safety protocols in Rust. Heavily utilize `Result<T, E>` for error handling instead of `unwrap()` or `expect()`.
-*   **Error Serialization:** Any Rust errors returned to the Svelte frontend via `#[tauri::command]` must implement `serde::Serialize`.
-*   **Async Commands:** Utilize async Rust functions for I/O operations (file system, network) to avoid blocking the main thread.
+**> To know more about backend rules, YOU MUST READ the `.agents/tauri-backend/SKILL.md` file.**
+*   Ensure usage of Tauri **v2** APIs.
+*   Use `Result<T, E>` and `serde::Serialize` for returning Rust errors to Svelte.
+*   Use async functions for I/O to avoid blocking. Validate all payloads.
 
 ### 4. Layout & CSS — Critical Rules
+**> To know more about layout issues and fixes, YOU MUST READ the `.agents/layout-chain/SKILL.md` file.**
 
 > **⚠️ Breaking these rules causes catastrophic virtualizer failures (CPU/memory spikes, app crash).**
 
-The app uses a deeply nested **flex-column** chain. Every flex item in that chain that participates in vertical sizing **MUST** have `min-h-0` (or equivalently `min-height: 0`). Without it, flex items default to `min-height: auto`, refuse to shrink below their content's intrinsic height, and the height containment chain breaks — content can expand to 30,000,000 px, which the virtualizer interprets as `containerHeight` and tries to render millions of DOM rows.
-
-**Rules:**
-- **Never use `height: 100%` inside flex children.** It only works when the parent has a definite/fixed height. Use `flex: 1; min-height: 0` (or Tailwind `flex-1 min-h-0`) instead.
-- **Every flex-column container and its flex children must have `min-h-0`.** This applies to `Sidebar.Inset`, wrapper `<div>`s in the content pane, `EditorWrapper`, and the CSV table wrapper.
-- **`Sidebar.Inset` must always have `min-h-0 overflow-hidden`** in addition to its default `flex: 1`. Its default shadcn styling does NOT include `min-h-0`.
-- **Do not remove `overflow-hidden` from the content pane chain.** Height containment depends on it.
-- **Paneforge (`ResizablePane`) applies `overflow: hidden` inline** on every pane — this is load-bearing for height containment and must not be overridden.
-
-Full layout chain documentation: [`src/routes/README.md`](src/routes/README.md)
+*   **Never use `height: 100%` inside flex children.** Use `flex-1 min-h-0`.
+*   **Every flex-column container and its flex children must have `min-h-0`.**
+*   **`Sidebar.Inset` must always have `min-h-0 overflow-hidden`**.
 
 ### 5. Application Features & Core Libraries
-*   **Supported Languages:** The editor explicitly supports and provides syntax/tooling for `Text`, `JSON`, `JavaScript/TypeScript`, `Python`, `CSV`, and `Markdown`.
-*   **Language Detection:** Automatic file type detection uses a fast, fully synchronous heuristic pipeline: file extension lookup → shebang matching → structural format detection (JSON, XML, HTML, CSV, Dockerfile, Markdown, YAML) → weighted pattern scoring for programming languages with character-profile pre-filtering and best-guess fallback.
-*   **CSV Table View:** For structured data, the app uses a virtualized spreadsheet mode powered by `@tanstack/svelte-table` for headless data grid logic and a **custom scroll virtualizer** (`src/lib/editor/components/csv/useScrollVirtualizer.svelte.ts`) for performant DOM virtualization of large datasets. The custom virtualizer (not `@tanstack/svelte-virtual`) is required because WebKit enforces a ~33.5 MB max element height — the virtualizer maps scroll position proportionally for datasets that would exceed this limit. It also enforces a `MAX_VIRTUAL_ITEMS = 200` hard cap and clamps `containerHeight` to `window.innerHeight × 3` as safety nets against broken CSS height chains causing runaway DOM creation.
-*   **Markdown Preview:** Markdown is parsed into an AST and converted to HTML using `marked`, then heavily sanitized using `dompurify`. Custom renderer hooks inject `data-line` attributes to achieve seamless, bi-directional scroll synchronization between the editor and the preview pane.
+**> To know more about the CSV Virtualizer, YOU MUST READ the `.agents/csv-architecture/SKILL.md` file.**
+*   **Language Detection:** Uses a fast, heuristic synchronous pipeline.
+*   **CSV Table View:** Uses a custom scroll virtualizer with a hard cap of 200 items. Limits exist to prevent browser max-height limits from rendering millions of DOM elements.
+*   **Markdown Preview:** Parsed via `marked` and sanitized via `dompurify`, with custom bi-directional scroll synchronization.
 
 ---
 
@@ -78,7 +68,3 @@ When generating code or proposing architectural changes, adhere to the following
 *   Keep `.gitignore` respected (e.g., `node_modules`, `target`, `.svelte-kit`).
 *   Verify code works with `pnpm run check` (runs `svelte-check`) and compiles with `pnpm run tauri build`.
 
-## 📚 Additional Documentation
-- Layout chain & CSS rules: [`src/routes/README.md`](src/routes/README.md)
-- Editor widget conventions: [`src/lib/utils/editor/widgets/README.md`](src/lib/utils/editor/widgets/README.md)
-- CSV component docs: [`src/lib/components/editor/csv/README.md`](src/lib/components/editor/csv/README.md)

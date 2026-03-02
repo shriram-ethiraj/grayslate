@@ -1,3 +1,8 @@
+---
+name: CSV Table Editor Architecture
+description: Overview of components, state, and utilities for the high-performance CSV Table Editor.
+---
+
 # CSV Table Editor Architecture
 
 This directory contains the components, state, and utilities that power the high-performance CSV Table Editor view in GraySlate.
