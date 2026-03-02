@@ -4,7 +4,7 @@
 	import { emit, listen } from "@tauri-apps/api/event";
 	import { onMount, onDestroy } from "svelte";
 	import * as Menubar from "$lib/components/ui/menubar/index.js";
-	import { Check, Maximize2, Minus, Square, X } from "@lucide/svelte";
+	import { Check, Square, Minimize2, Minus, X } from "@lucide/svelte";
 	import * as Tooltip from "$lib/components/ui/tooltip/index.js";
 	import { editorState } from "$lib/state/editor.svelte";
 	import {
@@ -19,6 +19,9 @@
 	let osType = $state("");
 	const appWindow = new Window("main");
 
+	let isMaximized = $state(false);
+	let unlistenResize: (() => void) | undefined;
+
 	const isMac = $derived(osType === "macos");
 	/** Platform modifier key label */
 	const mod = $derived(isMac ? "⌘" : "Ctrl");
@@ -32,6 +35,12 @@
 
 	onMount(async () => {
 		osType = await type();
+
+		// Track maximize state for Windows/Linux controls
+		isMaximized = await appWindow.isMaximized();
+		unlistenResize = await appWindow.onResized(async () => {
+			isMaximized = await appWindow.isMaximized();
+		});
 
 		// On macOS, the in-window Menubar is hidden and the system menu bar is
 		// used instead. Forward native menu edit events to the same handlers
@@ -60,6 +69,7 @@
 	onDestroy(() => {
 		unlistenEditAction?.();
 		unlistenWordWrap?.();
+		unlistenResize?.();
 	});
 
 	async function handleOpen() {
@@ -203,20 +213,24 @@
 					<button
 						class="pointer-events-auto inline-flex h-full w-12 items-center justify-center text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground focus:outline-none"
 						onclick={() => appWindow.toggleMaximize()}
-						aria-label="Maximize"
+						aria-label={isMaximized ? "Restore" : "Maximize"}
 					>
-						<Square class="h-3.5 w-3.5" />
+						{#if isMaximized}
+							<Minimize2 class="h-3.5 w-3.5" />
+						{:else}
+							<Square class="h-3.5 w-3.5" />
+						{/if}
 					</button>
 				</Tooltip.Trigger>
 				<Tooltip.Content side="bottom" sideOffset={6}
-					>Maximize</Tooltip.Content
+					>{isMaximized ? "Restore" : "Maximize"}</Tooltip.Content
 				>
 			</Tooltip.Root>
 
 			<Tooltip.Root>
 				<Tooltip.Trigger class="h-full">
 					<button
-						class="pointer-events-auto inline-flex h-full w-12 items-center justify-center text-muted-foreground transition-colors hover:bg-destructive hover:text-destructive-foreground focus:outline-none"
+						class="pointer-events-auto inline-flex h-full w-12 items-center justify-center text-muted-foreground transition-colors hover:bg-[#c42b1c] hover:text-white focus:outline-none"
 						onclick={() => appWindow.close()}
 						aria-label="Close"
 					>
