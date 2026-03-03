@@ -2,15 +2,13 @@
     import type { EditorView } from "codemirror";
     import { toast } from "svelte-sonner";
     import { tick } from "svelte";
-    import {
-        Copy as CopyIcon,
-        Scissors,
-        ClipboardPaste,
-        KeyRound,
-        Braces,
-        Link,
-        TextSelect,
-    } from "@lucide/svelte";
+    import CopyIcon from "~icons/lucide/copy";
+    import Scissors from "~icons/lucide/scissors";
+    import ClipboardPaste from "~icons/lucide/clipboard-paste";
+    import KeyRound from "~icons/lucide/key-round";
+    import Braces from "~icons/lucide/braces";
+    import Link from "~icons/lucide/link";
+    import TextSelect from "~icons/lucide/text-select";
     import {
         consumeContextMenuData,
         type ContextMenuData,

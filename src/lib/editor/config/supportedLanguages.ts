@@ -1,6 +1,8 @@
 import type { Component } from "svelte";
-import type { IconProps } from "@lucide/svelte";
-import { FileText, FileCode, Terminal, Container } from "@lucide/svelte";
+import FileText from "~icons/lucide/file-text";
+import FileCode from "~icons/lucide/file-code";
+import Terminal from "~icons/lucide/terminal";
+import Container from "~icons/lucide/container";
 
 import SiJavascript from "~icons/simple-icons/javascript";
 import SiTypescript from "~icons/simple-icons/typescript";
@@ -20,7 +22,7 @@ import SiVuedotjs from "~icons/simple-icons/vuedotjs";
 import SiRust from "~icons/simple-icons/rust";
 import SiClojure from "~icons/simple-icons/clojure";
 
-export type LanguageIcon = Component<IconProps> | Component;
+export type LanguageIcon = Component;
 
 export interface Language {
     value: string;

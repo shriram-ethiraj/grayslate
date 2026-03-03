@@ -4,7 +4,11 @@
 	import { emit, listen } from "@tauri-apps/api/event";
 	import { onMount, onDestroy } from "svelte";
 	import * as Menubar from "$lib/components/ui/menubar/index.js";
-	import { Check, Square, Minimize2, Minus, X } from "@lucide/svelte";
+	import Check from "~icons/lucide/check";
+	import Square from "~icons/lucide/square";
+	import Minimize2 from "~icons/lucide/minimize-2";
+	import Minus from "~icons/lucide/minus";
+	import X from "~icons/lucide/x";
 
 	import { editorState } from "$lib/state/editor.svelte";
 	import {

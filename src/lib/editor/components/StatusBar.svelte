@@ -1,5 +1,6 @@
 <script lang="ts">
-    import { SquareSplitHorizontal, Table2 } from "@lucide/svelte";
+    import SquareSplitHorizontal from "~icons/lucide/square-split-horizontal";
+    import Table2 from "~icons/lucide/table-2";
     import LanguagePicker from "./LanguagePicker.svelte";
 
     let {
@@ -43,7 +44,8 @@
             <button
                 class="flex items-center hover:bg-muted/50 hover:text-foreground h-full px-2 transition-colors cursor-default"
             >
-                Ln {line}, Col {col}{#if selectionSize > 0}&nbsp;({selectionSize} selected){/if}
+                Ln {line}, Col {col}{#if selectionSize > 0}&nbsp;({selectionSize}
+                    selected){/if}
             </button>
         {/if}
         <LanguagePicker bind:language {detectedLanguage} />

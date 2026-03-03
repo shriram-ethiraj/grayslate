@@ -10,21 +10,14 @@
         updateSearchStats,
     } from "$lib/editor/core/actions";
     import { Button } from "$lib/components/ui/button";
-    import {
-        ArrowUp,
-        ArrowDown,
-        X,
-        ChevronDown,
-        ChevronRight,
-        Replace,
-        ReplaceAll,
-        Grip,
-        Scaling,
-        Square,
-    } from "@lucide/svelte";
+    import ArrowUp from "~icons/lucide/arrow-up";
+    import ArrowDown from "~icons/lucide/arrow-down";
+    import X from "~icons/lucide/x";
+    import ChevronDown from "~icons/lucide/chevron-down";
+    import ChevronRight from "~icons/lucide/chevron-right";
     import CodIconReplace from "~icons/codicon/replace";
     import CodIconReplaceAll from "~icons/codicon/replace-all";
-    import HugeiconsResizeField from '~icons/hugeicons/resize-field';
+    import HugeiconsResizeField from "~icons/hugeicons/resize-field";
 
     let findText = $state("");
     let replaceText = $state("");

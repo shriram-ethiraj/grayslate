@@ -1,7 +1,9 @@
 <script lang="ts">
     import { editorState } from "$lib/state/editor.svelte";
     import { Button } from "$lib/components/ui/button/index.js";
-    import { Table2, FileText, Eye } from "@lucide/svelte";
+    import Table2 from "~icons/lucide/table-2";
+    import FileText from "~icons/lucide/file-text";
+    import Eye from "~icons/lucide/eye";
 </script>
 
 {#if editorState.fileType === "csv"}

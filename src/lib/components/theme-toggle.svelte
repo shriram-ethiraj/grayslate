@@ -1,7 +1,7 @@
 <script lang="ts">
     import { Button } from "$lib/components/ui/button/index.js";
-    import Sun from "@lucide/svelte/icons/sun";
-    import Moon from "@lucide/svelte/icons/moon";
+    import Sun from "~icons/lucide/sun";
+    import Moon from "~icons/lucide/moon";
     import { onMount } from "svelte";
 
     let isDark = $state(true);

@@ -2,7 +2,7 @@
     import * as Command from "$lib/components/ui/command/index.js";
     import * as Dialog from "$lib/components/ui/dialog/index.js";
     import { languages } from "$lib/editor/config/supportedLanguages";
-    import { Check } from "@lucide/svelte";
+    import Check from "~icons/lucide/check";
 
     let {
         language = $bindable("auto"),
@@ -78,7 +78,7 @@
                 >
                     <span class="w-4 shrink-0 flex items-center justify-center">
                         {#if language === "auto"}
-                            <Check class="w-4 h-4" strokeWidth={2.5} />
+                            <Check class="w-4 h-4" />
                         {/if}
                     </span>
                     {#if detectedLangMeta?.icon}
@@ -114,7 +114,7 @@
                                 class="w-4 shrink-0 flex items-center justify-center"
                             >
                                 {#if isActive}
-                                    <Check class="w-4 h-4" strokeWidth={2.5} />
+                                    <Check class="w-4 h-4" />
                                 {/if}
                             </span>
                             {#if lang.icon}
