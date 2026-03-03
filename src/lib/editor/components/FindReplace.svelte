@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { untrack } from "svelte";
     import { editorState } from "$lib/state/editor.svelte";
     import {
         editorFindNext,
@@ -15,7 +16,10 @@
         X,
         ChevronDown,
         ChevronRight,
-        Check,
+        Replace,
+        ReplaceAll,
+        Grip,
+        Square,
     } from "@lucide/svelte";
 
     let findText = $state("");
@@ -79,8 +83,10 @@
     // Sync global → local when panel first becomes visible
     $effect(() => {
         if (fr.visible) {
-            findText = fr.findText;
-            replaceText = fr.replaceText;
+            untrack(() => {
+                findText = fr.findText;
+                replaceText = fr.replaceText;
+            });
 
             // Focus and select the existing text inside the find box
             if (findInputRef) {
@@ -141,6 +147,16 @@
 
 <svelte:window onkeydown={handleWindowKeydown} />
 
+{#snippet resizeGrip()}
+    <div
+        class="absolute bottom-0.5 right-0.5 h-3 w-3 overflow-hidden pointer-events-none rounded-md"
+    >
+        <Grip
+            class="relative left-0.5 top-0.5 h-3 w-3 text-muted-foreground cursor-nwse-resize"
+        />
+    </div>
+{/snippet}
+
 {#if editorState.findReplace.visible}
     <!-- Floating Find & Replace Panel -->
     <div
@@ -164,21 +180,24 @@
                         <ChevronRight class="h-4 w-4" />
                     {/if}
                 </Button>
-                <div class="relative flex flex-col">
-                    <textarea
-                        bind:this={findInputRef}
-                        bind:value={findText}
-                        onkeydown={handleFindKeydown}
-                        placeholder="Find"
-                        class="min-h-[30px] max-h-[200px] min-w-[160px] max-w-[400px] resize text-xs placeholder:text-muted-foreground/50 border border-input focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring bg-transparent rounded-md pr-2 py-1.5 px-2 overflow-auto"
-                        style="width: 220px"
-                        spellcheck="false"
-                        wrap="off"
-                        rows="1"
-                    ></textarea>
+                <div class="flex flex-col">
+                    <div class="relative flex">
+                        <textarea
+                            bind:this={findInputRef}
+                            bind:value={findText}
+                            onkeydown={handleFindKeydown}
+                            placeholder="Find"
+                            class="min-h-[30px] max-h-[200px] min-w-[160px] max-w-[400px] resize text-xs placeholder:text-muted-foreground/50 border border-input focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring bg-transparent rounded-md pr-2 py-1.5 px-2 overflow-auto"
+                            style="width: 220px"
+                            spellcheck="false"
+                            wrap="off"
+                            rows="1"
+                        ></textarea>
+                        {@render resizeGrip()}
+                    </div>
                     {#if findText.length > 0}
                         <div
-                            class="text-[12px] text-muted-foreground pointer-events-none text-right mt-0.5"
+                            class="text-[12px] text-muted-foreground pointer-events-none text-right mt-1"
                         >
                             {#if fr.matchCount > 0}
                                 {fr.currentMatch} of {fr.matchCount}
@@ -226,17 +245,20 @@
             <!-- Replace Row -->
             {#if fr.replaceMode}
                 <div class="flex items-start gap-1 pl-7">
-                    <textarea
-                        bind:this={replaceTextareaRef}
-                        bind:value={replaceText}
-                        onkeydown={handleReplaceKeydown}
-                        placeholder="Replace"
-                        class="min-h-[30px] max-h-[200px] min-w-[160px] max-w-[400px] resize text-xs placeholder:text-muted-foreground/50 border border-input focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring bg-transparent rounded-md px-2 py-1.5 overflow-auto"
-                        style="width: 220px"
-                        spellcheck="false"
-                        wrap="off"
-                        rows="1"
-                    ></textarea>
+                    <div class="relative flex">
+                        <textarea
+                            bind:this={replaceTextareaRef}
+                            bind:value={replaceText}
+                            onkeydown={handleReplaceKeydown}
+                            placeholder="Replace"
+                            class="min-h-[30px] max-h-[200px] min-w-[160px] max-w-[400px] resize text-xs placeholder:text-muted-foreground/50 border border-input focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring bg-transparent rounded-md px-2 py-1.5 overflow-auto"
+                            style="width: 220px"
+                            spellcheck="false"
+                            wrap="off"
+                            rows="1"
+                        ></textarea>
+                        {@render resizeGrip()}
+                    </div>
                     <div
                         class="flex items-start border-l pl-1 ml-1 gap-1 pt-1 self-stretch"
                     >
@@ -248,7 +270,7 @@
                             title="Replace currently selected match"
                             disabled={!canReplace}
                         >
-                            <Check class="h-4 w-4" />
+                            <Replace class="h-4 w-4" />
                         </Button>
                         <Button
                             variant="ghost"
@@ -258,7 +280,7 @@
                             title="Replace All matches"
                             disabled={!canReplaceAll}
                         >
-                            All
+                            <ReplaceAll class="h-4 w-4" />
                         </Button>
                         <!-- Invisible placeholder to match the Find row's Close button width for perfect horizontal alignment -->
                         <div class="h-6 w-6 ml-1 shrink-0"></div>

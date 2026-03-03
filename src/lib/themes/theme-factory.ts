@@ -128,7 +128,7 @@ export function createThemeConfig(
             },
 
             // Special states
-            { tag: [t.invalid], color: palette.invalid, textDecoration: 'underline wavy' },
+            { tag: [t.invalid], color: palette.invalid },
             { tag: [t.strikethrough], color: palette.invalid, textDecoration: 'line-through' },
 
             // Enhanced syntax highlighting

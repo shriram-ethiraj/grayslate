@@ -161,6 +161,7 @@
                 ),
                 colorHints,
                 contextMenuExtension,
+                EditorView.contentAttributes.of({ spellcheck: "false" }),
                 // Sync cursor position, selection size, and document text back
                 // to the parent Svelte component via bindable props.
                 EditorView.updateListener.of((update) => {
