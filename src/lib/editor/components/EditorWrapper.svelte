@@ -102,8 +102,16 @@
             updateEditorLoader("Loading into editor…", filename, 88);
             await new Promise<void>((r) => setTimeout(r, 0));
 
-            language = "auto";
-            detectedLanguage = detected;
+            // If the filename's extension alone resolves to a language,
+            // pin it directly — no need for "auto" mode, and the debounced
+            const extLang = languageDetector.detect("", filename);
+            if (extLang) {
+                language = extLang;
+                detectedLanguage = extLang;
+            } else {
+                language = "auto";
+                detectedLanguage = detected;
+            }
             value = content;
         } catch (err: unknown) {
             const msg = typeof err === "string" ? err : "Failed to open file.";

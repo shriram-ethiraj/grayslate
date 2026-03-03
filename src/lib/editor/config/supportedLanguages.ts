@@ -21,6 +21,19 @@ import SiSvelte from "~icons/simple-icons/svelte";
 import SiVuedotjs from "~icons/simple-icons/vuedotjs";
 import SiRust from "~icons/simple-icons/rust";
 import SiClojure from "~icons/simple-icons/clojure";
+import SiPhp from "~icons/simple-icons/php";
+import SiRuby from "~icons/simple-icons/ruby";
+import SiSwift from "~icons/simple-icons/swift";
+import SiKotlin from "~icons/simple-icons/kotlin";
+import SiDart from "~icons/simple-icons/dart";
+import SiCsharp from "~icons/simple-icons/csharp";
+import SiScala from "~icons/simple-icons/scala";
+import SiAngular from "~icons/simple-icons/angular";
+import SiNginx from "~icons/simple-icons/nginx";
+import SiToml from "~icons/simple-icons/toml";
+import SiSass from "~icons/simple-icons/sass";
+import SiJinja from "~icons/simple-icons/jinja";
+import SiPowershell from "~icons/simple-icons/powershell";
 
 export type LanguageIcon = Component;
 
@@ -53,6 +66,23 @@ const rawLanguages: Language[] = [
     { value: "vue", label: "Vue", icon: SiVuedotjs },
     { value: "rust", label: "Rust", icon: SiRust },
     { value: "clojure", label: "Clojure", icon: SiClojure },
+    { value: "sql", label: "SQL", icon: FileCode },
+    { value: "php", label: "PHP", icon: SiPhp },
+    { value: "sass", label: "Sass", icon: SiSass },
+    { value: "scss", label: "SCSS", icon: SiSass },
+    { value: "jinja", label: "Jinja", icon: SiJinja },
+    { value: "angular", label: "Angular", icon: SiAngular },
+    { value: "nginx", label: "Nginx", icon: SiNginx },
+    { value: "powershell", label: "PowerShell", icon: SiPowershell },
+    { value: "ruby", label: "Ruby", icon: SiRuby },
+    { value: "swift", label: "Swift", icon: SiSwift },
+    { value: "toml", label: "TOML", icon: SiToml },
+    { value: "kotlin", label: "Kotlin", icon: SiKotlin },
+    { value: "objectivec", label: "Objective-C", icon: SiC },
+    { value: "objectivecpp", label: "Objective-C++", icon: SiCplusplus },
+    { value: "csharp", label: "C#", icon: SiCsharp },
+    { value: "scala", label: "Scala", icon: SiScala },
+    { value: "dart", label: "Dart", icon: SiDart },
 ];
 
 /**

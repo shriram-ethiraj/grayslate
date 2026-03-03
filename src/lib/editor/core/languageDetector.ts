@@ -1,7 +1,7 @@
 /**
  * languageDetector.ts
  *
- * Production-grade content-based language detection for MOS.
+ * Production-grade content-based language detection for Grayslate.
  *
  * Fully synchronous, deterministic pipeline — no ML model dependency.
  *
@@ -15,7 +15,7 @@
  *
  * Each phase either returns a confident result or defers to the next.
  * Structural detection handles deterministic formats (JSON, XML, HTML,
- * CSV, Dockerfile, Markdown, YAML). Heuristic scoring handles
+ * CSV, Dockerfile, Markdown, Sass/SCSS, YAML, TOML). Heuristic scoring handles
  * programming languages via weighted pattern matching with a best-guess
  * fallback for ambiguous content.
  */
@@ -29,6 +29,13 @@ const MAX_CONTENT_LENGTH = 50_000;
 
 /** Minimum total score for heuristic scoring to return a confident result. */
 const HEURISTIC_SCORE_THRESHOLD = 3;
+
+/**
+ * Minimum score for the best-guess fallback when no language clears
+ * HEURISTIC_SCORE_THRESHOLD.  Must be < HEURISTIC_SCORE_THRESHOLD.
+ * Avoids returning a guess on a single weak hit.
+ */
+const PARTIAL_SCORE_THRESHOLD = 2;
 
 // ════════════════════════════════════════════════════════════════
 // Phase 1 — File Extension Map
@@ -50,7 +57,7 @@ const EXTENSION_MAP: Record<string, string> = {
 
     // ── Config ───────────────────────────────────────────────
     ".yaml": "yaml", ".yml": "yaml",
-    ".toml": "text", ".ini": "text", ".cfg": "text", ".env": "text",
+    ".toml": "toml", ".ini": "text", ".cfg": "text", ".env": "text",
 
     // ── Markup ───────────────────────────────────────────────
     ".html": "html", ".htm": "html", ".xhtml": "html",
@@ -62,7 +69,8 @@ const EXTENSION_MAP: Record<string, string> = {
     ".jsx": "javascript",
     ".ts": "typescript", ".tsx": "typescript", ".mts": "typescript",
     ".cts": "typescript",
-    ".css": "css", ".scss": "css", ".sass": "css", ".less": "css",
+    ".css": "css", ".less": "css",
+    ".scss": "scss", ".sass": "sass",
 
     // ── Systems / compiled ───────────────────────────────────
     ".py": "python", ".pyi": "python", ".pyw": "python",
@@ -72,8 +80,16 @@ const EXTENSION_MAP: Record<string, string> = {
     ".java": "java",
     ".go": "go",
     ".rs": "rust",
-    ".rb": "text", ".php": "text",
-    ".swift": "text", ".kt": "text", ".kts": "text",
+    ".rb": "ruby",
+    ".php": "php", ".php3": "php", ".php4": "php",
+    ".php5": "php", ".php7": "php", ".phtml": "php",
+    ".swift": "swift",
+    ".kt": "kotlin", ".kts": "kotlin",
+    ".cs": "csharp",
+    ".scala": "scala",
+    ".dart": "dart",
+    ".m": "objectivec",
+    ".mm": "objectivecpp",
     ".lua": "text", ".pl": "text", ".pm": "text",
 
     // ── Functional ───────────────────────────────────────────
@@ -82,13 +98,17 @@ const EXTENSION_MAP: Record<string, string> = {
     // ── Shell ────────────────────────────────────────────────
     ".sh": "shell", ".bash": "shell", ".zsh": "shell",
     ".fish": "shell", ".ksh": "shell",
-    ".ps1": "text", ".bat": "text", ".cmd": "text",
+    ".ps1": "powershell", ".psd1": "powershell", ".psm1": "powershell",
+    ".bat": "text", ".cmd": "text",
 
     // ── Dockerfile (explicit extension) ──────────────────────
     ".dockerfile": "dockerfile",
 
     // ── SQL ──────────────────────────────────────────────────
-    ".sql": "text",
+    ".sql": "sql",
+
+    // ── Template languages ──────────────────────────────────
+    ".j2": "jinja", ".jinja": "jinja", ".jinja2": "jinja",
 };
 
 /**
@@ -112,10 +132,20 @@ const FILENAME_MAP: Record<string, string> = {
     ".env.local": "text",
     "jenkinsfile": "text",
     "vagrantfile": "text",
-    "cargo.toml": "text", // Rust project manifest
-    "cargo.lock": "text",
+    "cargo.toml": "toml", // Rust project manifest
+    "cargo.lock": "toml",
     "deps.edn": "clojure",
+    "gemfile": "ruby",
+    "rakefile": "ruby",
 };
+
+/**
+ * Regex-based filename patterns for files that can't be matched by
+ * exact name. Checked after FILENAME_MAP.
+ */
+const FILENAME_PATTERNS: [RegExp, string][] = [
+    [/^nginx.*\.conf$/i, "nginx"],
+];
 
 // ════════════════════════════════════════════════════════════════
 // Phase 2 — Shebang Patterns
@@ -128,8 +158,8 @@ const SHEBANG_PATTERNS: [RegExp, string][] = [
     [/\bdeno\b/, "typescript"],
     [/\b(ba|z|k|fi)?sh\b/, "shell"],
     [/\bperl\b/, "text"],
-    [/\bruby\b/, "text"],
-    [/\bphp\b/, "text"],
+    [/\bruby\b/, "ruby"],
+    [/\bphp\b/, "php"],
 ];
 
 // ════════════════════════════════════════════════════════════════
@@ -169,6 +199,7 @@ const LANGUAGE_SIGNATURES: LanguageSignature[] = [
             [/^\s*yield\s+/m, 2],
             [/\bprint\s*\(/, 1],
             [/\blen\s*\(/, 1],
+            [/^\s*async\s+def\s+\w+/m, 4],  // async def (unique to Python)
             [/;\s*$/m, -2],  // Python never uses trailing semicolons
             [/\{[\s]*$/, -2],  // Curly-brace blocks are never Python
             [/^\s*\}\s*$/m, -1],
@@ -257,6 +288,7 @@ const LANGUAGE_SIGNATURES: LanguageSignature[] = [
             [/\bSystem\.out\.print(ln)?\s*\(/, 5],
             [/\bimport\s+java\.\w+/m, 5],
             [/\bimport\s+javax\.\w+/m, 5],
+            [/\bimport\s+org\.\w+/m, 4],  // org.* imports (Spring, Apache, etc.)
             [/@Override\b/, 3],
             [/\bthrows\s+\w+/m, 2],
             [/\bextends\s+\w+/m, 1],
@@ -277,6 +309,7 @@ const LANGUAGE_SIGNATURES: LanguageSignature[] = [
             [/\bgo\s+func\b/, 4],  // goroutines
             [/\bchan\s+\w+/, 4],
             [/:=\s/, 2],  // short var declaration
+            [/\bif\s+err\s*!=\s*nil\b/, 4],  // idiomatic Go error handling
             [/\bdefer\s+\w+/m, 3],
             [/\bpackage\s+main\b/, 4],
             [/\bclass\s+\w+/m, -5],  // Go has no class keyword
@@ -311,6 +344,8 @@ const LANGUAGE_SIGNATURES: LanguageSignature[] = [
             [/#include\s*<(iostream|string|vector|map|set|algorithm|memory|functional)>/m, 5],
             [/\busing\s+namespace\s+std\b/, 5],
             [/\bnullptr\b/, 4],
+            [/\b(unique_ptr|shared_ptr|weak_ptr)</, 4],  // C++ smart pointers
+            [/\bconstexpr\b/, 3],  // constexpr (C++11+)
             [/\btemplate\s*</m, 3],
             [/\bauto\s+\w+\s*=/m, 2],
             [/\bclass\s+\w+\s*[:{]/m, 2],
@@ -363,6 +398,198 @@ const LANGUAGE_SIGNATURES: LanguageSignature[] = [
             [/class\s+\w+/m, -5],   // Clojure has no class decl
         ],
     },
+    // ── SQL ──────────────────────────────────────────────────
+    {
+        language: "sql",
+        patterns: [
+            [/^\s*SELECT\s+/im, 3],   // SELECT statement
+            [/\bFROM\s+\w+/im, 2],   // FROM clause
+            [/\bWHERE\s+\w+/im, 2],   // WHERE clause
+            [/\b(INNER|LEFT|RIGHT|FULL|CROSS)\s+JOIN\b/im, 5],   // JOINs (near-unique)
+            [/\bINSERT\s+INTO\s+\w+/im, 4],   // INSERT
+            [/\bCREATE\s+(TABLE|INDEX|VIEW|DATABASE|PROCEDURE|FUNCTION)\b/im, 5],
+            [/\bALTER\s+TABLE\s+\w+/im, 5],   // ALTER TABLE
+            [/\bDROP\s+(TABLE|INDEX|VIEW|DATABASE)\b/im, 4],
+            [/\bGROUP\s+BY\b/im, 3],
+            [/\bORDER\s+BY\b/im, 2],
+            [/\bHAVING\s+/im, 3],
+            [/\bUNION\s+(ALL\s+)?SELECT\b/im, 4],
+            [/\bPRIMARY\s+KEY\b/im, 3],
+            [/\b(VARCHAR|INTEGER|TEXT|BOOLEAN|TIMESTAMP|BIGINT|DECIMAL)\b/im, 3],
+            [/\bNOT\s+NULL\b/im, 2],
+            [/\bDEFAULT\s+/im, 1],
+            [/\bclass\s+\w+/m, -5],   // SQL has no class keyword
+        ],
+    },
+    // ── PHP ──────────────────────────────────────────────────
+    {
+        language: "php",
+        patterns: [
+            [/<\?php\b/, 5],   // opening tag (near-unique)
+            [/\$\w+\s*=\s*/, 2],   // variable assignment ($var = ...)
+            [/\$this->\w+/, 4],   // $this-> (OOP PHP)
+            [/\bfunction\s+\w+\s*\(/m, 2],
+            [/\becho\s+['"\$]/, 3],   // echo statement
+            [/\b(public|private|protected)\s+function\b/m, 4],   // visibility + function
+            [/\bnamespace\s+\w+(\\\w+)*/m, 3],   // namespace App\Models
+            [/\buse\s+\w+(\\\w+)+\s*;/m, 3],   // use statements
+            [/\bnew\s+\w+\s*\(/m, 1],
+            [/->\w+\s*\(/m, 2],   // method calls ->method()
+            [/\b(array|isset|unset|empty|die|exit)\s*\(/, 3],   // PHP builtins
+            [/\$_?(GET|POST|REQUEST|SESSION|SERVER|COOKIE)\b/, 5],   // superglobals
+            [/\bclass\s+\w+\s*(extends|implements)\b/m, 2],
+            [/=>\s*[{(\n]/m, -2],   // arrow functions are JS/TS
+        ],
+    },
+    // ── Ruby ─────────────────────────────────────────────────
+    {
+        language: "ruby",
+        patterns: [
+            [/^\s*def\s+\w+/m, 3],   // method definition
+            [/^\s*end\s*$/m, 3],   // end keyword (block closer)
+            [/^\s*class\s+\w+(\s*<\s*\w+)?/m, 2],   // class with optional inheritance
+            [/^\s*module\s+\w+/m, 3],   // module declaration
+            [/\bputs\s+['"\w]/, 3],   // puts (common Ruby I/O)
+            [/\brequire\s+['"]/, 3],   // require statements
+            [/\brequire_relative\s+['"]/, 5],   // require_relative (unique)
+            [/\battr_(accessor|reader|writer)\s+:/, 5],   // attr_accessor (unique)
+            [/\bdo\s*\|[\w,\s]+\|/, 4],   // block with params do |x|
+            [/\.(each|map|select|reject|inject|collect)\s*(\{|\bdo\b)/, 3],   // iterator methods
+            [/\b(nil|true|false)\b/, 1],
+            [/@\w+\s*=/, 2],   // instance variable assignment
+            [/^\s*if\s+.*\s*$/m, 1],
+            [/^\s*unless\s+/, 4],   // unless (fairly unique to Ruby)
+            [/\bself\.\w+/, 1],
+            [/;\s*$/m, -2],   // Ruby rarely uses semicolons
+        ],
+    },
+    // ── Swift ────────────────────────────────────────────────
+    {
+        language: "swift",
+        patterns: [
+            [/^\s*func\s+\w+\s*\(/m, 3],   // function declaration
+            [/^\s*import\s+(Foundation|UIKit|SwiftUI|Combine)\b/m, 5],   // framework imports
+            [/\bguard\s+let\s+\w+/m, 5],   // guard let (near-unique)
+            [/\bguard\s+\w+/m, 3],   // guard statement
+            [/\b(struct|class|enum|protocol)\s+\w+\s*[:{]/m, 2],
+            [/\bweak\s+var\s+/, 4],   // weak reference
+            [/\blet\s+\w+\s*:\s*\w+/, 2],   // typed let binding
+            [/\bvar\s+\w+\s*:\s*\w+/, 2],   // typed var binding
+            [/\bif\s+let\s+\w+\s*=/, 4],   // optional binding (unique to Swift)
+            [/\bswitch\s+\w+\s*\{/m, 1],
+            [/\bprint\s*\("/, 1],   // print()
+            [/\b@(IBOutlet|IBAction|objc|escaping|Published|State|Binding)\b/, 5],   // attributes
+            [/\bextension\s+\w+/m, 3],   // extension keyword
+            [/\boptional\s+func\b/, 3],
+            [/\b(String|Int|Double|Bool|Array|Dictionary)<?\b/, 1],
+            [/\bprintln!\s*\(/, -5],   // Rust macro, not Swift
+        ],
+    },
+    // ── Kotlin ───────────────────────────────────────────────
+    {
+        language: "kotlin",
+        patterns: [
+            [/^\s*fun\s+\w+\s*[<(]/m, 4],   // fun declaration (fairly unique)
+            [/^\s*val\s+\w+\s*[=:]/m, 2],   // val binding
+            [/^\s*var\s+\w+\s*[=:]/m, 1],   // var binding
+            [/^\s*import\s+\w+\.\w+/m, 1],
+            [/^\s*package\s+\w+\.\w+/m, 2],
+            [/\bcompanion\s+object\b/m, 5],   // companion object (unique)
+            [/\bdata\s+class\s+\w+/m, 5],   // data class (unique)
+            [/\bsealed\s+class\s+\w+/m, 5],   // sealed class (unique)
+            [/\bobject\s+\w+\s*[:{]/m, 3],   // object declaration
+            [/\bwhen\s*\(\w+\)\s*\{/m, 3],   // when expression
+            [/\b(listOf|mapOf|setOf|mutableListOf)\s*\(/, 4],   // Kotlin stdlib
+            [/\bprintln\s*\(/, 2],   // println (shared w/ several)
+            [/\b(suspend|coroutineScope|launch|async)\s/m, 4],   // coroutines
+            [/\b(String|Int|Double|Boolean|Long|Float)\b/, 1],
+            [/\bstd::\w+/, -5],   // C++ namespaces are not Kotlin
+        ],
+    },
+    // ── C# ───────────────────────────────────────────────────
+    {
+        language: "csharp",
+        patterns: [
+            [/^\s*using\s+System(\.\w+)*\s*;/m, 5],   // using System (unique)
+            [/^\s*namespace\s+\w+(\.\w+)*/m, 3],   // namespace
+            [/\bpublic\s+(class|struct|interface|enum)\s+\w+/m, 2],
+            [/\bstatic\s+void\s+Main\s*\(/m, 5],   // Main entry point
+            [/\bConsole\.(Write|WriteLine|ReadLine)\s*\(/, 5],   // Console I/O (unique)
+            [/\bvar\s+\w+\s*=\s*new\s+/, 2],
+            [/\basync\s+Task\b/, 4],   // async Task (C# async)
+            [/\bawait\s+\w+/, 1],
+            [/\bstring\.\w+/, 2],
+            [/\b(get|set)\s*[;{]/m, 2],   // property accessors
+            [/\bLINQ|\.Select\(|\.Where\(|\.OrderBy\(/, 4],   // LINQ
+            [/^\s*\[[\w.]+(\(.*)?\]\s*$/m, 2],   // attributes [Attribute]
+            [/\b(IEnumerable|IList|IDictionary|IQueryable)</, 3],   // .NET interfaces
+            [/\bprintln!\s*\(/, -5],   // Rust macro
+            [/:=\s/, -3],   // Go short declaration
+        ],
+    },
+    // ── Scala ────────────────────────────────────────────────
+    {
+        language: "scala",
+        patterns: [
+            [/^\s*def\s+\w+\s*[[(]/m, 2],   // def method
+            [/^\s*val\s+\w+\s*[=:]/m, 2],   // val
+            [/^\s*var\s+\w+\s*[=:]/m, 1],   // var
+            [/^\s*object\s+\w+\s*(extends|\{)/m, 4],   // object (singleton)
+            [/^\s*trait\s+\w+/m, 3],   // trait
+            [/^\s*case\s+class\s+\w+/m, 5],   // case class (near-unique)
+            [/^\s*sealed\s+trait\b/m, 5],   // sealed trait (unique)
+            [/^\s*import\s+\w+\.(\w+\.)*\{/m, 3],   // import with braces
+            [/^\s*package\s+\w+\.\w+/m, 2],
+            [/\b(List|Map|Set|Option|Either|Future|Seq)\b/, 2],   // Scala collections
+            [/\bmatch\s*\{/m, 2],   // pattern matching
+            [/=>\s*$/m, 1],   // fat arrow in match
+            [/\bprintln\s*\(/, 1],
+            [/\bimplicit\s+(val|def|class)\b/m, 5],   // implicit (unique)
+            [/\bfor\s*\{/m, 2],   // for-comprehension
+        ],
+    },
+    // ── Dart ─────────────────────────────────────────────────
+    {
+        language: "dart",
+        patterns: [
+            [/^\s*import\s+['"]package:/, 5],   // import 'package:...' (unique)
+            [/^\s*void\s+main\s*\(\)\s*(async\s*)?\{/m, 3],   // main()
+            [/\bWidget\s+build\s*\(/m, 5],   // Flutter Widget build()
+            [/\b(StatelessWidget|StatefulWidget|State<\w+>)\b/, 5],   // Flutter classes
+            [/\bfinal\s+\w+\s*=/, 2],
+            [/\bvar\s+\w+\s*=/, 1],
+            [/\blate\s+(final\s+)?\w+\s+\w+/m, 4],   // late keyword (unique)
+            [/\b@override\b/, 2],
+            [/\brequired\s+this\.\w+/, 4],   // named constructor params
+            [/\bclass\s+\w+\s*extends\s+\w+/m, 1],
+            [/\bFuture<\w+>/, 3],   // Future type
+            [/\basync\s*\*/m, 2],   // async generator
+            [/\bprint\s*\(/, 1],
+            [/\b(List|Map|Set|String|int|double|bool|dynamic)\b/, 1],
+            [/\bprintln!\s*\(/, -5],   // Rust macro
+        ],
+    },
+    // ── PowerShell ───────────────────────────────────────────
+    {
+        language: "powershell",
+        patterns: [
+            [/^\s*function\s+\w+-\w+/m, 5],   // Verb-Noun function names (unique)
+            [/\$PSVersionTable\b/, 5],   // unique variable
+            [/\$_\b/, 3],   // pipeline variable
+            [/\$\w+\s*=/, 2],   // variable assignment
+            [/\bGet-\w+/, 4],   // Get- cmdlet
+            [/\bSet-\w+/, 4],   // Set- cmdlet
+            [/\bNew-\w+/, 4],   // New- cmdlet
+            [/\bInvoke-\w+/, 4],   // Invoke- cmdlet
+            [/\bWrite-(Host|Output|Error|Verbose|Warning)\b/, 5],   // Write- cmdlets
+            [/\|\s*(Where-Object|ForEach-Object|Select-Object|Sort-Object)\b/, 5],   // pipeline cmdlets
+            [/\bparam\s*\(/m, 3],   // param block
+            [/\[CmdletBinding\(\)\]/, 5],   // CmdletBinding attribute (unique)
+            [/\[Parameter\s*\(/, 4],   // Parameter attribute
+            [/\b-eq\b|-ne\b|-gt\b|-lt\b|-ge\b|-le\b/, 3],   // comparison operators
+            [/\bconsole\.\w+\s*\(/, -5],   // JS console
+        ],
+    },
 ];
 
 // ════════════════════════════════════════════════════════════════
@@ -374,6 +601,9 @@ const SUPPORTED_LANGUAGES = new Set([
     "json", "javascript", "typescript", "python", "html", "css",
     "yaml", "c", "cpp", "java", "go", "xml", "csv", "markdown",
     "shell", "dockerfile", "text", "svelte", "vue", "rust", "clojure",
+    "sql", "php", "sass", "scss", "jinja", "angular", "nginx",
+    "powershell", "ruby", "swift", "toml", "kotlin", "objectivec",
+    "objectivecpp", "csharp", "scala", "dart",
 ]);
 
 // ════════════════════════════════════════════════════════════════
@@ -437,6 +667,11 @@ class LanguageDetector {
         // Full-filename match first (Dockerfile, .bashrc, etc.)
         if (FILENAME_MAP[base]) return this.ensureSupported(FILENAME_MAP[base]);
 
+        // Regex-based filename patterns (nginx*.conf etc.)
+        for (const [pattern, lang] of FILENAME_PATTERNS) {
+            if (pattern.test(base)) return this.ensureSupported(lang);
+        }
+
         // Extension match
         const dotIdx = base.lastIndexOf(".");
         if (dotIdx === -1) return null;
@@ -465,9 +700,18 @@ class LanguageDetector {
      *
      * ORDER MATTERS — most-unambiguous formats are checked first to prevent
      * false positives (e.g. HTML before XML, XML before Markdown).
+     *
+     * Current order:
+     *   JSON → PHP → Svelte → Vue → HTML → XML → Dockerfile → CSV
+     *   → Markdown → Sass/SCSS → TOML → YAML
+     *
+     * Sass/SCSS must come BEFORE TOML — TOML `key = value` and YAML `key:
+     * value` patterns can partially match Sass property lines. YAML must
+     * come AFTER Markdown to avoid treating frontmatter blocks as YAML.
      */
     private detectStructural(trimmed: string, wasSliced: boolean): string | null {
         if (this.isLikelyJson(trimmed, wasSliced)) return "json";
+        if (this.isLikelyPhp(trimmed)) return "php";
         if (this.isLikelySvelte(trimmed)) return "svelte";
         if (this.isLikelyVue(trimmed)) return "vue";
         if (this.isLikelyHtml(trimmed)) return "html";
@@ -475,6 +719,9 @@ class LanguageDetector {
         if (this.isLikelyDockerfile(trimmed)) return "dockerfile";
         if (this.isLikelyCsv(trimmed)) return "csv";
         if (this.isLikelyMarkdown(trimmed)) return "markdown";
+        const sassLike = this.detectSassScssStructural(trimmed);
+        if (sassLike) return sassLike;
+        if (this.isLikelyToml(trimmed)) return "toml";
         if (this.isLikelyYaml(trimmed)) return "yaml";  // after markdown to avoid eating frontmatter
         return null;
     }
@@ -770,6 +1017,12 @@ class LanguageDetector {
         const lines = trimmed.split("\n");
         const startsWithSeparator = lines[0].trim() === "---";
 
+        // Bail out if content looks like Sass/SCSS — `$var: value` lines are not YAML keys
+        // ($ is not a valid YAML key character).
+        const nonEmptyLines = lines.filter(l => l.trim().length > 0 && !l.trim().startsWith("#"));
+        const sassVarLineCount = nonEmptyLines.filter(l => /^\s*\$[\w-]+\s*:/.test(l)).length;
+        if (sassVarLineCount >= 1) return false;
+
         const kvPattern = /^\s*[a-zA-Z_][\w.-]*\s*:\s/;
         const yamlListPattern = /^\s*-\s+\S/;
         const codePatterns = [
@@ -880,6 +1133,143 @@ class LanguageDetector {
         return afterFrontmatter.length > 0;
     }
 
+    // ── 3h. PHP ──────────────────────────────────────────────
+
+    /**
+     * PHP structural detection.
+     * The `<?php` opening tag is a near-definitive signal.
+     */
+    private isLikelyPhp(trimmed: string): boolean {
+        // Must contain the <?php open tag
+        if (/^<\?php\b/m.test(trimmed)) return true;
+        // Short open tag with PHP content on subsequent lines
+        if (trimmed.startsWith("<?") && !trimmed.startsWith("<?xml")) {
+            // Check for PHP-specific patterns after the short tag
+            if (/\$\w+\s*=/.test(trimmed) || /\becho\s/.test(trimmed)) return true;
+        }
+        return false;
+    }
+
+    // ── 3i. Sass / SCSS ─────────────────────────────────────
+
+    /**
+     * Distinguishes Sass (indented syntax) vs SCSS (CSS-like braces/semicolons).
+     *
+     * Two independent anchor signals:
+     *   1. `$var: value` variable declarations  — Sass/SCSS-specific.
+     *   2. `@mixin`, `@include`, `@extend`, `@use`, `@forward` at-rules
+     *      — SCSS/Sass-specific; plain CSS only has `@media`, `@keyframes`,
+     *        `@import`, `@charset`, `@layer`, `@supports`.
+     *
+     * Classification:
+     *   • SCSS when braces or semicolon-terminated property lines are present.
+     *   • Sass when there are no braces and there are indented property lines.
+     */
+    private detectSassScssStructural(trimmed: string): "sass" | "scss" | null {
+        if (trimmed[0] === "<" || trimmed[0] === "{" || trimmed[0] === "[") return null;
+
+        const lines = trimmed
+            .split("\n")
+            .map(l => l.replace(/\r$/, ""))
+            .filter(l => l.trim().length > 0 && !l.trim().startsWith("//") && !l.trim().startsWith("#"));
+
+        if (lines.length < 2) return null;
+
+        // Anchor 1: $variable declarations (colon-separated, not equals — rules out PHP/shell)
+        const sassVarPattern = /^\s*\$[\w-]+\s*:\s*.+;?\s*$/;
+        const varDeclCount = lines.filter(l => sassVarPattern.test(l)).length;
+
+        // Anchor 2: Sass/SCSS-exclusive at-rules that plain CSS never uses
+        const sassAtRulePattern = /^\s*@(mixin|include|extend|use|forward)\b/;
+        const sassAtRuleCount = lines.filter(l => sassAtRulePattern.test(l)).length;
+
+        // Require at least one anchor signal to proceed
+        if (varDeclCount < 1 && sassAtRuleCount < 1) return null;
+
+        const hasOpenBrace = lines.some(l => l.includes("{"));
+        const hasCloseBrace = lines.some(l => l.includes("}"));
+        const hasBraces = hasOpenBrace || hasCloseBrace;
+
+        const semicolonLineCount = lines.filter(l => /;\s*$/.test(l)).length;
+        const cssSelectorWithBrace = lines.filter(l => /([.#][\w-]+|[a-z][\w-]*)\s*\{\s*$/.test(l.trim())).length;
+
+        const scssScore =
+            (hasBraces ? 2 : 0) +
+            (semicolonLineCount >= 2 ? 2 : semicolonLineCount >= 1 ? 1 : 0) +
+            (cssSelectorWithBrace >= 1 ? 1 : 0) +
+            // @mixin/@include with braces is near-definitive SCSS
+            (sassAtRuleCount >= 1 && hasBraces ? 2 : 0);
+
+        if (scssScore >= 2) return "scss";
+
+        // Indented syntax (no braces) → Sass
+        const indentedPropertyPattern = /^\s{2,}[a-z-]+\s*:\s*[^;{}]+\s*$/;
+        const indentedPropertyCount = lines.filter(l => indentedPropertyPattern.test(l)).length;
+        const sassLikeVarCount = lines.filter(l => /^\s*\$[\w-]+\s*:\s*[^;{}]+\s*$/.test(l)).length;
+
+        if (!hasBraces && (indentedPropertyCount >= 1 || sassLikeVarCount >= 2 || sassAtRuleCount >= 1)) {
+            return "sass";
+        }
+
+        return null;
+    }
+
+    // ── 3j. TOML ─────────────────────────────────────────────
+
+    /**
+     * TOML detection strategy:
+     *   1. Look for `[section]` headers (not markdown links or INI-only content).
+     *   2. Count lines matching `key = value` patterns (with `=`, not `:`).
+     *   3. Distinguish from YAML (uses `:`) and INI (fewer typed values).
+     *   4. Require ≥2 TOML-like signals for confidence.
+     */
+    private isLikelyToml(trimmed: string): boolean {
+        // Bail out for JSON/XML/HTML
+        if (trimmed[0] === "<") return false;
+        // Parenthesised explicitly: bail for JSON objects `{` or JSON arrays `["..."`
+        if (trimmed[0] === "{" || (trimmed[0] === "[" && trimmed[1] === '"')) return false;
+
+        const lines = trimmed.split("\n");
+        const nonEmpty = lines.filter(l => l.trim().length > 0 && !l.trim().startsWith("#"));
+        if (nonEmpty.length < 2) return false;
+
+        // Bail out if this looks like Sass/SCSS — `$var: value` lines use `:`, not `=`,
+        // and the $ prefix is never valid in TOML keys.
+        const sassVarLineCount = nonEmpty.filter(l => /^\s*\$[\w-]+\s*:/.test(l)).length;
+        if (sassVarLineCount >= 1) return false;
+
+        let score = 0;
+
+        // [section] or [[array-of-tables]] headers
+        const sectionPattern = /^\s*\[\[?[\w.-]+\]\]?\s*$/;
+        const sectionCount = nonEmpty.filter(l => sectionPattern.test(l)).length;
+        if (sectionCount >= 1) score += 2;
+
+        // key = value with TOML-typed values (strings, numbers, booleans, arrays, datetimes)
+        const kvPattern = /^\s*[\w.-]+\s*=\s*(.+)$/;
+        let kvCount = 0;
+        for (const line of nonEmpty) {
+            const m = line.match(kvPattern);
+            if (m) {
+                kvCount++;
+                const val = m[1].trim();
+                // Triple-quoted strings, inline arrays/tables, typed values
+                if (/^"""/.test(val) || /^'''/.test(val)) score += 1;
+                if (/^\[/.test(val) || /^\{/.test(val)) score += 1;
+                if (/^(true|false)$/.test(val)) score += 1;
+                if (/^\d{4}-\d{2}-\d{2}/.test(val)) score += 2; // datetime
+            }
+        }
+
+        if (kvCount >= 2) score += 1;
+
+        // YAML uses `:` as separator — if most lines use `:` not `=`, it's likely YAML
+        const colonKvCount = nonEmpty.filter(l => /^\s*[\w.-]+\s*:\s/.test(l)).length;
+        if (colonKvCount > kvCount) return false;
+
+        return score >= 3;
+    }
+
     // ──────────────────────────────────────────────────────────
     // Phase 4 — Heuristic Scoring (Programming Languages)
     // ──────────────────────────────────────────────────────────
@@ -950,8 +1340,8 @@ class LanguageDetector {
         }
 
         // Best-guess fallback: return the top partial scorer only when
-        // at least two weighted points matched (avoids single weak hits)
-        if (partialBest && partialBestScore >= 2) {
+        // enough weighted points matched (avoids single weak hits)
+        if (partialBest && partialBestScore >= PARTIAL_SCORE_THRESHOLD) {
             return this.ensureSupported(partialBest);
         }
 

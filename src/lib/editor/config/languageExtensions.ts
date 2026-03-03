@@ -24,6 +24,12 @@ import { jsonKeyPath } from "$lib/editor/extensions/jsonKeyPath";
 import { svelte } from "@replit/codemirror-lang-svelte";
 import { rust } from "@codemirror/lang-rust";
 import { clojure } from "@nextjournal/lang-clojure";
+import { sql } from "@codemirror/lang-sql";
+import { php } from "@codemirror/lang-php";
+import { sass } from "@codemirror/lang-sass";
+import { jinja } from "@codemirror/lang-jinja";
+import { angular } from "@codemirror/lang-angular";
+import { vue } from "@codemirror/lang-vue";
 
 import { markdownAutocompleteProvider } from "$lib/editor/components/markdown/markdownAutocomplete";
 import { autocompletion } from "@codemirror/autocomplete";
@@ -32,6 +38,19 @@ import type { Extension } from "@codemirror/state";
 import { StreamLanguage } from "@codemirror/language";
 import { shell } from "@codemirror/legacy-modes/mode/shell";
 import { dockerFile } from "@codemirror/legacy-modes/mode/dockerfile";
+import { nginx } from "@codemirror/legacy-modes/mode/nginx";
+import { powerShell } from "@codemirror/legacy-modes/mode/powershell";
+import { ruby } from "@codemirror/legacy-modes/mode/ruby";
+import { swift } from "@codemirror/legacy-modes/mode/swift";
+import { toml } from "@codemirror/legacy-modes/mode/toml";
+import {
+    kotlin,
+    objectiveC,
+    objectiveCpp,
+    csharp,
+    scala,
+    dart,
+} from "@codemirror/legacy-modes/mode/clike";
 
 /**
  * Returns the CodeMirror extension (or extension array) for the given
@@ -67,7 +86,7 @@ export function getLanguageExtension(langId: string): Extension | Extension[] {
         case "svelte":
             return svelte();
         case "vue":
-            return html(); // no mature CM6 Vue grammar yet, HTML provides basic markup
+            return vue();
         case "rust":
             return rust();
         case "clojure":
@@ -93,6 +112,40 @@ export function getLanguageExtension(langId: string): Extension | Extension[] {
                     override: [markdownAutocompleteProvider],
                 }),
             ];
+        case "sql":
+            return sql();
+        case "php":
+            return php();
+        case "sass":
+            return sass({ indented: true });
+        case "scss":
+            return sass();
+        case "jinja":
+            return jinja();
+        case "angular":
+            return angular();
+        case "nginx":
+            return StreamLanguage.define(nginx);
+        case "powershell":
+            return StreamLanguage.define(powerShell);
+        case "ruby":
+            return StreamLanguage.define(ruby);
+        case "swift":
+            return StreamLanguage.define(swift);
+        case "toml":
+            return StreamLanguage.define(toml);
+        case "kotlin":
+            return StreamLanguage.define(kotlin);
+        case "objectivec":
+            return StreamLanguage.define(objectiveC);
+        case "objectivecpp":
+            return StreamLanguage.define(objectiveCpp);
+        case "csharp":
+            return StreamLanguage.define(csharp);
+        case "scala":
+            return StreamLanguage.define(scala);
+        case "dart":
+            return StreamLanguage.define(dart);
         default:
             return [];
     }
