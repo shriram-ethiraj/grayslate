@@ -16,9 +16,14 @@
 
     const selectedLabel = $derived.by(() => {
         if (language === "auto") {
-            const detectedLang = languages.find((l) => l.value === detectedLanguage);
+            const detectedLang = languages.find(
+                (l) => l.value === detectedLanguage,
+            );
             const detectedLabel = detectedLang?.label ?? "Plain text";
-            return { label: `Auto (${detectedLabel})`, icon: detectedLang?.icon };
+            return {
+                label: `Auto (${detectedLabel})`,
+                icon: detectedLang?.icon,
+            };
         }
         const lang = languages.find((l) => l.value === language);
         return { label: lang?.label ?? "Plain text", icon: lang?.icon };
@@ -31,7 +36,7 @@
 
     // Detected language metadata for auto detect display
     const detectedLangMeta = $derived(
-        languages.find((l) => l.value === detectedLanguage) ?? null
+        languages.find((l) => l.value === detectedLanguage) ?? null,
     );
 
     // Language list: all except auto
@@ -45,14 +50,8 @@
     title="Select Language Mode"
 >
     {#if selectedLabel.icon}
-        {#if "svg" in selectedLabel.icon}
-            <div class="w-3.5 h-3.5 flex items-center justify-center shrink-0 self-center [&_svg]:size-full [&_svg]:block" style="fill: currentColor;">
-                {@html selectedLabel.icon.svg}
-            </div>
-        {:else}
-            {@const Icon = selectedLabel.icon}
-            <Icon class="w-3.5 h-3.5 shrink-0 self-center" strokeWidth={2.5} />
-        {/if}
+        {@const Icon = selectedLabel.icon}
+        <Icon class="w-3.5 h-3.5 shrink-0 self-center" />
     {/if}
     {selectedLabel.label}
 </button>
@@ -73,7 +72,9 @@
                     onclick={() => selectLanguage("auto")}
                     class="flex w-full items-center gap-2 rounded-sm px-2 py-2 text-sm cursor-default
                            hover:bg-accent hover:text-accent-foreground transition-colors
-                           {language === 'auto' ? 'bg-accent/50 text-accent-foreground' : ''}"
+                           {language === 'auto'
+                        ? 'bg-accent/50 text-accent-foreground'
+                        : ''}"
                 >
                     <span class="w-4 shrink-0 flex items-center justify-center">
                         {#if language === "auto"}
@@ -81,20 +82,16 @@
                         {/if}
                     </span>
                     {#if detectedLangMeta?.icon}
-                        {#if "svg" in detectedLangMeta.icon}
-                            <div class="w-4 h-4 flex items-center justify-center shrink-0 [&_svg]:size-full [&_svg]:block" style="fill: currentColor;">
-                                {@html detectedLangMeta.icon.svg}
-                            </div>
-                        {:else}
-                            {@const Icon = detectedLangMeta.icon}
-                            <Icon class="w-4 h-4 shrink-0" strokeWidth={2.5} />
-                        {/if}
+                        {@const Icon = detectedLangMeta.icon}
+                        <Icon class="w-4 h-4 shrink-0" />
                     {:else}
                         <div class="w-4 h-4 shrink-0"></div>
                     {/if}
                     <span class="flex-1 text-left">Auto Detect</span>
                     {#if detectedLangMeta}
-                        <span class="text-xs text-muted-foreground">{detectedLangMeta.label}</span>
+                        <span class="text-xs text-muted-foreground"
+                            >{detectedLangMeta.label}</span
+                        >
                     {/if}
                 </button>
             </div>
@@ -113,20 +110,16 @@
                             onSelect={() => selectLanguage(lang.value)}
                             class="flex w-full items-center gap-2 text-[13px]"
                         >
-                            <span class="w-4 shrink-0 flex items-center justify-center">
+                            <span
+                                class="w-4 shrink-0 flex items-center justify-center"
+                            >
                                 {#if isActive}
                                     <Check class="w-4 h-4" strokeWidth={2.5} />
                                 {/if}
                             </span>
                             {#if lang.icon}
-                                {#if "svg" in lang.icon}
-                                    <div class="w-4 h-4 flex items-center justify-center shrink-0 [&_svg]:size-full [&_svg]:block" style="fill: currentColor;">
-                                        {@html lang.icon.svg}
-                                    </div>
-                                {:else}
-                                    {@const Icon = lang.icon}
-                                    <Icon class="w-4 h-4 shrink-0" strokeWidth={2.5} />
-                                {/if}
+                                {@const Icon = lang.icon}
+                                <Icon class="w-4 h-4 shrink-0" />
                             {:else}
                                 <div class="w-4 h-4 shrink-0"></div>
                             {/if}

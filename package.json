@@ -34,6 +34,7 @@
     "@codemirror/view": "^6.39.15",
     "@iconify-json/codicon": "^1.2.47",
     "@iconify-json/hugeicons": "^1.2.23",
+    "@iconify-json/simple-icons": "^1.2.72",
     "@nextjournal/lang-clojure": "^1.0.0",
     "@replit/codemirror-lang-svelte": "^6.0.0",
     "@tailwindcss/typography": "^0.5.19",
@@ -48,8 +49,7 @@
     "lodash-es": "^4.17.23",
     "lucide": "^0.575.0",
     "marked": "^17.0.3",
-    "papaparse": "^5.5.3",
-    "simple-icons": "^16.9.0"
+    "papaparse": "^5.5.3"
   },
   "devDependencies": {
     "@internationalized/date": "^3.11.0",

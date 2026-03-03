@@ -71,9 +71,9 @@ importers:
       '@iconify-json/hugeicons':
         specifier: ^1.2.23
         version: 1.2.23
-      '@iconify-json/lets-icons':
-        specifier: ^1.2.2
-        version: 1.2.2
+      '@iconify-json/simple-icons':
+        specifier: ^1.2.72
+        version: 1.2.72
       '@nextjournal/lang-clojure':
         specifier: ^1.0.0
         version: 1.0.0
@@ -119,9 +119,6 @@ importers:
       papaparse:
         specifier: ^5.5.3
         version: 5.5.3
-      simple-icons:
-        specifier: ^16.9.0
-        version: 16.9.0
     devDependencies:
       '@internationalized/date':
         specifier: ^3.11.0
@@ -594,8 +591,8 @@ packages:
   '@iconify-json/hugeicons@1.2.23':
     resolution: {integrity: sha512-gJ/V0xzM5WTA5qzBOMa/N/DojbHLliJN4SWHUOTNUOdEFFnjiF7XEjR8qqZhBF2hWNpt0SROXoq/xdOj6ZA9xA==}
 
-  '@iconify-json/lets-icons@1.2.2':
-    resolution: {integrity: sha512-GBCeFoWNLA5v1ZRIM54cZGpE/lHtFcSJjxXXCi2W5SxkJoPDonNoLGf61/z8eNxiBkegynClvEgCAs0YjLeZkA==}
+  '@iconify-json/simple-icons@1.2.72':
+    resolution: {integrity: sha512-wkcixntHvaCoqPqerGrNFcHQ3Yx1ux4ZkhscCDK0DEHpP62XCH+cxq1HTsRjbUiQl/M9K8bj03HF6Wgn5iE2rQ==}
 
   '@iconify/types@2.0.0':
     resolution: {integrity: sha512-+wluvCrRhXrhyOmRDJ3q8mux9JkKy5SJ/v8ol2tu4FVjyYvtEzkc/3pK15ET6RKg4b4w4BmTk1+gsCUhf21Ykg==}
@@ -1432,10 +1429,6 @@ packages:
   set-cookie-parser@3.0.1:
     resolution: {integrity: sha512-n7Z7dXZhJbwuAHhNzkTti6Aw9QDDjZtm3JTpTGATIdNzdQz5GuFs22w90BcvF4INfnrL5xrX3oGsuqO5Dx3A1Q==}
 
-  simple-icons@16.9.0:
-    resolution: {integrity: sha512-aKst2C7cLkFyaiQ/Crlwxt9xYOpGPk05XuJZ0ZTJNNCzHCKYrGWz2ebJSi5dG8CmTCxUF/BGs6A8uyJn/EQxqw==}
-    engines: {node: '>=0.12.18'}
-
   sirv@3.0.2:
     resolution: {integrity: sha512-2wcC/oGxHis/BoHkkPwldgiPSYcpZK3JU28WoMVv55yHJgcZ8rlXvuG9iZggz+sU1d4bRgIGASwyWqjxu3FM0g==}
     engines: {node: '>=18'}
@@ -1950,7 +1943,7 @@ snapshots:
     dependencies:
       '@iconify/types': 2.0.0
 
-  '@iconify-json/lets-icons@1.2.2':
+  '@iconify-json/simple-icons@1.2.72':
     dependencies:
       '@iconify/types': 2.0.0
 
@@ -2760,8 +2753,6 @@ snapshots:
       mri: 1.2.0
 
   set-cookie-parser@3.0.1: {}
-
-  simple-icons@16.9.0: {}
 
   sirv@3.0.2:
     dependencies:
