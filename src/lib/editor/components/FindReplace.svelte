@@ -19,8 +19,12 @@
         Replace,
         ReplaceAll,
         Grip,
+        Scaling,
         Square,
     } from "@lucide/svelte";
+    import CodIconReplace from "~icons/codicon/replace";
+    import CodIconReplaceAll from "~icons/codicon/replace-all";
+    import HugeiconsResizeField from '~icons/hugeicons/resize-field';
 
     let findText = $state("");
     let replaceText = $state("");
@@ -148,13 +152,9 @@
 <svelte:window onkeydown={handleWindowKeydown} />
 
 {#snippet resizeGrip()}
-    <div
-        class="absolute bottom-0.5 right-0.5 h-3 w-3 overflow-hidden pointer-events-none rounded-md"
-    >
-        <Grip
-            class="relative left-0.5 top-0.5 h-3 w-3 text-muted-foreground cursor-nwse-resize"
-        />
-    </div>
+    <HugeiconsResizeField
+        class="absolute bottom-0 right-0 h-4 w-4 pointer-events-none text-muted-foreground cursor-nwse-resize"
+    />
 {/snippet}
 
 {#if editorState.findReplace.visible}
@@ -180,36 +180,34 @@
                         <ChevronRight class="h-4 w-4" />
                     {/if}
                 </Button>
-                <div class="flex flex-col">
-                    <div class="relative flex">
-                        <textarea
-                            bind:this={findInputRef}
-                            bind:value={findText}
-                            onkeydown={handleFindKeydown}
-                            placeholder="Find"
-                            class="min-h-[30px] max-h-[200px] min-w-[160px] max-w-[400px] resize text-xs placeholder:text-muted-foreground/50 border border-input focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring bg-transparent rounded-md pr-2 py-1.5 px-2 overflow-auto"
-                            style="width: 220px"
-                            spellcheck="false"
-                            wrap="off"
-                            rows="1"
-                        ></textarea>
-                        {@render resizeGrip()}
-                    </div>
+                <div class="relative flex">
+                    <textarea
+                        bind:this={findInputRef}
+                        bind:value={findText}
+                        onkeydown={handleFindKeydown}
+                        placeholder="Find"
+                        class="min-h-[30px] max-h-[200px] min-w-[160px] max-w-[400px] resize text-xs placeholder:text-muted-foreground/50 border border-input focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring bg-transparent rounded-md py-1.5 px-2 overflow-auto"
+                        style="width: 220px"
+                        spellcheck="false"
+                        wrap="off"
+                        rows="1"
+                    ></textarea>
+                    {@render resizeGrip()}
+                </div>
+                <div
+                    class="flex items-center border-l pl-1 ml-1 self-stretch gap-0.5"
+                >
                     {#if findText.length > 0}
-                        <div
-                            class="text-[12px] text-muted-foreground pointer-events-none text-right mt-1"
+                        <span
+                            class="text-xs text-muted-foreground pointer-events-none whitespace-nowrap px-1 shrink-0"
                         >
                             {#if fr.matchCount > 0}
-                                {fr.currentMatch} of {fr.matchCount}
+                                {fr.currentMatch}/{fr.matchCount}
                             {:else}
                                 No results
                             {/if}
-                        </div>
+                        </span>
                     {/if}
-                </div>
-                <div
-                    class="flex items-start border-l pl-1 ml-1 pt-1 self-stretch"
-                >
                     <Button
                         variant="ghost"
                         size="icon"
@@ -230,16 +228,16 @@
                     >
                         <ArrowDown class="h-4 w-4" />
                     </Button>
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        class="h-6 w-6 ml-1"
+                        onclick={close}
+                        title="Close (Escape)"
+                    >
+                        <X class="h-4 w-4" />
+                    </Button>
                 </div>
-                <Button
-                    variant="ghost"
-                    size="icon"
-                    class="h-6 w-6 ml-1"
-                    onclick={close}
-                    title="Close (Escape)"
-                >
-                    <X class="h-4 w-4" />
-                </Button>
             </div>
 
             <!-- Replace Row -->
@@ -270,7 +268,7 @@
                             title="Replace currently selected match"
                             disabled={!canReplace}
                         >
-                            <Replace class="h-4 w-4" />
+                            <CodIconReplace class="h-4 w-4" />
                         </Button>
                         <Button
                             variant="ghost"
@@ -280,7 +278,7 @@
                             title="Replace All matches"
                             disabled={!canReplaceAll}
                         >
-                            <ReplaceAll class="h-4 w-4" />
+                            <CodIconReplaceAll class="h-4 w-4" />
                         </Button>
                         <!-- Invisible placeholder to match the Find row's Close button width for perfect horizontal alignment -->
                         <div class="h-6 w-6 ml-1 shrink-0"></div>
