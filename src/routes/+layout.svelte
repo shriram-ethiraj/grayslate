@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount, tick } from "svelte";
+	import { tick } from "svelte";
 	import AppSidebar from "$lib/components/app-sidebar.svelte";
 	import ThemeToggle from "$lib/components/theme-toggle.svelte";
 	import Titlebar from "$lib/components/Titlebar.svelte";
@@ -22,17 +22,8 @@
 	/** Transition class applied only during programmatic toggle, NOT during drag. */
 	let animating = $state(false);
 
-	/**
-	 * Collapsible is toggled dynamically:
-	 *  - true  → allows programmatic collapse()/expand() and drag-from-collapsed
-	 *  - false → drag respects minSize without snap-to-collapse
-	 */
-	let paneCollapsible = $state(true);
-
-	// Start collapsed instantly (no animation).
-	onMount(() => {
-		sidebarPane?.collapse();
-	});
+	/** The last non-zero size of the sidebar pane, used to restore after close. */
+	let lastExpandedSize = $state(20);
 
 	/**
 	 * Fired by Sidebar.Provider when the user clicks the trigger or
@@ -40,13 +31,13 @@
 	 */
 	function handleOpenChange(newOpen: boolean) {
 		animating = true;
-		paneCollapsible = true;
 
-		// Wait one tick so the updated `collapsible` prop reaches paneforge,
+		// Wait one tick so the animating class reaches the DOM,
 		// then perform the collapse/expand with the CSS transition active.
 		tick().then(() => {
 			if (newOpen) {
-				sidebarPane?.expand();
+				// Restore to the last known width rather than the default.
+				sidebarPane?.resize(lastExpandedSize);
 			} else {
 				sidebarPane?.collapse();
 			}
@@ -56,16 +47,24 @@
 		});
 	}
 
-	/** Pane collapsed via drag → sync sidebar UI state. */
-	function handlePaneCollapse() {
-		sidebarOpen = false;
-		paneCollapsible = true; // keep true so future expand() works
+	/** Track the last non-zero size so we can restore it on expand.
+	 *  Only update during user drag (animating === false) to prevent
+	 *  intermediate collapse/expand transition sizes from overwriting it.
+	 */
+	function handlePaneResize(size: number) {
+		if (size > 0 && !animating) {
+			lastExpandedSize = size;
+		}
 	}
 
-	/** Pane expanded via drag → sync sidebar UI state, disable drag-collapse. */
+	/** Pane collapsed via drag or programmatic collapse → sync sidebar UI state. */
+	function handlePaneCollapse() {
+		sidebarOpen = false;
+	}
+
+	/** Pane expanded via drag or programmatic expand → sync sidebar UI state. */
 	function handlePaneExpand() {
 		sidebarOpen = true;
-		paneCollapsible = false; // prevent accidental drag-to-collapse
 	}
 </script>
 
@@ -88,13 +87,14 @@
 					<ResizablePane
 						bind:this={sidebarPane}
 						id="sidebar"
-						defaultSize={20}
+						defaultSize={0}
 						minSize={15}
 						maxSize={30}
-						collapsible={paneCollapsible}
+						collapsible={true}
 						collapsedSize={0}
 						onCollapse={handlePaneCollapse}
 						onExpand={handlePaneExpand}
+						onResize={handlePaneResize}
 						class={animating
 							? "transition-[flex-grow] duration-200 ease-linear"
 							: ""}
@@ -107,7 +107,11 @@
 						</div>
 					</ResizablePane>
 					<ResizableHandle />
-					<ResizablePane id="content" defaultSize={80} class="flex flex-col">
+					<ResizablePane
+						id="content"
+						defaultSize={100}
+						class="flex flex-col"
+					>
 						<Sidebar.Inset class="min-w-0 min-h-0 overflow-hidden">
 							<header
 								class="flex h-12 w-full shrink-0 items-center justify-between border-b bg-background px-4"

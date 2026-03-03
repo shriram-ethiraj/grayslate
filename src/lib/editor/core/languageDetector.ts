@@ -54,7 +54,7 @@ const EXTENSION_MAP: Record<string, string> = {
 
     // ── Markup ───────────────────────────────────────────────
     ".html": "html", ".htm": "html", ".xhtml": "html",
-    ".svelte": "html", ".vue": "html",
+    ".svelte": "svelte", ".vue": "vue",
     ".md": "markdown", ".markdown": "markdown", ".mdx": "markdown",
 
     // ── Web languages ────────────────────────────────────────
@@ -71,9 +71,13 @@ const EXTENSION_MAP: Record<string, string> = {
     ".hpp": "cpp", ".hxx": "cpp", ".hh": "cpp",
     ".java": "java",
     ".go": "go",
-    ".rs": "text", ".rb": "text", ".php": "text",
+    ".rs": "rust",
+    ".rb": "text", ".php": "text",
     ".swift": "text", ".kt": "text", ".kts": "text",
     ".lua": "text", ".pl": "text", ".pm": "text",
+
+    // ── Functional ───────────────────────────────────────────
+    ".clj": "clojure", ".cljs": "clojure", ".cljc": "clojure", ".edn": "clojure",
 
     // ── Shell ────────────────────────────────────────────────
     ".sh": "shell", ".bash": "shell", ".zsh": "shell",
@@ -92,22 +96,25 @@ const EXTENSION_MAP: Record<string, string> = {
  * Handles extensionless files like Dockerfile, Makefile, .bashrc, etc.
  */
 const FILENAME_MAP: Record<string, string> = {
-    "dockerfile":      "dockerfile",
-    "makefile":        "shell",
-    "gnumakefile":     "shell",
-    ".bashrc":         "shell",
-    ".bash_profile":   "shell",
-    ".bash_aliases":   "shell",
-    ".zshrc":          "shell",
-    ".zprofile":       "shell",
-    ".profile":        "shell",
-    ".editorconfig":   "yaml",
-    ".gitignore":      "text",
-    ".gitattributes":  "text",
-    ".env":            "text",
-    ".env.local":      "text",
-    "jenkinsfile":     "text",
-    "vagrantfile":     "text",
+    "dockerfile": "dockerfile",
+    "makefile": "shell",
+    "gnumakefile": "shell",
+    ".bashrc": "shell",
+    ".bash_profile": "shell",
+    ".bash_aliases": "shell",
+    ".zshrc": "shell",
+    ".zprofile": "shell",
+    ".profile": "shell",
+    ".editorconfig": "yaml",
+    ".gitignore": "text",
+    ".gitattributes": "text",
+    ".env": "text",
+    ".env.local": "text",
+    "jenkinsfile": "text",
+    "vagrantfile": "text",
+    "cargo.toml": "text", // Rust project manifest
+    "cargo.lock": "text",
+    "deps.edn": "clojure",
 };
 
 // ════════════════════════════════════════════════════════════════
@@ -116,13 +123,13 @@ const FILENAME_MAP: Record<string, string> = {
 
 /** Regex → language pairs for shebang detection. First match wins. */
 const SHEBANG_PATTERNS: [RegExp, string][] = [
-    [/\bpython[23w]?\b/,       "python"],
-    [/\bnode(js)?\b/,          "javascript"],
-    [/\bdeno\b/,               "typescript"],
-    [/\b(ba|z|k|fi)?sh\b/,    "shell"],
-    [/\bperl\b/,               "text"],
-    [/\bruby\b/,               "text"],
-    [/\bphp\b/,                "text"],
+    [/\bpython[23w]?\b/, "python"],
+    [/\bnode(js)?\b/, "javascript"],
+    [/\bdeno\b/, "typescript"],
+    [/\b(ba|z|k|fi)?sh\b/, "shell"],
+    [/\bperl\b/, "text"],
+    [/\bruby\b/, "text"],
+    [/\bphp\b/, "text"],
 ];
 
 // ════════════════════════════════════════════════════════════════
@@ -147,162 +154,213 @@ const LANGUAGE_SIGNATURES: LanguageSignature[] = [
     {
         language: "python",
         patterns: [
-            [/^\s*def\s+\w+\s*\(/m,                        3],
-            [/^\s*class\s+\w+[^:\n]{0,80}:/m,              3],
-            [/^\s*from\s+\w+\s+import\s/m,                  3],
-            [/^\s*import\s+\w+/m,                           2],
-            [/^\s*elif\s+/m,                                5],  // unique to Python
-            [/if\s+__name__\s*==\s*['"]__main__['"]/,       5],
-            [/\bself\.\w+/,                                 3],
-            [/^\s*@\w+(\.\w+)*(\(.*\))?\s*$/m,             2],  // decorators
-            [/^\s*(try|except|finally)\s*:/m,               2],
-            [/\b(None|True|False)\b/,                       1],
-            [/^\s*with\s+\w+[^:\n]{0,80}\s+as\s+/m,        3],
-            [/^\s*raise\s+\w+/m,                            2],
-            [/^\s*yield\s+/m,                               2],
-            [/\bprint\s*\(/,                                1],
-            [/\blen\s*\(/,                                  1],
-            [/;\s*$/m,                                      -2],  // Python never uses trailing semicolons
+            [/^\s*def\s+\w+\s*\(/m, 3],
+            [/^\s*class\s+\w+[^:\n]{0,80}:/m, 3],
+            [/^\s*from\s+\w+\s+import\s/m, 3],
+            [/^\s*import\s+\w+/m, 2],
+            [/^\s*elif\s+/m, 5],  // unique to Python
+            [/if\s+__name__\s*==\s*['"]__main__['"]/, 5],
+            [/\bself\.\w+/, 3],
+            [/^\s*@\w+(\.\w+)*(\(.*\))?\s*$/m, 2],  // decorators
+            [/^\s*(try|except|finally)\s*:/m, 2],
+            [/\b(None|True|False)\b/, 1],
+            [/^\s*with\s+\w+[^:\n]{0,80}\s+as\s+/m, 3],
+            [/^\s*raise\s+\w+/m, 2],
+            [/^\s*yield\s+/m, 2],
+            [/\bprint\s*\(/, 1],
+            [/\blen\s*\(/, 1],
+            [/;\s*$/m, -2],  // Python never uses trailing semicolons
+            [/\{[\s]*$/, -2],  // Curly-brace blocks are never Python
+            [/^\s*\}\s*$/m, -1],
         ],
     },
     // ── JavaScript ───────────────────────────────────────────
     {
         language: "javascript",
         patterns: [
-            [/\b(const|let|var)\s+\w+\s*=/m,               2],
-            [/\bfunction\s+\w*\s*\(/m,                     2],
-            [/=>\s*[{(\n]/m,                                3],  // arrow functions
-            [/\brequire\s*\(['"`]/m,                        4],  // CommonJS
-            [/\bmodule\.exports\b/,                         4],
-            [/\bconsole\.\w+\s*\(/,                         2],
-            [/===|!==/,                                     2],  // strict equality
-            [/\bdocument\.\w+/,                             2],
-            [/\bwindow\.\w+/,                               1],
-            [/\bPromise\.(all|resolve|reject)\b/,           2],
-            [/\.then\s*\(/,                                 1],
-            [/\.catch\s*\(/,                                1],
-            [/\basync\s+(function|\w+\s*=>|\w+\s*\()/m,     2],
-            [/\bawait\s+/,                                  1],
+            [/\b(const|let|var)\s+\w+\s*=/m, 2],
+            [/\bfunction\s+\w*\s*\(/m, 2],
+            [/=>\s*[{(\n]/m, 3],  // arrow functions
+            [/\brequire\s*\(['"`]/m, 4],  // CommonJS
+            [/\bmodule\.exports\b/, 4],
+            [/\bconsole\.\w+\s*\(/, 2],
+            [/===|!==/, 2],  // strict equality
+            [/\bdocument\.\w+/, 2],
+            [/\bwindow\.\w+/, 1],
+            [/\bPromise\.(all|resolve|reject)\b/, 2],
+            [/\.then\s*\(/, 1],
+            [/\.catch\s*\(/, 1],
+            [/\basync\s+(function|\w+\s*=>|\w+\s*\()/m, 2],
+            [/\bawait\s+/, 1],
+            [/:\s*(string|number|boolean|void)\b/, -3],  // Type annotations are TS, not JS
         ],
     },
     // ── TypeScript ───────────────────────────────────────────
     {
         language: "typescript",
         patterns: [
-            [/\binterface\s+\w+/m,                         4],
-            [/\btype\s+\w+\s*=\s*/m,                       4],
+            [/\binterface\s+\w+/m, 4],
+            [/\btype\s+\w+\s*=\s*/m, 4],
             [/:\s*(string|number|boolean|void|any|never|unknown|undefined)\b/, 3],
-            [/\benum\s+\w+\s*\{/m,                         4],
-            [/\bnamespace\s+\w+/m,                         3],
+            [/\benum\s+\w+\s*\{/m, 4],
+            [/\bnamespace\s+\w+/m, 3],
             [/\bdeclare\s+(const|function|class|module|type|interface)/m, 4],
             [/\b(Readonly|Partial|Record|Pick|Omit|Required)</, 4],
-            [/\bas\s+(string|number|any|unknown|\w+)\b/,   3],
-            [/<\w+(\s+extends\s+\w+)?>/,                   2],  // generics
-            [/\b(const|let|var)\s+\w+\s*=/m,               1],  // also JS features
-            [/=>\s*[{(\n]/m,                                1],
-            [/===|!==/,                                     1],
+            [/\bas\s+(string|number|any|unknown|\w+)\b/, 3],
+            [/<\w+(\s+extends\s+\w+)?>/, 2],  // generics
+            [/\b(const|let|var)\s+\w+\s*=/m, 1],  // also JS features
+            [/=>\s*[{(\n]/m, 1],
+            [/===|!==/, 1],
         ],
     },
     // ── CSS ──────────────────────────────────────────────────
     {
         language: "css",
         patterns: [
-            [/[.#][\w-]+\s*\{/m,                           3],  // .class { or #id {
-            [/@media\s*[\s(]/m,                             4],
-            [/@keyframes\s+\w+/m,                           4],
-            [/@import\s+/m,                                 2],
-            [/!important\s*;/,                              3],
-            [/:hover|:focus|:active|::before|::after/,      3],
-            [/\bvar\s*\(--[\w-]+\)/,                        3],  // CSS custom properties
+            [/[.#][\w-]+\s*\{/m, 3],  // .class { or #id {
+            [/@media\s*[\s(]/m, 4],
+            [/@keyframes\s+\w+/m, 4],
+            [/@import\s+/m, 2],
+            [/!important\s*;/, 3],
+            [/:hover|:focus|:active|::before|::after/, 3],
+            [/\bvar\s*\(--[\w-]+\)/, 3],  // CSS custom properties
             [/\b(color|margin|padding|display|font-size|background|border|width|height)\s*:/m, 2],
-            [/\b(flex|grid|block|inline|none)\s*;/,         1],
-            [/@tailwind|@apply/,                            3],
+            [/\b(flex|grid|block|inline|none)\s*;/, 1],
+            [/@tailwind|@apply/, 3],
+            [/^\s*(function|const|let|var)\s/m, -5],  // Code keywords are never CSS
         ],
     },
     // ── Shell / Bash ─────────────────────────────────────────
     {
         language: "shell",
         patterns: [
-            [/^\s*echo\s+["$']/m,                          2],
-            [/^\s*if\s+\[\[?\s/m,                          3],
-            [/^\s*fi\s*$/m,                                 5],  // nearly unique to shell
-            [/^\s*done\s*$/m,                               4],
-            [/^\s*esac\s*$/m,                               5],  // nearly unique to shell
-            [/^\s*export\s+\w+=/m,                          3],
-            [/\$\{[\w?!#@*+-]+/,                            2],  // parameter expansion
-            [/\$\(.*\)/,                                    2],  // command substitution
-            [/^\s*case\s+.*\s+in\s*$/m,                     3],
+            [/^\s*echo\s+["$']/m, 2],
+            [/^\s*if\s+\[\[?\s/m, 3],
+            [/^\s*fi\s*$/m, 5],  // nearly unique to shell
+            [/^\s*done\s*$/m, 4],
+            [/^\s*esac\s*$/m, 5],  // nearly unique to shell
+            [/^\s*export\s+\w+=/m, 3],
+            [/\$\{[\w?!#@*+-]+/, 2],  // parameter expansion
+            [/\$\(.*\)/, 2],  // command substitution
+            [/^\s*case\s+.*\s+in\s*$/m, 3],
             [/^\s*(alias|source|chmod|mkdir|rm\s|cp\s|mv\s|cd\s|grep|sed|awk)\s/m, 2],
-            [/<<-?\s*['"]?\w+['"]?/,                        3],  // heredoc
-            [/\bconsole\.\w+\s*\(/,                        -5],  // console.log is never shell
+            [/<<-?\s*['"]?\w+['"]?/, 3],  // heredoc
+            [/\bconsole\.\w+\s*\(/, -5],  // console.log is never shell
         ],
     },
     // ── Java ─────────────────────────────────────────────────
     {
         language: "java",
         patterns: [
-            [/\bpublic\s+class\s+\w+/m,                    4],
-            [/\bpublic\s+static\s+void\s+main/m,           5],
-            [/\bSystem\.out\.print(ln)?\s*\(/,              5],
-            [/\bimport\s+java\.\w+/m,                       5],
-            [/\bimport\s+javax\.\w+/m,                      5],
-            [/@Override\b/,                                  3],
-            [/\bthrows\s+\w+/m,                             2],
-            [/\bextends\s+\w+/m,                            1],
-            [/\bimplements\s+\w+/m,                         2],
-            [/\bprivate\s+(final\s+)?\w+\s+\w+/m,          2],
+            [/\bpublic\s+class\s+\w+/m, 4],
+            [/\bpublic\s+static\s+void\s+main/m, 5],
+            [/\bSystem\.out\.print(ln)?\s*\(/, 5],
+            [/\bimport\s+java\.\w+/m, 5],
+            [/\bimport\s+javax\.\w+/m, 5],
+            [/@Override\b/, 3],
+            [/\bthrows\s+\w+/m, 2],
+            [/\bextends\s+\w+/m, 1],
+            [/\bimplements\s+\w+/m, 2],
+            [/\bprivate\s+(final\s+)?\w+\s+\w+/m, 2],
+            [/=>\s*[{(\n]/, -3],  // Arrow functions are never Java
         ],
     },
     // ── Go ───────────────────────────────────────────────────
     {
         language: "go",
         patterns: [
-            [/^package\s+\w+\s*$/m,                         5],
-            [/^\s*func\s+\w+\s*\(/m,                        3],
-            [/^\s*func\s+\(\w+\s+\*?\w+\)\s+\w+/m,         5],  // method receivers
-            [/\bfmt\.\w+/,                                   4],
-            [/\bimport\s+\(/m,                               3],
-            [/\bgo\s+func\b/,                                4],  // goroutines
-            [/\bchan\s+\w+/,                                 4],
-            [/:=\s/,                                         2],  // short var declaration
-            [/\bdefer\s+\w+/,                                3],
-            [/\bpackage\s+main\b/,                           4],
-            [/\bclass\s+\w+/m,                              -5],  // Go has no class keyword
+            [/^package\s+\w+\s*$/m, 5],
+            [/^\s*func\s+\w+\s*\(/m, 3],
+            [/^\s*func\s+\(\w+\s+\*?\w+\)\s+\w+/m, 5],  // method receivers
+            [/\bfmt\.\w+/, 4],
+            [/\bimport\s+\(/m, 3],
+            [/\bgo\s+func\b/, 4],  // goroutines
+            [/\bchan\s+\w+/, 4],
+            [/:=\s/, 2],  // short var declaration
+            [/\bdefer\s+\w+/m, 3],
+            [/\bpackage\s+main\b/, 4],
+            [/\bclass\s+\w+/m, -5],  // Go has no class keyword
+            [/^\s*import\s+\w+\s*$/m, -2],  // Single import x is Python/JS, not Go
         ],
     },
     // ── C ────────────────────────────────────────────────────
     {
         language: "c",
         patterns: [
-            [/#include\s*[<"]/m,                             3],
-            [/\bint\s+main\s*\(/m,                           4],
-            [/\bprintf\s*\(/,                                3],
-            [/\b(malloc|calloc|realloc|free)\s*\(/,          4],
-            [/#define\s+\w+/m,                               2],
-            [/\btypedef\s+/m,                                2],
-            [/\bstruct\s+\w+\s*\{/m,                        2],
-            [/\bsizeof\s*\(/,                                2],
-            [/\bNULL\b/,                                     2],
-            [/->\w+/,                                        1],
-            [/\bvoid\s+\w+\s*\(/m,                           1],
+            [/#include\s*[<"]/m, 3],
+            [/\bint\s+main\s*\(/m, 4],
+            [/\bprintf\s*\(/, 3],
+            [/\b(malloc|calloc|realloc|free)\s*\(/, 4],
+            [/#define\s+\w+/m, 2],
+            [/\btypedef\s+/m, 2],
+            [/\bstruct\s+\w+\s*\{/m, 2],
+            [/\bsizeof\s*\(/, 2],
+            [/\bNULL\b/, 2],
+            [/->\w+/, 1],
+            [/\bvoid\s+\w+\s*\(/m, 1],
+            [/\bstd::\w+/, -5],  // C++ namespaces are never C
         ],
     },
     // ── C++ ──────────────────────────────────────────────────
     {
         language: "cpp",
         patterns: [
-            [/\bstd::\w+/,                                   5],
-            [/\bcout\s*<</,                                   5],
-            [/\bcin\s*>>/,                                    5],
+            [/\bstd::\w+/, 5],
+            [/\bcout\s*<</, 5],
+            [/\bcin\s*>>/, 5],
             [/#include\s*<(iostream|string|vector|map|set|algorithm|memory|functional)>/m, 5],
-            [/\busing\s+namespace\s+std\b/,                   5],
-            [/\bnullptr\b/,                                   4],
-            [/\btemplate\s*</m,                               3],
-            [/\bauto\s+\w+\s*=/m,                             2],
-            [/\bclass\s+\w+\s*[:{]/m,                         2],
-            [/\bvirtual\s+/m,                                 2],
-            [/#include\s*[<"]/m,                               2],  // shared with C
-            [/->\w+/,                                          1],
+            [/\busing\s+namespace\s+std\b/, 5],
+            [/\bnullptr\b/, 4],
+            [/\btemplate\s*</m, 3],
+            [/\bauto\s+\w+\s*=/m, 2],
+            [/\bclass\s+\w+\s*[:{]/m, 2],
+            [/\bvirtual\s+/m, 2],
+            [/#include\s*[<"]/m, 2],  // shared with C
+            [/->\w+/, 1],
+        ],
+    },
+    // ── Rust ─────────────────────────────────────────────────
+    {
+        language: "rust",
+        patterns: [
+            [/^\s*fn\s+\w+\s*[<(]/m, 3],   // fn declaration
+            [/^\s*pub\s+(fn|struct|enum|mod|trait|impl)\s/m, 4],   // pub visibility
+            [/^\s*let\s+mut\s+\w+/m, 4],   // let mut (unique)
+            [/^\s*impl\s+\w+/m, 4],   // impl blocks
+            [/^\s*use\s+\w+(::\w+)+/m, 3],   // use std::io
+            [/^\s*match\s+\w+\s*\{/m, 3],   // match expr
+            [/\b(Vec|Option|Result|Box|Rc|Arc|String)<\w/, 4],   // Rust std types
+            [/\bprintln!\s*\(/, 5],   // println! macro (near-unique)
+            [/\b\w+\.unwrap\(\)/, 3],   // .unwrap()
+            [/^\s*#\[derive\(/m, 5],   // #[derive(...)] (unique)
+            [/^\s*mod\s+\w+\s*[;{]/m, 2],   // mod declarations
+            [/&mut\s+\w+/, 3],   // mutable ref
+            [/^\s*extern\s+"C"/m, 3],   // FFI
+            [/^\s*trait\s+\w+/m, 3],   // trait def
+            [/\bself\.\w+/, -1],   // penalize (also Python)
+            [/class\s+\w+/m, -5],   // Rust has no class
+        ],
+    },
+    // ── Clojure ──────────────────────────────────────────────
+    {
+        language: "clojure",
+        patterns: [
+            [/^\s*\(ns\s+[\w.-]+/m, 5],   // namespace declaration
+            [/\(defn\s+\w+/, 5],   // function definition
+            [/\(def\s+\w+/, 3],   // binding definition
+            [/\(let\s+\[/, 3],   // let binding
+            [/\(if\s+/, 1],   // if form
+            [/\(cond\s/, 3],   // cond (Lisp-ish)
+            [/\(map\s+/, 1],   // map
+            [/\(reduce\s+/, 2],   // reduce
+            [/\(require\s+'/, 4],   // require
+            [/\(import\s+'/, 3],   // import
+            [/#\(/, 2],   // anonymous fn #(...)
+            [/:\w[\w-]*\b/, 2],   // keywords :foo
+            [/\(assoc\s/, 3],   // assoc
+            [/\(-> /, 3],   // threading macro
+            [/\(->> /, 3],   // threading macro
+            [/class\s+\w+/m, -5],   // Clojure has no class decl
         ],
     },
 ];
@@ -315,7 +373,7 @@ const LANGUAGE_SIGNATURES: LanguageSignature[] = [
 const SUPPORTED_LANGUAGES = new Set([
     "json", "javascript", "typescript", "python", "html", "css",
     "yaml", "c", "cpp", "java", "go", "xml", "csv", "markdown",
-    "shell", "dockerfile", "text",
+    "shell", "dockerfile", "text", "svelte", "vue", "rust", "clojure",
 ]);
 
 // ════════════════════════════════════════════════════════════════
@@ -335,13 +393,13 @@ class LanguageDetector {
      * @returns A language ID or `null` when uncertain
      */
     detect(content: string, filename?: string): string | null {
-        if (!content || content.trim().length === 0) return null;
-
         // Phase 1 — file extension / filename
         if (filename) {
             const extResult = this.detectByExtension(filename);
             if (extResult) return extResult;
         }
+
+        if (!content || content.trim().length === 0) return null;
 
         const { content: bounded, wasSliced } = this.boundContent(content);
         // Strip BOM if present (not removed by trim())
@@ -409,13 +467,15 @@ class LanguageDetector {
      * false positives (e.g. HTML before XML, XML before Markdown).
      */
     private detectStructural(trimmed: string, wasSliced: boolean): string | null {
-        if (this.isLikelyJson(trimmed, wasSliced))  return "json";
-        if (this.isLikelyHtml(trimmed))             return "html";
-        if (this.isLikelyXml(trimmed))              return "xml";
-        if (this.isLikelyDockerfile(trimmed))        return "dockerfile";
-        if (this.isLikelyCsv(trimmed))              return "csv";
-        if (this.isLikelyMarkdown(trimmed))         return "markdown";
-        if (this.isLikelyYaml(trimmed))             return "yaml";  // after markdown to avoid eating frontmatter
+        if (this.isLikelyJson(trimmed, wasSliced)) return "json";
+        if (this.isLikelySvelte(trimmed)) return "svelte";
+        if (this.isLikelyVue(trimmed)) return "vue";
+        if (this.isLikelyHtml(trimmed)) return "html";
+        if (this.isLikelyXml(trimmed)) return "xml";
+        if (this.isLikelyDockerfile(trimmed)) return "dockerfile";
+        if (this.isLikelyCsv(trimmed)) return "csv";
+        if (this.isLikelyMarkdown(trimmed)) return "markdown";
+        if (this.isLikelyYaml(trimmed)) return "yaml";  // after markdown to avoid eating frontmatter
         return null;
     }
 
@@ -464,6 +524,62 @@ class LanguageDetector {
         return codeSignals === 0;
     }
 
+    // ── 3.a.1 Svelte ──────────────────────────────────────────
+
+    /**
+     * Svelte-specific structural detection.
+     * Looks for {#if}, {:else}, {/if}, {#each}, bind:value, on:click, or Svelte 5 runes.
+     */
+    private isLikelySvelte(trimmed: string): boolean {
+        if (trimmed[0] !== "<" && !trimmed.includes("{#")) return false;
+
+        let score = 0;
+        const signals: [RegExp, number][] = [
+            [/{#(if|each|await|snippet|key)[}\s]/, 3], // block tags
+            [/{:(else|then|catch)[}\s]/, 3], // block continuations
+            [/{\/(if|each|await|snippet|key)}/, 3], // block closers
+            [/<script\s+(context="module"|lang="ts")[^>]*>/, 3],
+            [/\b(bind:|on:|use:|transition:|animate:|let:|class:)[a-zA-Z-]+=/, 2], // directives
+            [/\$(state|derived|effect|props)\(/, 4], // Svelte 5 runes
+            [/^\s*\$:\s+/m, 4], // Svelte 3/4 reactive statements
+            [/<slot[\s>]/, 2], // <slot> tag
+            [/\{@(html|render|debug|const)\s+/, 2], // special tags
+        ];
+
+        for (const [pattern, weight] of signals) {
+            if (pattern.test(trimmed)) score += weight;
+        }
+
+        return score >= 2;
+    }
+
+    // ── 3.a.2 Vue ─────────────────────────────────────────────
+
+    /**
+     * Vue-specific structural detection.
+     * Looks for <template>, v-if, v-model, @click, :class, <script setup>.
+     */
+    private isLikelyVue(trimmed: string): boolean {
+        if (trimmed[0] !== "<") return false;
+
+        let score = 0;
+        const signals: [RegExp, number][] = [
+            [/<template[\s>]/, 4], // <template> tag
+            [/\b(v-if|v-else-if|v-else|v-show|v-for|v-on:|v-bind:|v-model|v-slot)[=>\s]/, 2], // Vue directives
+            [/\B@(click|submit|input|change|keyup|keydown)=/, 2], // shorthand for v-on
+            [/\B:(class|style|value|disabled|key)=/, 2], // shorthand for v-bind
+            [/<script\s+setup[^>]*>/, 3],
+            [/\b(defineProps|defineEmits|defineExpose)\s*\(/, 2], // Vue 3 macros
+            [/\b(ref|reactive|computed|watch|onMounted)\s*\(/, 2], // Composition API hooks
+        ];
+
+        for (const [pattern, weight] of signals) {
+            if (pattern.test(trimmed)) score += weight;
+        }
+
+        return score >= 4;
+    }
+
     // ── 3b. HTML ─────────────────────────────────────────────
 
     /**
@@ -474,6 +590,10 @@ class LanguageDetector {
     private isLikelyHtml(trimmed: string): boolean {
         // Instant bailout: If it explicitly declares XML, let the XML detector handle it
         if (trimmed.startsWith("<?xml")) return false;
+
+        // Quick Svelte/Vue bail-outs: if unique markers are present, defer
+        if (/{#\w+/.test(trimmed) || /\$state\(|\$derived\(|\$effect\(/.test(trimmed)) return false;
+        if (/\bv-if=|\bv-for=|\bv-model=/.test(trimmed)) return false;
 
         if (/^<!doctype\s+html/i.test(trimmed)) return true;
         if (/^<html[\s>]/i.test(trimmed)) return true;
@@ -538,7 +658,7 @@ class LanguageDetector {
         if (tagName.includes(":")) return true;
 
         // Require both opening and closing tags to confirm structure
-        const openTags  = (trimmed.match(/<[a-zA-Z_][\w:.-]*/g) || []).length;
+        const openTags = (trimmed.match(/<[a-zA-Z_][\w:.-]*/g) || []).length;
         const closeTags = (trimmed.match(/<\/[a-zA-Z_][\w:.-]*/g) || []).length;
         return openTags >= 2 && closeTags >= 1;
     }
@@ -597,6 +717,10 @@ class LanguageDetector {
         const scriptLikeCount = lines.filter(l => scriptOrCommentPattern.test(l)).length;
         if (scriptLikeCount / lines.length > 0.3) return false;
 
+        // If lines contain curly braces, it's very likely CSS, JS, etc. and not CSV
+        const braceCount = lines.filter(l => l.includes("{") || l.includes("}")).length;
+        if (braceCount / lines.length > 0.3) return false;
+
         for (const delim of [",", "\t", ";", "|"]) {
             if (this.hasConsistentDelimiter(lines, delim)) return true;
         }
@@ -614,7 +738,7 @@ class LanguageDetector {
         // Strip content inside double quotes to avoid counting grammatical delimiters
         const cleanHeader = lines[0].replace(/"[^"]*"/g, "");
         const headerCount = (cleanHeader.match(re) || []).length;
-        
+
         if (headerCount < 1) return false;
 
         // Pipe delimiter: exclude markdown tables (every line starts & ends with |)
@@ -628,7 +752,7 @@ class LanguageDetector {
             const cleanLine = l.replace(/"[^"]*"/g, "");
             return (cleanLine.match(re) || []).length === headerCount;
         }).length;
-        
+
         return matching / sample.length >= 0.8;
     }
 
@@ -646,8 +770,8 @@ class LanguageDetector {
         const lines = trimmed.split("\n");
         const startsWithSeparator = lines[0].trim() === "---";
 
-        const kvPattern        = /^\s*[a-zA-Z_][\w.-]*\s*:\s/;
-        const yamlListPattern  = /^\s*-\s+\S/;
+        const kvPattern = /^\s*[a-zA-Z_][\w.-]*\s*:\s/;
+        const yamlListPattern = /^\s*-\s+\S/;
         const codePatterns = [
             /^\s*(def|class|if|for|while|return|import|from|try|except|with|async|yield)\s/,
             /^\s*(function|const|let|var|if|for|while|return|import|export|switch|case)\s/,
@@ -662,7 +786,7 @@ class LanguageDetector {
         let yamlLines = 0;
         let codeLines = 0;
         for (const line of nonEmpty) {
-            if (codePatterns.some(p => p.test(line)))   codeLines++;
+            if (codePatterns.some(p => p.test(line))) codeLines++;
             else if (kvPattern.test(line) || yamlListPattern.test(line)) yamlLines++;
         }
 
@@ -691,19 +815,19 @@ class LanguageDetector {
         // If the content shows strong code signals the markdown "hits" are
         // almost certainly embedded in string literals / comments.
         const codeAntiSignals: [RegExp, number][] = [
-            [/^\/\*\*?\s/m,                                3],   // block-comment opener
-            [/^\s*(import|export)\s+/m,                    3],   // ES modules / Python
-            [/^\s*(const|let|var)\s+\w+\s*[=:]/m,         2],   // variable declarations
-            [/^\s*function\s+\w*\s*\(/m,                   2],   // function decl
-            [/^\s*(interface|type|enum)\s+\w+/m,           3],   // TypeScript specifics
-            [/^\s*class\s+\w+/m,                           2],   // class decl
-            [/=>\s*[{(\n]/m,                               2],   // arrow functions
-            [/^\s*def\s+\w+\s*\(/m,                        3],   // Python functions
-            [/^\s*#include\s*[<"]/m,                        3],   // C/C++
-            [/^\s*(if|for|while)\s*\(/m,                   1],   // control flow (parens)
-            [/;\s*$/m,                                     1],   // trailing semicolons
-            [/^\s*async\s+(function|\w+\s*[=(])/m,         2],   // async
-            [/^\s*[a-zA-Z_][\w.-]*\s*:\s+(?!http)/m,          4],   // YAML key-value pairs
+            [/^\/\*\*?\s/m, 3],   // block-comment opener
+            [/^\s*(import|export)\s+/m, 3],   // ES modules / Python
+            [/^\s*(const|let|var)\s+\w+\s*[=:]/m, 2],   // variable declarations
+            [/^\s*function\s+\w*\s*\(/m, 2],   // function decl
+            [/^\s*(interface|type|enum)\s+\w+/m, 3],   // TypeScript specifics
+            [/^\s*class\s+\w+/m, 2],   // class decl
+            [/=>\s*[{(\n]/m, 2],   // arrow functions
+            [/^\s*def\s+\w+\s*\(/m, 3],   // Python functions
+            [/^\s*#include\s*[<"]/m, 3],   // C/C++
+            [/^\s*(if|for|while)\s*\(/m, 1],   // control flow (parens)
+            [/;\s*$/m, 1],   // trailing semicolons
+            [/^\s*async\s+(function|\w+\s*[=(])/m, 2],   // async
+            [/^\s*[a-zA-Z_][\w.-]*\s*:\s+(?!http)/m, 4],   // YAML key-value pairs
         ];
 
         let codeScore = 0;
@@ -719,16 +843,16 @@ class LanguageDetector {
 
         let score = 0;
         const signals: [RegExp, number][] = [
-            [/^#{1,6}\s+\S/m,              3],   // ATX headings
-            [/\[.+?\]\(.+?\)/,             2],   // links
-            [/!\[.*?\]\(.+?\)/,            2],   // images
-            [/^\s*[-*+]\s+\S/m,            1],   // unordered lists
-            [/^\s*\d+\.\s+\S/m,            1],   // ordered lists
-            [/^\s*>\s+/m,                  1],   // blockquotes
-            [/\*\*.+?\*\*/,               1],   // bold
-            [/^```/m,                      2],   // fenced code blocks
-            [/^\|.+\|.+\|/m,              2],   // tables
-            [/^---\s*$/m,                  1],   // horizontal rules
+            [/^#{1,6}\s+\S/m, 3],   // ATX headings
+            [/\[.+?\]\(.+?\)/, 2],   // links
+            [/!\[.*?\]\(.+?\)/, 2],   // images
+            [/^\s*[-*+]\s+\S/m, 1],   // unordered lists
+            [/^\s*\d+\.\s+\S/m, 1],   // ordered lists
+            [/^\s*>\s+/m, 1],   // blockquotes
+            [/\*\*.+?\*\*/, 1],   // bold
+            [/^```/m, 2],   // fenced code blocks
+            [/^\|.+\|.+\|/m, 2],   // tables
+            [/^---\s*$/m, 1],   // horizontal rules
         ];
 
         for (const [pattern, weight] of signals) {
@@ -780,7 +904,19 @@ class LanguageDetector {
         for (const sig of LANGUAGE_SIGNATURES) {
             let score = 0;
             for (const [pattern, weight] of sig.patterns) {
-                if (pattern.test(content)) score += weight;
+                if (weight > 0) {
+                    // For positive-weight patterns, count matches and apply density bonus
+                    const flags = pattern.flags.includes("g") ? pattern.flags : pattern.flags + "g";
+                    const globalPattern = new RegExp(pattern.source, flags);
+                    const matches = content.match(globalPattern);
+                    if (matches) {
+                        // Base weight for first match + diminishing returns for repeats
+                        score += weight + Math.min(matches.length - 1, 3);
+                    }
+                } else {
+                    // Anti-signals: just test presence
+                    if (pattern.test(content)) score += weight;
+                }
             }
 
             // Negative final score → this language is definitively ruled out;

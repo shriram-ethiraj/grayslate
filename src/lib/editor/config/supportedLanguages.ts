@@ -12,6 +12,10 @@ import {
     siJson,
     siOpenjdk,
     siGooglesheets,
+    siSvelte,
+    siVuedotjs,
+    siRust,
+    siClojure,
 } from "simple-icons";
 import type { SimpleIcon } from "simple-icons";
 import type { Component } from "svelte";
@@ -26,21 +30,36 @@ export interface Language {
     icon: LanguageIcon | null;
 }
 
+const rawLanguages: Language[] = [
+    { value: "auto", label: "Auto Detect", icon: null },
+    { value: "text", label: "Plain text", icon: FileText },
+    { value: "json", label: "JSON", icon: siJson },
+    { value: "javascript", label: "JavaScript", icon: siJavascript },
+    { value: "typescript", label: "TypeScript", icon: siTypescript },
+    { value: "python", label: "Python", icon: siPython },
+    { value: "html", label: "HTML", icon: siHtml5 },
+    { value: "css", label: "CSS", icon: siCss },
+    { value: "yaml", label: "YAML", icon: siYaml },
+    { value: "c", label: "C", icon: siC },
+    { value: "cpp", label: "C++", icon: siCplusplus },
+    { value: "java", label: "Java", icon: siOpenjdk },
+    { value: "go", label: "Go", icon: siGo },
+    { value: "xml", label: "XML", icon: FileCode },
+    { value: "csv", label: "CSV", icon: siGooglesheets },
+    { value: "markdown", label: "Markdown", icon: siMarkdown },
+    { value: "shell", label: "Shell", icon: Terminal },
+    { value: "dockerfile", label: "Dockerfile", icon: Container },
+    { value: "svelte", label: "Svelte", icon: siSvelte },
+    { value: "vue", label: "Vue", icon: siVuedotjs },
+    { value: "rust", label: "Rust", icon: siRust },
+    { value: "clojure", label: "Clojure", icon: siClojure },
+];
+
+/**
+ * The list of supported languages, automatically sorted alphabetically
+ * while keeping "Auto Detect" and "Plain text" at the top.
+ */
 export const languages: Language[] = [
-    { value: "auto",       label: "Auto Detect", icon: null },
-    { value: "text",       label: "Plain text",  icon: FileText },
-    { value: "json",       label: "JSON",        icon: siJson },
-    { value: "javascript", label: "JavaScript",  icon: siJavascript },
-    { value: "typescript", label: "TypeScript",  icon: siTypescript },
-    { value: "python",     label: "Python",      icon: siPython },
-    { value: "html",       label: "HTML",        icon: siHtml5 },
-    { value: "css",        label: "CSS",         icon: siCss },
-    { value: "yaml",       label: "YAML",        icon: siYaml },
-    { value: "c",          label: "C",           icon: siC },
-    { value: "cpp",        label: "C++",         icon: siCplusplus },
-    { value: "java",       label: "Java",        icon: siOpenjdk },
-    { value: "go",         label: "Go",          icon: siGo },
-    { value: "xml",        label: "XML",         icon: FileCode },
-    { value: "csv",        label: "CSV",         icon: siGooglesheets },
-    { value: "markdown",   label: "Markdown",    icon: siMarkdown },    { value: "shell",      label: "Shell",       icon: Terminal },
-    { value: "dockerfile", label: "Dockerfile",  icon: Container },];
+    ...rawLanguages.slice(0, 2),
+    ...rawLanguages.slice(2).sort((a, b) => a.label.localeCompare(b.label)),
+];

@@ -21,11 +21,17 @@ import { markdown } from "@codemirror/lang-markdown";
 import { jsonInlayHints } from "$lib/editor/extensions/jsonInlayHints";
 import { jsonFoldWidget } from "$lib/editor/extensions/jsonFoldWidget";
 import { jsonKeyPath } from "$lib/editor/extensions/jsonKeyPath";
+import { svelte } from "@replit/codemirror-lang-svelte";
+import { rust } from "@codemirror/lang-rust";
+import { clojure } from "@nextjournal/lang-clojure";
 
 import { markdownAutocompleteProvider } from "$lib/editor/components/markdown/markdownAutocomplete";
 import { autocompletion } from "@codemirror/autocomplete";
 import { csvRainbowHighlight } from "$lib/editor/extensions/csvRainbowHighlight";
 import type { Extension } from "@codemirror/state";
+import { StreamLanguage } from "@codemirror/language";
+import { shell } from "@codemirror/legacy-modes/mode/shell";
+import { dockerFile } from "@codemirror/legacy-modes/mode/dockerfile";
 
 /**
  * Returns the CodeMirror extension (or extension array) for the given
@@ -58,6 +64,14 @@ export function getLanguageExtension(langId: string): Extension | Extension[] {
             return go();
         case "xml":
             return xml();
+        case "svelte":
+            return svelte();
+        case "vue":
+            return html(); // no mature CM6 Vue grammar yet, HTML provides basic markup
+        case "rust":
+            return rust();
+        case "clojure":
+            return clojure();
         case "csv":
             // No Lezer grammar — the rainbow column highlighter IS the
             // CSV syntax highlighting.  The codemirror-lang-csv grammar
@@ -69,8 +83,9 @@ export function getLanguageExtension(langId: string): Extension | Extension[] {
             // publishable — compose them here for the full experience.
             return [csvRainbowHighlight];
         case "shell":
+            return StreamLanguage.define(shell);
         case "dockerfile":
-            return [];  // Plain-text mode (no CM extension yet)
+            return StreamLanguage.define(dockerFile);
         case "markdown":
             return [
                 markdown(),
