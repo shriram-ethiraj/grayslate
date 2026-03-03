@@ -38,6 +38,14 @@ export const editorState = $state<{
         /** 0-100. Use -1 for indeterminate (pulsing bar). */
         progress: number;
     };
+    findReplace: {
+        visible: boolean;
+        replaceMode: boolean;
+        findText: string;
+        replaceText: string;
+        matchCount: number;
+        currentMatch: number;
+    };
 }>({
     fileType: "text",
     wordWrap: false,
@@ -53,6 +61,14 @@ export const editorState = $state<{
         message: "",
         subMessage: "",
         progress: -1,
+    },
+    findReplace: {
+        visible: false,
+        replaceMode: false,
+        findText: "",
+        replaceText: "",
+        matchCount: 0,
+        currentMatch: 0,
     },
 });
 

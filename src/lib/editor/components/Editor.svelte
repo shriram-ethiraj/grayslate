@@ -9,7 +9,11 @@
     import { getLanguageExtension } from "$lib/editor/config/languageExtensions";
     import { contextMenuExtension } from "$lib/editor/extensions/contextMenuExtension";
     import EditorContextMenu from "$lib/editor/components/EditorContextMenu.svelte";
+    import FindReplace from "$lib/editor/components/FindReplace.svelte";
+    import { search } from "@codemirror/search";
+    import { keymap } from "@codemirror/view";
     import { editorState } from "$lib/state/editor.svelte";
+    import { updateSearchStats } from "$lib/editor/core/actions";
 
     let {
         value = $bindable(),
@@ -106,10 +110,49 @@
             isDark ? andromedaConfig : materialLightConfig,
         );
 
+        const customSearchKeymap = keymap.of([
+            {
+                key: "Mod-f",
+                run: (targetView) => {
+                    editorState.findReplace.visible = true;
+                    editorState.findReplace.replaceMode = false;
+                    const selection = targetView.state.selection.main;
+                    if (!selection.empty) {
+                        editorState.findReplace.findText =
+                            targetView.state.sliceDoc(
+                                selection.from,
+                                selection.to,
+                            );
+                    }
+                    return true;
+                },
+                preventDefault: true,
+            },
+            {
+                key: "Mod-Alt-f",
+                run: (targetView) => {
+                    editorState.findReplace.visible = true;
+                    editorState.findReplace.replaceMode = true;
+                    const selection = targetView.state.selection.main;
+                    if (!selection.empty) {
+                        editorState.findReplace.findText =
+                            targetView.state.sliceDoc(
+                                selection.from,
+                                selection.to,
+                            );
+                    }
+                    return true;
+                },
+                preventDefault: true,
+            },
+        ]);
+
         const state = EditorState.create({
             doc: initialValue,
             extensions: [
+                customSearchKeymap,
                 basicSetup,
+                search({}),
                 scrollPastEnd(),
                 themeCompartment.of(initialThemeExt),
                 langCompartment.of(getLanguageExtension(language)),
@@ -131,6 +174,9 @@
                             (sum, r) => sum + (r.to - r.from),
                             0,
                         );
+
+                        // Update search stats whenever document or selection changes
+                        updateSearchStats(update.view);
                     }
                     if (update.docChanged) {
                         value = update.state.doc.toString();
@@ -190,7 +236,9 @@
     }
 </script>
 
-<div class="editor-container" use:editor={value}></div>
+<div class="editor-container" use:editor={value}>
+    <FindReplace />
+</div>
 
 <!--
     EditorContextMenu listens on the CM DOM for contextmenu events.
