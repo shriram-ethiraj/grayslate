@@ -72,6 +72,9 @@
   ::-webkit-scrollbar-corner {
     background: transparent;
   }
+  ::-webkit-resizer {
+    background: transparent;
+  }
   ::-webkit-scrollbar-thumb {
     @apply bg-muted-foreground/30 rounded border-[2px] border-solid border-transparent bg-clip-padding;
     min-height: 48px;

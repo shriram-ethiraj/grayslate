@@ -71,9 +71,9 @@
     // Auto-size the find textarea on open based on how much text is in it
     function autoResizeFindOnOpen(node: HTMLTextAreaElement | null) {
         if (!node) return;
-        node.style.height = "28px"; // reset to single row to get accurate scrollHeight
+        node.style.height = "30px"; // reset to single row to get accurate scrollHeight
         const maxH = 200; // matches max-h-[200px]
-        node.style.height = `${Math.min(node.scrollHeight, maxH)}px`;
+        node.style.height = `${Math.min(node.scrollHeight + 2, maxH)}px`;
     }
 
     // Sync global → local when panel first becomes visible
@@ -88,7 +88,6 @@
                 setTimeout(() => {
                     autoResizeFindOnOpen(findInputRef);
                     findInputRef?.focus();
-                    findInputRef?.select();
                 }, 10);
             }
         }
@@ -171,7 +170,7 @@
                         bind:value={findText}
                         onkeydown={handleFindKeydown}
                         placeholder="Find"
-                        class="min-h-[28px] max-h-[200px] min-w-[160px] max-w-[400px] resize text-xs placeholder:text-muted-foreground/50 border border-input focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring bg-transparent rounded-md pr-2 py-1.5 px-2 overflow-auto"
+                        class="min-h-[30px] max-h-[200px] min-w-[160px] max-w-[400px] resize text-xs placeholder:text-muted-foreground/50 border border-input focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring bg-transparent rounded-md pr-2 py-1.5 px-2 overflow-auto"
                         style="width: 220px"
                         spellcheck="false"
                         wrap="off"
@@ -179,7 +178,7 @@
                     ></textarea>
                     {#if findText.length > 0}
                         <div
-                            class="text-[10px] text-muted-foreground pointer-events-none text-right mt-0.5"
+                            class="text-[12px] text-muted-foreground pointer-events-none text-right mt-0.5"
                         >
                             {#if fr.matchCount > 0}
                                 {fr.currentMatch} of {fr.matchCount}
@@ -189,7 +188,9 @@
                         </div>
                     {/if}
                 </div>
-                <div class="flex items-start border-l pl-1 ml-1 h-full pt-1">
+                <div
+                    class="flex items-start border-l pl-1 ml-1 pt-1 self-stretch"
+                >
                     <Button
                         variant="ghost"
                         size="icon"
@@ -230,14 +231,14 @@
                         bind:value={replaceText}
                         onkeydown={handleReplaceKeydown}
                         placeholder="Replace"
-                        class="min-h-[28px] max-h-[200px] min-w-[160px] max-w-[400px] resize text-xs placeholder:text-muted-foreground/50 border border-input focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring bg-transparent rounded-md px-2 py-1.5 overflow-auto"
+                        class="min-h-[30px] max-h-[200px] min-w-[160px] max-w-[400px] resize text-xs placeholder:text-muted-foreground/50 border border-input focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring bg-transparent rounded-md px-2 py-1.5 overflow-auto"
                         style="width: 220px"
                         spellcheck="false"
                         wrap="off"
                         rows="1"
                     ></textarea>
                     <div
-                        class="flex items-start border-l pl-1 ml-1 gap-1 h-full pt-1"
+                        class="flex items-start border-l pl-1 ml-1 gap-1 pt-1 self-stretch"
                     >
                         <Button
                             variant="ghost"
