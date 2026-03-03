@@ -5,7 +5,7 @@
 	import { onMount, onDestroy } from "svelte";
 	import * as Menubar from "$lib/components/ui/menubar/index.js";
 	import { Check, Square, Minimize2, Minus, X } from "@lucide/svelte";
-	import * as Tooltip from "$lib/components/ui/tooltip/index.js";
+
 	import { editorState } from "$lib/state/editor.svelte";
 	import {
 		editorUndo,
@@ -193,54 +193,36 @@
 
 		<!-- Window Controls (Windows / Linux) -->
 		<div class="pointer-events-none z-10 flex h-full items-center">
-			<Tooltip.Root>
-				<Tooltip.Trigger class="h-full">
-					<button
-						class="pointer-events-auto inline-flex h-full w-12 items-center justify-center text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground focus:outline-none"
-						onclick={() => appWindow.minimize()}
-						aria-label="Minimize"
-					>
-						<Minus class="h-4 w-4" />
-					</button>
-				</Tooltip.Trigger>
-				<Tooltip.Content side="bottom" sideOffset={6}
-					>Minimize</Tooltip.Content
-				>
-			</Tooltip.Root>
+			<button
+				class="pointer-events-auto inline-flex h-full w-12 items-center justify-center text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground focus:outline-none"
+				onclick={() => appWindow.minimize()}
+				aria-label="Minimize"
+				title="Minimize"
+			>
+				<Minus class="h-4 w-4" />
+			</button>
 
-			<Tooltip.Root>
-				<Tooltip.Trigger class="h-full">
-					<button
-						class="pointer-events-auto inline-flex h-full w-12 items-center justify-center text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground focus:outline-none"
-						onclick={() => appWindow.toggleMaximize()}
-						aria-label={isMaximized ? "Restore" : "Maximize"}
-					>
-						{#if isMaximized}
-							<Minimize2 class="h-3.5 w-3.5" />
-						{:else}
-							<Square class="h-3.5 w-3.5" />
-						{/if}
-					</button>
-				</Tooltip.Trigger>
-				<Tooltip.Content side="bottom" sideOffset={6}
-					>{isMaximized ? "Restore" : "Maximize"}</Tooltip.Content
-				>
-			</Tooltip.Root>
+			<button
+				class="pointer-events-auto inline-flex h-full w-12 items-center justify-center text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground focus:outline-none"
+				onclick={() => appWindow.toggleMaximize()}
+				aria-label={isMaximized ? "Restore" : "Maximize"}
+				title={isMaximized ? "Restore" : "Maximize"}
+			>
+				{#if isMaximized}
+					<Minimize2 class="h-3.5 w-3.5" />
+				{:else}
+					<Square class="h-3.5 w-3.5" />
+				{/if}
+			</button>
 
-			<Tooltip.Root>
-				<Tooltip.Trigger class="h-full">
-					<button
-						class="pointer-events-auto inline-flex h-full w-12 items-center justify-center text-muted-foreground transition-colors hover:bg-[#c42b1c] hover:text-white focus:outline-none"
-						onclick={() => appWindow.close()}
-						aria-label="Close"
-					>
-						<X class="h-4 w-4" />
-					</button>
-				</Tooltip.Trigger>
-				<Tooltip.Content side="bottom" sideOffset={6}
-					>Close</Tooltip.Content
-				>
-			</Tooltip.Root>
+			<button
+				class="pointer-events-auto inline-flex h-full w-12 items-center justify-center text-muted-foreground transition-colors hover:bg-[#c42b1c] hover:text-white focus:outline-none"
+				onclick={() => appWindow.close()}
+				aria-label="Close"
+				title="Close"
+			>
+				<X class="h-4 w-4" />
+			</button>
 		</div>
 	{/if}
 </div>

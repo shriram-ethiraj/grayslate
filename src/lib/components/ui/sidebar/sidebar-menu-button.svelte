@@ -31,14 +31,12 @@
 </script>
 
 <script lang="ts">
-	import * as Tooltip from "$lib/components/ui/tooltip/index.js";
 	import {
 		cn,
 		type WithElementRef,
 		type WithoutChildrenOrChild,
 	} from "$lib/utils.js";
-	import { mergeProps } from "bits-ui";
-	import type { ComponentProps, Snippet } from "svelte";
+	import type { Snippet } from "svelte";
 	import type { HTMLAttributes } from "svelte/elements";
 	import { useSidebar } from "./context.svelte.js";
 
@@ -51,16 +49,12 @@
 		size = "default",
 		isActive = false,
 		tooltipContent,
-		tooltipContentProps,
 		...restProps
 	}: WithElementRef<HTMLAttributes<HTMLButtonElement>, HTMLButtonElement> & {
 		isActive?: boolean;
 		variant?: SidebarMenuButtonVariant;
 		size?: SidebarMenuButtonSize;
 		tooltipContent?: Snippet | string;
-		tooltipContentProps?: WithoutChildrenOrChild<
-			ComponentProps<typeof Tooltip.Content>
-		>;
 		child?: Snippet<[{ props: Record<string, unknown> }]>;
 	} = $props();
 
@@ -72,36 +66,15 @@
 		"data-sidebar": "menu-button",
 		"data-size": size,
 		"data-active": isActive,
+		title: typeof tooltipContent === "string" ? tooltipContent : undefined,
 		...restProps,
 	});
 </script>
 
-{#snippet Button({ props }: { props?: Record<string, unknown> })}
-	{@const mergedProps = mergeProps(buttonProps, props)}
-	{#if child}
-		{@render child({ props: mergedProps })}
-	{:else}
-		<button bind:this={ref} {...mergedProps}>
-			{@render children?.()}
-		</button>
-	{/if}
-{/snippet}
-
-{#if !tooltipContent}
-	{@render Button({})}
+{#if child}
+	{@render child({ props: buttonProps })}
 {:else}
-	<Tooltip.Root>
-		<Tooltip.Trigger>
-			{#snippet child({ props })}
-				{@render Button({ props })}
-			{/snippet}
-		</Tooltip.Trigger>
-		<Tooltip.Content side="right" align="center" {...tooltipContentProps}>
-			{#if typeof tooltipContent === "string"}
-				{tooltipContent}
-			{:else if tooltipContent}
-				{@render tooltipContent()}
-			{/if}
-		</Tooltip.Content>
-	</Tooltip.Root>
+	<button bind:this={ref} {...buttonProps}>
+		{@render children?.()}
+	</button>
 {/if}

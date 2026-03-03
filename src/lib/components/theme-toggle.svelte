@@ -1,6 +1,5 @@
 <script lang="ts">
     import { Button } from "$lib/components/ui/button/index.js";
-    import * as Tooltip from "$lib/components/ui/tooltip/index.js";
     import Sun from "@lucide/svelte/icons/sun";
     import Moon from "@lucide/svelte/icons/moon";
     import { onMount } from "svelte";
@@ -33,30 +32,16 @@
     }
 </script>
 
-<Tooltip.Root>
-    <Tooltip.Trigger>
-        {#snippet child({ props }: { props: Record<string, unknown> })}
-            <Button
-                variant="ghost"
-                size="icon"
-                aria-label="Toggle theme"
-                {...props}
-                onclick={(e) => {
-                    toggleTheme();
-                    if (typeof props.onclick === "function") {
-                        props.onclick(e);
-                    }
-                }}
-            >
-                {#if isDark}
-                    <Sun class="h-[1.2rem] w-[1.2rem] transition-all" />
-                {:else}
-                    <Moon class="h-[1.2rem] w-[1.2rem] transition-all" />
-                {/if}
-            </Button>
-        {/snippet}
-    </Tooltip.Trigger>
-    <Tooltip.Content side="bottom">
-        {isDark ? "Light Mode" : "Dark Mode"}
-    </Tooltip.Content>
-</Tooltip.Root>
+<Button
+    variant="ghost"
+    size="icon"
+    aria-label="Toggle theme"
+    title={isDark ? "Light Mode" : "Dark Mode"}
+    onclick={toggleTheme}
+>
+    {#if isDark}
+        <Sun class="h-[1.2rem] w-[1.2rem] transition-all" />
+    {:else}
+        <Moon class="h-[1.2rem] w-[1.2rem] transition-all" />
+    {/if}
+</Button>

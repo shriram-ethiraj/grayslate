@@ -10,7 +10,6 @@
 		ResizableHandle,
 	} from "$lib/components/ui/resizable/index.js";
 	import { Toaster } from "$lib/components/ui/sonner/index.js";
-	import * as Tooltip from "$lib/components/ui/tooltip/index.js";
 	import EditorActions from "$lib/editor/components/EditorActions.svelte";
 	import "./layout.css";
 
@@ -68,68 +67,63 @@
 	}
 </script>
 
-<Tooltip.Provider delayDuration={400}>
-	<div class="flex h-screen w-full flex-col overflow-hidden">
-		<Titlebar />
-		<!-- Sidebar.Provider supplies open/close state & Ctrl+B shortcut.
-			 Actual sizing is handled by paneforge (ResizablePane), NOT the
-			 shadcn Sidebar component. The Sidebar.Sidebar component is omitted;
-			 only Provider (state), Trigger (button), and Inset (wrapper) are used.
-			 The "--sidebar-width: 100%" override lets AppSidebar fill whatever
-			 width paneforge allocates to the sidebar pane. -->
-		<div class="relative flex-1 overflow-hidden">
-			<Sidebar.Provider
-				bind:open={sidebarOpen}
-				onOpenChange={handleOpenChange}
-				class="h-full min-h-0"
-			>
-				<ResizablePaneGroup direction="horizontal">
-					<ResizablePane
-						bind:this={sidebarPane}
-						id="sidebar"
-						defaultSize={0}
-						minSize={15}
-						maxSize={30}
-						collapsible={true}
-						collapsedSize={0}
-						onCollapse={handlePaneCollapse}
-						onExpand={handlePaneExpand}
-						onResize={handlePaneResize}
-						class={animating
-							? "transition-[flex-grow] duration-200 ease-linear"
-							: ""}
-					>
-						<div
-							class="h-full w-full"
-							style="--sidebar-width: 100%;"
+<div class="flex h-screen w-full flex-col overflow-hidden">
+	<Titlebar />
+	<!-- Sidebar.Provider supplies open/close state & Ctrl+B shortcut.
+				 Actual sizing is handled by paneforge (ResizablePane), NOT the
+				 shadcn Sidebar component. The Sidebar.Sidebar component is omitted;
+				 only Provider (state), Trigger (button), and Inset (wrapper) are used.
+				 The "--sidebar-width: 100%" override lets AppSidebar fill whatever
+				 width paneforge allocates to the sidebar pane. -->
+	<div class="relative flex-1 overflow-hidden">
+		<Sidebar.Provider
+			bind:open={sidebarOpen}
+			onOpenChange={handleOpenChange}
+			class="h-full min-h-0"
+		>
+			<ResizablePaneGroup direction="horizontal">
+				<ResizablePane
+					bind:this={sidebarPane}
+					id="sidebar"
+					defaultSize={0}
+					minSize={15}
+					maxSize={30}
+					collapsible={true}
+					collapsedSize={0}
+					onCollapse={handlePaneCollapse}
+					onExpand={handlePaneExpand}
+					onResize={handlePaneResize}
+					class={animating
+						? "transition-[flex-grow] duration-200 ease-linear"
+						: ""}
+				>
+					<div class="h-full w-full" style="--sidebar-width: 100%;">
+						<AppSidebar />
+					</div>
+				</ResizablePane>
+				<ResizableHandle />
+				<ResizablePane
+					id="content"
+					defaultSize={100}
+					class="flex flex-col"
+				>
+					<Sidebar.Inset class="min-w-0 min-h-0 overflow-hidden">
+						<header
+							class="flex h-12 w-full shrink-0 items-center justify-between border-b bg-background px-4"
 						>
-							<AppSidebar />
-						</div>
-					</ResizablePane>
-					<ResizableHandle />
-					<ResizablePane
-						id="content"
-						defaultSize={100}
-						class="flex flex-col"
-					>
-						<Sidebar.Inset class="min-w-0 min-h-0 overflow-hidden">
-							<header
-								class="flex h-12 w-full shrink-0 items-center justify-between border-b bg-background px-4"
-							>
-								<Sidebar.Trigger class="-ml-1" />
-								<div class="flex items-center gap-2">
-									<EditorActions />
-									<ThemeToggle />
-								</div>
-							</header>
-							<div class="flex min-h-0 min-w-0 flex-1 flex-col">
-								{@render children()}
+							<Sidebar.Trigger class="-ml-1" />
+							<div class="flex items-center gap-2">
+								<EditorActions />
+								<ThemeToggle />
 							</div>
-						</Sidebar.Inset>
-					</ResizablePane>
-				</ResizablePaneGroup>
-			</Sidebar.Provider>
-		</div>
+						</header>
+						<div class="flex min-h-0 min-w-0 flex-1 flex-col">
+							{@render children()}
+						</div>
+					</Sidebar.Inset>
+				</ResizablePane>
+			</ResizablePaneGroup>
+		</Sidebar.Provider>
 	</div>
-</Tooltip.Provider>
+</div>
 <Toaster position="top-right" />
