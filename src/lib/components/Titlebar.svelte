@@ -190,9 +190,12 @@
 	{:else}
 		<!-- App Name + Menubar (Windows / Linux) -->
 		<div class="pointer-events-none z-10 flex items-center pl-3">
-			<span class="mr-2 text-xs font-semibold tracking-wide"
-				>Grayslate</span
-			>
+			<img
+				src="/logo.png"
+				alt="Grayslate"
+				class="mr-2 h-4 w-4 shrink-0"
+				draggable="false"
+			/>
 			{@render appMenubar()}
 		</div>
 
