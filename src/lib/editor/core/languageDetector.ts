@@ -223,6 +223,8 @@ const LANGUAGE_SIGNATURES: LanguageSignature[] = [
             [/\.catch\s*\(/, 1],
             [/\basync\s+(function|\w+\s*=>|\w+\s*\()/m, 2],
             [/\bawait\s+/, 1],
+            [/^\s*import\s+[\w{*].*\s+from\s+['"`]/m, 3],  // ES module imports
+            [/^\s*export\s+(const|let|var|function|class|default)\s/m, 3],  // ES module exports
             [/:\s*(string|number|boolean|void)\b/, -3],  // Type annotations are TS, not JS
         ],
     },
@@ -238,6 +240,9 @@ const LANGUAGE_SIGNATURES: LanguageSignature[] = [
             [/\bdeclare\s+(const|function|class|module|type|interface)/m, 4],
             [/\b(Readonly|Partial|Record|Pick|Omit|Required)</, 4],
             [/\bas\s+(string|number|any|unknown|\w+)\b/, 3],
+            [/^\/\/\/\s*<reference\s/m, 5],   // triple-slash directive (unique to TS)
+            [/^\s*import\s+[\w{*].*\s+from\s+['"`]/m, 2],   // ES module imports
+            [/^\s*export\s+(const|let|var|function|class|default|type|interface|enum)\s/m, 2],   // ES module exports
             [/<\w+(\s+extends\s+\w+)?>/, 2],  // generics
             [/\b(const|let|var)\s+\w+\s*=/m, 1],  // also JS features
             [/=>\s*[{(\n]/m, 1],
@@ -780,6 +785,22 @@ class LanguageDetector {
     private isLikelySvelte(trimmed: string): boolean {
         if (trimmed[0] !== "<" && !trimmed.includes("{#")) return false;
 
+        // Anti-signal: when the content doesn't start with HTML/template markup
+        // but contains {# block tags, check if those tags are likely inside
+        // string literals in a JS/TS file.  In a real Svelte file starting
+        // with {#...}, the very first non-comment lines are template code,
+        // not JS/TS declarations.  Finding ≥2 code declarations in the
+        // first 5 meaningful lines is a strong JS/TS signal.
+        if (trimmed[0] !== "<") {
+            const firstLines = trimmed.split("\n")
+                .map(l => l.trim())
+                .filter(l => l.length > 0 && !l.startsWith("*") && !l.startsWith("//") && !l.startsWith("/*"))
+                .slice(0, 5);
+            const jstsCodePattern = /^(const|let|var|type|interface|function|class|export|import|async\s+function)\b/;
+            const codeLineCount = firstLines.filter(l => jstsCodePattern.test(l)).length;
+            if (codeLineCount >= 2) return false;
+        }
+
         let score = 0;
         const signals: [RegExp, number][] = [
             [/{#(if|each|await|snippet|key)[}\s]/, 3], // block tags
@@ -960,7 +981,7 @@ class LanguageDetector {
         // If most lines look like script/source code, reject CSV.
         // Shell scripts in particular can trigger the delimiter heuristic
         // (e.g. lines separated by spaces or pipes that look like columns).
-        const scriptOrCommentPattern = /^\s*(#|\/\/|echo|import|from|const|let|var|def|class|function)\b/;
+        const scriptOrCommentPattern = /^\s*(#|\/\/|echo|import|from|const|let|var|def|class|function|export)\b/;
         const scriptLikeCount = lines.filter(l => scriptOrCommentPattern.test(l)).length;
         if (scriptLikeCount / lines.length > 0.3) return false;
 
@@ -1044,6 +1065,12 @@ class LanguageDetector {
         }
 
         if (codeLines > yamlLines) return false;
+
+        // Anti-signal: if many lines end with trailing commas (optionally
+        // followed by a JS-style // comment), the content is likely a JS/TS
+        // object literal, not YAML.  YAML values never have trailing commas.
+        const commaTrailingCount = nonEmpty.filter(l => /,\s*(\/\/.*)?$/.test(l.trim())).length;
+        if (commaTrailingCount / nonEmpty.length > 0.3) return false;
 
         const yamlRatio = yamlLines / nonEmpty.length;
         if (startsWithSeparator && yamlRatio > 0.3) return true;
@@ -1291,7 +1318,21 @@ class LanguageDetector {
         let partialBest: string | null = null;
         let partialBestScore = 0;
 
+        // Pre-compute ES module signals.  `import X from '...'` and
+        // `export const/function/class/…` are unique to JavaScript /
+        // TypeScript.  When present, non-JS/TS languages are skipped
+        // entirely so keywords inside string literals or comments
+        // cannot produce false positives.
+        const hasEsModule =
+            /^\s*import\s+[\w{*].*\s+from\s+['"`]/m.test(content) ||
+            /^\s*export\s+(const|let|var|function|class|default|type|interface|enum)\s/m.test(content);
+
         for (const sig of LANGUAGE_SIGNATURES) {
+            // ES module guard: file is definitively JS/TS — skip others.
+            if (hasEsModule && sig.language !== "javascript" && sig.language !== "typescript") {
+                continue;
+            }
+
             let score = 0;
             for (const [pattern, weight] of sig.patterns) {
                 if (weight > 0) {

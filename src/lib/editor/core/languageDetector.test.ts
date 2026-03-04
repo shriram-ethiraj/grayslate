@@ -479,6 +479,171 @@ const name = ref('');
         runPhase(phase, languageDetector.detect.bind(languageDetector));
     }
 
+    // ── Phase 5: Real Project File Detection (content-only) ──────────
+    // Walk the project tree, read each file's content, and verify our
+    // detector can identify the language WITHOUT seeing the filename.
+    {
+        const fs = await import("fs");
+        const pathMod = await import("path");
+
+        /** Map file extensions to the expected language ID for content-only detection. */
+        const EXT_TO_LANG: Record<string, string> = {
+            ".json": "json",
+            ".yaml": "yaml", ".yml": "yaml",
+            ".toml": "toml",
+            ".xml": "xml", ".svg": "xml",
+            ".html": "html", ".htm": "html",
+            ".css": "css",
+            ".scss": "scss", ".sass": "sass",
+            ".js": "javascript", ".mjs": "javascript", ".cjs": "javascript",
+            ".ts": "typescript", ".tsx": "typescript", ".mts": "typescript",
+            ".svelte": "svelte",
+            ".vue": "vue",
+            ".py": "python",
+            ".rs": "rust",
+            ".go": "go",
+            ".java": "java",
+            ".c": "c",
+            ".cpp": "cpp", ".cxx": "cpp", ".cc": "cpp",
+            ".rb": "ruby",
+            ".php": "php",
+            ".swift": "swift",
+            ".kt": "kotlin", ".kts": "kotlin",
+            ".cs": "csharp",
+            ".scala": "scala",
+            ".dart": "dart",
+            ".sh": "shell", ".bash": "shell", ".zsh": "shell",
+            ".ps1": "powershell",
+            ".sql": "sql",
+            ".md": "markdown",
+            ".dockerfile": "dockerfile",
+            ".clj": "clojure", ".cljs": "clojure",
+        };
+
+        /**
+         * Extensions where content-only detection commonly produces an
+         * acceptable alternative (e.g. .h → "c" or "cpp", .js → "javascript"
+         * or "typescript"). Key = extension, value = set of accepted IDs.
+         */
+        const ACCEPTABLE_ALTS: Record<string, Set<string>> = {
+            ".h":   new Set(["c", "cpp"]),
+            ".hpp": new Set(["c", "cpp"]),
+            ".js":  new Set(["javascript", "typescript"]),
+            ".mjs": new Set(["javascript", "typescript"]),
+            ".cjs": new Set(["javascript", "typescript"]),
+            ".ts":  new Set(["javascript", "typescript"]),
+            ".tsx": new Set(["javascript", "typescript"]),
+            ".mts": new Set(["javascript", "typescript"]),
+        };
+
+        /** Directories to skip entirely. */
+        const SKIP_DIRS = new Set([
+            "node_modules", ".svelte-kit", "build", "target",
+            ".git", ".vscode", ".idea", "dist", ".agents",
+        ]);
+
+        /** Extensions that are binary or not meaningfully detectable. */
+        const SKIP_EXTENSIONS = new Set([
+            ".png", ".jpg", ".jpeg", ".gif", ".ico", ".webp", ".avif",
+            ".woff", ".woff2", ".ttf", ".eot", ".otf",
+            ".zip", ".gz", ".tar", ".br",
+            ".exe", ".dll", ".so", ".dylib",
+            ".lock", ".map",
+            ".d",  // Rust dep-info files
+        ]);
+
+        /** Files to skip by exact name. */
+        const SKIP_FILES = new Set([
+            "pnpm-lock.yaml", "package-lock.json", "yarn.lock",
+            "pnpm-workspace.yaml",
+        ]);
+
+        const MIN_CONTENT_LENGTH = 20; // bytes — skip trivially small files
+
+        /** Recursively collect file paths under `dir`. */
+        function walk(dir: string): string[] {
+            const results: string[] = [];
+            for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+                const name = entry.name;
+                // Skip hidden files/dirs (starting with .)
+                if (name.startsWith(".")) continue;
+                const fullPath = pathMod.join(dir, name);
+                if (entry.isDirectory()) {
+                    if (SKIP_DIRS.has(name)) continue;
+                    results.push(...walk(fullPath));
+                } else if (entry.isFile()) {
+                    results.push(fullPath);
+                }
+            }
+            return results;
+        }
+
+        // Resolve project root (four levels up from this test file's dir)
+        const { fileURLToPath } = await import("url");
+        const thisDir = pathMod.dirname(fileURLToPath(import.meta.url));
+        const projectRoot = pathMod.resolve(thisDir, "../../../..");
+        const allFiles = walk(projectRoot);
+
+        let projPassed = 0;
+        let projFailed = 0;
+        let projSkipped = 0;
+        const projFailures: string[] = [];
+
+        console.log(`\n── Phase 5: Real Project Files (content-only) ──`);
+
+        for (const filePath of allFiles) {
+            const basename = pathMod.basename(filePath);
+            const ext = pathMod.extname(filePath).toLowerCase();
+            const relPath = pathMod.relative(projectRoot, filePath).replace(/\\/g, "/");
+
+            // Skip conditions
+            if (SKIP_FILES.has(basename)) { projSkipped++; continue; }
+            if (SKIP_EXTENSIONS.has(ext)) { projSkipped++; continue; }
+            if (!ext && !["Dockerfile", "Makefile", "Gemfile", "Rakefile"].includes(basename)) {
+                projSkipped++; continue;
+            }
+
+            const expectedLang = EXT_TO_LANG[ext]
+                ?? (basename.toLowerCase() === "dockerfile" ? "dockerfile" : undefined);
+
+            // No mapping for this extension — skip
+            if (!expectedLang) { projSkipped++; continue; }
+
+            let content: string;
+            try {
+                content = fs.readFileSync(filePath, "utf8");
+            } catch {
+                projSkipped++;
+                continue;
+            }
+
+            if (content.length < MIN_CONTENT_LENGTH) { projSkipped++; continue; }
+
+            // Detect based on content ONLY — no filename hint
+            const detected = languageDetector.detect(content);
+            const alts = ACCEPTABLE_ALTS[ext];
+            const isMatch = detected === expectedLang
+                || (alts !== undefined && detected !== null && alts.has(detected));
+
+            if (isMatch) {
+                projPassed++;
+            } else {
+                projFailed++;
+                const msg = `  ✗ ${relPath}\n    expected: ${expectedLang}${alts ? ` (or ${[...alts].join("/")})` : ""}\n    actual:   ${detected}`;
+                projFailures.push(msg);
+                console.error(msg);
+            }
+        }
+
+        console.log(`  Scanned ${allFiles.length} files — tested ${projPassed + projFailed}, skipped ${projSkipped}`);
+        console.log(`  Content-only results: ${projPassed} passed, ${projFailed} failed`);
+
+        // Merge into global counters
+        passed += projPassed;
+        failed += projFailed;
+        failures.push(...projFailures);
+    }
+
     console.log("\n════════════════════════════════════════");
     console.log(`Results: ${passed} passed, ${failed} failed, ${passed + failed} total`);
 
