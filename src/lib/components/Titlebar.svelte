@@ -27,6 +27,7 @@
 	let unlistenResize: (() => void) | undefined;
 
 	const isMac = $derived(osType === "macos");
+	const isLinux = $derived(osType === "linux");
 	/** Platform modifier key label */
 	const mod = $derived(isMac ? "⌘" : "Ctrl");
 	/** Redo shortcut differs between platforms */
@@ -197,36 +198,71 @@
 
 		<!-- Window Controls (Windows / Linux) -->
 		<div class="pointer-events-none z-10 flex h-full items-center">
-			<button
-				class="pointer-events-auto inline-flex h-full w-12 items-center justify-center text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground focus:outline-none"
-				onclick={() => appWindow.minimize()}
-				aria-label="Minimize"
-				title="Minimize"
-			>
-				<Minus class="h-4 w-4" />
-			</button>
+			{#if isLinux}
+				<div class="flex h-full items-center gap-1.5 pr-2">
+					<button
+						class="pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground focus:outline-none"
+						onclick={() => appWindow.minimize()}
+						aria-label="Minimize"
+						title="Minimize"
+					>
+						<Minus class="h-4 w-4" />
+					</button>
 
-			<button
-				class="pointer-events-auto inline-flex h-full w-12 items-center justify-center text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground focus:outline-none"
-				onclick={() => appWindow.toggleMaximize()}
-				aria-label={isMaximized ? "Restore" : "Maximize"}
-				title={isMaximized ? "Restore" : "Maximize"}
-			>
-				{#if isMaximized}
-					<Minimize2 class="h-3.5 w-3.5" />
-				{:else}
-					<Square class="h-3.5 w-3.5" />
-				{/if}
-			</button>
+					<button
+						class="pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground focus:outline-none"
+						onclick={() => appWindow.toggleMaximize()}
+						aria-label={isMaximized ? "Restore" : "Maximize"}
+						title={isMaximized ? "Restore" : "Maximize"}
+					>
+						{#if isMaximized}
+							<Minimize2 class="h-3.5 w-3.5" />
+						{:else}
+							<Square class="h-3.5 w-3.5" />
+						{/if}
+					</button>
 
-			<button
-				class="pointer-events-auto inline-flex h-full w-12 items-center justify-center text-muted-foreground transition-colors hover:bg-[#c42b1c] hover:text-white focus:outline-none"
-				onclick={() => appWindow.close()}
-				aria-label="Close"
-				title="Close"
-			>
-				<X class="h-4 w-4" />
-			</button>
+					<button
+						class="pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground focus:outline-none"
+						onclick={() => appWindow.close()}
+						aria-label="Close"
+						title="Close"
+					>
+						<X class="h-4 w-4" />
+					</button>
+				</div>
+			{:else}
+				<button
+					class="pointer-events-auto inline-flex h-full w-12 items-center justify-center text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground focus:outline-none"
+					onclick={() => appWindow.minimize()}
+					aria-label="Minimize"
+					title="Minimize"
+				>
+					<Minus class="h-4 w-4" />
+				</button>
+
+				<button
+					class="pointer-events-auto inline-flex h-full w-12 items-center justify-center text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground focus:outline-none"
+					onclick={() => appWindow.toggleMaximize()}
+					aria-label={isMaximized ? "Restore" : "Maximize"}
+					title={isMaximized ? "Restore" : "Maximize"}
+				>
+					{#if isMaximized}
+						<Minimize2 class="h-3.5 w-3.5" />
+					{:else}
+						<Square class="h-3.5 w-3.5" />
+					{/if}
+				</button>
+
+				<button
+					class="pointer-events-auto inline-flex h-full w-12 items-center justify-center text-muted-foreground transition-colors hover:bg-[#c42b1c] hover:text-white focus:outline-none"
+					onclick={() => appWindow.close()}
+					aria-label="Close"
+					title="Close"
+				>
+					<X class="h-4 w-4" />
+				</button>
+			{/if}
 		</div>
 	{/if}
 </div>
