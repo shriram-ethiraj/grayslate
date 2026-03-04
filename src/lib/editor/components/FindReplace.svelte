@@ -15,9 +15,9 @@
     import X from "~icons/lucide/x";
     import ChevronDown from "~icons/lucide/chevron-down";
     import ChevronRight from "~icons/lucide/chevron-right";
+    import Scaling from "~icons/lucide/scaling";
     import CodIconReplace from "~icons/codicon/replace";
     import CodIconReplaceAll from "~icons/codicon/replace-all";
-    import HugeiconsResizeField from "~icons/hugeicons/resize-field";
 
     let findText = $state("");
     let replaceText = $state("");
@@ -145,8 +145,8 @@
 <svelte:window onkeydown={handleWindowKeydown} />
 
 {#snippet resizeGrip()}
-    <HugeiconsResizeField
-        class="absolute bottom-0 right-0 h-4 w-4 pointer-events-none text-muted-foreground cursor-nwse-resize"
+    <Scaling
+        class="absolute bottom-1 right-1 h-3.5 w-3.5 pointer-events-none text-muted-foreground rotate-90 cursor-nwse-resize"
     />
 {/snippet}
 

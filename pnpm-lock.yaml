@@ -86,9 +86,6 @@ importers:
       '@iconify-json/codicon':
         specifier: ^1.2.47
         version: 1.2.47
-      '@iconify-json/hugeicons':
-        specifier: ^1.2.23
-        version: 1.2.23
       '@iconify-json/lucide':
         specifier: ^1.2.95
         version: 1.2.95
@@ -623,9 +620,6 @@ packages:
 
   '@iconify-json/codicon@1.2.47':
     resolution: {integrity: sha512-9z6Of5d3w8aJAv07IT2un0SgAmFZfXSCtG4LDqsf8b/yL4vBgQ6jaCVH6Y0mDegNZzLkJ+7ieIDfbZZlIXH7CA==}
-
-  '@iconify-json/hugeicons@1.2.23':
-    resolution: {integrity: sha512-gJ/V0xzM5WTA5qzBOMa/N/DojbHLliJN4SWHUOTNUOdEFFnjiF7XEjR8qqZhBF2hWNpt0SROXoq/xdOj6ZA9xA==}
 
   '@iconify-json/lucide@1.2.95':
     resolution: {integrity: sha512-SxDM/NEJtcGGAiLAnaZ7rcmVxkJI8esswTZLCm5BfNcoPf/yawIImb4nNfsu4dtFzP/Cl6KRg+vZq521zOUOnQ==}
@@ -2028,10 +2022,6 @@ snapshots:
   '@floating-ui/utils@0.2.10': {}
 
   '@iconify-json/codicon@1.2.47':
-    dependencies:
-      '@iconify/types': 2.0.0
-
-  '@iconify-json/hugeicons@1.2.23':
     dependencies:
       '@iconify/types': 2.0.0
 
