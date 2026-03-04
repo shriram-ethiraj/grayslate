@@ -44,14 +44,6 @@
     cursor: text;
   }
 
-  /* macOS WKWebView: force cursor for the lifetime of a textarea native-resize drag.
-     Must use !important to beat the textarea { cursor: text } rule above.
-     Class is toggled by FindReplace.svelte's handleTextareaMousedown / handleGlobalMouseUp. */
-  html.textarea-resizing,
-  html.textarea-resizing * {
-    cursor: nwse-resize !important;
-  }
-
   a, button, label, [role="button"] {
     cursor: pointer;
   }
