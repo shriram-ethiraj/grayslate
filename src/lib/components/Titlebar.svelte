@@ -2,6 +2,7 @@
 	import { Window } from "@tauri-apps/api/window";
 	import { type } from "@tauri-apps/plugin-os";
 	import { emit, listen } from "@tauri-apps/api/event";
+	import { invoke } from "@tauri-apps/api/core";
 	import { onMount, onDestroy } from "svelte";
 	import * as Menubar from "$lib/components/ui/menubar/index.js";
 	import Check from "~icons/lucide/check";
@@ -114,6 +115,13 @@
 			editorState.wordWrap = !editorState.wordWrap;
 		}
 	}
+
+	// Keep the macOS native menu bar checkmark in sync with editorState.wordWrap.
+	// Runs whenever wordWrap or isMac changes; early-returns on non-macOS platforms.
+	$effect(() => {
+		if (!isMac) return;
+		invoke("set_menu_word_wrap", { checked: editorState.wordWrap });
+	});
 </script>
 
 <svelte:window onkeydown={handleKeydown} />

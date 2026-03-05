@@ -23,7 +23,10 @@ pub fn run() {
             window::apply_macos_window_styling(_app);
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![commands::file::read_file_content])
+        .invoke_handler(tauri::generate_handler![
+            commands::file::read_file_content,
+            menu::set_menu_word_wrap,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

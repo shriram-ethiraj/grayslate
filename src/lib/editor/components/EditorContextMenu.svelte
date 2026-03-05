@@ -9,6 +9,8 @@
     import Braces from "~icons/lucide/braces";
     import Link from "~icons/lucide/link";
     import TextSelect from "~icons/lucide/text-select";
+    import TextWrap from "~icons/lucide/text-wrap";
+    import Check from "~icons/lucide/check";
     import {
         consumeContextMenuData,
         type ContextMenuData,
@@ -20,6 +22,7 @@
         editorPaste,
         editorSelectAll,
     } from "$lib/editor/core/actions";
+    import { editorState } from "$lib/state/editor.svelte";
 
     let { view }: { view: EditorView | undefined } = $props();
 
@@ -159,6 +162,11 @@
         close();
         editorSelectAll(view);
     }
+
+    function handleToggleWordWrap() {
+        close();
+        editorState.wordWrap = !editorState.wordWrap;
+    }
 </script>
 
 {#if open}
@@ -247,6 +255,23 @@
             <span class="ml-auto pl-4 text-xs text-muted-foreground"
                 >{modKey}A</span
             >
+        </button>
+
+        <div class="my-1 h-px bg-muted"></div>
+
+        <button
+            class={itemEnabled}
+            role="menuitem"
+            onclick={handleToggleWordWrap}
+        >
+            <TextWrap class="mr-2 h-4 w-4 shrink-0" />
+            <span>Word Wrap</span>
+            {#if editorState.wordWrap}
+                <Check class="ml-2 h-4 w-4 shrink-0 text-foreground" />
+            {/if}
+            <span class="ml-auto pl-4 text-xs text-muted-foreground">
+                {isMac ? "⌥Z" : "Alt+Z"}
+            </span>
         </button>
     </div>
 {/if}

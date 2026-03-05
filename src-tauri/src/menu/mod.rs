@@ -140,3 +140,24 @@ pub fn handle_macos_menu_event(app: &tauri::AppHandle, event: tauri::menu::MenuE
         _ => {}
     }
 }
+
+/// Tauri command called from Svelte whenever `editorState.wordWrap` changes.
+///
+/// On macOS it updates the native `CheckMenuItem` so the system menu bar
+/// checkmark stays in sync with the in-app context menu and keyboard shortcut.
+/// On other platforms this is a no-op; the command is always registered so
+/// the invoke handler list does not need conditional compilation.
+#[tauri::command]
+pub fn set_menu_word_wrap(app: tauri::AppHandle, checked: bool) {
+    #[cfg(target_os = "macos")]
+    {
+        use tauri::Manager;
+        if let Some(state) = app.try_state::<MacOsMenuState>() {
+            if let Ok(item) = state.word_wrap_item.lock() {
+                let _ = item.set_checked(checked);
+            }
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = (app, checked);
+}
