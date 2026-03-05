@@ -31,7 +31,7 @@
 
 ## 🛠️ Tech Stack
 
-We believe in using the best tools for the job to keep Grayslate fast, small, and reliable:
+Grayslate is built using modern, high-performance tools to remain fast, small, and reliable:
 
 - **Frontend**: [SvelteKit](https://kit.svelte.dev/) + [Svelte 5](https://svelte.dev/)
 - **Styling**: [Tailwind CSS v4](https://tailwindcss.com/) + Shadcn
@@ -96,13 +96,17 @@ Yes and no. Like **Boop**, Grayslate serves as an excellent developer scratchpad
 
 IDEs are fantastic for managing large projects, but they can be slow to launch and overly complex when all you want to do is paste an API payload, quickly format it, or view a CSV file. Grayslate is designed to open instantly, provide the core tools you need without the bloat, and get out of your way.
 
+### Can Grayslate handle extremely large files?
+
+Yes. Grayslate is specifically optimized for viewing large datasets. The CSV viewer uses a high-performance table implementation that can handle hundreds of thousands of rows without slowing down your system. For text editing, it uses **CodeMirror 6**, which is designed for fast, efficient manipulation of large text blocks.
+
 ### Is Grayslate free to use?
 
-Yes! Grayslate is completely free and open-source. We believe essential developer utilities should be accessible to everyone.
+Yes! Grayslate is completely free and open-source.
 
 ## 🤝 Contributing
 
-We welcome any kind of help! If you find any issues, want to request features, or suggest updates, please feel free to open an issue or submit a pull request. Make sure to read our contributing guidelines before jumping in.
+Contributions are welcome! If you find any issues, want to request features, or suggest updates, please feel free to open an issue or submit a pull request. Make sure to read the contributing guidelines before jumping in.
 
 ## 📄 License
 
