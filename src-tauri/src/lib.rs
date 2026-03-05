@@ -2,6 +2,13 @@
 /// Maximum file size allowed to be opened: 200 MB.
 const MAX_FILE_SIZE: u64 = 200 * 1024 * 1024;
 
+/// Holds macOS-specific menu item handles so the event handler can mutate
+/// them without going through `menu.get()`, which does NOT recurse into submenus.
+#[cfg(target_os = "macos")]
+struct MacOsMenuState {
+    word_wrap_item: std::sync::Mutex<tauri::menu::CheckMenuItem<tauri::Wry>>,
+}
+
 /// Build the macOS-native menu bar (File + Edit).
 ///
 /// On macOS the in-window shadcn Menubar is hidden; this native menu
@@ -13,6 +20,7 @@ fn build_native_menu(
     app: &tauri::AppHandle,
 ) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
     use tauri::menu::{CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder, SubmenuBuilder};
+    use tauri::Manager;
 
     let app_menu = SubmenuBuilder::new(app, "Grayslate")
         .item(
@@ -30,11 +38,17 @@ fn build_native_menu(
         .build()?;
 
     // Word Wrap is a checkbox whose default (unchecked) mirrors editorState.wordWrap = false.
-    // Each click toggles the check mark and emits an event; the Svelte side stays in sync
-    // provided all toggles go through this menu item or the keyboard shortcut captured here.
+    // We store a reference in managed state because menu.get() does NOT recurse into submenus.
     let word_wrap_item = CheckMenuItemBuilder::with_id("edit-word-wrap", "Word Wrap")
         .accelerator("Alt+Z")
+        .checked(false)
         .build(app)?;
+
+    // Store the CheckMenuItem handle in managed state so the event handler can
+    // toggle it directly without going through the non-recursive menu.get().
+    app.manage(MacOsMenuState {
+        word_wrap_item: std::sync::Mutex::new(word_wrap_item.clone()),
+    });
 
     let edit_menu = SubmenuBuilder::new(app, "Edit")
         .item(
@@ -116,16 +130,13 @@ fn handle_macos_menu_event(app: &tauri::AppHandle, event: tauri::menu::MenuEvent
             let _ = window.emit("menu://edit-action", "selectAll");
         }
         "edit-word-wrap" => {
-            // muda auto-toggled the CheckMenuItem; read the resulting
-            // checked state and emit it as an absolute boolean so the
-            // frontend can SET (not toggle) its mirror — avoids any
-            // possibility of the two sides drifting out of sync.
+            // macOS native menus automatically toggle `CheckMenuItem` state internally.
+            // We retrieve the item from our managed state (since `menu.get()` does
+            // not recurse into submenus) to read the new state and emit it to Svelte.
             let mut checked = false;
-            if let Some(menu) = app.menu() {
-                if let Some(item) = menu.get("edit-word-wrap") {
-                    if let Some(ci) = item.as_check_menuitem() {
-                        checked = ci.is_checked().unwrap_or(false);
-                    }
+            if let Some(state) = app.try_state::<MacOsMenuState>() {
+                if let Ok(ci) = state.word_wrap_item.lock() {
+                    checked = ci.is_checked().unwrap_or(false);
                 }
             }
             let _ = window.emit("menu://word-wrap-state", checked);
