@@ -34,10 +34,6 @@
     let findInputRef: HTMLTextAreaElement | null = $state(null);
     let replaceTextareaRef: HTMLTextAreaElement | null = $state(null);
 
-    function clamp(value: number, min: number, max: number) {
-        return Math.min(max, Math.max(min, value));
-    }
-
     // Sync textarea widths: when either is resized, set the other to match.
     // Unobserve the target before writing its width to prevent feedback-loop jitter.
     $effect(() => {
@@ -144,63 +140,6 @@
     function handleWindowKeydown(e: KeyboardEvent) {
         if (e.key === "Escape" && fr.visible) close();
     }
-
-    /**
-     * Cross-platform resize cursor fix using a full-viewport overlay.
-     *
-     * WebKit on macOS ignores CSS cursor changes while a mouse button is
-     * held down. Instead of adding a class to <html>, we spawn a
-     * transparent overlay that covers the entire viewport with
-     * cursor: se-resize.  Because the pointer is always over the overlay,
-     * every platform shows the correct cursor for the full drag.
-     */
-    function startTextareaResize(
-        e: PointerEvent,
-        textarea: HTMLTextAreaElement | null,
-    ) {
-        if (!textarea) return;
-        const target = textarea;
-        e.preventDefault();
-        e.stopPropagation();
-
-        const startX = e.clientX;
-        const startY = e.clientY;
-        const startWidth = target.offsetWidth;
-        const startHeight = target.offsetHeight;
-
-        // Full-viewport transparent overlay to lock the cursor
-        const overlay = document.createElement("div");
-        overlay.style.cssText =
-            "position:fixed;inset:0;z-index:2147483647;cursor:se-resize;";
-        document.body.appendChild(overlay);
-
-        // Capture pointer on the overlay so events stay on it even outside the window
-        overlay.setPointerCapture(e.pointerId);
-
-        function onPointerMove(moveEvent: PointerEvent) {
-            const nextWidth = clamp(
-                startWidth + (moveEvent.clientX - startX),
-                160,
-                400,
-            );
-            const nextHeight = clamp(
-                startHeight + (moveEvent.clientY - startY),
-                30,
-                200,
-            );
-            target.style.width = `${nextWidth}px`;
-            target.style.height = `${nextHeight}px`;
-        }
-
-        function onPointerUp() {
-            overlay.removeEventListener("pointermove", onPointerMove);
-            overlay.removeEventListener("pointerup", onPointerUp);
-            // overlay.remove();
-        }
-
-        overlay.addEventListener("pointermove", onPointerMove);
-        overlay.addEventListener("pointerup", onPointerUp);
-    }
 </script>
 
 <svelte:window onkeydown={handleWindowKeydown} />
@@ -240,20 +179,12 @@
                         bind:value={findText}
                         onkeydown={handleFindKeydown}
                         placeholder="Find"
-                        class="find-replace-textarea min-h-[30px] max-h-[200px] min-w-[160px] max-w-[400px] resize-none text-xs placeholder:text-muted-foreground/50 border border-input focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring bg-transparent rounded-md py-1.5 px-2 overflow-auto"
+                        class="min-h-[30px] max-h-[200px] min-w-[160px] max-w-[400px] resize text-xs placeholder:text-muted-foreground/50 border border-input focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring bg-transparent rounded-md py-1.5 px-2 overflow-auto"
                         style="width: 220px"
                         spellcheck="false"
                         wrap="off"
                         rows="1"
                     ></textarea>
-                    <div
-                        class="absolute bottom-0 right-0 z-10 h-5 w-5 cursor-se-resize"
-                        onpointerdown={(e) =>
-                            startTextareaResize(e, findInputRef)}
-                        role="separator"
-                        aria-label="Resize find input"
-                        aria-orientation="horizontal"
-                    ></div>
                     {@render resizeGrip()}
                 </div>
                 <div
@@ -311,20 +242,12 @@
                             bind:value={replaceText}
                             onkeydown={handleReplaceKeydown}
                             placeholder="Replace"
-                            class="find-replace-textarea min-h-[30px] max-h-[200px] min-w-[160px] max-w-[400px] resize-none text-xs placeholder:text-muted-foreground/50 border border-input focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring bg-transparent rounded-md px-2 py-1.5 overflow-auto"
+                            class="min-h-[30px] max-h-[200px] min-w-[160px] max-w-[400px] resize text-xs placeholder:text-muted-foreground/50 border border-input focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring bg-transparent rounded-md px-2 py-1.5 overflow-auto"
                             style="width: 220px"
                             spellcheck="false"
                             wrap="off"
                             rows="1"
                         ></textarea>
-                        <div
-                            class="absolute bottom-0 right-0 z-10 h-5 w-5 cursor-se-resize"
-                            onpointerdown={(e) =>
-                                startTextareaResize(e, replaceTextareaRef)}
-                            role="separator"
-                            aria-label="Resize replace input"
-                            aria-orientation="horizontal"
-                        ></div>
                         {@render resizeGrip()}
                     </div>
                     <div
