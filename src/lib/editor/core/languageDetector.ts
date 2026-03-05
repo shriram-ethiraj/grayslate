@@ -3,7 +3,7 @@
  *
  * Production-grade content-based language detection for Grayslate.
  *
- * Fully synchronous, deterministic pipeline — no ML model dependency.
+ * Fully synchronous, deterministic pipeline.
  *
  * Detection cascade (ordered by priority & reliability):
  * ┌────────┬──────────────────────────────────────────────────┐
