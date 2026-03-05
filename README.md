@@ -4,14 +4,14 @@
   <p><strong>A blazingly fast, privacy-first desktop code and data editor built with Tauri and SvelteKit.</strong></p>
   
   <p>
-    <a href="https://github.com/shriramethiraj/grayslate/blob/main/LICENSE">
-      <img src="https://img.shields.io/github/license/shriramethiraj/grayslate?style=flat-square" alt="License" />
+    <a href="https://github.com/shriram-ethiraj/grayslate/blob/main/LICENSE">
+      <img src="https://img.shields.io/github/license/shriram-ethiraj/grayslate?style=flat-square" alt="License" />
     </a>
-    <a href="https://github.com/shriramethiraj/grayslate/issues">
-      <img src="https://img.shields.io/github/issues/shriramethiraj/grayslate?style=flat-square" alt="Issues" />
+    <a href="https://github.com/shriram-ethiraj/grayslate/issues">
+      <img src="https://img.shields.io/github/issues/shriram-ethiraj/grayslate?style=flat-square" alt="Issues" />
     </a>
-    <a href="https://github.com/shriramethiraj/grayslate/stargazers">
-      <img src="https://img.shields.io/github/stars/shriramethiraj/grayslate?style=flat-square" alt="Stars" />
+    <a href="https://github.com/shriram-ethiraj/grayslate/stargazers">
+      <img src="https://img.shields.io/github/stars/shriram-ethiraj/grayslate?style=flat-square" alt="Stars" />
     </a>
   </p>
 </div>
@@ -55,7 +55,7 @@ Please ensure you have these installed:
 1. **Clone the repository**:
 
    ```bash
-   git clone https://github.com/shriramethiraj/grayslate.git
+   git clone https://github.com/shriram-ethiraj/grayslate.git
    cd grayslate
    ```
 
