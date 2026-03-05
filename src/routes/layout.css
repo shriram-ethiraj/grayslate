@@ -21,7 +21,7 @@
 
   /* Production Desktop App Foundation */
   html, body {
-    @apply h-dvh w-dvw min-w-[768px] overflow-hidden antialiased;
+    @apply h-dvh w-dvw overflow-hidden antialiased;
     
     /* Prevent default web behaviors for a native feel */
     -webkit-user-select: none;
