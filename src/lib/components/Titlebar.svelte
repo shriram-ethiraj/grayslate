@@ -39,6 +39,18 @@
 	let unlistenEditAction: (() => void) | undefined;
 	let unlistenWordWrap: (() => void) | undefined;
 
+	// --- Linux / WebKitGTK first-click fix ---
+	// WebKitGTK swallows the first pointerdown as a "focus the webview" event,
+	// making menu triggers require two clicks to open. Pre-focusing the menubar
+	// element tells GTK the webview is already focused, so it passes the click through.
+	function handleMenubarPointerDown(e: PointerEvent) {
+		if (!isLinux) return;
+		const target = e.currentTarget as HTMLElement;
+		if (!target.contains(document.activeElement)) {
+			target.focus({ preventScroll: true });
+		}
+	}
+
 	onMount(async () => {
 		osType = await type();
 
@@ -127,7 +139,10 @@
 <svelte:window onkeydown={handleKeydown} />
 
 {#snippet appMenubar()}
-	<Menubar.Root class="pointer-events-auto border-none bg-transparent">
+	<Menubar.Root
+		class="pointer-events-auto border-none bg-transparent"
+		onpointerdown={handleMenubarPointerDown}
+	>
 		<Menubar.Menu>
 			<Menubar.Trigger class="cursor-pointer">File</Menubar.Trigger>
 			<Menubar.Content>
