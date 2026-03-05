@@ -227,7 +227,7 @@
 			{#if isLinux}
 				<div class="flex h-full items-center gap-1.5 pr-2">
 					<button
-						class="pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground focus:outline-none"
+						class="pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full text-foreground transition-colors hover:bg-foreground/10 focus:outline-none"
 						onclick={() => appWindow.minimize()}
 						aria-label="Minimize"
 						title="Minimize"
@@ -236,7 +236,7 @@
 					</button>
 
 					<button
-						class="pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground focus:outline-none"
+						class="pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full text-foreground transition-colors hover:bg-foreground/10 focus:outline-none"
 						onclick={() => appWindow.toggleMaximize()}
 						aria-label={isMaximized ? "Restore" : "Maximize"}
 						title={isMaximized ? "Restore" : "Maximize"}
@@ -249,7 +249,7 @@
 					</button>
 
 					<button
-						class="pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground focus:outline-none"
+						class="pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full text-foreground transition-colors hover:bg-foreground/10 focus:outline-none"
 						onclick={() => appWindow.close()}
 						aria-label="Close"
 						title="Close"
@@ -259,7 +259,7 @@
 				</div>
 			{:else}
 				<button
-					class="pointer-events-auto inline-flex h-full w-12 items-center justify-center text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground focus:outline-none"
+					class="pointer-events-auto inline-flex h-full w-12 items-center justify-center text-foreground transition-colors hover:bg-foreground/10 focus:outline-none"
 					onclick={() => appWindow.minimize()}
 					aria-label="Minimize"
 					title="Minimize"
@@ -268,7 +268,7 @@
 				</button>
 
 				<button
-					class="pointer-events-auto inline-flex h-full w-12 items-center justify-center text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground focus:outline-none"
+					class="pointer-events-auto inline-flex h-full w-12 items-center justify-center text-foreground transition-colors hover:bg-foreground/10 focus:outline-none"
 					onclick={() => appWindow.toggleMaximize()}
 					aria-label={isMaximized ? "Restore" : "Maximize"}
 					title={isMaximized ? "Restore" : "Maximize"}
@@ -281,7 +281,7 @@
 				</button>
 
 				<button
-					class="pointer-events-auto inline-flex h-full w-12 items-center justify-center text-muted-foreground transition-colors hover:bg-[#c42b1c] hover:text-white focus:outline-none"
+					class="pointer-events-auto inline-flex h-full w-12 items-center justify-center text-foreground transition-colors hover:bg-[#c42b1c] hover:text-white focus:outline-none"
 					onclick={() => appWindow.close()}
 					aria-label="Close"
 					title="Close"
