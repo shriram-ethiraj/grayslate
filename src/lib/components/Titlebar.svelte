@@ -6,8 +6,6 @@
 	import { onMount, onDestroy } from "svelte";
 	import * as Menubar from "$lib/components/ui/menubar/index.js";
 	import Check from "~icons/lucide/check";
-	import Square from "~icons/lucide/square";
-	import Minimize2 from "~icons/lucide/minimize-2";
 	import Minus from "~icons/lucide/minus";
 	import X from "~icons/lucide/x";
 
@@ -20,6 +18,8 @@
 		editorPaste,
 		editorSelectAll,
 	} from "$lib/editor/core/actions";
+	import CodiconChromeRestore from "~icons/codicon/chrome-restore";
+	import CodiconChromeMaximize from "~icons/codicon/chrome-maximize";
 
 	let osType = $state("");
 	const appWindow = new Window("main");
@@ -242,9 +242,9 @@
 						title={isMaximized ? "Restore" : "Maximize"}
 					>
 						{#if isMaximized}
-							<Minimize2 class="h-3.5 w-3.5" />
+							<CodiconChromeRestore class="h-4.5 w-4.5" />
 						{:else}
-							<Square class="h-3.5 w-3.5" />
+							<CodiconChromeMaximize class="h-3.5 w-3.5" />
 						{/if}
 					</button>
 
@@ -274,9 +274,9 @@
 					title={isMaximized ? "Restore" : "Maximize"}
 				>
 					{#if isMaximized}
-						<Minimize2 class="h-3.5 w-3.5" />
+						<CodiconChromeRestore class="h-4.5 w-4.5" />
 					{:else}
-						<Square class="h-3.5 w-3.5" />
+						<CodiconChromeMaximize class="h-3.5 w-3.5" />
 					{/if}
 				</button>
 
