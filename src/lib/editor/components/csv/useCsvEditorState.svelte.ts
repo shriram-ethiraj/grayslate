@@ -20,8 +20,17 @@ export function useCsvEditorState(
     scrollToIndex: (index: number, options?: { align?: "auto" | "start" | "center" | "end" }) => void,
     onOpsApplied?: (ops: TableOp[], reverse: boolean) => void,
 ) {
+    type SelectionBlock = {
+        startRow: number;
+        endRow: number;
+        startCol: number;
+        endCol: number;
+    } | null;
+
     let editingCell = $state<{ rowIndex: number; colIndex: number } | null>(null);
     let focusedCell = $state<{ rowIndex: number; colIndex: number } | null>(null);
+    let selectionBlock = $state<SelectionBlock>(null);
+    let isSelecting = $state(false);
     let editValue = $state("");
 
     function getCellValue(rowIndex: number, colIndex: number): string {
@@ -63,6 +72,55 @@ export function useCsvEditorState(
                     break;
                 case 'row-delete':
                     parsed.rows.splice(op.index, 1);
+                    rowChange = true;
+                    break;
+                case 'bulk-row-delete':
+                    parsed.rows.splice(op.start, op.end - op.start + 1);
+                    rowChange = true;
+                    break;
+                case 'bulk-row-add':
+                    parsed.rows = [
+                        ...parsed.rows.slice(0, op.start),
+                        ...op.data,
+                        ...parsed.rows.slice(op.start)
+                    ];
+                    rowChange = true;
+                    break;
+                case 'bulk-col-delete':
+                    parsed.headers.splice(op.start, op.end - op.start + 1);
+                        parsed.rows = parsed.rows.map((row) => {
+                            const nextRow = [...row];
+                            nextRow.splice(op.start, op.end - op.start + 1);
+                            return nextRow;
+                        });
+                    headerChange = true;
+                    rowChange = true;
+                    break;
+                case 'bulk-col-add':
+                    parsed.headers = [
+                        ...parsed.headers.slice(0, op.start),
+                        ...op.headers,
+                        ...parsed.headers.slice(op.start)
+                    ];
+                        parsed.rows = parsed.rows.map((row, index) => {
+                            const rowData = op.data[index] || [];
+                            return [
+                                ...row.slice(0, op.start),
+                                ...rowData,
+                                ...row.slice(op.start)
+                            ];
+                        });
+                    headerChange = true;
+                    rowChange = true;
+                    break;
+                case 'bulk-cell-clear':
+                    for (let r = op.startRow; r <= op.endRow; r++) {
+                        if (r >= 0 && r < parsed.rows.length) {
+                            for (let c = op.startCol; c <= op.endCol; c++) {
+                                parsed.rows[r][c] = "";
+                            }
+                        }
+                    }
                     rowChange = true;
                     break;
             }
@@ -115,6 +173,60 @@ export function useCsvEditorState(
                     parsed.rows.splice(op.index, 0, [...op.data]);
                     rowChange = true;
                     break;
+                case 'bulk-row-delete':
+                    parsed.rows = [
+                        ...parsed.rows.slice(0, op.start),
+                        ...op.data,
+                        ...parsed.rows.slice(op.start)
+                    ];
+                    rowChange = true;
+                    break;
+                case 'bulk-row-add':
+                    parsed.rows.splice(op.start, op.data.length);
+                    rowChange = true;
+                    break;
+                case 'bulk-col-delete':
+                    parsed.headers = [
+                        ...parsed.headers.slice(0, op.start),
+                        ...op.headers,
+                        ...parsed.headers.slice(op.start)
+                    ];
+                        parsed.rows = parsed.rows.map((row, index) => {
+                            const rowData = op.data[index] || [];
+                            return [
+                                ...row.slice(0, op.start),
+                                ...rowData,
+                                ...row.slice(op.start)
+                            ];
+                        });
+                    headerChange = true;
+                    rowChange = true;
+                    break;
+                case 'bulk-col-add':
+                    parsed.headers.splice(op.start, op.headers.length);
+                        parsed.rows = parsed.rows.map((row) => {
+                            const nextRow = [...row];
+                            nextRow.splice(op.start, op.headers.length);
+                            return nextRow;
+                        });
+                    headerChange = true;
+                    rowChange = true;
+                    break;
+                case 'bulk-cell-clear':
+                    for (let r = op.startRow; r <= op.endRow; r++) {
+                        if (r >= 0 && r < parsed.rows.length) {
+                            const dataRowIndex = r - op.startRow;
+                            const dataRow = op.oldValues[dataRowIndex];
+                            if (dataRow) {
+                                for (let c = op.startCol; c <= op.endCol; c++) {
+                                    const dataColIndex = c - op.startCol;
+                                    parsed.rows[r][c] = dataRow[dataColIndex] !== undefined ? dataRow[dataColIndex] : "";
+                                }
+                            }
+                        }
+                    }
+                    rowChange = true;
+                    break;
             }
         }
 
@@ -141,13 +253,22 @@ export function useCsvEditorState(
         applyOps(entry);
     }
 
-    function startEditing(rowIndex: number, colIndex: number, value: string) {
+    function startEditing(rowIndex: number, colIndex: number, value: string, options?: { selectAll?: boolean, cursorPosition?: number }) {
         editingCell = { rowIndex, colIndex };
         editValue = value;
         tick().then(() => {
             const input = document.querySelector(".csv-edit-input") as HTMLInputElement;
-            input?.focus();
-            input?.select();
+            if (input) {
+                input.focus();
+                if (options?.selectAll) {
+                    input.select();
+                } else if (options?.cursorPosition !== undefined) {
+                    const pos = Math.max(0, Math.min(input.value.length, options.cursorPosition));
+                    input.selectionStart = input.selectionEnd = pos;
+                } else {
+                    input.selectionStart = input.selectionEnd = input.value.length;
+                }
+            }
         });
     }
 
@@ -183,6 +304,65 @@ export function useCsvEditorState(
                 : { type: 'cell', row: focusedCell.rowIndex, col: focusedCell.colIndex, oldValue, newValue: "" };
             pushAndApply(op);
         }
+    }
+
+    function deleteSelection() {
+        if (!selectionBlock) return;
+        const parsed = getParsed();
+        const { startRow, endRow, startCol, endCol } = selectionBlock;
+        const numRows = parsed.rows.length;
+        const numCols = columns().length;
+
+        // Is it entire rows?
+        if (startCol === 0 && endCol >= numCols - 1) {
+            // Delete entire rows
+            const deletedRows = parsed.rows.slice(startRow, endRow + 1).map(row => [...row]);
+            pushAndApply({
+                type: 'bulk-row-delete',
+                start: startRow,
+                end: endRow,
+                data: deletedRows
+            });
+            selectionBlock = null;
+            focusedCell = null;
+            return;
+        }
+
+        // Is it entire columns?
+        if (startRow === 0 && endRow >= numRows - 1) {
+            const deletedHeaders = parsed.headers.slice(startCol, endCol + 1);
+                const deletedData = parsed.rows.map(r => r.slice(startCol, endCol + 1));
+                const op: TableOp = {
+                    type: 'bulk-col-delete',
+                    start: startCol,
+                    end: endCol,
+                    headers: deletedHeaders,
+                    data: deletedData,
+                };
+                pushAndApply(op);
+            selectionBlock = null;
+            focusedCell = null;
+            return;
+        }
+
+        // Otherwise it's a block clear
+        const oldValues: string[][] = [];
+        for (let r = startRow; r <= endRow; r++) {
+            const rowArr = parsed.rows[r];
+            const oldRow: string[] = [];
+            if (rowArr) {
+                for (let c = startCol; c <= endCol; c++) {
+                    oldRow.push(rowArr[c] ?? "");
+                }
+            }
+            oldValues.push(oldRow);
+        }
+        
+        pushAndApply({
+            type: 'bulk-cell-clear',
+            startRow, endRow, startCol, endCol,
+            oldValues
+        });
     }
 
     function handleTabNavigation(isShift: boolean) {
@@ -269,33 +449,89 @@ export function useCsvEditorState(
             startEditing(focusedCell.rowIndex, focusedCell.colIndex, getCellValue(focusedCell.rowIndex, focusedCell.colIndex));
         }, options: { preventDefault: true, ignoreInputs: true } },
         { key: "Delete", callback: () => {
-            if (!focusedCell) return;
-            clearCell();
+            if (selectionBlock) {
+                deleteSelection();
+            } else if (focusedCell) {
+                clearCell();
+            }
         }, options: { preventDefault: true, ignoreInputs: true } },
         { key: "Backspace", callback: () => {
-            if (!focusedCell) return;
-            clearCell();
+            if (selectionBlock) {
+                deleteSelection();
+            } else if (focusedCell) {
+                clearCell();
+            }
         }, options: { preventDefault: true, ignoreInputs: true } },
         { key: "ArrowUp", callback: () => {
             if (!focusedCell) return;
+            selectionBlock = null;
             focusedCell = { rowIndex: Math.max(-1, focusedCell.rowIndex - 1), colIndex: focusedCell.colIndex };
+            navigateAndFocus();
+        }, options: { preventDefault: true, ignoreInputs: true } },
+        { key: "Shift+ArrowUp", callback: () => {
+            if (!focusedCell) return;
+            const rowIndex = Math.max(-1, focusedCell.rowIndex - 1);
+            if (!selectionBlock) {
+                selectionBlock = { startRow: Math.min(focusedCell.rowIndex, rowIndex), endRow: Math.max(focusedCell.rowIndex, rowIndex), startCol: focusedCell.colIndex, endCol: focusedCell.colIndex };
+            } else {
+                selectionBlock = { ...selectionBlock, startRow: Math.min(selectionBlock.startRow, rowIndex), endRow: Math.max(selectionBlock.endRow, rowIndex) };
+            }
+            focusedCell = { rowIndex, colIndex: focusedCell.colIndex };
             navigateAndFocus();
         }, options: { preventDefault: true, ignoreInputs: true } },
         { key: "ArrowDown", callback: () => {
             if (!focusedCell) return;
+            selectionBlock = null;
             const maxRow = getParsed().rows.length - 1;
             focusedCell = { rowIndex: Math.min(maxRow, focusedCell.rowIndex + 1), colIndex: focusedCell.colIndex };
             navigateAndFocus();
         }, options: { preventDefault: true, ignoreInputs: true } },
+        { key: "Shift+ArrowDown", callback: () => {
+            if (!focusedCell) return;
+            const maxRow = getParsed().rows.length - 1;
+            const rowIndex = Math.min(maxRow, focusedCell.rowIndex + 1);
+            if (!selectionBlock) {
+                selectionBlock = { startRow: Math.min(focusedCell.rowIndex, rowIndex), endRow: Math.max(focusedCell.rowIndex, rowIndex), startCol: focusedCell.colIndex, endCol: focusedCell.colIndex };
+            } else {
+                selectionBlock = { ...selectionBlock, startRow: Math.min(selectionBlock.startRow, rowIndex), endRow: Math.max(selectionBlock.endRow, rowIndex) };
+            }
+            focusedCell = { rowIndex, colIndex: focusedCell.colIndex };
+            navigateAndFocus();
+        }, options: { preventDefault: true, ignoreInputs: true } },
         { key: "ArrowLeft", callback: () => {
             if (!focusedCell) return;
+            selectionBlock = null;
             focusedCell = { rowIndex: focusedCell.rowIndex, colIndex: Math.max(0, focusedCell.colIndex - 1) };
+            navigateAndFocus();
+        }, options: { preventDefault: true, ignoreInputs: true } },
+        { key: "Shift+ArrowLeft", callback: () => {
+            if (!focusedCell) return;
+            const colIndex = Math.max(0, focusedCell.colIndex - 1);
+            if (!selectionBlock) {
+                selectionBlock = { startRow: focusedCell.rowIndex, endRow: focusedCell.rowIndex, startCol: Math.min(focusedCell.colIndex, colIndex), endCol: Math.max(focusedCell.colIndex, colIndex) };
+            } else {
+                selectionBlock = { ...selectionBlock, startCol: Math.min(selectionBlock.startCol, colIndex), endCol: Math.max(selectionBlock.endCol, colIndex) };
+            }
+            focusedCell = { rowIndex: focusedCell.rowIndex, colIndex };
             navigateAndFocus();
         }, options: { preventDefault: true, ignoreInputs: true } },
         { key: "ArrowRight", callback: () => {
             if (!focusedCell) return;
+            selectionBlock = null;
             const maxCol = columns().length - 1;
             focusedCell = { rowIndex: focusedCell.rowIndex, colIndex: Math.min(maxCol, focusedCell.colIndex + 1) };
+            navigateAndFocus();
+        }, options: { preventDefault: true, ignoreInputs: true } },
+        { key: "Shift+ArrowRight", callback: () => {
+            if (!focusedCell) return;
+            const maxCol = columns().length - 1;
+            const colIndex = Math.min(maxCol, focusedCell.colIndex + 1);
+            if (!selectionBlock) {
+                selectionBlock = { startRow: focusedCell.rowIndex, endRow: focusedCell.rowIndex, startCol: Math.min(focusedCell.colIndex, colIndex), endCol: Math.max(focusedCell.colIndex, colIndex) };
+            } else {
+                selectionBlock = { ...selectionBlock, startCol: Math.min(selectionBlock.startCol, colIndex), endCol: Math.max(selectionBlock.endCol, colIndex) };
+            }
+            focusedCell = { rowIndex: focusedCell.rowIndex, colIndex };
             navigateAndFocus();
         }, options: { preventDefault: true, ignoreInputs: true } },
         { key: "Tab", callback: () => {
@@ -340,6 +576,7 @@ export function useCsvEditorState(
             navigateAndFocus();
         }, options: { preventDefault: true, ignoreInputs: true } },
         { key: "Escape", callback: () => {
+            selectionBlock = null;
             focusedCell = null;
         }, options: { preventDefault: true, ignoreInputs: true } }
     ];
@@ -381,9 +618,22 @@ export function useCsvEditorState(
         set editValue(val) {
             editValue = val;
         },
+        get selectionBlock() {
+            return selectionBlock;
+        },
+        set selectionBlock(val) {
+            selectionBlock = val;
+        },
+        get isSelecting() {
+            return isSelecting;
+        },
+        set isSelecting(val) {
+            isSelecting = val;
+        },
         startEditing,
         commitEdit,
         cancelEdit,
+        deleteSelection,
         cellHotkeys,
         editHotkeys,
         handleCellKeydown,

@@ -39,6 +39,14 @@
           <tr class:csv-row-even={virtualRow.index % 2 === 0}>
             <td
               class="csv-row-num"
+              class:selected={editorState.selectionBlock &&
+                virtualRow.index >= editorState.selectionBlock.startRow &&
+                virtualRow.index <= editorState.selectionBlock.endRow &&
+                editorState.selectionBlock.startCol === 0 &&
+                editorState.selectionBlock.endCol >=
+                  table.getFlatHeaders().length - 1}
+              data-row={virtualRow.index}
+              data-col="-1"
               style="height: {virtualRow.size}px; width: {indexColWidth}px; min-width: {indexColWidth}px; max-width: {indexColWidth}px;"
             >
               {virtualRow.index + 1}
@@ -50,25 +58,59 @@
               {@const isFocused =
                 editorState.focusedCell?.rowIndex === virtualRow.index &&
                 editorState.focusedCell?.colIndex === colIndex}
+              {@const isSelected =
+                editorState.selectionBlock &&
+                virtualRow.index >= editorState.selectionBlock.startRow &&
+                virtualRow.index <= editorState.selectionBlock.endRow &&
+                colIndex >= editorState.selectionBlock.startCol &&
+                colIndex <= editorState.selectionBlock.endCol}
               <td
                 style="width: {header.getSize()}px; min-width: {header.getSize()}px; max-width: {header.getSize()}px;"
                 class="csv-cell"
                 class:focused={isFocused}
+                class:selected={isSelected}
                 data-row={virtualRow.index}
                 data-col={colIndex}
-                onclick={() => {
+                onclick={(e) => {
+                  if (
+                    (e.target as HTMLElement).tagName.toLowerCase() === "input"
+                  )
+                    return;
                   editorState.focusedCell = {
                     rowIndex: virtualRow.index,
                     colIndex,
                   };
                   editorState.navigateAndFocus();
                 }}
-                ondblclick={() =>
+                ondblclick={(e) => {
+                  let offset = (row[colIndex] ?? "").length;
+                  if (document.caretRangeFromPoint) {
+                    const range = document.caretRangeFromPoint(
+                      e.clientX,
+                      e.clientY,
+                    );
+                    if (
+                      range &&
+                      range.startContainer.nodeType === Node.TEXT_NODE
+                    ) {
+                      offset = range.startOffset;
+                    }
+                  } else if ((document as any).caretPositionFromPoint) {
+                    const pos = (document as any).caretPositionFromPoint(
+                      e.clientX,
+                      e.clientY,
+                    );
+                    if (pos && pos.offsetNode.nodeType === Node.TEXT_NODE) {
+                      offset = pos.offset;
+                    }
+                  }
                   editorState.startEditing(
                     virtualRow.index,
                     colIndex,
                     row[colIndex] ?? "",
-                  )}
+                    { cursorPosition: offset },
+                  );
+                }}
                 role="gridcell"
                 tabindex={isFocused ? 0 : -1}
                 aria-selected={isFocused}
@@ -131,12 +173,20 @@
     background-color: var(--muted);
   }
 
-  /* Cells */
   .csv-cell {
     padding: 0;
     border-right: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
     cursor: default;
     outline: none;
+    transition: background-color 0s;
+  }
+
+  .csv-cell.selected {
+    background-color: color-mix(in srgb, var(--primary) 20%, transparent);
+  }
+
+  .csv-row-num.selected {
+    background-color: color-mix(in srgb, var(--primary) 20%, transparent);
   }
 
   .csv-cell:focus-visible {

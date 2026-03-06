@@ -14,11 +14,12 @@
   } from "$lib/state/editor.svelte";
   import { debounce } from "lodash-es";
   import { untrack, onDestroy } from "svelte";
-  import { useCsvHistory } from "./useCsvHistory.svelte";
+  import { useCsvHistory, translateToWorkerOps } from "./useCsvHistory.svelte";
   import { useCsvEditorState } from "./useCsvEditorState.svelte";
   import { hotkey } from "$lib/hotkeys";
   import CsvTableHeader from "./CsvTableHeader.svelte";
   import CsvTableBody from "./CsvTableBody.svelte";
+  import CsvContextMenu from "./CsvContextMenu.svelte";
 
   let {
     content = $bindable(""),
@@ -207,6 +208,11 @@
 
   // 4. Virtualizer Ref
   let tableContainerRef = $state<HTMLDivElement | undefined>(undefined);
+  let contextMenu = $state<{ openMenu: (x: number, y: number) => void } | null>(
+    null,
+  );
+
+  let wrapperRef = $state<HTMLDivElement | undefined>(undefined);
 
   // 5. Editor State (Keyboard, Editing, Focus)
   const csvEditorState = useCsvEditorState(
@@ -218,10 +224,10 @@
     () => columns,
     (index) => virtualizer.scrollToIndex(index),
     (ops, reverse) => {
+      const workerOps = translateToWorkerOps(ops, reverse);
       serializeWorker?.postMessage({
         type: "UPDATE_OPS",
-        ops,
-        reverse,
+        ops: workerOps,
       });
     },
   );
@@ -259,6 +265,7 @@
     pendingRows = [];
     stableColumns = [];
     tableContainerRef = undefined;
+    wrapperRef = undefined;
     if (serializeWorker) {
       serializeWorker.terminate();
     }
@@ -379,19 +386,202 @@
 />
 
 {#if !loading && !editorState.csv.serializing}
+  <CsvContextMenu
+    bind:this={contextMenu}
+    editorState={csvEditorState}
+    container={wrapperRef}
+  />
   <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
   <div
     class="csv-table-wrapper"
+    bind:this={wrapperRef}
     tabindex="0"
     role="grid"
     use:hotkey={csvEditorState.cellHotkeys}
     onkeydown={(e) => csvEditorState.handleCellKeydown(e)}
-    onclick={(e) => {
-      const target = e.target as HTMLElement;
-      if (!target.closest(".csv-cell")) {
-        if (!csvEditorState.focusedCell && parsed.rows.length > 0) {
-          csvEditorState.focusedCell = { rowIndex: 0, colIndex: 0 };
-          csvEditorState.navigateAndFocus();
+    onpointerdown={(e) => {
+      if ((e.target as HTMLElement).tagName.toLowerCase() === "input") return;
+      const cell = (e.target as HTMLElement).closest("[data-row][data-col]");
+      if (!cell || e.button === 2) return; // Right click handled by contextMenu
+      const rowIndex = parseInt(cell.getAttribute("data-row")!, 10);
+      const colIndex = parseInt(cell.getAttribute("data-col")!, 10);
+      csvEditorState.isSelecting = true;
+      if (rowIndex === -1 && colIndex === -1) return; // top left corner
+      let startR = rowIndex;
+      let endR = rowIndex;
+      let startC = colIndex;
+      let endC = colIndex;
+      if (colIndex === -1) {
+        startC = 0;
+        endC = parsed.headers.length - 1;
+      }
+      if (rowIndex === -1) {
+        startR = 0;
+        endR = parsed.rows.length - 1;
+      }
+
+      if (e.shiftKey && csvEditorState.focusedCell) {
+        const fr = csvEditorState.focusedCell.rowIndex;
+        const fc = csvEditorState.focusedCell.colIndex;
+        if (colIndex === -1) {
+          startR = Math.min(fr, rowIndex);
+          endR = Math.max(fr, rowIndex);
+          startC = 0;
+          endC = parsed.headers.length - 1;
+        } else if (rowIndex === -1) {
+          startR = 0;
+          endR = parsed.rows.length - 1;
+          startC = Math.min(fc, colIndex);
+          endC = Math.max(fc, colIndex);
+        } else {
+          startR = Math.min(fr, rowIndex);
+          endR = Math.max(fr, rowIndex);
+          startC = Math.min(fc, colIndex);
+          endC = Math.max(fc, colIndex);
+        }
+      } else {
+        if (rowIndex >= 0 && colIndex >= 0)
+          csvEditorState.focusedCell = { rowIndex, colIndex };
+        else if (rowIndex >= 0)
+          csvEditorState.focusedCell = { rowIndex, colIndex: 0 };
+        else if (colIndex >= 0)
+          // colIndex >= 0 but rowIndex === -1 means a header cell was clicked
+          csvEditorState.focusedCell = { rowIndex: -1, colIndex };
+        csvEditorState.navigateAndFocus();
+      }
+      csvEditorState.selectionBlock = {
+        startRow: startR,
+        endRow: endR,
+        startCol: startC,
+        endCol: endC,
+      };
+    }}
+    onpointerover={(e) => {
+      if ((e.target as HTMLElement).tagName.toLowerCase() === "input") return;
+      if (
+        !csvEditorState.isSelecting ||
+        !csvEditorState.selectionBlock ||
+        !csvEditorState.focusedCell
+      )
+        return;
+      const cell = (e.target as HTMLElement).closest("[data-row][data-col]");
+      if (!cell) return;
+      const rowIndex = parseInt(cell.getAttribute("data-row")!, 10);
+      const colIndex = parseInt(cell.getAttribute("data-col")!, 10);
+      if (rowIndex === -1 && colIndex === -1) return;
+      const fr = csvEditorState.focusedCell.rowIndex;
+      const fc = csvEditorState.focusedCell.colIndex;
+      let startR = Math.min(Math.max(0, fr), Math.max(0, rowIndex));
+      let endR = Math.max(Math.max(0, fr), rowIndex);
+      let startC = Math.min(Math.max(0, fc), Math.max(0, colIndex));
+      let endC = Math.max(Math.max(0, fc), colIndex);
+
+      if (colIndex === -1 || fc === -1) {
+        startC = 0;
+        endC = parsed.headers.length - 1;
+        startR = Math.min(
+          fr >= 0 ? fr : rowIndex,
+          rowIndex >= 0 ? rowIndex : fr,
+        );
+        endR = Math.max(fr >= 0 ? fr : rowIndex, rowIndex >= 0 ? rowIndex : fr);
+      }
+      if (rowIndex === -1 || fr === -1) {
+        startR = 0;
+        endR = parsed.rows.length - 1;
+        startC = Math.min(
+          fc >= 0 ? fc : colIndex,
+          colIndex >= 0 ? colIndex : fc,
+        );
+        endC = Math.max(fc >= 0 ? fc : colIndex, colIndex >= 0 ? colIndex : fc);
+      }
+      csvEditorState.selectionBlock = {
+        startRow: startR,
+        endRow: endR,
+        startCol: startC,
+        endCol: endC,
+      };
+    }}
+    onpointerup={() => {
+      csvEditorState.isSelecting = false;
+    }}
+    oncontextmenu={(e) => {
+      e.preventDefault();
+      const cell = (e.target as HTMLElement).closest("[data-row][data-col]");
+      if (cell) {
+        const rowIndex = parseInt(cell.getAttribute("data-row")!, 10);
+        const colIndex = parseInt(cell.getAttribute("data-col")!, 10);
+        if (rowIndex === -1 && colIndex === -1) return;
+
+        const numRows = parsed.rows.length;
+        const numCols = columns.length;
+
+        let inSelection = false;
+        if (csvEditorState.selectionBlock) {
+          const sb = csvEditorState.selectionBlock;
+          if (rowIndex === -1) {
+            if (
+              colIndex >= sb.startCol &&
+              colIndex <= sb.endCol &&
+              sb.startRow === 0 &&
+              sb.endRow >= numRows - 1
+            ) {
+              inSelection = true;
+            }
+          } else if (colIndex === -1) {
+            if (
+              rowIndex >= sb.startRow &&
+              rowIndex <= sb.endRow &&
+              sb.startCol === 0 &&
+              sb.endCol >= numCols - 1
+            ) {
+              inSelection = true;
+            }
+          } else {
+            if (
+              rowIndex >= sb.startRow &&
+              rowIndex <= sb.endRow &&
+              colIndex >= sb.startCol &&
+              colIndex <= sb.endCol
+            ) {
+              inSelection = true;
+            }
+          }
+        }
+
+        if (!inSelection) {
+          if (rowIndex === -1) {
+            csvEditorState.selectionBlock = {
+              startRow: 0,
+              endRow: numRows - 1,
+              startCol: colIndex,
+              endCol: colIndex,
+            };
+          } else if (colIndex === -1) {
+            csvEditorState.selectionBlock = {
+              startRow: rowIndex,
+              endRow: rowIndex,
+              startCol: 0,
+              endCol: numCols - 1,
+            };
+          } else {
+            csvEditorState.selectionBlock = {
+              startRow: rowIndex,
+              endRow: rowIndex,
+              startCol: colIndex,
+              endCol: colIndex,
+            };
+          }
+          if (rowIndex >= 0 && colIndex >= 0)
+            csvEditorState.focusedCell = { rowIndex, colIndex };
+        }
+
+        const sb = csvEditorState.selectionBlock;
+        if (sb) {
+          const isRowSelection = sb.startCol === 0 && sb.endCol >= numCols - 1;
+          const isColSelection = sb.startRow === 0 && sb.endRow >= numRows - 1;
+          if (isRowSelection || isColSelection) {
+            contextMenu?.openMenu(e.clientX, e.clientY);
+          }
         }
       }
     }}
@@ -401,7 +591,12 @@
       <div
         style="height: {virtualizer.totalSize}px; width: 100%; min-width: max-content; padding-right: 200px; position: relative;"
       >
-        <CsvTableHeader {table} {indexColWidth} editorState={csvEditorState} />
+        <CsvTableHeader
+          {table}
+          {indexColWidth}
+          editorState={csvEditorState}
+          totalRows={parsed.rows.length}
+        />
         <CsvTableBody
           {table}
           {virtualizer}

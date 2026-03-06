@@ -6,10 +6,12 @@
   let {
     table,
     editorState,
+    totalRows,
     indexColWidth = 50,
   }: {
     table: Table<string[]>;
     editorState: ReturnType<typeof useCsvEditorState>;
+    totalRows: number;
     indexColWidth?: number;
   } = $props();
 </script>
@@ -29,6 +31,8 @@
       <tr>
         <th
           class="csv-row-num-header"
+          data-row="-1"
+          data-col="-1"
           style="width: {indexColWidth}px; min-width: {indexColWidth}px; max-width: {indexColWidth}px;"
           >#</th
         >
@@ -39,21 +43,19 @@
           {@const isFocused =
             editorState.focusedCell?.rowIndex === -1 &&
             editorState.focusedCell?.colIndex === colIndex}
+          {@const isSelected =
+            editorState.selectionBlock &&
+            editorState.selectionBlock.startRow === 0 &&
+            editorState.selectionBlock.endRow >= totalRows - 1 &&
+            colIndex >= editorState.selectionBlock.startCol &&
+            colIndex <= editorState.selectionBlock.endCol}
           <th
             class="csv-cell-header"
             class:focused={isFocused}
+            class:selected={isSelected}
             data-row="-1"
             data-col={colIndex}
             style="width: {header.getSize()}px; min-width: {header.getSize()}px; max-width: {header.getSize()}px;"
-            onclick={() => {
-              if (!isEditing) {
-                editorState.focusedCell = {
-                  rowIndex: -1,
-                  colIndex,
-                };
-                editorState.navigateAndFocus();
-              }
-            }}
             ondblclick={() => {
               // Extract title without React-like objects. The header string is just text.
               // In our parsed setup `header.column.columnDef.header` is a string
@@ -138,6 +140,10 @@
     outline-offset: -2px;
     z-index: 10;
     position: relative;
+  }
+
+  thead th.selected {
+    background-color: color-mix(in srgb, var(--primary) 20%, var(--sidebar));
   }
 
   thead th:focus-visible {
