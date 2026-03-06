@@ -16,7 +16,11 @@
             title="Switch to Plain CSV"
             disabled={editorState.loader.visible}
             onclick={() => {
-                editorState.csv.showTable = false;
+                if (editorState.csv.requestShowTable) {
+                    void editorState.csv.requestShowTable(false);
+                } else {
+                    editorState.csv.showTable = false;
+                }
             }}
         >
             <FileText class="h-[1.2rem] w-[1.2rem] transition-all" />
@@ -30,7 +34,11 @@
             title="Switch to Table View"
             disabled={editorState.loader.visible}
             onclick={() => {
-                editorState.csv.showTable = true;
+                if (editorState.csv.requestShowTable) {
+                    void editorState.csv.requestShowTable(true);
+                } else {
+                    editorState.csv.showTable = true;
+                }
             }}
         >
             <Table2 class="h-[1.2rem] w-[1.2rem] transition-all" />

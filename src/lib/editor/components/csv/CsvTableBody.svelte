@@ -20,13 +20,13 @@
     table,
     virtualizer,
     editorState,
-    rawRows,
+    getRow,
     indexColWidth = 50,
   }: {
     table: Table<string[]>;
     virtualizer: ReturnType<typeof useScrollVirtualizer>;
     editorState: ReturnType<typeof useCsvEditorState>;
-    rawRows: string[][];
+    getRow: (index: number) => string[] | undefined;
     indexColWidth?: number;
   } = $props();
 </script>
@@ -46,7 +46,7 @@
     </colgroup>
     <tbody>
       {#each virtualizer.virtualItems as virtualRow}
-        {@const row = rawRows[virtualRow.index]}
+        {@const row = getRow(virtualRow.index)}
         {#if row}
           <tr class:csv-row-even={virtualRow.index % 2 === 0}>
             <td

@@ -24,7 +24,7 @@
 
 {#if visible}
     <div
-        class="absolute inset-0 z-50 flex flex-col items-center justify-center bg-background"
+        class="absolute inset-0 z-50 flex flex-col items-center justify-center bg-background/72 backdrop-blur-[2px]"
         aria-live="polite"
         aria-label={message}
     >

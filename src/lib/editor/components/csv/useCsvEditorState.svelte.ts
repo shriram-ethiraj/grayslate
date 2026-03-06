@@ -1,214 +1,121 @@
 import { tick } from "svelte";
 import type { ColumnDef } from "@tanstack/svelte-table";
-import type { CsvParseResult } from "$lib/editor/core/csvParser";
-import { serializeCsv } from "$lib/editor/core/csvParser";
 import type { HotkeyBinding } from "$lib/hotkeys";
-import { useCsvHistory, type TableOp } from "./useCsvHistory.svelte";
+import {
+    completeEditorLoader,
+    hideEditorLoader,
+    startLoaderTicker,
+    stopLoaderTicker,
+} from "$lib/state/editor.svelte";
+import type {
+    CsvMutationRequest,
+    CsvSelectionBlock,
+    CsvTableController,
+    CsvTableSnapshot,
+} from "./csvTableProtocol";
 
-type ParsedCsv = CsvParseResult;
+type SelectionBlock = CsvSelectionBlock;
 
-type SelectionBlock = {
-    startRow: number;
-    endRow: number;
-    startCol: number;
-    endCol: number;
-} | null;
+type MutationLoaderConfig = {
+    message: string;
+    subMessage: string;
+};
 
-function cloneParsed(parsed: ParsedCsv): ParsedCsv {
-    return {
-        headers: [...parsed.headers],
-        rows: parsed.rows.map((row) => [...row]),
-        delimiter: parsed.delimiter,
-        errors: [...parsed.errors],
-    };
-}
-
-function applyOpsToParsed(parsed: ParsedCsv, ops: TableOp[]): ParsedCsv {
-    const nextParsed = cloneParsed(parsed);
-
-    for (const op of ops) {
-        switch (op.type) {
-            case "cell": {
-                const rowArr = nextParsed.rows[op.row];
-                if (!rowArr) break;
-                while (rowArr.length <= op.col) {
-                    rowArr.push("");
-                }
-                rowArr[op.col] = op.newValue;
-                break;
-            }
-            case "header-cell": {
-                while (nextParsed.headers.length <= op.col) {
-                    nextParsed.headers.push("");
-                }
-                nextParsed.headers[op.col] = op.newValue;
-                break;
-            }
-            case "row-add":
-                nextParsed.rows.splice(op.index, 0, [...op.data]);
-                break;
-            case "row-delete":
-                nextParsed.rows.splice(op.index, 1);
-                break;
-            case "bulk-row-delete":
-                nextParsed.rows.splice(op.start, op.end - op.start + 1);
-                break;
-            case "bulk-row-add":
-                nextParsed.rows.splice(op.start, 0, ...op.data.map((row) => [...row]));
-                break;
-            case "bulk-col-delete": {
-                nextParsed.headers.splice(op.start, op.end - op.start + 1);
-                nextParsed.rows = nextParsed.rows.map((row) => {
-                    const nextRow = [...row];
-                    nextRow.splice(op.start, op.end - op.start + 1);
-                    return nextRow;
-                });
-                break;
-            }
-            case "bulk-col-add": {
-                nextParsed.headers.splice(op.start, 0, ...op.headers);
-                nextParsed.rows = nextParsed.rows.map((row, index) => {
-                    const rowData = op.data[index] ?? [];
-                    return [
-                        ...row.slice(0, op.start),
-                        ...rowData,
-                        ...row.slice(op.start),
-                    ];
-                });
-                break;
-            }
-            case "bulk-cell-clear": {
-                for (let rowIndex = op.startRow; rowIndex <= op.endRow; rowIndex += 1) {
-                    const row = nextParsed.rows[rowIndex];
-                    if (!row) continue;
-                    for (let colIndex = op.startCol; colIndex <= op.endCol; colIndex += 1) {
-                        while (row.length <= colIndex) {
-                            row.push("");
-                        }
-                        row[colIndex] = "";
-                    }
-                }
-                break;
-            }
-            case "bulk-cell-fill": {
-                for (let rowIndex = op.startRow; rowIndex <= op.endRow; rowIndex += 1) {
-                    const row = nextParsed.rows[rowIndex];
-                    if (!row) continue;
-                    const dataRow = op.data[rowIndex - op.startRow];
-                    if (!dataRow) continue;
-                    for (let colIndex = op.startCol; colIndex <= op.endCol; colIndex += 1) {
-                        while (row.length <= colIndex) {
-                            row.push("");
-                        }
-                        row[colIndex] = dataRow[colIndex - op.startCol] ?? "";
-                    }
-                }
-                break;
-            }
-        }
-    }
-
-    return nextParsed;
-}
-
-function invertOp(op: TableOp): TableOp {
-    switch (op.type) {
-        case "cell":
-            return { ...op, oldValue: op.newValue, newValue: op.oldValue };
-        case "header-cell":
-            return { ...op, oldValue: op.newValue, newValue: op.oldValue };
-        case "row-add":
-            return { type: "row-delete", index: op.index, data: [...op.data] };
-        case "row-delete":
-            return { type: "row-add", index: op.index, data: [...op.data] };
-        case "bulk-row-delete":
-            return { type: "bulk-row-add", start: op.start, data: op.data.map((row) => [...row]) };
-        case "bulk-row-add":
-            return {
-                type: "bulk-row-delete",
-                start: op.start,
-                end: op.start + op.data.length - 1,
-                data: op.data.map((row) => [...row]),
-            };
-        case "bulk-col-delete":
-            return {
-                type: "bulk-col-add",
-                start: op.start,
-                headers: [...op.headers],
-                data: op.data.map((row) => [...row]),
-            };
-        case "bulk-col-add":
-            return {
-                type: "bulk-col-delete",
-                start: op.start,
-                end: op.start + op.headers.length - 1,
-                headers: [...op.headers],
-                data: op.data.map((row) => [...row]),
-            };
-        case "bulk-cell-clear":
-            return {
-                type: "bulk-cell-fill",
-                startRow: op.startRow,
-                endRow: op.endRow,
-                startCol: op.startCol,
-                endCol: op.endCol,
-                data: op.oldValues.map((row) => [...row]),
-            };
-        case "bulk-cell-fill":
-            return {
-                type: "bulk-cell-clear",
-                startRow: op.startRow,
-                endRow: op.endRow,
-                startCol: op.startCol,
-                endCol: op.endCol,
-                oldValues: op.data.map((row) => [...row]),
-            };
-    }
-}
-
-function invertOps(ops: TableOp[]): TableOp[] {
-    return [...ops].reverse().map(invertOp);
-}
+const LARGE_TABLE_MUTATION_ROW_THRESHOLD = 200_000;
+const LARGE_SELECTION_CLEAR_CELL_THRESHOLD = 5_000;
+const PAGE_SIZE = 20;
 
 export function useCsvEditorState(
-    history: ReturnType<typeof useCsvHistory>,
-    getParsed: () => ParsedCsv,
-    setParsed: (parsed: ParsedCsv) => void,
+    controller: CsvTableController,
     columns: () => ColumnDef<string[], string>[],
     scrollToIndex: (index: number, options?: { align?: "auto" | "start" | "center" | "end" }) => void,
-    onCsvTextApplied?: (nextText: string, userEvent: string) => void,
 ) {
     let editingCell = $state<{ rowIndex: number; colIndex: number } | null>(null);
     let focusedCell = $state<{ rowIndex: number; colIndex: number } | null>(null);
     let selectionBlock = $state<SelectionBlock>(null);
     let isSelecting = $state(false);
     let editValue = $state("");
+    let isMutationInFlight = false;
+
+    function getSnapshot(): CsvTableSnapshot {
+        return controller.getSnapshot();
+    }
+
+    function getRowCount(): number {
+        return getSnapshot().rowCount;
+    }
 
     function getCellValue(rowIndex: number, colIndex: number): string {
-        if (rowIndex === -1) {
-            return getParsed().headers[colIndex] ?? "";
-        }
-        return getParsed().rows[rowIndex]?.[colIndex] ?? "";
+        return controller.getCachedCellValue(rowIndex, colIndex);
     }
 
-    function commitParsedChange(nextParsed: ParsedCsv, userEvent: string) {
-        const nextText = serializeCsv(
-            nextParsed.headers,
-            nextParsed.rows,
-            nextParsed.delimiter,
-        );
-
-        setParsed(nextParsed);
-        onCsvTextApplied?.(nextText, userEvent);
+    function getSelectionCellCount(block: SelectionBlock): number {
+        if (!block) return 0;
+        return (block.endRow - block.startRow + 1) * (block.endCol - block.startCol + 1);
     }
 
-    function applyTableOps(ops: TableOp[], userEvent: string, options?: { pushHistory?: boolean }) {
-        if (ops.length === 0) return;
-        if (options?.pushHistory !== false) {
-            history.push(ops);
+    function getMutationLoaderConfig(userEvent: string, block?: SelectionBlock): MutationLoaderConfig | null {
+        const snapshot = getSnapshot();
+        if (snapshot.rowCount < LARGE_TABLE_MUTATION_ROW_THRESHOLD) {
+            return null;
         }
-        const nextParsed = applyOpsToParsed(getParsed(), ops);
-        commitParsedChange(nextParsed, userEvent);
+
+        const subMessage = `${snapshot.rowCount.toLocaleString()} rows`;
+
+        if (userEvent === "delete.table.column") return { message: "Deleting column…", subMessage };
+        if (userEvent === "delete.table.row") return { message: "Deleting row…", subMessage };
+        if (userEvent === "input.table.column-add") return { message: "Adding column…", subMessage };
+        if (userEvent === "input.table.row-add") return { message: "Adding row…", subMessage };
+        if (userEvent === "move.table.row") return { message: "Moving rows…", subMessage };
+        if (userEvent === "undo.table") return { message: "Undoing table change…", subMessage };
+        if (userEvent === "redo.table") return { message: "Redoing table change…", subMessage };
+        if (
+            userEvent === "delete.table.selection" &&
+            block &&
+            getSelectionCellCount(block) >= LARGE_SELECTION_CLEAR_CELL_THRESHOLD
+        ) {
+            return { message: "Clearing selection…", subMessage };
+        }
+
+        return null;
+    }
+
+    async function runAsyncAction(
+        userEvent: string,
+        action: () => Promise<boolean | void>,
+        block?: SelectionBlock,
+    ): Promise<void> {
+        if (isMutationInFlight) return;
+
+        const loaderConfig = getMutationLoaderConfig(userEvent, block);
+        isMutationInFlight = true;
+
+        if (loaderConfig) {
+            startLoaderTicker(loaderConfig.message, loaderConfig.subMessage, {
+                ceiling: 94,
+                factor: 0.04,
+                minStep: 0.2,
+                interval: 90,
+            });
+        }
+
+        try {
+            const applied = await action();
+            if (loaderConfig) {
+                if (applied === false) {
+                    stopLoaderTicker();
+                    hideEditorLoader();
+                } else {
+                    completeEditorLoader("Table updated", loaderConfig.subMessage, 120);
+                }
+            }
+        } catch (error) {
+            stopLoaderTicker();
+            hideEditorLoader();
+            throw error;
+        } finally {
+            isMutationInFlight = false;
+        }
     }
 
     function isEntireRowSelection(block: SelectionBlock = selectionBlock): boolean {
@@ -216,36 +123,18 @@ export function useCsvEditorState(
     }
 
     function isEntireColumnSelection(block: SelectionBlock = selectionBlock): boolean {
-        return (
-            !!block &&
-            block.startRow === 0 &&
-            block.endRow >= Math.max(0, getParsed().rows.length - 1)
-        );
+        return !!block && block.startRow === 0 && block.endRow >= Math.max(0, getRowCount() - 1);
     }
 
     function getSelectedRowRange(): { start: number; end: number } | null {
-        if (isEntireRowSelection()) {
-            return {
-                start: selectionBlock!.startRow,
-                end: selectionBlock!.endRow,
-            };
-        }
-        if (focusedCell && focusedCell.rowIndex >= 0) {
-            return { start: focusedCell.rowIndex, end: focusedCell.rowIndex };
-        }
+        if (isEntireRowSelection()) return { start: selectionBlock!.startRow, end: selectionBlock!.endRow };
+        if (focusedCell && focusedCell.rowIndex >= 0) return { start: focusedCell.rowIndex, end: focusedCell.rowIndex };
         return null;
     }
 
     function getSelectedColumnRange(): { start: number; end: number } | null {
-        if (isEntireColumnSelection()) {
-            return {
-                start: selectionBlock!.startCol,
-                end: selectionBlock!.endCol,
-            };
-        }
-        if (focusedCell && focusedCell.colIndex >= 0) {
-            return { start: focusedCell.colIndex, end: focusedCell.colIndex };
-        }
+        if (isEntireColumnSelection()) return { start: selectionBlock!.startCol, end: selectionBlock!.endCol };
+        if (focusedCell && focusedCell.colIndex >= 0) return { start: focusedCell.colIndex, end: focusedCell.colIndex };
         return null;
     }
 
@@ -276,36 +165,51 @@ export function useCsvEditorState(
         });
     }
 
-    function commitEdit() {
-        if (!editingCell) return;
+    function startEditingFocusedCell() {
+        if (!focusedCell) return;
+        const cell = { ...focusedCell };
+        const cachedValue = getCellValue(cell.rowIndex, cell.colIndex);
 
-        const { rowIndex, colIndex } = editingCell;
-        const oldValue = getCellValue(rowIndex, colIndex);
-        editingCell = null;
-
-        if (oldValue === editValue) {
+        if (cachedValue !== "" || cell.rowIndex === -1) {
+            startEditing(cell.rowIndex, cell.colIndex, cachedValue);
             return;
         }
 
-        applyTableOps(
-            [
-                rowIndex === -1
-                    ? {
-                        type: "header-cell",
-                        col: colIndex,
-                        oldValue,
-                        newValue: editValue,
-                    }
-                    : {
-                        type: "cell",
-                        row: rowIndex,
-                        col: colIndex,
-                        oldValue,
-                        newValue: editValue,
-                    },
-            ],
-            "input.table",
-        );
+        void controller.fetchCellValue(cell.rowIndex, cell.colIndex).then((value) => {
+            if (
+                !focusedCell ||
+                focusedCell.rowIndex !== cell.rowIndex ||
+                focusedCell.colIndex !== cell.colIndex
+            ) {
+                return;
+            }
+            startEditing(cell.rowIndex, cell.colIndex, value);
+        }).catch((error) => {
+            console.error("Failed to fetch CSV cell value", error);
+        });
+    }
+
+    function commitEdit() {
+        if (!editingCell) return;
+
+        const cell = editingCell;
+        const nextValue = editValue;
+        const oldValue = getCellValue(cell.rowIndex, cell.colIndex);
+        editingCell = null;
+
+        if (oldValue === nextValue) return;
+
+        const mutation: CsvMutationRequest =
+            cell.rowIndex === -1
+                ? { type: "edit-header", colIndex: cell.colIndex, newValue: nextValue }
+                : {
+                      type: "edit-cell",
+                      rowIndex: cell.rowIndex,
+                      colIndex: cell.colIndex,
+                      newValue: nextValue,
+                  };
+
+        void runAsyncAction("input.table", () => controller.runMutation(mutation, "input.table"));
     }
 
     function cancelEdit() {
@@ -314,126 +218,64 @@ export function useCsvEditorState(
 
     function clearCell() {
         if (!focusedCell) return;
+        if (getCellValue(focusedCell.rowIndex, focusedCell.colIndex) === "") return;
 
-        const oldValue = getCellValue(focusedCell.rowIndex, focusedCell.colIndex);
-        if (oldValue === "") {
-            return;
-        }
-
-        applyTableOps(
-            [
-                focusedCell.rowIndex === -1
-                    ? {
-                        type: "header-cell",
-                        col: focusedCell.colIndex,
-                        oldValue,
-                        newValue: "",
-                    }
-                    : {
-                        type: "cell",
-                        row: focusedCell.rowIndex,
-                        col: focusedCell.colIndex,
-                        oldValue,
-                        newValue: "",
-                    },
-            ],
-            "delete.table.cell",
+        const cell = { ...focusedCell };
+        void runAsyncAction("delete.table.cell", () =>
+            controller.runMutation(
+                cell.rowIndex === -1
+                    ? { type: "edit-header", colIndex: cell.colIndex, newValue: "" }
+                    : { type: "clear-cell", rowIndex: cell.rowIndex, colIndex: cell.colIndex },
+                "delete.table.cell",
+            ),
         );
     }
 
     function deleteSelection() {
         if (!selectionBlock) return;
 
-        const parsed = getParsed();
-        const { startRow, endRow, startCol, endCol } = selectionBlock;
-        const numRows = parsed.rows.length;
+        const block = selectionBlock;
 
-        if (isEntireRowSelection()) {
-            const deletedRows = parsed.rows
-                .slice(startRow, endRow + 1)
-                .map((row) => [...row]);
-            applyTableOps(
-                [
-                    {
-                        type: "bulk-row-delete",
-                        start: startRow,
-                        end: endRow,
-                        data: deletedRows,
-                    },
-                ],
+        if (isEntireRowSelection(block)) {
+            selectionBlock = null;
+            focusedCell = null;
+            void runAsyncAction(
                 "delete.table.row",
+                () => controller.runMutation({ type: "delete-rows", start: block.startRow, end: block.endRow }, "delete.table.row"),
+                block,
             );
-            selectionBlock = null;
-            focusedCell = null;
             return;
         }
 
-        if (isEntireColumnSelection()) {
-            const deletedHeaders = parsed.headers.slice(startCol, endCol + 1);
-            const deletedData = parsed.rows.map((row) => row.slice(startCol, endCol + 1));
-            applyTableOps(
-                [
-                    {
-                        type: "bulk-col-delete",
-                        start: startCol,
-                        end: endCol,
-                        headers: deletedHeaders,
-                        data: deletedData,
-                    },
-                ],
+        if (isEntireColumnSelection(block)) {
+            selectionBlock = null;
+            focusedCell = null;
+            void runAsyncAction(
                 "delete.table.column",
+                () => controller.runMutation({ type: "delete-columns", start: block.startCol, end: block.endCol }, "delete.table.column"),
+                block,
             );
-            selectionBlock = null;
-            focusedCell = null;
             return;
         }
 
-        const oldValues: string[][] = [];
-        for (let rowIndex = startRow; rowIndex <= endRow; rowIndex += 1) {
-            const row = parsed.rows[rowIndex];
-            const oldRow: string[] = [];
-            if (row) {
-                for (let colIndex = startCol; colIndex <= endCol; colIndex += 1) {
-                    oldRow.push(row[colIndex] ?? "");
-                }
-            }
-            oldValues.push(oldRow);
-        }
-
-        const clearOps: TableOp[] = [];
-        for (let rowIndex = startRow; rowIndex <= endRow; rowIndex += 1) {
-            for (let colIndex = startCol; colIndex <= endCol; colIndex += 1) {
-                const oldValue = parsed.rows[rowIndex]?.[colIndex] ?? "";
-                if (oldValue === "") continue;
-                clearOps.push({
-                    type: "cell",
-                    row: rowIndex,
-                    col: colIndex,
-                    oldValue,
-                    newValue: "",
-                });
-            }
-        }
-
-        if (clearOps.length === 0) {
-            return;
-        }
-
-        applyTableOps(clearOps, "delete.table.selection");
+        void runAsyncAction(
+            "delete.table.selection",
+            () =>
+                controller.runMutation(
+                    {
+                        type: "clear-selection",
+                        startRow: block.startRow,
+                        endRow: block.endRow,
+                        startCol: block.startCol,
+                        endCol: block.endCol,
+                    },
+                    "delete.table.selection",
+                ),
+            block,
+        );
     }
 
     function addRowAt(index: number) {
-        const width = Math.max(getParsed().headers.length, columns().length);
-        applyTableOps(
-            [
-                {
-                    type: "row-add",
-                    index,
-                    data: Array.from({ length: width }, () => ""),
-                },
-            ],
-            "input.table.row-add",
-        );
         focusedCell = { rowIndex: index, colIndex: 0 };
         selectionBlock = {
             startRow: index,
@@ -442,22 +284,24 @@ export function useCsvEditorState(
             endCol: Math.max(0, columns().length - 1),
         };
         navigateAndFocus();
+        void runAsyncAction("input.table.row-add", () =>
+            controller.runMutation({ type: "add-row", index }, "input.table.row-add"),
+        );
     }
 
     function addRowAbove() {
         const range = getSelectedRowRange();
-        addRowAt(range ? range.start : getParsed().rows.length);
+        addRowAt(range ? range.start : getRowCount());
     }
 
     function addRowBelow() {
         const range = getSelectedRowRange();
-        addRowAt(range ? range.end + 1 : getParsed().rows.length);
+        addRowAt(range ? range.end + 1 : getRowCount());
     }
 
     function deleteSelectedRows() {
         const range = getSelectedRowRange();
         if (!range) return;
-
         selectionBlock = {
             startRow: range.start,
             endRow: range.end,
@@ -468,26 +312,17 @@ export function useCsvEditorState(
     }
 
     function addColumnAt(index: number) {
-        const parsed = getParsed();
-        applyTableOps(
-            [
-                {
-                    type: "bulk-col-add",
-                    start: index,
-                    headers: [""],
-                    data: parsed.rows.map(() => [""]),
-                },
-            ],
-            "input.table.column-add",
-        );
         focusedCell = { rowIndex: -1, colIndex: index };
         selectionBlock = {
             startRow: 0,
-            endRow: Math.max(0, parsed.rows.length - 1),
+            endRow: Math.max(0, getRowCount() - 1),
             startCol: index,
             endCol: index,
         };
         navigateAndFocus();
+        void runAsyncAction("input.table.column-add", () =>
+            controller.runMutation({ type: "add-column", index }, "input.table.column-add"),
+        );
     }
 
     function addColumnLeft() {
@@ -503,10 +338,9 @@ export function useCsvEditorState(
     function deleteSelectedColumns() {
         const range = getSelectedColumnRange();
         if (!range) return;
-
         selectionBlock = {
             startRow: 0,
-            endRow: Math.max(0, getParsed().rows.length - 1),
+            endRow: Math.max(0, getRowCount() - 1),
             startCol: range.start,
             endCol: range.end,
         };
@@ -517,31 +351,9 @@ export function useCsvEditorState(
         const range = getSelectedRowRange();
         if (!range) return;
 
-        const parsed = cloneParsed(getParsed());
         const count = range.end - range.start + 1;
         const targetStart = range.start + direction;
-
-        if (targetStart < 0 || targetStart + count > parsed.rows.length) {
-            return;
-        }
-
-        const movedRows = parsed.rows.slice(range.start, range.end + 1);
-        applyTableOps(
-            [
-                {
-                    type: "bulk-row-delete",
-                    start: range.start,
-                    end: range.end,
-                    data: movedRows.map((row) => [...row]),
-                },
-                {
-                    type: "bulk-row-add",
-                    start: targetStart,
-                    data: movedRows.map((row) => [...row]),
-                },
-            ],
-            "move.table.row",
-        );
+        if (targetStart < 0 || targetStart + count > getRowCount()) return;
 
         selectionBlock = {
             startRow: targetStart,
@@ -554,18 +366,21 @@ export function useCsvEditorState(
             colIndex: focusedCell?.colIndex ?? 0,
         };
         navigateAndFocus();
+
+        void runAsyncAction("move.table.row", () =>
+            controller.runMutation(
+                { type: "move-rows", start: range.start, end: range.end, direction },
+                "move.table.row",
+            ),
+        );
     }
 
     function handleUndo() {
-        const entry = history.undo();
-        if (!entry) return;
-        applyTableOps(invertOps(entry), "undo.table", { pushHistory: false });
+        void runAsyncAction("undo.table", () => controller.undo());
     }
 
     function handleRedo() {
-        const entry = history.redo();
-        if (!entry) return;
-        applyTableOps(entry, "redo.table", { pushHistory: false });
+        void runAsyncAction("redo.table", () => controller.redo());
     }
 
     function handleTabNavigation(isShift: boolean) {
@@ -573,12 +388,11 @@ export function useCsvEditorState(
 
         let nextRow = focusedCell.rowIndex;
         let nextCol = focusedCell.colIndex + (isShift ? -1 : 1);
-        const parsed = getParsed();
         const currentColumns = columns();
 
         if (nextCol >= currentColumns.length) {
             nextCol = 0;
-            nextRow = Math.min(parsed.rows.length - 1, nextRow + 1);
+            nextRow = Math.min(getRowCount() - 1, nextRow + 1);
         } else if (nextCol < 0) {
             nextCol = currentColumns.length - 1;
             nextRow = Math.max(-1, nextRow - 1);
@@ -589,7 +403,6 @@ export function useCsvEditorState(
 
     function focusCurrentCell() {
         if (!focusedCell) return;
-
         tick().then(() => {
             const cell = document.querySelector(
                 `[data-row="${focusedCell!.rowIndex}"][data-col="${focusedCell!.colIndex}"]`,
@@ -612,11 +425,10 @@ export function useCsvEditorState(
         {
             key: "Enter",
             callback: () => {
-                const parsed = getParsed();
                 commitEdit();
                 if (focusedCell) {
                     focusedCell = {
-                        rowIndex: Math.min(parsed.rows.length - 1, focusedCell.rowIndex + 1),
+                        rowIndex: Math.min(getRowCount() - 1, focusedCell.rowIndex + 1),
                         colIndex: focusedCell.colIndex,
                     };
                 }
@@ -636,9 +448,7 @@ export function useCsvEditorState(
             key: "Tab",
             callback: () => {
                 commitEdit();
-                if (focusedCell) {
-                    handleTabNavigation(false);
-                }
+                if (focusedCell) handleTabNavigation(false);
                 navigateAndFocus();
             },
             options: { preventDefault: true, ignoreInputs: false },
@@ -647,16 +457,12 @@ export function useCsvEditorState(
             key: "Shift+Tab",
             callback: () => {
                 commitEdit();
-                if (focusedCell) {
-                    handleTabNavigation(true);
-                }
+                if (focusedCell) handleTabNavigation(true);
                 navigateAndFocus();
             },
             options: { preventDefault: true, ignoreInputs: false },
         },
     ];
-
-    const PAGE_SIZE = 20;
 
     const cellHotkeys: HotkeyBinding[] = [
         { key: "Mod+Z", callback: handleUndo, options: { preventDefault: true, ignoreInputs: true } },
@@ -674,47 +480,27 @@ export function useCsvEditorState(
         },
         {
             key: "Enter",
-            callback: () => {
-                if (!focusedCell) return;
-                startEditing(
-                    focusedCell.rowIndex,
-                    focusedCell.colIndex,
-                    getCellValue(focusedCell.rowIndex, focusedCell.colIndex),
-                );
-            },
+            callback: startEditingFocusedCell,
             options: { preventDefault: true, ignoreInputs: true },
         },
         {
             key: "F2",
-            callback: () => {
-                if (!focusedCell) return;
-                startEditing(
-                    focusedCell.rowIndex,
-                    focusedCell.colIndex,
-                    getCellValue(focusedCell.rowIndex, focusedCell.colIndex),
-                );
-            },
+            callback: startEditingFocusedCell,
             options: { preventDefault: true, ignoreInputs: true },
         },
         {
             key: "Delete",
             callback: () => {
-                if (selectionBlock) {
-                    deleteSelection();
-                } else if (focusedCell) {
-                    clearCell();
-                }
+                if (selectionBlock) deleteSelection();
+                else if (focusedCell) clearCell();
             },
             options: { preventDefault: true, ignoreInputs: true },
         },
         {
             key: "Backspace",
             callback: () => {
-                if (selectionBlock) {
-                    deleteSelection();
-                } else if (focusedCell) {
-                    clearCell();
-                }
+                if (selectionBlock) deleteSelection();
+                else if (focusedCell) clearCell();
             },
             options: { preventDefault: true, ignoreInputs: true },
         },
@@ -723,10 +509,7 @@ export function useCsvEditorState(
             callback: () => {
                 if (!focusedCell) return;
                 selectionBlock = null;
-                focusedCell = {
-                    rowIndex: Math.max(-1, focusedCell.rowIndex - 1),
-                    colIndex: focusedCell.colIndex,
-                };
+                focusedCell = { rowIndex: Math.max(-1, focusedCell.rowIndex - 1), colIndex: focusedCell.colIndex };
                 navigateAndFocus();
             },
             options: { preventDefault: true, ignoreInputs: true },
@@ -760,11 +543,8 @@ export function useCsvEditorState(
             callback: () => {
                 if (!focusedCell) return;
                 selectionBlock = null;
-                const maxRow = getParsed().rows.length - 1;
-                focusedCell = {
-                    rowIndex: Math.min(maxRow, focusedCell.rowIndex + 1),
-                    colIndex: focusedCell.colIndex,
-                };
+                const maxRow = getRowCount() - 1;
+                focusedCell = { rowIndex: Math.min(maxRow, focusedCell.rowIndex + 1), colIndex: focusedCell.colIndex };
                 navigateAndFocus();
             },
             options: { preventDefault: true, ignoreInputs: true },
@@ -773,7 +553,7 @@ export function useCsvEditorState(
             key: "Shift+ArrowDown",
             callback: () => {
                 if (!focusedCell) return;
-                const maxRow = getParsed().rows.length - 1;
+                const maxRow = getRowCount() - 1;
                 const rowIndex = Math.min(maxRow, focusedCell.rowIndex + 1);
                 if (!selectionBlock) {
                     selectionBlock = {
@@ -799,10 +579,7 @@ export function useCsvEditorState(
             callback: () => {
                 if (!focusedCell) return;
                 selectionBlock = null;
-                focusedCell = {
-                    rowIndex: focusedCell.rowIndex,
-                    colIndex: Math.max(0, focusedCell.colIndex - 1),
-                };
+                focusedCell = { rowIndex: focusedCell.rowIndex, colIndex: Math.max(0, focusedCell.colIndex - 1) };
                 navigateAndFocus();
             },
             options: { preventDefault: true, ignoreInputs: true },
@@ -837,10 +614,7 @@ export function useCsvEditorState(
                 if (!focusedCell) return;
                 selectionBlock = null;
                 const maxCol = columns().length - 1;
-                focusedCell = {
-                    rowIndex: focusedCell.rowIndex,
-                    colIndex: Math.min(maxCol, focusedCell.colIndex + 1),
-                };
+                focusedCell = { rowIndex: focusedCell.rowIndex, colIndex: Math.min(maxCol, focusedCell.colIndex + 1) };
                 navigateAndFocus();
             },
             options: { preventDefault: true, ignoreInputs: true },
@@ -910,10 +684,7 @@ export function useCsvEditorState(
             key: "End",
             callback: () => {
                 if (!focusedCell) return;
-                focusedCell = {
-                    rowIndex: focusedCell.rowIndex,
-                    colIndex: columns().length - 1,
-                };
+                focusedCell = { rowIndex: focusedCell.rowIndex, colIndex: columns().length - 1 };
                 navigateAndFocus();
             },
             options: { preventDefault: true, ignoreInputs: true },
@@ -922,10 +693,7 @@ export function useCsvEditorState(
             key: "Mod+End" as const,
             callback: () => {
                 if (!focusedCell) return;
-                focusedCell = {
-                    rowIndex: getParsed().rows.length - 1,
-                    colIndex: columns().length - 1,
-                };
+                focusedCell = { rowIndex: getRowCount() - 1, colIndex: columns().length - 1 };
                 navigateAndFocus();
             },
             options: { preventDefault: true, ignoreInputs: true },
@@ -934,10 +702,7 @@ export function useCsvEditorState(
             key: "PageUp",
             callback: () => {
                 if (!focusedCell) return;
-                focusedCell = {
-                    rowIndex: Math.max(0, focusedCell.rowIndex - PAGE_SIZE),
-                    colIndex: focusedCell.colIndex,
-                };
+                focusedCell = { rowIndex: Math.max(0, focusedCell.rowIndex - PAGE_SIZE), colIndex: focusedCell.colIndex };
                 navigateAndFocus();
             },
             options: { preventDefault: true, ignoreInputs: true },
@@ -946,11 +711,8 @@ export function useCsvEditorState(
             key: "PageDown",
             callback: () => {
                 if (!focusedCell) return;
-                const maxRow = getParsed().rows.length - 1;
-                focusedCell = {
-                    rowIndex: Math.min(maxRow, focusedCell.rowIndex + PAGE_SIZE),
-                    colIndex: focusedCell.colIndex,
-                };
+                const maxRow = getRowCount() - 1;
+                focusedCell = { rowIndex: Math.min(maxRow, focusedCell.rowIndex + PAGE_SIZE), colIndex: focusedCell.colIndex };
                 navigateAndFocus();
             },
             options: { preventDefault: true, ignoreInputs: true },
@@ -970,10 +732,7 @@ export function useCsvEditorState(
 
         if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
             e.preventDefault();
-            editingCell = {
-                rowIndex: focusedCell.rowIndex,
-                colIndex: focusedCell.colIndex,
-            };
+            editingCell = { rowIndex: focusedCell.rowIndex, colIndex: focusedCell.colIndex };
             editValue = e.key;
             tick().then(() => {
                 const input = document.querySelector(".csv-edit-input") as HTMLInputElement | null;

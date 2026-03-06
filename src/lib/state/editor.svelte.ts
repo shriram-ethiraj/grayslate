@@ -28,6 +28,7 @@ export const editorState = $state<{
         showTable: boolean;
         undo?: () => void;
         redo?: () => void;
+        requestShowTable?: (showTable: boolean) => void | Promise<void>;
     };
     markdown: {
         showPreview: boolean;
@@ -54,6 +55,7 @@ export const editorState = $state<{
         showTable: false,
         undo: undefined,
         redo: undefined,
+        requestShowTable: undefined,
     },
     markdown: {
         showPreview: true,

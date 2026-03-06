@@ -23,6 +23,7 @@
     hideEditorLoader,
     startLoaderTicker,
     stopLoaderTicker,
+    completeEditorLoader,
     type FileType,
   } from "$lib/state/editor.svelte";
   import { open as openFilePicker } from "@tauri-apps/plugin-dialog";
@@ -66,6 +67,9 @@
   let editorView = $state<EditorView | undefined>(undefined);
   let editorSession = $state.raw<ManagedEditorSession>(
     createManagedEditorSession(),
+  );
+  let csvTableView = $state<{ flushToText: () => Promise<string> } | undefined>(
+    undefined,
   );
 
   // -----------------------------------------------------------------------
@@ -162,6 +166,57 @@
   );
 
   let csvInfo = $state({ rows: 0, cols: 0, delimiter: "", errors: 0 });
+
+  async function requestCsvTableMode(showTable: boolean): Promise<void> {
+    if (showTable === editorState.csv.showTable) {
+      return;
+    }
+
+    if (showTable) {
+      editorState.csv.showTable = true;
+      return;
+    }
+
+    if (activeLanguage !== "csv" || !csvTableView) {
+      editorState.csv.showTable = false;
+      return;
+    }
+
+    startLoaderTicker("Preparing CSV text…", "", {
+      ceiling: 92,
+      factor: 0.05,
+      minStep: 0.2,
+      interval: 80,
+      startAt: 8,
+      graceMs: 0,
+    });
+
+    try {
+      const nextText = await csvTableView.flushToText();
+      value = nextText;
+      dispatchManagedEditorTextChange(editorSession, nextText, {
+        userEvent: "flush.table",
+        focus: false,
+      });
+      completeEditorLoader("CSV text ready", "", 120, () => {
+        editorState.csv.showTable = false;
+      });
+    } catch (error) {
+      stopLoaderTicker();
+      hideEditorLoader();
+      toast.error(error instanceof Error ? error.message : "Failed to prepare CSV text.");
+    }
+  }
+
+  $effect(() => {
+    editorState.csv.requestShowTable = requestCsvTableMode;
+
+    return () => {
+      if (editorState.csv.requestShowTable === requestCsvTableMode) {
+        editorState.csv.requestShowTable = undefined;
+      }
+    };
+  });
 </script>
 
 <div class="flex flex-1 flex-col min-h-0 min-w-0">
@@ -177,15 +232,9 @@
       {#if isCsvTableActive}
         <div class="flex flex-1 flex-col min-h-0 min-w-0">
           <CsvTableView
+            bind:this={csvTableView}
             bind:content={value}
             bind:tableInfo={csvInfo}
-            onMirrorTextChange={(nextText: string, userEvent: string) => {
-              value = nextText;
-              dispatchManagedEditorTextChange(editorSession, nextText, {
-                userEvent,
-                focus: false,
-              });
-            }}
           />
         </div>
       {:else}

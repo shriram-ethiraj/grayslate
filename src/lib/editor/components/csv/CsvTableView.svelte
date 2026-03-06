@@ -4,6 +4,7 @@
     getCoreRowModel,
     type ColumnDef,
   } from "@tanstack/svelte-table";
+  import { untrack } from "svelte";
   import { useScrollVirtualizer } from "./useScrollVirtualizer.svelte";
   import {
     editorState,
@@ -12,13 +13,18 @@
     stopLoaderTicker,
     completeEditorLoader,
   } from "$lib/state/editor.svelte";
-  import { untrack } from "svelte";
-  import { useCsvHistory } from "./useCsvHistory.svelte";
   import { useCsvEditorState } from "./useCsvEditorState.svelte";
   import { hotkey } from "$lib/hotkeys";
   import CsvTableHeader from "./CsvTableHeader.svelte";
   import CsvTableBody from "./CsvTableBody.svelte";
   import CsvContextMenu from "./CsvContextMenu.svelte";
+  import type {
+    CsvRowWindow,
+    CsvTableController,
+    CsvTableSnapshot,
+    CsvWorkerRequest,
+    CsvWorkerResponse,
+  } from "./csvTableProtocol";
 
   type Updater<T> = T | ((old: T) => T);
 
@@ -33,6 +39,33 @@
     startSize: number | null;
   };
 
+  type PendingRequest = {
+    resolve: (value: CsvWorkerResponse) => void;
+    reject: (error: Error) => void;
+  };
+
+  type CsvWorkerRequestPayload = CsvWorkerRequest extends infer T
+    ? T extends { requestId: number }
+      ? Omit<T, "requestId">
+      : never
+    : never;
+
+  const EMPTY_SNAPSHOT: CsvTableSnapshot = {
+    headers: [],
+    rowCount: 0,
+    delimiter: ",",
+    errors: [],
+    version: 0,
+  };
+
+  const EMPTY_ROW_WINDOW: CsvRowWindow = {
+    start: 0,
+    rows: [],
+    version: 0,
+  };
+
+  const VIEWPORT_PREFETCH_ROWS = 80;
+
   function applyUpdater<T>(updater: Updater<T>, current: T): T {
     if (typeof updater === "function") {
       const updaterFn = updater as (old: T) => T;
@@ -45,104 +78,194 @@
   let {
     content = $bindable(""),
     tableInfo = $bindable({ rows: 0, cols: 0, delimiter: "", errors: 0 }),
-    onMirrorTextChange = undefined,
   } = $props();
 
-  // 1. Parsed data — starts empty, filled by worker
-  let parsed = $state.raw<{
-    headers: string[];
-    rows: string[][];
-    delimiter: string;
-    errors: string[];
-  }>({ headers: [], rows: [], delimiter: ",", errors: [] });
-
+  let snapshot = $state.raw<CsvTableSnapshot>(EMPTY_SNAPSHOT);
+  let rowWindow = $state.raw<CsvRowWindow>(EMPTY_ROW_WINDOW);
   let initialLoading = $state(true);
   let refreshing = $state(false);
-  let pendingRows: string[][] = [];
 
-  // Track the last content we synced from, to detect external changes
   let lastSyncedContent = $state(content);
-  let parseWorker: Worker | undefined;
-  let activeParseRequestId = 0;
-  let nextParseRequestId = 0;
+  let tableWorker: Worker | undefined;
+  let nextRequestId = 0;
+  let pendingRequests = new Map<number, PendingRequest>();
+  let latestRowWindowToken = 0;
 
-  /** Format a row count for display: 7 000 000 → "7.0M rows…" */
+  let tableContainerRef = $state<HTMLDivElement | undefined>(undefined);
+  let contextMenu = $state<{ openMenu: (x: number, y: number) => void } | null>(
+    null,
+  );
+  let wrapperRef = $state<HTMLDivElement | undefined>(undefined);
+
   function formatRowCount(count: number): string {
     if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M rows…`;
     if (count >= 1_000) return `${(count / 1_000).toFixed(0)}K rows…`;
     return `${count} rows…`;
   }
 
-  function createParseWorker() {
-    parseWorker?.terminate();
-    parseWorker = new Worker(
-      new URL("../../workers/csvParser.worker.ts", import.meta.url),
+  function resetPendingRequests(message: string): void {
+    const error = new Error(message);
+    for (const pending of pendingRequests.values()) {
+      pending.reject(error);
+    }
+    pendingRequests.clear();
+  }
+
+  function createTableWorker() {
+    if (tableWorker) {
+      tableWorker.terminate();
+      resetPendingRequests("CSV table worker restarted");
+    }
+
+    tableWorker = new Worker(
+      new URL("../../workers/csvTable.worker.ts", import.meta.url),
       { type: "module" },
     );
 
-    parseWorker.onmessage = (e) => {
-      const msg = e.data;
-      if (msg.requestId !== activeParseRequestId) {
+    tableWorker.onmessage = (event: MessageEvent<CsvWorkerResponse>) => {
+      const message = event.data;
+
+      if (message.type === "initialize-progress") {
+        if (initialLoading) {
+          editorState.loader.subMessage = formatRowCount(message.parsedRows);
+        }
         return;
       }
 
-      switch (msg.type) {
-        case "parsed-chunk": {
-          const chunk: string[][] = msg.chunk;
-          for (let i = 0; i < chunk.length; i++) {
-            pendingRows.push(chunk[i]);
-          }
+      const pending = pendingRequests.get(message.requestId);
+      if (!pending) return;
 
-          if (initialLoading) {
-            editorState.loader.subMessage = formatRowCount(pendingRows.length);
-          }
-          break;
-        }
-        case "parsed-complete": {
-          const rowCount = pendingRows.length;
-          parsed = {
-            headers: msg.headers,
-            rows: pendingRows,
-            delimiter: msg.delimiter,
-            errors: msg.errors,
-          };
-          pendingRows = [];
-
-          if (initialLoading) {
-            initialLoading = false;
-            completeEditorLoader(
-              "Building table…",
-              `${rowCount.toLocaleString()} rows`,
-            );
-
-            if (rowCount > 0 && !csvEditorState.focusedCell) {
-              csvEditorState.focusedCell = { rowIndex: 0, colIndex: 0 };
-              csvEditorState.navigateAndFocus();
-            }
-          }
-
-          refreshing = false;
-          break;
-        }
-        case "error":
-          if (initialLoading) {
-            stopLoaderTicker();
-            hideEditorLoader();
-            initialLoading = false;
-          }
-          console.error("CSV Parse Worker Error:", msg.error);
-          pendingRows = [];
-          refreshing = false;
-          break;
+      if (message.type === "error") {
+        pendingRequests.delete(message.requestId);
+        pending.reject(new Error(message.error));
+        return;
       }
+
+      pendingRequests.delete(message.requestId);
+      pending.resolve(message);
     };
   }
 
-  /** Kick off a parse via the worker. Initial load blocks; later refreshes stay mounted. */
-  function startParse(text: string, options?: { initial?: boolean }): void {
+  function sendRequest(
+    request: CsvWorkerRequestPayload,
+  ): Promise<CsvWorkerResponse> {
+    if (!tableWorker) {
+      return Promise.reject(new Error("CSV table worker is not ready"));
+    }
+
+    const requestId = ++nextRequestId;
+    const payload = { ...request, requestId } as CsvWorkerRequest;
+
+    return new Promise((resolve, reject) => {
+      pendingRequests.set(requestId, { resolve, reject });
+      tableWorker!.postMessage(payload);
+    });
+  }
+
+  export async function flushToText(): Promise<string> {
+    const response = await sendRequest({ type: "flush-text" });
+    if (response.type !== "flushed-text") {
+      throw new Error("Unexpected CSV flush response");
+    }
+
+    snapshot = { ...snapshot, version: response.version };
+    lastSyncedContent = response.text;
+    content = response.text;
+    return response.text;
+  }
+
+  function getVisibleRow(index: number): string[] | undefined {
+    const offset = index - rowWindow.start;
+    if (offset < 0 || offset >= rowWindow.rows.length) {
+      return undefined;
+    }
+    return rowWindow.rows[offset];
+  }
+
+  async function refreshViewportRows(force = false): Promise<void> {
+    if (snapshot.rowCount === 0) {
+      rowWindow = { ...EMPTY_ROW_WINDOW, version: snapshot.version };
+      return;
+    }
+
+    const items = virtualizer.virtualItems;
+    let start = 0;
+    let end = Math.min(snapshot.rowCount - 1, VIEWPORT_PREFETCH_ROWS);
+
+    if (items.length > 0) {
+      start = Math.max(0, items[0].index - VIEWPORT_PREFETCH_ROWS);
+      end = Math.min(
+        snapshot.rowCount - 1,
+        items[items.length - 1].index + VIEWPORT_PREFETCH_ROWS,
+      );
+    }
+
+    const currentEnd = rowWindow.start + rowWindow.rows.length - 1;
+    if (
+      !force &&
+      rowWindow.version === snapshot.version &&
+      start >= rowWindow.start &&
+      end <= currentEnd
+    ) {
+      return;
+    }
+
+    const token = ++latestRowWindowToken;
+    const response = await sendRequest({ type: "get-rows", start, end });
+    if (response.type !== "rows") return;
+    if (token !== latestRowWindowToken) return;
+    if (response.window.version !== snapshot.version) return;
+    rowWindow = response.window;
+  }
+
+  async function applyMutationResponse(
+    response: CsvWorkerResponse,
+  ): Promise<boolean> {
+    if (response.type !== "mutation-applied") {
+      return false;
+    }
+
+    if (!response.applied) {
+      return false;
+    }
+
+    snapshot = response.snapshot;
+    rowWindow = { ...EMPTY_ROW_WINDOW, version: snapshot.version };
+    await refreshViewportRows(true);
+    return true;
+  }
+
+  const controller: CsvTableController = {
+    getSnapshot: () => snapshot,
+    getCachedCellValue(rowIndex: number, colIndex: number) {
+      if (rowIndex === -1) {
+        return snapshot.headers[colIndex] ?? "";
+      }
+      return getVisibleRow(rowIndex)?.[colIndex] ?? "";
+    },
+    async fetchCellValue(rowIndex: number, colIndex: number) {
+      if (rowIndex === -1) {
+        return snapshot.headers[colIndex] ?? "";
+      }
+      const response = await sendRequest({ type: "get-cell", rowIndex, colIndex });
+      return response.type === "cell" ? response.value : "";
+    },
+    async runMutation(mutation, userEvent) {
+      const response = await sendRequest({ type: "mutate", mutation });
+      await applyMutationResponse(response);
+    },
+    async undo() {
+      const response = await sendRequest({ type: "undo" });
+      return applyMutationResponse(response);
+    },
+    async redo() {
+      const response = await sendRequest({ type: "redo" });
+      return applyMutationResponse(response);
+    },
+  };
+
+  async function initializeTable(text: string, options?: { initial?: boolean }) {
     const isInitial = options?.initial ?? false;
-    activeParseRequestId = ++nextParseRequestId;
-    pendingRows = [];
 
     if (isInitial) {
       initialLoading = true;
@@ -157,40 +280,52 @@
       refreshing = true;
     }
 
-    createParseWorker();
-    parseWorker?.postMessage({ text, requestId: activeParseRequestId });
+    createTableWorker();
+
+    try {
+      const response = await sendRequest({ type: "initialize", text });
+      if (response.type !== "initialized") {
+        throw new Error("Unexpected CSV initialization response");
+      }
+
+      snapshot = response.snapshot;
+      rowWindow = { ...EMPTY_ROW_WINDOW, version: snapshot.version };
+      latestRowWindowToken += 1;
+      await refreshViewportRows(true);
+
+      if (isInitial) {
+        initialLoading = false;
+        completeEditorLoader(
+          "Building table…",
+          `${snapshot.rowCount.toLocaleString()} rows`,
+        );
+
+        if (snapshot.rowCount > 0 && !csvEditorState.focusedCell) {
+          csvEditorState.focusedCell = { rowIndex: 0, colIndex: 0 };
+          csvEditorState.navigateAndFocus();
+        }
+      }
+
+      refreshing = false;
+    } catch (error) {
+      if (isInitial) {
+        stopLoaderTicker();
+        hideEditorLoader();
+        initialLoading = false;
+      }
+      refreshing = false;
+      console.error("CSV table worker initialization error:", error);
+    }
   }
 
-  // Kick off initial parse via worker
-  $effect(() => {
-    startParse(untrack(() => content), { initial: true });
-
-    return () => {
-      stopLoaderTicker();
-      parseWorker?.terminate();
-      hideEditorLoader();
-    };
-  });
-
-  // Re-parse when content changes externally (e.g. switching from text mode)
-  $effect(() => {
-    if (content !== untrack(() => lastSyncedContent)) {
-      lastSyncedContent = content;
-      startParse(content, { initial: false });
-    }
-  });
-
-  // 3. TanStack Table Columns (no data passed — we render raw rows directly)
-
-  // Stabilise columns reference — only rebuild when headers actually change
   let prevHeaderKey = "";
   let stableColumns: ColumnDef<string[], string>[] = [];
 
   let columns = $derived.by(() => {
-    const headerKey = parsed.headers.join("\0");
+    const headerKey = snapshot.headers.join("\0");
     if (headerKey === prevHeaderKey) return stableColumns;
     prevHeaderKey = headerKey;
-    stableColumns = parsed.headers.map(
+    stableColumns = snapshot.headers.map(
       (header, index): ColumnDef<string[], string> => ({
         id: `col_${index}`,
         accessorFn: (row: string[]) => row[index] ?? "",
@@ -202,29 +337,10 @@
     return stableColumns;
   });
 
-  // 4. Virtualizer Ref
-  let tableContainerRef = $state<HTMLDivElement | undefined>(undefined);
-  let contextMenu = $state<{ openMenu: (x: number, y: number) => void } | null>(
-    null,
-  );
-
-  let wrapperRef = $state<HTMLDivElement | undefined>(undefined);
-  const history = useCsvHistory();
-
-  // 5. Editor State (Keyboard, Editing, Focus)
   const csvEditorState = useCsvEditorState(
-    history,
-    () => parsed,
-    (p) => {
-      parsed = p;
-    },
+    controller,
     () => columns,
-    (index) => virtualizer.scrollToIndex(index),
-    (nextText, userEvent) => {
-      content = nextText;
-      lastSyncedContent = nextText;
-      onMirrorTextChange?.(nextText, userEvent);
-    },
+    (index, options) => virtualizer.scrollToIndex(index, options),
   );
 
   $effect(() => {
@@ -239,7 +355,6 @@
     };
   });
 
-  // 6. TanStack Table Instance — empty data, only used for column sizing/headers
   let columnSizing = $state<ColumnSizingState>({});
   let columnSizingInfo = $state<ColumnSizingInfoState>({
     startOffset: null,
@@ -278,24 +393,19 @@
     columnResizeMode: "onChange" as const,
   });
 
-  // 7. Virtualizer Instance
   const virtualizer = useScrollVirtualizer({
-    count: () => parsed.rows.length,
+    count: () => snapshot.rowCount,
     getScrollElement: () => tableContainerRef,
     estimateSize: () => 32,
     overscan: 20,
   });
 
-  // 8. Dynamic Index column width
-  // Base 32px + 8px per digit (approx)
-  // for 7M rows, 7 digits * 8 = 56 + 32 = 88px
   let indexColWidth = $derived(
-    Math.max(50, 24 + String(parsed.rows.length).length * 8),
+    Math.max(50, 24 + String(snapshot.rowCount).length * 8),
   );
 
-  // Delimiter display label
   let delimiterLabel = $derived.by(() => {
-    switch (parsed.delimiter) {
+    switch (snapshot.delimiter) {
       case ",":
         return "Comma";
       case "\t":
@@ -309,21 +419,45 @@
       case "~":
         return "Tilde";
       default:
-        return parsed.delimiter;
+        return snapshot.delimiter;
     }
   });
 
   $effect(() => {
     tableInfo = {
-      rows: parsed.rows.length,
-      cols: parsed.headers.length,
+      rows: snapshot.rowCount,
+      cols: snapshot.headers.length,
       delimiter: delimiterLabel,
-      errors: parsed.errors.length,
+      errors: snapshot.errors.length,
     };
+  });
+
+  $effect(() => {
+    void initializeTable(untrack(() => content), { initial: true });
+
+    return () => {
+      stopLoaderTicker();
+      hideEditorLoader();
+      resetPendingRequests("CSV table worker disposed");
+      tableWorker?.terminate();
+    };
+  });
+
+  $effect(() => {
+    if (content !== untrack(() => lastSyncedContent)) {
+      lastSyncedContent = content;
+      void initializeTable(content, { initial: false });
+    }
+  });
+
+  $effect(() => {
+    if (initialLoading) return;
+    snapshot.version;
+    virtualizer.virtualItems;
+    void refreshViewportRows();
   });
 </script>
 
-<!-- Reset dragging if mouse leaves window or loses focus -->
 <svelte:window
   onmouseup={() => {
     if (columnSizingInfo?.isResizingColumn) {
@@ -348,7 +482,6 @@
     editorState={csvEditorState}
     container={wrapperRef}
   />
-  <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
   <div
     class="csv-table-wrapper"
     class:csv-table-refreshing={refreshing}
@@ -360,22 +493,22 @@
     onpointerdown={(e) => {
       if ((e.target as HTMLElement).tagName.toLowerCase() === "input") return;
       const cell = (e.target as HTMLElement).closest("[data-row][data-col]");
-      if (!cell || e.button === 2) return; // Right click handled by contextMenu
+      if (!cell || e.button === 2) return;
       const rowIndex = parseInt(cell.getAttribute("data-row")!, 10);
       const colIndex = parseInt(cell.getAttribute("data-col")!, 10);
       csvEditorState.isSelecting = true;
-      if (rowIndex === -1 && colIndex === -1) return; // top left corner
+      if (rowIndex === -1 && colIndex === -1) return;
       let startR = rowIndex;
       let endR = rowIndex;
       let startC = colIndex;
       let endC = colIndex;
       if (colIndex === -1) {
         startC = 0;
-        endC = parsed.headers.length - 1;
+        endC = snapshot.headers.length - 1;
       }
       if (rowIndex === -1) {
         startR = 0;
-        endR = parsed.rows.length - 1;
+        endR = snapshot.rowCount - 1;
       }
 
       if (e.shiftKey && csvEditorState.focusedCell) {
@@ -385,10 +518,10 @@
           startR = Math.min(fr, rowIndex);
           endR = Math.max(fr, rowIndex);
           startC = 0;
-          endC = parsed.headers.length - 1;
+          endC = snapshot.headers.length - 1;
         } else if (rowIndex === -1) {
           startR = 0;
-          endR = parsed.rows.length - 1;
+          endR = snapshot.rowCount - 1;
           startC = Math.min(fc, colIndex);
           endC = Math.max(fc, colIndex);
         } else {
@@ -403,7 +536,6 @@
         else if (rowIndex >= 0)
           csvEditorState.focusedCell = { rowIndex, colIndex: 0 };
         else if (colIndex >= 0)
-          // colIndex >= 0 but rowIndex === -1 means a header cell was clicked
           csvEditorState.focusedCell = { rowIndex: -1, colIndex };
         csvEditorState.navigateAndFocus();
       }
@@ -436,20 +568,14 @@
 
       if (colIndex === -1 || fc === -1) {
         startC = 0;
-        endC = parsed.headers.length - 1;
-        startR = Math.min(
-          fr >= 0 ? fr : rowIndex,
-          rowIndex >= 0 ? rowIndex : fr,
-        );
+        endC = snapshot.headers.length - 1;
+        startR = Math.min(fr >= 0 ? fr : rowIndex, rowIndex >= 0 ? rowIndex : fr);
         endR = Math.max(fr >= 0 ? fr : rowIndex, rowIndex >= 0 ? rowIndex : fr);
       }
       if (rowIndex === -1 || fr === -1) {
         startR = 0;
-        endR = parsed.rows.length - 1;
-        startC = Math.min(
-          fc >= 0 ? fc : colIndex,
-          colIndex >= 0 ? colIndex : fc,
-        );
+        endR = snapshot.rowCount - 1;
+        startC = Math.min(fc >= 0 ? fc : colIndex, colIndex >= 0 ? colIndex : fc);
         endC = Math.max(fc >= 0 ? fc : colIndex, colIndex >= 0 ? colIndex : fc);
       }
       csvEditorState.selectionBlock = {
@@ -470,7 +596,7 @@
         const colIndex = parseInt(cell.getAttribute("data-col")!, 10);
         if (rowIndex === -1 && colIndex === -1) return;
 
-        const numRows = parsed.rows.length;
+        const numRows = snapshot.rowCount;
         const numCols = columns.length;
 
         let inSelection = false;
@@ -529,8 +655,9 @@
               endCol: colIndex,
             };
           }
-          if (rowIndex >= 0 && colIndex >= 0)
+          if (rowIndex >= 0 && colIndex >= 0) {
             csvEditorState.focusedCell = { rowIndex, colIndex };
+          }
         }
 
         const sb = csvEditorState.selectionBlock;
@@ -544,7 +671,6 @@
       }
     }}
   >
-    <!-- Table Container -->
     <div class="csv-table-container" bind:this={tableContainerRef}>
       {#if refreshing}
         <div class="csv-refresh-overlay" aria-hidden="true">
@@ -558,14 +684,14 @@
           {table}
           {indexColWidth}
           editorState={csvEditorState}
-          totalRows={parsed.rows.length}
+          totalRows={snapshot.rowCount}
         />
         <CsvTableBody
           {table}
           {virtualizer}
           {indexColWidth}
           editorState={csvEditorState}
-          rawRows={parsed.rows}
+          getRow={getVisibleRow}
         />
       </div>
     </div>
