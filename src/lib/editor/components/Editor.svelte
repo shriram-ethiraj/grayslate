@@ -12,6 +12,7 @@
     import FindReplace from "$lib/editor/components/FindReplace.svelte";
     import { search } from "@codemirror/search";
     import { keymap } from "@codemirror/view";
+    import { redo } from "@codemirror/commands";
     import { editorState } from "$lib/state/editor.svelte";
     import { updateSearchStats } from "$lib/editor/core/actions";
 
@@ -111,6 +112,8 @@
         );
 
         const customSearchKeymap = keymap.of([
+            { key: "Mod-y", run: redo, preventDefault: true },
+            { key: "Mod-Shift-z", run: redo, preventDefault: true },
             {
                 key: "Mod-f",
                 run: (targetView) => {

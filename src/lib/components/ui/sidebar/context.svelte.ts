@@ -1,5 +1,6 @@
 import { getContext, setContext } from "svelte";
 import { SIDEBAR_KEYBOARD_SHORTCUT } from "./constants.js";
+import { registerHotkey } from "$lib/hotkeys";
 
 type Getter<T> = () => T;
 
@@ -28,16 +29,19 @@ class SidebarState {
 	constructor(props: SidebarStateProps) {
 		this.setOpen = props.setOpen;
 		this.props = props;
-	}
 
-	// Convenience getter for checking if the sidebar is mobile
-	// Event handler to apply to the `<svelte:window>`
-	handleShortcutKeydown = (e: KeyboardEvent) => {
-		if (e.key === SIDEBAR_KEYBOARD_SHORTCUT && (e.metaKey || e.ctrlKey)) {
-			e.preventDefault();
-			this.toggle();
-		}
-	};
+		$effect(() => {
+			const modShortcut = `Mod+${SIDEBAR_KEYBOARD_SHORTCUT.toUpperCase()}` as any;
+			return registerHotkey(
+				modShortcut,
+				(e) => {
+					e.preventDefault();
+					this.toggle();
+				},
+				{ ignoreInputs: false },
+			);
+		});
+	}
 
 	toggle = () => {
 		return this.setOpen(!this.open);

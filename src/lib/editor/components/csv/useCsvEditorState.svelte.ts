@@ -1,6 +1,7 @@
 import { tick } from "svelte";
 import type { ColumnDef } from "@tanstack/svelte-table";
 import type { useCsvHistory, TableOp, HistoryEntry } from "./useCsvHistory.svelte";
+import type { HotkeyBinding } from "$lib/hotkeys";
 
 type CsvHistory = ReturnType<typeof useCsvHistory>;
 
@@ -221,13 +222,9 @@ export function useCsvEditorState(
         focusCurrentCell();
     }
 
-    function handleEditKeydown(e: KeyboardEvent) {
-        if (!editingCell) return;
-        e.stopPropagation();
-
-        const parsed = getParsed();
-        if (e.key === "Enter") {
-            e.preventDefault();
+    const editHotkeys: HotkeyBinding[] = [
+        { key: "Enter", callback: () => {
+            const parsed = getParsed();
             commitEdit();
             if (focusedCell) {
                 focusedCell = {
@@ -236,138 +233,136 @@ export function useCsvEditorState(
                 };
             }
             navigateAndFocus();
-        } else if (e.key === "Escape") {
+        }, options: { preventDefault: true, ignoreInputs: false } },
+        { key: "Escape", callback: () => {
             cancelEdit();
             focusCurrentCell();
-        } else if (e.key === "Tab") {
-            e.preventDefault();
+        }, options: { preventDefault: true, ignoreInputs: false } },
+        { key: "Tab", callback: () => {
             commitEdit();
             if (focusedCell) {
-                handleTabNavigation(e.shiftKey);
+                handleTabNavigation(false);
             }
             navigateAndFocus();
-        }
-    }
+        }, options: { preventDefault: true, ignoreInputs: false } },
+        { key: "Shift+Tab", callback: () => {
+            commitEdit();
+            if (focusedCell) {
+                handleTabNavigation(true);
+            }
+            navigateAndFocus();
+        }, options: { preventDefault: true, ignoreInputs: false } }
+    ];
 
     const PAGE_SIZE = 20;
 
+    const cellHotkeys: HotkeyBinding[] = [
+        { key: "Mod+Z", callback: handleUndo, options: { preventDefault: true, ignoreInputs: true } },
+        { key: "Mod+Shift+Z", callback: handleRedo, options: { preventDefault: true, ignoreInputs: true } },
+        { key: "Mod+Y", callback: handleRedo, options: { preventDefault: true, ignoreInputs: true } },
+        { key: "Enter", callback: () => {
+            if (!focusedCell) return;
+            startEditing(focusedCell.rowIndex, focusedCell.colIndex, getCellValue(focusedCell.rowIndex, focusedCell.colIndex));
+        }, options: { preventDefault: true, ignoreInputs: true } },
+        { key: "F2", callback: () => {
+            if (!focusedCell) return;
+            startEditing(focusedCell.rowIndex, focusedCell.colIndex, getCellValue(focusedCell.rowIndex, focusedCell.colIndex));
+        }, options: { preventDefault: true, ignoreInputs: true } },
+        { key: "Delete", callback: () => {
+            if (!focusedCell) return;
+            clearCell();
+        }, options: { preventDefault: true, ignoreInputs: true } },
+        { key: "Backspace", callback: () => {
+            if (!focusedCell) return;
+            clearCell();
+        }, options: { preventDefault: true, ignoreInputs: true } },
+        { key: "ArrowUp", callback: () => {
+            if (!focusedCell) return;
+            focusedCell = { rowIndex: Math.max(-1, focusedCell.rowIndex - 1), colIndex: focusedCell.colIndex };
+            navigateAndFocus();
+        }, options: { preventDefault: true, ignoreInputs: true } },
+        { key: "ArrowDown", callback: () => {
+            if (!focusedCell) return;
+            const maxRow = getParsed().rows.length - 1;
+            focusedCell = { rowIndex: Math.min(maxRow, focusedCell.rowIndex + 1), colIndex: focusedCell.colIndex };
+            navigateAndFocus();
+        }, options: { preventDefault: true, ignoreInputs: true } },
+        { key: "ArrowLeft", callback: () => {
+            if (!focusedCell) return;
+            focusedCell = { rowIndex: focusedCell.rowIndex, colIndex: Math.max(0, focusedCell.colIndex - 1) };
+            navigateAndFocus();
+        }, options: { preventDefault: true, ignoreInputs: true } },
+        { key: "ArrowRight", callback: () => {
+            if (!focusedCell) return;
+            const maxCol = columns().length - 1;
+            focusedCell = { rowIndex: focusedCell.rowIndex, colIndex: Math.min(maxCol, focusedCell.colIndex + 1) };
+            navigateAndFocus();
+        }, options: { preventDefault: true, ignoreInputs: true } },
+        { key: "Tab", callback: () => {
+            if (!focusedCell) return;
+            handleTabNavigation(false);
+            navigateAndFocus();
+        }, options: { preventDefault: true, ignoreInputs: true } },
+        { key: "Shift+Tab", callback: () => {
+            if (!focusedCell) return;
+            handleTabNavigation(true);
+            navigateAndFocus();
+        }, options: { preventDefault: true, ignoreInputs: true } },
+        { key: "Home", callback: () => {
+            if (!focusedCell) return;
+            focusedCell = { rowIndex: focusedCell.rowIndex, colIndex: 0 };
+            navigateAndFocus();
+        }, options: { preventDefault: true, ignoreInputs: true } },
+        { key: "Mod+Home" as any, callback: () => {
+            if (!focusedCell) return;
+            focusedCell = { rowIndex: 0, colIndex: 0 };
+            navigateAndFocus();
+        }, options: { preventDefault: true, ignoreInputs: true } },
+        { key: "End", callback: () => {
+            if (!focusedCell) return;
+            focusedCell = { rowIndex: focusedCell.rowIndex, colIndex: columns().length - 1 };
+            navigateAndFocus();
+        }, options: { preventDefault: true, ignoreInputs: true } },
+        { key: "Mod+End" as any, callback: () => {
+            if (!focusedCell) return;
+            focusedCell = { rowIndex: getParsed().rows.length - 1, colIndex: columns().length - 1 };
+            navigateAndFocus();
+        }, options: { preventDefault: true, ignoreInputs: true } },
+        { key: "PageUp", callback: () => {
+            if (!focusedCell) return;
+            focusedCell = { rowIndex: Math.max(0, focusedCell.rowIndex - PAGE_SIZE), colIndex: focusedCell.colIndex };
+            navigateAndFocus();
+        }, options: { preventDefault: true, ignoreInputs: true } },
+        { key: "PageDown", callback: () => {
+            if (!focusedCell) return;
+            const maxRow = getParsed().rows.length - 1;
+            focusedCell = { rowIndex: Math.min(maxRow, focusedCell.rowIndex + PAGE_SIZE), colIndex: focusedCell.colIndex };
+            navigateAndFocus();
+        }, options: { preventDefault: true, ignoreInputs: true } },
+        { key: "Escape", callback: () => {
+            focusedCell = null;
+        }, options: { preventDefault: true, ignoreInputs: true } }
+    ];
+
     function handleCellKeydown(e: KeyboardEvent) {
         if (editingCell) return;
-
-        // Handle Undo / Redo
-        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") {
-            e.preventDefault();
-            if (e.shiftKey) {
-                handleRedo();
-            } else {
-                handleUndo();
-            }
-            return;
-        }
-
-        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "y") {
-            e.preventDefault();
-            handleRedo();
-            return;
-        }
-
         if (!focusedCell) return;
 
         const { rowIndex, colIndex } = focusedCell;
-        const parsed = getParsed();
-        const maxRow = parsed.rows.length - 1;
-        const maxCol = columns().length - 1;
 
-        switch (e.key) {
-            case "Enter":
-            case "F2":
-                e.preventDefault();
-                startEditing(rowIndex, colIndex, getCellValue(rowIndex, colIndex));
-                return;
-
-            case "Delete":
-            case "Backspace":
-                e.preventDefault();
-                clearCell();
-                return;
-
-            case "ArrowUp":
-                e.preventDefault();
-                focusedCell = { rowIndex: Math.max(-1, rowIndex - 1), colIndex };
-                break;
-
-            case "ArrowDown":
-                e.preventDefault();
-                focusedCell = { rowIndex: Math.min(maxRow, rowIndex + 1), colIndex };
-                break;
-
-            case "ArrowLeft":
-                e.preventDefault();
-                focusedCell = { rowIndex, colIndex: Math.max(0, colIndex - 1) };
-                break;
-
-            case "ArrowRight":
-                e.preventDefault();
-                focusedCell = { rowIndex, colIndex: Math.min(maxCol, colIndex + 1) };
-                break;
-
-            case "Tab":
-                e.preventDefault();
-                handleTabNavigation(e.shiftKey);
-                break;
-
-            case "Home":
-                e.preventDefault();
-                if (e.ctrlKey || e.metaKey) {
-                    focusedCell = { rowIndex: 0, colIndex: 0 };
-                } else {
-                    focusedCell = { rowIndex, colIndex: 0 };
+        // Type-to-edit: single printable character starts editing
+        if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+            e.preventDefault();
+            editingCell = { rowIndex, colIndex };
+            editValue = e.key;
+            tick().then(() => {
+                const input = document.querySelector(".csv-edit-input") as HTMLInputElement;
+                if (input) {
+                    input.focus();
+                    input.selectionStart = input.selectionEnd = input.value.length;
                 }
-                break;
-
-            case "End":
-                e.preventDefault();
-                if (e.ctrlKey || e.metaKey) {
-                    focusedCell = { rowIndex: maxRow, colIndex: maxCol };
-                } else {
-                    focusedCell = { rowIndex, colIndex: maxCol };
-                }
-                break;
-
-            case "PageUp":
-                e.preventDefault();
-                focusedCell = { rowIndex: Math.max(0, rowIndex - PAGE_SIZE), colIndex };
-                break;
-
-            case "PageDown":
-                e.preventDefault();
-                focusedCell = { rowIndex: Math.min(maxRow, rowIndex + PAGE_SIZE), colIndex };
-                break;
-
-            case "Escape":
-                e.preventDefault();
-                focusedCell = null;
-                return;
-
-            default:
-                // Type-to-edit: single printable character starts editing
-                if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
-                    e.preventDefault();
-                    editingCell = { rowIndex, colIndex };
-                    editValue = e.key;
-                    tick().then(() => {
-                        const input = document.querySelector(".csv-edit-input") as HTMLInputElement;
-                        if (input) {
-                            input.focus();
-                            input.selectionStart = input.selectionEnd = input.value.length;
-                        }
-                    });
-                    return;
-                }
-                return;
+            });
         }
-
-        navigateAndFocus();
     }
 
     return {
@@ -389,7 +384,8 @@ export function useCsvEditorState(
         startEditing,
         commitEdit,
         cancelEdit,
-        handleEditKeydown,
+        cellHotkeys,
+        editHotkeys,
         handleCellKeydown,
         navigateAndFocus,
     };

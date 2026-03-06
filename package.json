@@ -45,6 +45,7 @@
     "@nextjournal/lang-clojure": "^1.0.0",
     "@replit/codemirror-lang-svelte": "^6.0.0",
     "@tailwindcss/typography": "^0.5.19",
+    "@tanstack/hotkeys": "^0.3.1",
     "@tanstack/svelte-virtual": "^3.13.19",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-clipboard-manager": "^2.0.0",

@@ -48,6 +48,7 @@ Welcome to the Grayslate project. This document serves as a "production-grade" r
 
 ### 5. Application Features & Core Libraries
 **> To know more about the CSV Virtualizer, YOU MUST READ the `.agents/csv-architecture/SKILL.md` file.**
+**> To know more about keyboard shortcut management (hotkeys), YOU MUST READ the `.agents/tanstack-hotkeys/SKILL.md` file.**
 *   **Language Detection:** Uses a fast, heuristic synchronous pipeline.
 *   **CSV Table View:** Uses a custom scroll virtualizer with a hard cap of 200 items. Limits exist to prevent browser max-height limits from rendering millions of DOM elements.
 *   **Markdown Preview:** Parsed via `marked` and sanitized via `dompurify`, with custom bi-directional scroll synchronization.

@@ -129,18 +129,47 @@ export function useScrollVirtualizer(options: {
             const el = options.getScrollElement();
             if (!el) return;
 
+            const align = scrollOpts?.align ?? "auto";
+
             if (!needsScaling) {
-                let top = HEADER_HEIGHT + index * rowHeight;
-                if (scrollOpts?.align === "center") {
-                    top -= (containerHeight - rowHeight) / 2;
-                } else if (scrollOpts?.align === "end") {
-                    top -= containerHeight - rowHeight;
+                const itemTop = HEADER_HEIGHT + index * rowHeight;
+                const itemBottom = itemTop + rowHeight;
+                const viewTop = el.scrollTop;
+                const viewBottom = viewTop + containerHeight;
+
+                // "auto": only scroll if the item is outside the visible area
+                if (align === "auto") {
+                    if (itemTop >= viewTop && itemBottom <= viewBottom) return;
+                    if (itemTop < viewTop) {
+                        el.scrollTo({ top: Math.max(0, itemTop) });
+                    } else {
+                        el.scrollTo({ top: Math.max(0, itemBottom - containerHeight) });
+                    }
+                } else {
+                    let top = itemTop;
+                    if (align === "center") {
+                        top -= (containerHeight - rowHeight) / 2;
+                    } else if (align === "end") {
+                        top -= containerHeight - rowHeight;
+                    }
+                    el.scrollTo({ top: Math.max(0, top) });
                 }
-                el.scrollTo({ top: Math.max(0, top) });
             } else {
                 const visibleCount = Math.ceil(
                     Math.max(0, containerHeight - HEADER_HEIGHT) / rowHeight,
                 );
+
+                // "auto": check if already visible in scaled mode
+                if (align === "auto") {
+                    const rowScrollTop = Math.max(0, el.scrollTop - HEADER_HEIGHT);
+                    const maxScroll = Math.max(1, virtualTotalHeight - containerHeight);
+                    const fraction = Math.min(1, rowScrollTop / Math.max(1, maxScroll));
+                    const maxFirstRow = Math.max(0, totalCount - visibleCount);
+                    const firstVisibleRow = Math.round(fraction * maxFirstRow);
+                    const lastVisibleRow = firstVisibleRow + visibleCount - 1;
+                    if (index >= firstVisibleRow && index <= lastVisibleRow) return;
+                }
+
                 const maxFirstRow = Math.max(1, totalCount - visibleCount);
                 const fraction = Math.min(1, index / maxFirstRow);
                 const maxScroll = Math.max(0, virtualTotalHeight - containerHeight);

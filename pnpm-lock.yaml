@@ -104,6 +104,9 @@ importers:
       '@tailwindcss/typography':
         specifier: ^0.5.19
         version: 0.5.19(tailwindcss@4.2.1)
+      '@tanstack/hotkeys':
+        specifier: ^0.3.1
+        version: 0.3.1
       '@tanstack/svelte-virtual':
         specifier: ^3.13.19
         version: 3.13.19(svelte@5.53.3)
@@ -1000,6 +1003,13 @@ packages:
     resolution: {integrity: sha512-TBf2sJjYeb28jD2U/OhwdW0bbOsxkWPwQ7SrqGf9sVcoYwZj7rkXljroBO9wKBut9XnmQLXanuDUeqQK0lGg/w==}
     peerDependencies:
       vite: ^5.2.0 || ^6 || ^7
+
+  '@tanstack/hotkeys@0.3.1':
+    resolution: {integrity: sha512-G+v+PUac8ff/jg752yhhfPqw7/0xr8RYKL69Jb4i7L1JCPKwwoO4aLqVSmI17WSDN6sh1+nNf8QzUOphuPLAuw==}
+    engines: {node: '>=18'}
+
+  '@tanstack/store@0.9.1':
+    resolution: {integrity: sha512-+qcNkOy0N1qSGsP7omVCW0SDrXtaDcycPqBDE726yryiA5eTDFpjBReaYjghVJwNf1pcPMyzIwTGlYjCSQR0Fg==}
 
   '@tanstack/svelte-table@9.0.0-alpha.10':
     resolution: {integrity: sha512-H0eAQlpXgK9JYYrgc0cWXVqEJywxkhuYODnVobUZGskFg6J+5PP+7UCjzrY9ftMge6s1hwb2Ipq3u4wPYJz7HA==}
@@ -2391,6 +2401,12 @@ snapshots:
       '@tailwindcss/oxide': 4.2.1
       tailwindcss: 4.2.1
       vite: 6.4.1(@types/node@25.3.1)(jiti@2.6.1)(lightningcss@1.31.1)(tsx@4.21.0)
+
+  '@tanstack/hotkeys@0.3.1':
+    dependencies:
+      '@tanstack/store': 0.9.1
+
+  '@tanstack/store@0.9.1': {}
 
   '@tanstack/svelte-table@9.0.0-alpha.10(svelte@5.53.3)':
     dependencies:
