@@ -125,6 +125,13 @@
             "Building table…",
             `${rowCount.toLocaleString()} rows`,
           );
+
+          // Focus the first cell of the body when parsing completes
+          // This typically happens when switching from text mode to table mode.
+          if (rowCount > 0 && !csvEditorState.focusedCell) {
+            csvEditorState.focusedCell = { rowIndex: 0, colIndex: 0 };
+            csvEditorState.navigateAndFocus();
+          }
           break;
         }
         case "error":
