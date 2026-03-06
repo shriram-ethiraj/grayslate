@@ -1,3 +1,4 @@
+import type { Range } from "@codemirror/state";
 import { ViewPlugin, Decoration, EditorView } from "@codemirror/view";
 import { syntaxTree } from "@codemirror/language";
 import { WidgetType } from "@codemirror/view";
@@ -46,7 +47,7 @@ export const jsonInlayHints = ViewPlugin.fromClass(class {
     }
 
     buildDecorations(view: EditorView) {
-        const widgets: any[] = [];
+        const widgets: Range<Decoration>[] = [];
         const tree = syntaxTree(view.state);
 
         for (let { from, to } of view.visibleRanges) {

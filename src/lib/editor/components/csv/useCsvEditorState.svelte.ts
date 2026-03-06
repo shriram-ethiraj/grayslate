@@ -2,8 +2,6 @@ import { tick } from "svelte";
 import type { ColumnDef } from "@tanstack/svelte-table";
 import type { CsvParseResult } from "$lib/editor/core/csvParser";
 import { serializeCsv } from "$lib/editor/core/csvParser";
-import { dispatchCsvDocChange } from "$lib/editor/core/csvCodeMirror";
-import { editorState as appEditorState } from "$lib/state/editor.svelte";
 import type { HotkeyBinding } from "$lib/hotkeys";
 import { useCsvHistory, type TableOp } from "./useCsvHistory.svelte";
 
@@ -92,6 +90,21 @@ function applyOpsToParsed(parsed: ParsedCsv, ops: TableOp[]): ParsedCsv {
                 }
                 break;
             }
+            case "bulk-cell-fill": {
+                for (let rowIndex = op.startRow; rowIndex <= op.endRow; rowIndex += 1) {
+                    const row = nextParsed.rows[rowIndex];
+                    if (!row) continue;
+                    const dataRow = op.data[rowIndex - op.startRow];
+                    if (!dataRow) continue;
+                    for (let colIndex = op.startCol; colIndex <= op.endCol; colIndex += 1) {
+                        while (row.length <= colIndex) {
+                            row.push("");
+                        }
+                        row[colIndex] = dataRow[colIndex - op.startCol] ?? "";
+                    }
+                }
+                break;
+            }
         }
     }
 
@@ -134,12 +147,21 @@ function invertOp(op: TableOp): TableOp {
             };
         case "bulk-cell-clear":
             return {
+                type: "bulk-cell-fill",
+                startRow: op.startRow,
+                endRow: op.endRow,
+                startCol: op.startCol,
+                endCol: op.endCol,
+                data: op.oldValues.map((row) => [...row]),
+            };
+        case "bulk-cell-fill":
+            return {
                 type: "bulk-cell-clear",
                 startRow: op.startRow,
                 endRow: op.endRow,
                 startCol: op.startCol,
                 endCol: op.endCol,
-                oldValues: op.oldValues.map((row) => [...row]),
+                oldValues: op.data.map((row) => [...row]),
             };
     }
 }
@@ -178,16 +200,6 @@ export function useCsvEditorState(
 
         setParsed(nextParsed);
         onCsvTextApplied?.(nextText, userEvent);
-
-        const view = appEditorState.activeView;
-        if (!view) {
-            return;
-        }
-
-        dispatchCsvDocChange(view, nextText, {
-            userEvent,
-            focus: false,
-        });
     }
 
     function applyTableOps(ops: TableOp[], userEvent: string, options?: { pushHistory?: boolean }) {

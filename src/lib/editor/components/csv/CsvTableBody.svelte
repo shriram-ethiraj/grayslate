@@ -4,6 +4,18 @@
   import type { useCsvEditorState } from "./useCsvEditorState.svelte";
   import { hotkey } from "$lib/hotkeys";
 
+  type CaretPositionResult = {
+    offsetNode: Node;
+    offset: number;
+  };
+
+  type DocumentWithCaretPositionFromPoint = Document & {
+    caretPositionFromPoint?: (
+      x: number,
+      y: number,
+    ) => CaretPositionResult | null;
+  };
+
   let {
     table,
     virtualizer,
@@ -84,6 +96,8 @@
                 }}
                 ondblclick={(e) => {
                   let offset = (row[colIndex] ?? "").length;
+                  const documentWithCaretFallback =
+                    document as DocumentWithCaretPositionFromPoint;
                   if (document.caretRangeFromPoint) {
                     const range = document.caretRangeFromPoint(
                       e.clientX,
@@ -95,8 +109,8 @@
                     ) {
                       offset = range.startOffset;
                     }
-                  } else if ((document as any).caretPositionFromPoint) {
-                    const pos = (document as any).caretPositionFromPoint(
+                  } else if (documentWithCaretFallback.caretPositionFromPoint) {
+                    const pos = documentWithCaretFallback.caretPositionFromPoint(
                       e.clientX,
                       e.clientY,
                     );

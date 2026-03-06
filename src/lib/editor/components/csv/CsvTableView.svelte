@@ -20,6 +20,28 @@
   import CsvTableBody from "./CsvTableBody.svelte";
   import CsvContextMenu from "./CsvContextMenu.svelte";
 
+  type Updater<T> = T | ((old: T) => T);
+
+  type ColumnSizingState = Record<string, number>;
+
+  type ColumnSizingInfoState = {
+    columnSizingStart: [string, number][];
+    deltaOffset: number | null;
+    deltaPercentage: number | null;
+    isResizingColumn: string | false;
+    startOffset: number | null;
+    startSize: number | null;
+  };
+
+  function applyUpdater<T>(updater: Updater<T>, current: T): T {
+    if (typeof updater === "function") {
+      const updaterFn = updater as (old: T) => T;
+      return updaterFn(current);
+    }
+
+    return updater;
+  }
+
   let {
     content = $bindable(""),
     tableInfo = $bindable({ rows: 0, cols: 0, delimiter: "", errors: 0 }),
@@ -206,22 +228,20 @@
   );
 
   $effect(() => {
-    editorState.csv.undo = () => csvEditorState.handleUndo();
-    editorState.csv.redo = () => csvEditorState.handleRedo();
+    const undoFn = () => csvEditorState.handleUndo();
+    const redoFn = () => csvEditorState.handleRedo();
+    editorState.csv.undo = undoFn;
+    editorState.csv.redo = redoFn;
 
     return () => {
-      if (editorState.csv.undo === csvEditorState.handleUndo) {
-        editorState.csv.undo = undefined;
-      }
-      if (editorState.csv.redo === csvEditorState.handleRedo) {
-        editorState.csv.redo = undefined;
-      }
+      if (editorState.csv.undo === undoFn) editorState.csv.undo = undefined;
+      if (editorState.csv.redo === redoFn) editorState.csv.redo = undefined;
     };
   });
 
   // 6. TanStack Table Instance — empty data, only used for column sizing/headers
-  let columnSizing = $state<Record<string, number>>({});
-  let columnSizingInfo = $state({
+  let columnSizing = $state<ColumnSizingState>({});
+  let columnSizingInfo = $state<ColumnSizingInfoState>({
     startOffset: null,
     startSize: null,
     deltaOffset: null,
@@ -242,22 +262,14 @@
         return columnSizing;
       },
       get columnSizingInfo() {
-        return columnSizingInfo as any;
+        return columnSizingInfo;
       },
     },
     onColumnSizingChange: (updater) => {
-      if (typeof updater === "function") {
-        columnSizing = updater(columnSizing);
-      } else {
-        columnSizing = updater;
-      }
+      columnSizing = applyUpdater(updater, columnSizing);
     },
     onColumnSizingInfoChange: (updater) => {
-      if (typeof updater === "function") {
-        columnSizingInfo = updater(columnSizingInfo as any) as any;
-      } else {
-        columnSizingInfo = updater as any;
-      }
+      columnSizingInfo = applyUpdater(updater, columnSizingInfo);
     },
     onStateChange: () => {},
     renderFallbackValue: null,

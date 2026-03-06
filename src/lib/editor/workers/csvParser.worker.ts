@@ -26,19 +26,23 @@ self.onmessage = (e: MessageEvent) => {
     let offset = 0;
     let totalRows = 0;
 
-    (Papa.parse as any)(text, {
+    Papa.parse<string[]>(text, {
         header: false,
         skipEmptyLines: "greedy",
         delimitersToGuess: [",", "\t", ";", "|", ":", "~"],
-        step: function (results: any) {
+        step(results: Papa.ParseStepResult<string[]>) {
+            for (const error of results.errors) {
+                errors.push(`Row ${error.row}: ${error.message}`);
+            }
+
             if (isFirstRow) {
-                headers = results.data as string[];
-                detectedDelimiter = results.meta.delimiter;
+                headers = results.data;
+                detectedDelimiter = results.meta.delimiter ?? ",";
                 isFirstRow = false;
                 return;
             }
 
-            currentChunk.push(results.data as string[]);
+            currentChunk.push(results.data);
             totalRows++;
 
             if (currentChunk.length >= CHUNK_SIZE) {
@@ -52,10 +56,7 @@ self.onmessage = (e: MessageEvent) => {
                 currentChunk = [];
             }
         },
-        error: function (error: Papa.ParseError) {
-            errors.push(`Row ${error.row}: ${error.message}`);
-        },
-        complete: function () {
+        complete() {
             // Send remaining chunk
             if (currentChunk.length > 0) {
                 self.postMessage({

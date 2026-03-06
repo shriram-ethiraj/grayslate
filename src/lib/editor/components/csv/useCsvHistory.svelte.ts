@@ -33,63 +33,9 @@ export type BulkRowAdd = { type: 'bulk-row-add'; start: number; data: string[][]
 export type BulkColDelete = { type: 'bulk-col-delete'; start: number; end: number; headers: string[]; data: string[][] };
 export type BulkColAdd = { type: 'bulk-col-add'; start: number; headers: string[]; data: string[][] };
 export type BulkCellClear = { type: 'bulk-cell-clear'; startRow: number; endRow: number; startCol: number; endCol: number; oldValues: string[][] };
+export type BulkCellFill = { type: 'bulk-cell-fill'; startRow: number; endRow: number; startCol: number; endCol: number; data: string[][] };
 
-export type TableOp = CellEdit | RowAdd | RowDelete | HeaderEdit | BulkRowDelete | BulkRowAdd | BulkColDelete | BulkColAdd | BulkCellClear;
-
-export type WorkerOp = 
-    | { type: 'cell'; row: number; col: number; value: string }
-    | { type: 'header-cell'; col: number; value: string }
-    | { type: 'row-add'; index: number; data: string[][] }
-    | { type: 'row-delete'; index: number; count: number }
-    | { type: 'col-add'; index: number; headers: string[]; data: string[][] }
-    | { type: 'col-delete'; index: number; count: number }
-    | { type: 'cell-clear'; startRow: number; endRow: number; startCol: number; endCol: number }
-    | { type: 'cell-fill'; startRow: number; endRow: number; startCol: number; endCol: number; data: string[][] };
-
-export function translateToWorkerOps(ops: TableOp[], reverse: boolean): WorkerOp[] {
-    const result: WorkerOp[] = [];
-    const opsArray = reverse ? [...ops].reverse() : ops;
-
-    for (const op of opsArray) {
-        switch (op.type) {
-            case 'cell':
-                result.push({ type: 'cell', row: op.row, col: op.col, value: reverse ? op.oldValue : op.newValue });
-                break;
-            case 'header-cell':
-                result.push({ type: 'header-cell', col: op.col, value: reverse ? op.oldValue : op.newValue });
-                break;
-            case 'row-add':
-                if (reverse) result.push({ type: 'row-delete', index: op.index, count: 1 });
-                else result.push({ type: 'row-add', index: op.index, data: [op.data] });
-                break;
-            case 'row-delete':
-                if (reverse) result.push({ type: 'row-add', index: op.index, data: [op.data] });
-                else result.push({ type: 'row-delete', index: op.index, count: 1 });
-                break;
-            case 'bulk-row-delete':
-                if (reverse) result.push({ type: 'row-add', index: op.start, data: op.data });
-                else result.push({ type: 'row-delete', index: op.start, count: op.end - op.start + 1 });
-                break;
-            case 'bulk-row-add':
-                if (reverse) result.push({ type: 'row-delete', index: op.start, count: op.data.length });
-                else result.push({ type: 'row-add', index: op.start, data: op.data });
-                break;
-            case 'bulk-col-delete':
-                if (reverse) result.push({ type: 'col-add', index: op.start, headers: op.headers, data: op.data });
-                else result.push({ type: 'col-delete', index: op.start, count: op.end - op.start + 1 });
-                break;
-            case 'bulk-col-add':
-                if (reverse) result.push({ type: 'col-delete', index: op.start, count: op.headers.length });
-                else result.push({ type: 'col-add', index: op.start, headers: op.headers, data: op.data });
-                break;
-            case 'bulk-cell-clear':
-                if (reverse) result.push({ type: 'cell-fill', startRow: op.startRow, endRow: op.endRow, startCol: op.startCol, endCol: op.endCol, data: op.oldValues });
-                else result.push({ type: 'cell-clear', startRow: op.startRow, endRow: op.endRow, startCol: op.startCol, endCol: op.endCol });
-                break;
-        }
-    }
-    return result;
-}
+export type TableOp = CellEdit | RowAdd | RowDelete | HeaderEdit | BulkRowDelete | BulkRowAdd | BulkColDelete | BulkColAdd | BulkCellClear | BulkCellFill;
 
 // A single undo step can contain multiple operations (e.g. multi-cell paste)
 export type HistoryEntry = TableOp[];

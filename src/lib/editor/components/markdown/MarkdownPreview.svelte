@@ -1,6 +1,6 @@
 <script lang="ts">
   import DOMPurify from "dompurify";
-  import { Marked } from "marked";
+  import { Marked, type Token } from "marked";
   import { createScrollSync } from "./scrollSync";
   import type { EditorView } from "codemirror";
   import { onDestroy } from "svelte";
@@ -56,12 +56,12 @@
 
     try {
       const lineStarts = buildLineStarts(src);
-      const tokenLineMap = new WeakMap<object, number>();
+      const tokenLineMap = new WeakMap<Token, number>();
       let searchOffset = 0;
 
       const markedInstance = new Marked();
       markedInstance.use({
-        walkTokens(token: any) {
+        walkTokens(token) {
           if (token.raw && typeof token.raw === "string") {
             const idx = src.indexOf(token.raw, searchOffset);
             if (idx !== -1) {
@@ -72,120 +72,101 @@
             }
           }
         },
-        extensions: [
-          {
-            name: "heading",
-            renderer(this: any, token: any) {
-              const line = tokenLineMap.get(token);
-              const text = this.parser.parseInline(token.tokens);
-              const attr = line != null ? ` data-line="${line}"` : "";
-              return `<h${token.depth}${attr}>${text}</h${token.depth}>\n`;
-            },
+        renderer: {
+          heading(token) {
+            const line = tokenLineMap.get(token);
+            const text = this.parser.parseInline(token.tokens);
+            const attr = line != null ? ` data-line="${line}"` : "";
+            return `<h${token.depth}${attr}>${text}</h${token.depth}>\n`;
           },
-          {
-            name: "paragraph",
-            renderer(this: any, token: any) {
-              const line = tokenLineMap.get(token);
-              const text = this.parser.parseInline(token.tokens);
-              const attr = line != null ? ` data-line="${line}"` : "";
-              return `<p${attr}>${text}</p>\n`;
-            },
+          paragraph(token) {
+            const line = tokenLineMap.get(token);
+            const text = this.parser.parseInline(token.tokens);
+            const attr = line != null ? ` data-line="${line}"` : "";
+            return `<p${attr}>${text}</p>\n`;
           },
-          {
-            name: "code",
-            renderer(this: any, token: any) {
-              const line = tokenLineMap.get(token);
-              const attr = line != null ? ` data-line="${line}"` : "";
-              const langClass = token.lang
-                ? ` class="language-${token.lang}"`
-                : "";
-              const escaped = token.text
-                .replace(/&/g, "&amp;")
-                .replace(/</g, "&lt;")
-                .replace(/>/g, "&gt;")
-                .replace(/"/g, "&quot;");
-              return `<pre${attr}><code${langClass}>${escaped}</code></pre>\n`;
-            },
+          code(token) {
+            const line = tokenLineMap.get(token);
+            const attr = line != null ? ` data-line="${line}"` : "";
+            const langClass = token.lang
+              ? ` class="language-${token.lang}"`
+              : "";
+            const escaped = token.text
+              .replace(/&/g, "&amp;")
+              .replace(/</g, "&lt;")
+              .replace(/>/g, "&gt;")
+              .replace(/"/g, "&quot;");
+            return `<pre${attr}><code${langClass}>${escaped}</code></pre>\n`;
           },
-          {
-            name: "blockquote",
-            renderer(this: any, token: any) {
-              const line = tokenLineMap.get(token);
-              const body = this.parser.parse(token.tokens);
-              const attr = line != null ? ` data-line="${line}"` : "";
-              return `<blockquote${attr}>${body}</blockquote>\n`;
-            },
+          blockquote(token) {
+            const line = tokenLineMap.get(token);
+            const body = this.parser.parse(token.tokens);
+            const attr = line != null ? ` data-line="${line}"` : "";
+            return `<blockquote${attr}>${body}</blockquote>\n`;
           },
-          {
-            name: "list",
-            renderer(this: any, token: any) {
-              const line = tokenLineMap.get(token);
-              const tag = token.ordered ? "ol" : "ul";
-              let body = "";
-              for (const item of token.items) {
-                const itemLine = tokenLineMap.get(item);
-                const itemAttr =
-                  itemLine != null ? ` data-line="${itemLine}"` : "";
-                let itemBody = item.tokens
-                  ? this.parser.parse(item.tokens, !!item.loose)
-                  : "";
-                if (item.task) {
-                  const checked = item.checked
-                    ? ' checked="" disabled=""'
-                    : ' disabled=""';
-                  itemBody = `<input type="checkbox"${checked}> ${itemBody}`;
-                }
-                body += `<li${itemAttr}>${itemBody}</li>\n`;
-              }
-              const attr = line != null ? ` data-line="${line}"` : "";
-              const startAttr =
-                token.ordered && token.start !== 1
-                  ? ` start="${token.start}"`
-                  : "";
-              return `<${tag}${attr}${startAttr}>\n${body}</${tag}>\n`;
-            },
-          },
-          {
-            name: "table",
-            renderer(this: any, token: any) {
-              const line = tokenLineMap.get(token);
-              const attr = line != null ? ` data-line="${line}"` : "";
+          list(token) {
+            const line = tokenLineMap.get(token);
+            const tag = token.ordered ? "ol" : "ul";
+            let body = "";
 
-              let header = "<tr>";
-              for (let i = 0; i < token.header.length; i++) {
-                const cell = token.header[i];
+            for (const item of token.items) {
+              const itemLine = tokenLineMap.get(item);
+              const itemAttr =
+                itemLine != null ? ` data-line="${itemLine}"` : "";
+              let itemBody = this.parser.parse(item.tokens);
+
+              if (item.task) {
+                const checked = item.checked
+                  ? ' checked="" disabled=""'
+                  : ' disabled=""';
+                itemBody = `<input type="checkbox"${checked}> ${itemBody}`;
+              }
+
+              body += `<li${itemAttr}>${itemBody}</li>\n`;
+            }
+
+            const attr = line != null ? ` data-line="${line}"` : "";
+            const startAttr =
+              token.ordered && token.start !== 1
+                ? ` start="${token.start}"`
+                : "";
+            return `<${tag}${attr}${startAttr}>\n${body}</${tag}>\n`;
+          },
+          table(token) {
+            const line = tokenLineMap.get(token);
+            const attr = line != null ? ` data-line="${line}"` : "";
+
+            let header = "<tr>";
+            for (let i = 0; i < token.header.length; i++) {
+              const cell = token.header[i];
+              const align = token.align[i];
+              const alignAttr = align ? ` style="text-align:${align}"` : "";
+              const text = this.parser.parseInline(cell.tokens);
+              header += `<th${alignAttr}>${text}</th>`;
+            }
+            header += "</tr>\n";
+
+            let body = "";
+            for (const row of token.rows) {
+              body += "<tr>";
+              for (let i = 0; i < row.length; i++) {
+                const cell = row[i];
                 const align = token.align[i];
                 const alignAttr = align ? ` style="text-align:${align}"` : "";
                 const text = this.parser.parseInline(cell.tokens);
-                header += `<th${alignAttr}>${text}</th>`;
+                body += `<td${alignAttr}>${text}</td>`;
               }
-              header += "</tr>\n";
+              body += "</tr>\n";
+            }
 
-              let body = "";
-              for (const row of token.rows) {
-                body += "<tr>";
-                for (let i = 0; i < row.length; i++) {
-                  const cell = row[i];
-                  const align = token.align[i];
-                  const alignAttr = align ? ` style="text-align:${align}"` : "";
-                  const text = this.parser.parseInline(cell.tokens);
-                  body += `<td${alignAttr}>${text}</td>`;
-                }
-                body += "</tr>\n";
-              }
-
-              return `<table${attr}>\n<thead>\n${header}</thead>\n<tbody>\n${body}</tbody>\n</table>\n`;
-            },
+            return `<table${attr}>\n<thead>\n${header}</thead>\n<tbody>\n${body}</tbody>\n</table>\n`;
           },
-          {
-            name: "hr",
-            renderer(this: any, token: any) {
-              const line = tokenLineMap.get(token);
-              const attr = line != null ? ` data-line="${line}"` : "";
-              return `<hr${attr}>\n`;
-            },
+          hr(token) {
+            const line = tokenLineMap.get(token);
+            const attr = line != null ? ` data-line="${line}"` : "";
+            return `<hr${attr}>\n`;
           },
-        ],
+        },
       });
 
       const html = markedInstance.parse(src) as string;

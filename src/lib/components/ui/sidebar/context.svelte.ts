@@ -1,6 +1,7 @@
 import { getContext, setContext } from "svelte";
 import { SIDEBAR_KEYBOARD_SHORTCUT } from "./constants.js";
 import { registerHotkey } from "$lib/hotkeys";
+import type { RegisterableHotkey } from "@tanstack/hotkeys";
 
 type Getter<T> = () => T;
 
@@ -31,7 +32,10 @@ class SidebarState {
 		this.props = props;
 
 		$effect(() => {
-			const modShortcut = `Mod+${SIDEBAR_KEYBOARD_SHORTCUT.toUpperCase()}` as any;
+			const modShortcut: RegisterableHotkey = {
+				key: SIDEBAR_KEYBOARD_SHORTCUT.toUpperCase(),
+				mod: true,
+			};
 			return registerHotkey(
 				modShortcut,
 				(e) => {
