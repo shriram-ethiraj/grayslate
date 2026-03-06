@@ -1,233 +1,235 @@
 <script lang="ts">
-    import Editor from "$lib/editor/components/Editor.svelte";
-    import MarkdownPreview from "$lib/editor/components/markdown/MarkdownPreview.svelte";
-    import CsvTableView from "./csv/CsvTableView.svelte";
-    import StatusBar from "$lib/editor/components/StatusBar.svelte";
-    import EditorLoader from "$lib/editor/components/EditorLoader.svelte";
-    import {
-        ResizablePaneGroup,
-        ResizablePane,
-        ResizableHandle,
-    } from "$lib/components/ui/resizable";
-    import { languageDetector } from "$lib/editor/core/languageDetector";
-    import { debounce } from "lodash-es";
-    import type { EditorView } from "codemirror";
-    import {
-        editorState,
-        updateEditorLoader,
-        hideEditorLoader,
-        startLoaderTicker,
-        stopLoaderTicker,
-        type FileType,
-    } from "$lib/state/editor.svelte";
-    import { open as openFilePicker } from "@tauri-apps/plugin-dialog";
-    import { invoke } from "@tauri-apps/api/core";
-    import { toast } from "svelte-sonner";
+  import Editor from "$lib/editor/components/Editor.svelte";
+  import MarkdownPreview from "$lib/editor/components/markdown/MarkdownPreview.svelte";
+  import CsvTableView from "./csv/CsvTableView.svelte";
+  import StatusBar from "$lib/editor/components/StatusBar.svelte";
+  import EditorLoader from "$lib/editor/components/EditorLoader.svelte";
+  import {
+    ResizablePaneGroup,
+    ResizablePane,
+    ResizableHandle,
+  } from "$lib/components/ui/resizable";
+  import { languageDetector } from "$lib/editor/core/languageDetector";
+  import { debounce } from "lodash-es";
+  import type { EditorView } from "codemirror";
+  import {
+    editorState,
+    updateEditorLoader,
+    hideEditorLoader,
+    startLoaderTicker,
+    stopLoaderTicker,
+    type FileType,
+  } from "$lib/state/editor.svelte";
+  import { open as openFilePicker } from "@tauri-apps/plugin-dialog";
+  import { invoke } from "@tauri-apps/api/core";
+  import { toast } from "svelte-sonner";
 
-    let value = $state("");
-    let line = $state(1);
-    let col = $state(1);
-    let selectionSize = $state(0);
-    let language = $state("auto");
-    let detectedLanguage = $state("text");
+  let value = $state("");
+  let line = $state(1);
+  let col = $state(1);
+  let selectionSize = $state(0);
+  let language = $state("auto");
+  let detectedLanguage = $state("text");
 
-    // Compute the actual language to apply to the editor
-    let activeLanguage = $derived(
-        language === "auto" ? detectedLanguage : language,
-    );
+  // Compute the actual language to apply to the editor
+  let activeLanguage = $derived(
+    language === "auto" ? detectedLanguage : language,
+  );
 
-    // Sync activeLanguage to global editorState
-    $effect(() => {
-        editorState.fileType = activeLanguage as FileType;
-    });
+  let activeFilePath = $state("");
 
-    const checkLanguage = debounce((content: string) => {
-        if (language === "auto" && content) {
-            const result = languageDetector.detect(content);
-            if (result) {
-                detectedLanguage = result;
-            }
-        }
-    }, 1000);
+  // Sync activeLanguage to global editorState
+  $effect(() => {
+    editorState.fileType = activeLanguage as FileType;
+  });
 
-    // Watch the `value` and run language detection when it changes
-    $effect(() => {
-        checkLanguage(value);
-    });
-
-    let editorView = $state<EditorView | undefined>(undefined);
-
-    // -----------------------------------------------------------------------
-    // Menu: "File > Open File..."
-    //
-    // The Tauri menu emits "menu://open-file" when the user clicks the item
-    // (or presses Ctrl/Cmd+O via its accelerator). We open a native file
-    // picker, then invoke read_file_content on the Rust side which enforces
-    // the 50 MB size limit before returning the text.
-    // -----------------------------------------------------------------------
-    async function openFile(): Promise<void> {
-        const selected = await openFilePicker({
-            multiple: false,
-            directory: false,
-        });
-
-        // User cancelled the dialog
-        if (!selected) return;
-
-        const filePath = selected as string;
-        const filename = filePath.replace(/\\/g, "/").split("/").pop() ?? "";
-
-        // Start a decelerating progress ticker while the Rust read is in-flight
-        startLoaderTicker("Reading file…", filename, {
-            ceiling: 65,
-            factor: 0.06,
-            minStep: 0.3,
-            interval: 80,
-            startAt: 5,
-        });
-
-        try {
-            const content = await invoke<string>("read_file_content", {
-                path: filePath,
-            });
-
-            stopLoaderTicker();
-            updateEditorLoader("Detecting language…", filename, 72);
-
-            // Yield to let the UI repaint before running language detection
-            await new Promise<void>((r) => setTimeout(r, 0));
-            const detected =
-                languageDetector.detect(content, filename) ?? "text";
-
-            updateEditorLoader("Loading into editor…", filename, 88);
-            await new Promise<void>((r) => setTimeout(r, 0));
-
-            // If the filename's extension alone resolves to a language,
-            // pin it directly — no need for "auto" mode, and the debounced
-            const extLang = languageDetector.detect("", filename);
-            if (extLang) {
-                language = extLang;
-                detectedLanguage = extLang;
-            } else {
-                language = "auto";
-                detectedLanguage = detected;
-            }
-            value = content;
-        } catch (err: unknown) {
-            const msg = typeof err === "string" ? err : "Failed to open file.";
-            toast.error(msg);
-        } finally {
-            // Always clean up — idempotent in the success path
-            stopLoaderTicker();
-            hideEditorLoader();
-        }
+  const checkLanguage = debounce((content: string) => {
+    if (language === "auto" && content) {
+      const result = languageDetector.detect(content);
+      if (result) {
+        detectedLanguage = result;
+      }
     }
+  }, 1000);
 
-    // Register (and later clean up) the menu-event listener.
-    $effect(() => {
-        // load the event helper only when this effect runs so the static
-        // import can be removed. the promise resolves to an `unlisten` function
-        // which we call on cleanup.
-        const unlistenPromise = import("@tauri-apps/api/event").then(
-            ({ listen }) => listen("menu://open-file", () => openFile()),
-        );
+  // Watch the `value` and run language detection when it changes
+  $effect(() => {
+    checkLanguage(value);
+  });
 
-        return () => {
-            unlistenPromise.then((fn) => fn());
-        };
+  let editorView = $state<EditorView | undefined>(undefined);
+
+  // -----------------------------------------------------------------------
+  // Menu: "File > Open File..."
+  //
+  // The Tauri menu emits "menu://open-file" when the user clicks the item
+  // (or presses Ctrl/Cmd+O via its accelerator). We open a native file
+  // picker, then invoke read_file_content on the Rust side which enforces
+  // the 50 MB size limit before returning the text.
+  // -----------------------------------------------------------------------
+  async function openFile(): Promise<void> {
+    const selected = await openFilePicker({
+      multiple: false,
+      directory: false,
     });
 
-    // Derive whether CSV table view is active
-    let isCsvTableActive = $derived(
-        activeLanguage === "csv" &&
-            (editorState.csv.showTable || editorState.csv.serializing),
+    // User cancelled the dialog
+    if (!selected) return;
+
+    const filePath = selected as string;
+    const filename = filePath.replace(/\\/g, "/").split("/").pop() ?? "";
+
+    // Start a decelerating progress ticker while the Rust read is in-flight
+    startLoaderTicker("Reading file…", filename, {
+      ceiling: 65,
+      factor: 0.06,
+      minStep: 0.3,
+      interval: 80,
+      startAt: 5,
+    });
+
+    try {
+      const content = await invoke<string>("read_file_content", {
+        path: filePath,
+      });
+
+      stopLoaderTicker();
+      updateEditorLoader("Detecting language…", filename, 72);
+
+      // Yield to let the UI repaint before running language detection
+      await new Promise<void>((r) => setTimeout(r, 0));
+      const detected = languageDetector.detect(content, filename) ?? "text";
+
+      updateEditorLoader("Loading into editor…", filename, 88);
+      await new Promise<void>((r) => setTimeout(r, 0));
+
+      // If the filename's extension alone resolves to a language,
+      // pin it directly — no need for "auto" mode, and the debounced
+      const extLang = languageDetector.detect("", filename);
+      if (extLang) {
+        language = extLang;
+        detectedLanguage = extLang;
+      } else {
+        language = "auto";
+        detectedLanguage = detected;
+      }
+      activeFilePath = filePath;
+      value = content;
+    } catch (err: unknown) {
+      const msg = typeof err === "string" ? err : "Failed to open file.";
+      toast.error(msg);
+    } finally {
+      // Always clean up — idempotent in the success path
+      stopLoaderTicker();
+      hideEditorLoader();
+    }
+  }
+
+  // Register (and later clean up) the menu-event listener.
+  $effect(() => {
+    // load the event helper only when this effect runs so the static
+    // import can be removed. the promise resolves to an `unlisten` function
+    // which we call on cleanup.
+    const unlistenPromise = import("@tauri-apps/api/event").then(({ listen }) =>
+      listen("menu://open-file", () => openFile()),
     );
 
-    let csvInfo = $state({ rows: 0, cols: 0, delimiter: "", errors: 0 });
+    return () => {
+      unlistenPromise.then((fn) => fn());
+    };
+  });
+
+  // Derive whether CSV table view is active
+  let isCsvTableActive = $derived(
+    activeLanguage === "csv" &&
+      (editorState.csv.showTable || editorState.csv.serializing),
+  );
+
+  let csvInfo = $state({ rows: 0, cols: 0, delimiter: "", errors: 0 });
 </script>
 
 <div class="flex flex-1 flex-col min-h-0 min-w-0">
-    <div class="flex flex-1 min-h-0 min-w-0 relative">
-        <EditorLoader
-            visible={editorState.loader.visible}
-            message={editorState.loader.message}
-            subMessage={editorState.loader.subMessage}
-            progress={editorState.loader.progress}
-        />
+  <div class="flex flex-1 min-h-0 min-w-0 relative">
+    <EditorLoader
+      visible={editorState.loader.visible}
+      message={editorState.loader.message}
+      subMessage={editorState.loader.subMessage}
+      progress={editorState.loader.progress}
+    />
 
-        {#if isCsvTableActive}
-            <!--
+    {#if isCsvTableActive}
+      <!--
                 CSV mode: render only the table view — no ResizablePaneGroup
                 overhead. The flex-col container gives csv-table-wrapper the
                 flex parent it needs (flex: 1; min-height: 0) so the
                 virtualizer receives the correct containerHeight.
             -->
-            <div class="flex flex-1 flex-col min-h-0 min-w-0">
-                <CsvTableView bind:content={value} bind:tableInfo={csvInfo} />
-            </div>
-        {:else if activeLanguage === "markdown"}
-            <!--
+      <div class="flex flex-1 flex-col min-h-0 min-w-0">
+        <CsvTableView bind:content={value} bind:tableInfo={csvInfo} />
+      </div>
+    {:else if activeLanguage === "markdown"}
+      <!--
                 Markdown mode: ResizablePaneGroup keeps the Editor (pane 1)
                 permanently mounted. Only pane 2 (preview) is conditionally
                 appended so the editor never reloads when toggling the preview.
             -->
-            <ResizablePaneGroup direction="horizontal" class="flex-1 min-h-0">
-                <ResizablePane
-                    defaultSize={50}
-                    minSize={15}
-                    class="relative min-h-0"
-                >
-                    <div class="absolute inset-0">
-                        <Editor
-                            bind:value
-                            bind:line
-                            bind:col
-                            bind:selectionSize
-                            language={activeLanguage}
-                            bind:editorView
-                        />
-                    </div>
-                </ResizablePane>
+      <ResizablePaneGroup direction="horizontal" class="flex-1 min-h-0">
+        <ResizablePane defaultSize={50} minSize={15} class="relative min-h-0">
+          <div class="absolute inset-0">
+            {#key activeFilePath}
+              <Editor
+                bind:value
+                bind:line
+                bind:col
+                bind:selectionSize
+                language={activeLanguage}
+                bind:editorView
+              />
+            {/key}
+          </div>
+        </ResizablePane>
 
-                {#if editorState.markdown.showPreview}
-                    <ResizableHandle />
-                    <ResizablePane
-                        defaultSize={50}
-                        minSize={15}
-                        class="flex flex-col min-h-0"
-                    >
-                        <MarkdownPreview content={value} {editorView} />
-                    </ResizablePane>
-                {/if}
-            </ResizablePaneGroup>
-        {:else}
-            <!--
+        {#if editorState.markdown.showPreview}
+          <ResizableHandle />
+          <ResizablePane
+            defaultSize={50}
+            minSize={15}
+            class="flex flex-col min-h-0"
+          >
+            <MarkdownPreview content={value} {editorView} />
+          </ResizablePane>
+        {/if}
+      </ResizablePaneGroup>
+    {:else}
+      <!--
                 All other modes: plain editor, no pane group overhead.
                 absolute inset-0 inside relative flex-1 min-h-0 is the
                 standard sizing pattern used throughout this app.
             -->
-            <div class="relative flex-1 min-h-0 min-w-0">
-                <div class="absolute inset-0">
-                    <Editor
-                        bind:value
-                        bind:line
-                        bind:col
-                        bind:selectionSize
-                        language={activeLanguage}
-                        bind:editorView
-                    />
-                </div>
-            </div>
-        {/if}
-    </div>
-    <StatusBar
-        {line}
-        {col}
-        {selectionSize}
-        bind:language
-        {detectedLanguage}
-        {activeLanguage}
-        {isCsvTableActive}
-        {csvInfo}
-    />
+      <div class="relative flex-1 min-h-0 min-w-0">
+        <div class="absolute inset-0">
+          {#key activeFilePath}
+            <Editor
+              bind:value
+              bind:line
+              bind:col
+              bind:selectionSize
+              language={activeLanguage}
+              bind:editorView
+            />
+          {/key}
+        </div>
+      </div>
+    {/if}
+  </div>
+  <StatusBar
+    {line}
+    {col}
+    {selectionSize}
+    bind:language
+    {detectedLanguage}
+    {activeLanguage}
+    {isCsvTableActive}
+    {csvInfo}
+  />
 </div>

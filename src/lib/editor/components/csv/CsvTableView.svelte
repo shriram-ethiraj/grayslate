@@ -13,7 +13,7 @@
     completeEditorLoader,
   } from "$lib/state/editor.svelte";
   import { debounce } from "lodash-es";
-  import { untrack } from "svelte";
+  import { untrack, onDestroy } from "svelte";
   import { useCsvHistory } from "./useCsvHistory.svelte";
   import { useCsvEditorState } from "./useCsvEditorState.svelte";
   import { hotkey } from "$lib/hotkeys";
@@ -250,6 +250,20 @@
           type: "SERIALIZE",
         });
       }
+    }
+  });
+
+  onDestroy(() => {
+    // AGGRESSIVE MEMORY CLEANUP
+    parsed = { headers: [], rows: [], delimiter: ",", errors: [] };
+    pendingRows = [];
+    stableColumns = [];
+    tableContainerRef = undefined;
+    if (serializeWorker) {
+      serializeWorker.terminate();
+    }
+    if (parseWorker) {
+      parseWorker.terminate();
     }
   });
 
