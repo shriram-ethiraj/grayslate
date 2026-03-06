@@ -578,6 +578,7 @@
     flex-direction: column;
     flex: 1;
     min-height: 0;
+    min-width: 0;
     width: 100%;
     overflow: hidden;
     background: var(--background);
@@ -591,6 +592,8 @@
 
   .csv-table-container {
     flex: 1;
+    min-height: 0;
+    min-width: 0;
     overflow: auto;
     overscroll-behavior: none;
     position: relative;
