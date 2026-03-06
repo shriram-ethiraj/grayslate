@@ -112,7 +112,7 @@
 							class="flex h-12 w-full shrink-0 items-center justify-between border-b bg-background px-4"
 						>
 							<Sidebar.Trigger class="-ml-1" />
-							<div class="flex items-center gap-2">
+						<div class="flex items-center gap-2">
 								<EditorActions />
 								<ThemeToggle />
 							</div>

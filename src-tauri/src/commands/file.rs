@@ -5,7 +5,7 @@ const MAX_FILE_SIZE: u64 = 200 * 1024 * 1024;
 ///
 /// Returns an error string (forwarded to the frontend) when:
 /// - the path cannot be stat-ed or read, or
-/// - the file exceeds the 50 MB limit.
+/// - the file exceeds the 200 MB limit.
 #[tauri::command]
 pub async fn read_file_content(path: String) -> Result<String, String> {
     let metadata = std::fs::metadata(&path).map_err(|e| format!("Cannot access file: {}", e))?;

@@ -23,6 +23,7 @@
   import { open as openFilePicker } from "@tauri-apps/plugin-dialog";
   import { invoke } from "@tauri-apps/api/core";
   import { toast } from "svelte-sonner";
+  import { reclaimMemory } from "$lib/editor/core/memory";
 
   let value = $state("");
   let line = $state(1);
@@ -113,8 +114,15 @@
         language = "auto";
         detectedLanguage = detected;
       }
+
       activeFilePath = filePath;
       value = content;
+
+      // Yield to let Svelte update the DOM and dispose old CodeMirror instance
+      await new Promise<void>((r) => setTimeout(r, 10));
+
+      // Reclaim stale heap from the previous file (full-page-commit strategy)
+      reclaimMemory();
     } catch (err: unknown) {
       const msg = typeof err === "string" ? err : "Failed to open file.";
       toast.error(msg);
