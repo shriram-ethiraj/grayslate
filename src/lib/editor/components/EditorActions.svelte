@@ -16,7 +16,6 @@
             title="Switch to Plain CSV"
             disabled={editorState.loader.visible}
             onclick={() => {
-                editorState.csv.serializing = true;
                 editorState.csv.showTable = false;
             }}
         >

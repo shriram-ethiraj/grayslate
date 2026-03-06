@@ -13,6 +13,11 @@
   import { debounce } from "lodash-es";
   import type { EditorView } from "codemirror";
   import {
+    createManagedEditorSession,
+    dispatchManagedEditorTextChange,
+    type ManagedEditorSession,
+  } from "$lib/editor/core/editorSession";
+  import {
     editorState,
     updateEditorLoader,
     hideEditorLoader,
@@ -59,6 +64,9 @@
   });
 
   let editorView = $state<EditorView | undefined>(undefined);
+  let editorSession = $state.raw<ManagedEditorSession>(
+    createManagedEditorSession(),
+  );
 
   // -----------------------------------------------------------------------
   // Menu: "File > Open File..."
@@ -116,6 +124,7 @@
       }
 
       activeFilePath = filePath;
+  editorSession = createManagedEditorSession();
       value = content;
 
       // Yield to let Svelte update the DOM and dispose old CodeMirror instance
@@ -149,8 +158,7 @@
 
   // Derive whether CSV table view is active
   let isCsvTableActive = $derived(
-    activeLanguage === "csv" &&
-      (editorState.csv.showTable || editorState.csv.serializing),
+    activeLanguage === "csv" && editorState.csv.showTable,
   );
 
   let csvInfo = $state({ rows: 0, cols: 0, delimiter: "", errors: 0 });
@@ -165,16 +173,38 @@
       progress={editorState.loader.progress}
     />
 
-    {#if isCsvTableActive}
-      <!--
-                CSV mode: render only the table view — no ResizablePaneGroup
-                overhead. The flex-col container gives csv-table-wrapper the
-                flex parent it needs (flex: 1; min-height: 0) so the
-                virtualizer receives the correct containerHeight.
-            -->
-      <div class="flex flex-1 flex-col min-h-0 min-w-0">
-        <CsvTableView bind:content={value} bind:tableInfo={csvInfo} />
-      </div>
+    {#if activeLanguage === "csv"}
+      {#if isCsvTableActive}
+        <div class="relative flex-1 min-h-0 min-w-0">
+          <CsvTableView
+            bind:content={value}
+            bind:tableInfo={csvInfo}
+            onMirrorTextChange={(nextText: string, userEvent: string) => {
+              value = nextText;
+              dispatchManagedEditorTextChange(editorSession, nextText, {
+                userEvent,
+                focus: false,
+              });
+            }}
+          />
+        </div>
+      {:else}
+        <div class="relative flex-1 min-h-0 min-w-0">
+          <div class="absolute inset-0">
+            {#key activeFilePath}
+              <Editor
+                bind:value
+                bind:line
+                bind:col
+                bind:selectionSize
+                language={activeLanguage}
+                bind:editorView
+                session={editorSession}
+              />
+            {/key}
+          </div>
+        </div>
+      {/if}
     {:else if activeLanguage === "markdown"}
       <!--
                 Markdown mode: ResizablePaneGroup keeps the Editor (pane 1)
@@ -192,6 +222,7 @@
                 bind:selectionSize
                 language={activeLanguage}
                 bind:editorView
+                session={editorSession}
               />
             {/key}
           </div>
@@ -224,6 +255,7 @@
               bind:selectionSize
               language={activeLanguage}
               bind:editorView
+              session={editorSession}
             />
           {/key}
         </div>

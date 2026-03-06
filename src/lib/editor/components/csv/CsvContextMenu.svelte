@@ -1,5 +1,8 @@
 <script lang="ts">
   import { tick } from "svelte";
+  import Plus from "~icons/lucide/plus";
+  import ArrowUp from "~icons/lucide/arrow-up";
+  import ArrowDown from "~icons/lucide/arrow-down";
   import Trash2 from "~icons/lucide/trash-2";
   import type { useCsvEditorState } from "./useCsvEditorState.svelte";
   import { registerHotkey } from "$lib/hotkeys";
@@ -21,6 +24,10 @@
   const itemBase =
     "relative flex w-full items-center rounded-sm px-2 py-1.5 text-sm outline-hidden select-none";
   const itemEnabled = `${itemBase} cursor-pointer hover:bg-accent hover:text-accent-foreground`;
+  const destructiveItem = `${itemEnabled} text-destructive`;
+
+  const isRowSelection = $derived(editorState.isRowSelection());
+  const isColumnSelection = $derived(editorState.isColumnSelection());
 
   export function openMenu(x: number, y: number) {
     if (!editorState.selectionBlock) return;
@@ -69,6 +76,14 @@
 
   function handleDelete() {
     close();
+    if (isRowSelection) {
+      editorState.deleteSelectedRows();
+      return;
+    }
+    if (isColumnSelection) {
+      editorState.deleteSelectedColumns();
+      return;
+    }
     editorState.deleteSelection();
   }
 </script>
@@ -83,12 +98,70 @@
     tabindex="-1"
     oncontextmenu={(e) => e.preventDefault()}
   >
-    <button class={itemEnabled} role="menuitem" onclick={handleDelete}>
-      <Trash2 class="mr-2 h-4 w-4 shrink-0 text-destructive" />
-      <span class="text-destructive">Delete</span>
-      <span class="ml-auto pl-4 text-xs text-muted-foreground"
-        >{formatForDisplay("Delete")}</span
-      >
-    </button>
+    {#if isRowSelection}
+      <button class={itemEnabled} role="menuitem" onclick={() => {
+        close();
+        editorState.addRowAbove();
+      }}>
+        <Plus class="mr-2 h-4 w-4 shrink-0" />
+        <span>Insert Row Above</span>
+      </button>
+      <button class={itemEnabled} role="menuitem" onclick={() => {
+        close();
+        editorState.addRowBelow();
+      }}>
+        <Plus class="mr-2 h-4 w-4 shrink-0" />
+        <span>Insert Row Below</span>
+      </button>
+      <button class={itemEnabled} role="menuitem" onclick={() => {
+        close();
+        editorState.moveSelectedRowsUp();
+      }}>
+        <ArrowUp class="mr-2 h-4 w-4 shrink-0" />
+        <span>Move Row Up</span>
+        <span class="ml-auto pl-4 text-xs text-muted-foreground"
+          >{formatForDisplay("Alt+ArrowUp")}</span
+        >
+      </button>
+      <button class={itemEnabled} role="menuitem" onclick={() => {
+        close();
+        editorState.moveSelectedRowsDown();
+      }}>
+        <ArrowDown class="mr-2 h-4 w-4 shrink-0" />
+        <span>Move Row Down</span>
+        <span class="ml-auto pl-4 text-xs text-muted-foreground"
+          >{formatForDisplay("Alt+ArrowDown")}</span
+        >
+      </button>
+      <button class={destructiveItem} role="menuitem" onclick={handleDelete}>
+        <Trash2 class="mr-2 h-4 w-4 shrink-0" />
+        <span>Delete Row</span>
+        <span class="ml-auto pl-4 text-xs text-muted-foreground"
+          >{formatForDisplay("Delete")}</span
+        >
+      </button>
+    {:else if isColumnSelection}
+      <button class={itemEnabled} role="menuitem" onclick={() => {
+        close();
+        editorState.addColumnLeft();
+      }}>
+        <Plus class="mr-2 h-4 w-4 shrink-0" />
+        <span>Insert Column Left</span>
+      </button>
+      <button class={itemEnabled} role="menuitem" onclick={() => {
+        close();
+        editorState.addColumnRight();
+      }}>
+        <Plus class="mr-2 h-4 w-4 shrink-0" />
+        <span>Insert Column Right</span>
+      </button>
+      <button class={destructiveItem} role="menuitem" onclick={handleDelete}>
+        <Trash2 class="mr-2 h-4 w-4 shrink-0" />
+        <span>Delete Column</span>
+        <span class="ml-auto pl-4 text-xs text-muted-foreground"
+          >{formatForDisplay("Delete")}</span
+        >
+      </button>
+    {/if}
   </div>
 {/if}

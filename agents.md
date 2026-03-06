@@ -65,6 +65,7 @@ Welcome to the Grayslate project. This document serves as a "production-grade" r
 - **Language Detection:** Uses a fast, heuristic synchronous pipeline.
 - **Memory Management:** Uses a Rust `sysinfo` integration and a frontend "GC Pressure" trick to reclaim heap when switching away from large files (>2 MB).
 - **CSV Table View:** Uses a custom scroll virtualizer with a hard cap of 200 items. Limits exist to prevent browser max-height limits from rendering millions of DOM elements.
+- **CSV Mode Architecture:** CSV table mode mounts on demand, keeps its own table-session undo/redo stack, and mirrors each table change into a preserved headless CodeMirror `EditorState`. The heavy CodeMirror `EditorView` should not stay mounted while table mode is visible.
 - **Markdown Preview:** Parsed via `marked` and sanitized via `dompurify`, with custom bi-directional scroll synchronization.
 
 ---

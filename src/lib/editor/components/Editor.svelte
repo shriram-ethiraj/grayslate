@@ -1,20 +1,22 @@
 <script lang="ts">
-  import { EditorState, Compartment } from "@codemirror/state";
-  import { EditorView, basicSetup } from "codemirror";
-  import { scrollPastEnd } from "@codemirror/view";
+  import { EditorView } from "codemirror";
   import { createTheme } from "$lib/hooks/create-theme";
   import { andromedaConfig } from "$lib/themes/andromeda";
   import { materialLightConfig } from "$lib/themes/material-light";
-  import { colorHints } from "$lib/editor/extensions/colorHints";
-  import { getLanguageExtension } from "$lib/editor/config/languageExtensions";
-  import { contextMenuExtension } from "$lib/editor/extensions/contextMenuExtension";
   import EditorContextMenu from "$lib/editor/components/EditorContextMenu.svelte";
   import FindReplace from "$lib/editor/components/FindReplace.svelte";
-  import { search } from "@codemirror/search";
-  import { keymap } from "@codemirror/view";
-  import { redo } from "@codemirror/commands";
   import { editorState } from "$lib/state/editor.svelte";
   import { updateSearchStats } from "$lib/editor/core/actions";
+  import {
+    attachSessionBindings,
+    captureManagedEditorView,
+    createManagedEditorSession,
+    detachSessionBindings,
+    ensureManagedEditorState,
+    setManagedEditorLanguage,
+    setManagedEditorWordWrap,
+    type ManagedEditorSession,
+  } from "$lib/editor/core/editorSession";
 
   let {
     value = $bindable(),
@@ -23,24 +25,37 @@
     selectionSize = $bindable(0),
     language = $bindable("text"),
     editorView = $bindable<EditorView | undefined>(undefined),
+    session = createManagedEditorSession(),
   } = $props();
 
   // $state so the value propagates reactively as a prop to JsonContextMenu.
   let view = $state<EditorView | undefined>(undefined);
 
-  let themeCompartment: Compartment;
-  let langCompartment: Compartment;
-  let wordWrapCompartment: Compartment;
-
-  // ---------------------------------------------------------------------------
-  // Language compartment reconfiguration
-  //
-  // The initial language is already set inside EditorState.create (see the
-  // `editor` action below).  We skip the very first effect run to avoid
-  // immediately reconfiguring the compartment with freshly-created but
-  // identical extension objects — which would be wasted work.
-  // ---------------------------------------------------------------------------
   let langEffectInitialized = false;
+
+  $effect(() => {
+    attachSessionBindings(session as ManagedEditorSession, {
+      setValue: (nextValue) => {
+        value = nextValue;
+      },
+      setLine: (nextLine) => {
+        line = nextLine;
+      },
+      setCol: (nextCol) => {
+        col = nextCol;
+      },
+      setSelectionSize: (nextSelectionSize) => {
+        selectionSize = nextSelectionSize;
+      },
+      onViewUpdate: (targetView) => {
+        updateSearchStats(targetView);
+      },
+    });
+
+    return () => {
+      detachSessionBindings(session as ManagedEditorSession);
+    };
+  });
 
   $effect(() => {
     const lang = language; // declare reactive dependency
@@ -48,10 +63,8 @@
       langEffectInitialized = true;
       return;
     }
-    if (view && langCompartment) {
-      view.dispatch({
-        effects: langCompartment.reconfigure(getLanguageExtension(lang)),
-      });
+    if (view) {
+      setManagedEditorLanguage(session as ManagedEditorSession, lang);
     }
   });
 
@@ -73,121 +86,25 @@
 
   $effect(() => {
     const wrap = editorState.wordWrap;
-    if (!view || !wordWrapCompartment) return;
-
-    // Capture scroll position BEFORE the reconfigure changes layout.
-    const scrollTop = view.scrollDOM.scrollTop;
-    const topPos = view.lineBlockAtHeight(scrollTop).from;
-
-    view.dispatch({
-      effects: wordWrapCompartment.reconfigure(
-        wrap ? EditorView.lineWrapping : [],
-      ),
-    });
-
-    // After layout reflows, scroll the same line back to the top.
-    view.requestMeasure({
-      read(v) {
-        return v.lineBlockAt(topPos).top;
-      },
-      write(newTop, v) {
-        v.scrollDOM.scrollTop = newTop;
-      },
-    });
+    if (!view) return;
+    setManagedEditorWordWrap(session as ManagedEditorSession, wrap);
   });
 
   // ---------------------------------------------------------------------------
   // Svelte action — mounts and manages the CodeMirror instance
   // ---------------------------------------------------------------------------
   function editor(node: HTMLElement, initialValue: string) {
-    themeCompartment = new Compartment();
-    langCompartment = new Compartment();
-    wordWrapCompartment = new Compartment();
-
-    const isDark = document.documentElement.classList.contains("dark");
-    const initialThemeExt = createTheme(
-      isDark ? andromedaConfig : materialLightConfig,
-    );
-
-    const customSearchKeymap = keymap.of([
-      { key: "Mod-y", run: redo, preventDefault: true },
-      { key: "Mod-Shift-z", run: redo, preventDefault: true },
-      {
-        key: "Mod-f",
-        run: (targetView) => {
-          editorState.findReplace.visible = true;
-          editorState.findReplace.replaceMode = false;
-          const selection = targetView.state.selection.main;
-          if (!selection.empty) {
-            editorState.findReplace.findText = targetView.state.sliceDoc(
-              selection.from,
-              selection.to,
-            );
-          }
-          return true;
-        },
-        preventDefault: true,
-      },
-      {
-        key: "Mod-Alt-f",
-        run: (targetView) => {
-          editorState.findReplace.visible = true;
-          editorState.findReplace.replaceMode = true;
-          const selection = targetView.state.selection.main;
-          if (!selection.empty) {
-            editorState.findReplace.findText = targetView.state.sliceDoc(
-              selection.from,
-              selection.to,
-            );
-          }
-          return true;
-        },
-        preventDefault: true,
-      },
-    ]);
-
-    const state = EditorState.create({
-      doc: initialValue,
-      extensions: [
-        customSearchKeymap,
-        basicSetup,
-        search({}),
-        scrollPastEnd(),
-        themeCompartment.of(initialThemeExt),
-        langCompartment.of(getLanguageExtension(language)),
-        wordWrapCompartment.of(
-          editorState.wordWrap ? EditorView.lineWrapping : [],
-        ),
-        colorHints,
-        contextMenuExtension,
-        EditorView.contentAttributes.of({ spellcheck: "false" }),
-        // Sync cursor position, selection size, and document text back
-        // to the parent Svelte component via bindable props.
-        EditorView.updateListener.of((update) => {
-          if (update.selectionSet || update.docChanged) {
-            const s = update.state;
-            const main = s.selection.main;
-            const lineInfo = s.doc.lineAt(main.head);
-            line = lineInfo.number;
-            col = main.head - lineInfo.from + 1;
-            selectionSize = s.selection.ranges.reduce(
-              (sum, r) => sum + (r.to - r.from),
-              0,
-            );
-
-            // Update search stats whenever document or selection changes
-            updateSearchStats(update.view);
-          }
-          if (update.docChanged) {
-            value = update.state.doc.toString();
-          }
-        }),
-      ],
+    const cmView = new EditorView({
+      state: ensureManagedEditorState(
+        session as ManagedEditorSession,
+        initialValue,
+        language,
+      ),
+      parent: node,
     });
-
-    const cmView = new EditorView({ state, parent: node });
     // Assign to both the local $state variable and the bindable prop so
     // both EditorContextMenu and external consumers receive the live view.
+    (session as ManagedEditorSession).view = cmView;
     view = cmView;
     editorView = cmView;
     editorState.activeView = cmView;
@@ -197,11 +114,13 @@
     // there is no need to re-check mutation.attributeName inside the callback.
     const observer = new MutationObserver(() => {
       const isDarkNow = document.documentElement.classList.contains("dark");
+      const editorSession = session as ManagedEditorSession;
+      if (!editorSession.themeCompartment) return;
       const newTheme = createTheme(
         isDarkNow ? andromedaConfig : materialLightConfig,
       );
       cmView.dispatch({
-        effects: themeCompartment.reconfigure(newTheme),
+        effects: editorSession.themeCompartment.reconfigure(newTheme),
       });
     });
 
@@ -227,6 +146,7 @@
       },
       destroy() {
         observer.disconnect();
+        captureManagedEditorView(session as ManagedEditorSession, cmView);
         cmView.destroy();
         if (editorState.activeView === cmView) {
           editorState.activeView = undefined;

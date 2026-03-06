@@ -64,16 +64,20 @@ export function editorSelectAll(view: EditorView | undefined) {
     view.focus();
 }
 
-export function editorUndo(view: EditorView | undefined) {
+export function editorUndo(view: EditorView | undefined, focusView: boolean = true) {
     if (!view) return;
     undo(view);
-    view.focus();
+    if (focusView) {
+        view.focus();
+    }
 }
 
-export function editorRedo(view: EditorView | undefined) {
+export function editorRedo(view: EditorView | undefined, focusView: boolean = true) {
     if (!view) return;
     redo(view);
-    view.focus();
+    if (focusView) {
+        view.focus();
+    }
 }
 
 function withView(

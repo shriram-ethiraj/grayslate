@@ -12,9 +12,8 @@
     stopLoaderTicker,
     completeEditorLoader,
   } from "$lib/state/editor.svelte";
-  import { debounce } from "lodash-es";
-  import { untrack, onDestroy } from "svelte";
-  import { useCsvHistory, translateToWorkerOps } from "./useCsvHistory.svelte";
+  import { untrack } from "svelte";
+  import { useCsvHistory } from "./useCsvHistory.svelte";
   import { useCsvEditorState } from "./useCsvEditorState.svelte";
   import { hotkey } from "$lib/hotkeys";
   import CsvTableHeader from "./CsvTableHeader.svelte";
@@ -24,6 +23,7 @@
   let {
     content = $bindable(""),
     tableInfo = $bindable({ rows: 0, cols: 0, delimiter: "", errors: 0 }),
+    onMirrorTextChange = undefined,
   } = $props();
 
   // 1. Parsed data — starts empty, filled by worker
@@ -34,13 +34,15 @@
     errors: string[];
   }>({ headers: [], rows: [], delimiter: ",", errors: [] });
 
-  let loading = $state(true);
+  let initialLoading = $state(true);
+  let refreshing = $state(false);
   let pendingRows: string[][] = [];
 
   // Track the last content we synced from, to detect external changes
   let lastSyncedContent = $state(content);
-  let serializeWorker: Worker;
-  let parseWorker: Worker;
+  let parseWorker: Worker | undefined;
+  let activeParseRequestId = 0;
+  let nextParseRequestId = 0;
 
   /** Format a row count for display: 7 000 000 → "7.0M rows…" */
   function formatRowCount(count: number): string {
@@ -49,45 +51,8 @@
     return `${count} rows…`;
   }
 
-  /** Kick off a parse via the worker, showing a decelerating progress loader. */
-  function startParse(text: string): void {
-    loading = true;
-    pendingRows = [];
-    startLoaderTicker("Parsing CSV…", "Starting…", {
-      ceiling: 85,
-      factor: 0.05,
-      minStep: 0.2,
-      interval: 100,
-    });
-    serializeWorker.postMessage({ type: "INIT_START" });
-    parseWorker.postMessage({ text });
-  }
-
-  // Kick off initial parse via worker
-  $effect(() => {
-    // Serializer worker (initialized first to receive messages)
-    serializeWorker = new Worker(
-      new URL("../../workers/csvSerializer.worker.ts", import.meta.url),
-      { type: "module" },
-    );
-
-    serializeWorker.onmessage = (e) => {
-      if (e.data.serialized) {
-        lastSyncedContent = e.data.serialized;
-        content = e.data.serialized;
-
-        // If we were serializing for a view transition, snap to 100 % then hide
-        if (editorState.csv.serializing) {
-          completeEditorLoader("Done", "", 100, () => {
-            editorState.csv.serializing = false;
-          });
-        }
-      } else if (e.data.error) {
-        console.error("CSV Serialization Worker Error:", e.data.error);
-      }
-    };
-
-    // Parser worker
+  function createParseWorker() {
+    parseWorker?.terminate();
     parseWorker = new Worker(
       new URL("../../workers/csvParser.worker.ts", import.meta.url),
       { type: "module" },
@@ -95,16 +60,20 @@
 
     parseWorker.onmessage = (e) => {
       const msg = e.data;
+      if (msg.requestId !== activeParseRequestId) {
+        return;
+      }
+
       switch (msg.type) {
         case "parsed-chunk": {
           const chunk: string[][] = msg.chunk;
           for (let i = 0; i < chunk.length; i++) {
             pendingRows.push(chunk[i]);
           }
-          serializeWorker.postMessage({ type: "INIT_CHUNK", chunk });
-          // Update sub-message with running row count; progress is
-          // driven by the ticker started in startParse().
-          editorState.loader.subMessage = formatRowCount(pendingRows.length);
+
+          if (initialLoading) {
+            editorState.loader.subMessage = formatRowCount(pendingRows.length);
+          }
           break;
         }
         case "parsed-complete": {
@@ -115,42 +84,68 @@
             delimiter: msg.delimiter,
             errors: msg.errors,
           };
-          serializeWorker.postMessage({
-            type: "INIT_DONE",
-            headers: msg.headers,
-            delimiter: msg.delimiter,
-          });
           pendingRows = [];
-          loading = false;
-          completeEditorLoader(
-            "Building table…",
-            `${rowCount.toLocaleString()} rows`,
-          );
 
-          // Focus the first cell of the body when parsing completes
-          // This typically happens when switching from text mode to table mode.
-          if (rowCount > 0 && !csvEditorState.focusedCell) {
-            csvEditorState.focusedCell = { rowIndex: 0, colIndex: 0 };
-            csvEditorState.navigateAndFocus();
+          if (initialLoading) {
+            initialLoading = false;
+            completeEditorLoader(
+              "Building table…",
+              `${rowCount.toLocaleString()} rows`,
+            );
+
+            if (rowCount > 0 && !csvEditorState.focusedCell) {
+              csvEditorState.focusedCell = { rowIndex: 0, colIndex: 0 };
+              csvEditorState.navigateAndFocus();
+            }
           }
+
+          refreshing = false;
           break;
         }
         case "error":
-          stopLoaderTicker();
+          if (initialLoading) {
+            stopLoaderTicker();
+            hideEditorLoader();
+            initialLoading = false;
+          }
           console.error("CSV Parse Worker Error:", msg.error);
-          loading = false;
-          hideEditorLoader();
+          pendingRows = [];
+          refreshing = false;
           break;
       }
     };
+  }
 
-    startParse(untrack(() => content));
+  /** Kick off a parse via the worker. Initial load blocks; later refreshes stay mounted. */
+  function startParse(text: string, options?: { initial?: boolean }): void {
+    const isInitial = options?.initial ?? false;
+    activeParseRequestId = ++nextParseRequestId;
+    pendingRows = [];
+
+    if (isInitial) {
+      initialLoading = true;
+      refreshing = false;
+      startLoaderTicker("Parsing CSV…", "Starting…", {
+        ceiling: 85,
+        factor: 0.05,
+        minStep: 0.2,
+        interval: 100,
+      });
+    } else {
+      refreshing = true;
+    }
+
+    createParseWorker();
+    parseWorker?.postMessage({ text, requestId: activeParseRequestId });
+  }
+
+  // Kick off initial parse via worker
+  $effect(() => {
+    startParse(untrack(() => content), { initial: true });
 
     return () => {
       stopLoaderTicker();
-      debouncedSerialize.cancel();
-      parseWorker.terminate();
-      serializeWorker.terminate();
+      parseWorker?.terminate();
       hideEditorLoader();
     };
   });
@@ -159,28 +154,7 @@
   $effect(() => {
     if (content !== untrack(() => lastSyncedContent)) {
       lastSyncedContent = content;
-      history.clear();
-      startParse(content);
-    }
-  });
-
-  // 2. History — structural, lightweight ops
-  const history = useCsvHistory();
-
-  // Debounced serialization: sync parsed rows → content string using Web Worker
-  const debouncedSerialize = debounce(() => {
-    if (!serializeWorker) return;
-
-    serializeWorker.postMessage({
-      type: "SERIALIZE",
-    });
-  }, 500);
-
-  // Trigger debounced serialization whenever history marks dirty.
-  $effect(() => {
-    if (history.isDirty) {
-      history.isDirty = false;
-      queueMicrotask(() => debouncedSerialize());
+      startParse(content, { initial: false });
     }
   });
 
@@ -213,6 +187,7 @@
   );
 
   let wrapperRef = $state<HTMLDivElement | undefined>(undefined);
+  const history = useCsvHistory();
 
   // 5. Editor State (Keyboard, Editing, Focus)
   const csvEditorState = useCsvEditorState(
@@ -223,55 +198,25 @@
     },
     () => columns,
     (index) => virtualizer.scrollToIndex(index),
-    (ops, reverse) => {
-      const workerOps = translateToWorkerOps(ops, reverse);
-      serializeWorker?.postMessage({
-        type: "UPDATE_OPS",
-        ops: workerOps,
-      });
+    (nextText, userEvent) => {
+      content = nextText;
+      lastSyncedContent = nextText;
+      onMirrorTextChange?.(nextText, userEvent);
     },
   );
 
-  // Deferred transition: when user toggles showTable → false,
-  // serialize via worker BEFORE allowing unmount.
   $effect(() => {
-    if (!editorState.csv.showTable) {
-      if (loading) {
-        // If they exit before finishing load, don't serialize, just unmount
-        editorState.csv.serializing = false;
-        hideEditorLoader();
-      } else if (editorState.csv.serializing) {
-        startLoaderTicker("Preparing text view…", "", {
-          ceiling: 90,
-          factor: 0.08,
-          minStep: 0.5,
-          interval: 80,
-        });
+    editorState.csv.undo = () => csvEditorState.handleUndo();
+    editorState.csv.redo = () => csvEditorState.handleRedo();
 
-        csvEditorState.commitEdit();
-        debouncedSerialize.cancel();
-
-        // Send immediate serialization request to the worker
-        serializeWorker.postMessage({
-          type: "SERIALIZE",
-        });
+    return () => {
+      if (editorState.csv.undo === csvEditorState.handleUndo) {
+        editorState.csv.undo = undefined;
       }
-    }
-  });
-
-  onDestroy(() => {
-    // AGGRESSIVE MEMORY CLEANUP
-    parsed = { headers: [], rows: [], delimiter: ",", errors: [] };
-    pendingRows = [];
-    stableColumns = [];
-    tableContainerRef = undefined;
-    wrapperRef = undefined;
-    if (serializeWorker) {
-      serializeWorker.terminate();
-    }
-    if (parseWorker) {
-      parseWorker.terminate();
-    }
+      if (editorState.csv.redo === csvEditorState.handleRedo) {
+        editorState.csv.redo = undefined;
+      }
+    };
   });
 
   // 6. TanStack Table Instance — empty data, only used for column sizing/headers
@@ -385,7 +330,7 @@
   }}
 />
 
-{#if !loading && !editorState.csv.serializing}
+{#if !initialLoading}
   <CsvContextMenu
     bind:this={contextMenu}
     editorState={csvEditorState}
@@ -394,6 +339,7 @@
   <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
   <div
     class="csv-table-wrapper"
+    class:csv-table-refreshing={refreshing}
     bind:this={wrapperRef}
     tabindex="0"
     role="grid"
@@ -588,6 +534,11 @@
   >
     <!-- Table Container -->
     <div class="csv-table-container" bind:this={tableContainerRef}>
+      {#if refreshing}
+        <div class="csv-refresh-overlay" aria-hidden="true">
+          Refreshing from text changes...
+        </div>
+      {/if}
       <div
         style="height: {virtualizer.totalSize}px; width: 100%; min-width: max-content; padding-right: 200px; position: relative;"
       >
@@ -622,10 +573,31 @@
     outline: none;
   }
 
+  .csv-table-wrapper.csv-table-refreshing {
+    position: relative;
+  }
+
   .csv-table-container {
     flex: 1;
     overflow: auto;
     overscroll-behavior: none;
     position: relative;
+  }
+
+  .csv-refresh-overlay {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    margin: 8px 12px 0 auto;
+    width: fit-content;
+    max-width: calc(100% - 24px);
+    padding: 4px 8px;
+    border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--background) 92%, transparent);
+    color: var(--muted-foreground);
+    font-size: 11px;
+    backdrop-filter: blur(6px);
+    pointer-events: none;
   }
 </style>

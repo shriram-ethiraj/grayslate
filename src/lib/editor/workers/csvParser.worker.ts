@@ -3,11 +3,13 @@ import Papa from "papaparse";
 const CHUNK_SIZE = 50_000;
 
 self.onmessage = (e: MessageEvent) => {
+    const requestId: number = e.data.requestId ?? 0;
     const text: string = e.data.text;
 
     if (!text.trim()) {
         self.postMessage({
             type: "parsed-complete",
+            requestId,
             headers: [],
             delimiter: ",",
             errors: [],
@@ -42,6 +44,7 @@ self.onmessage = (e: MessageEvent) => {
             if (currentChunk.length >= CHUNK_SIZE) {
                 self.postMessage({
                     type: "parsed-chunk",
+                    requestId,
                     chunk: currentChunk,
                     offset,
                 });
@@ -57,6 +60,7 @@ self.onmessage = (e: MessageEvent) => {
             if (currentChunk.length > 0) {
                 self.postMessage({
                     type: "parsed-chunk",
+                    requestId,
                     chunk: currentChunk,
                     offset,
                 });
@@ -65,6 +69,7 @@ self.onmessage = (e: MessageEvent) => {
             // Final message with metadata
             self.postMessage({
                 type: "parsed-complete",
+                requestId,
                 headers,
                 delimiter: detectedDelimiter,
                 errors,

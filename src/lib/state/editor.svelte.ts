@@ -26,7 +26,8 @@ export const editorState = $state<{
     wordWrap: boolean;
     csv: {
         showTable: boolean;
-        serializing: boolean;
+        undo?: () => void;
+        redo?: () => void;
     };
     markdown: {
         showPreview: boolean;
@@ -51,7 +52,8 @@ export const editorState = $state<{
     wordWrap: false,
     csv: {
         showTable: false,
-        serializing: false,
+        undo: undefined,
+        redo: undefined,
     },
     markdown: {
         showPreview: true,

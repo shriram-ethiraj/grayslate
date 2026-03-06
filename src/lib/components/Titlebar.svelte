@@ -97,25 +97,44 @@
 
   async function handleEdit(action: string) {
     const view = editorState.activeView;
-    if (!view) return;
+    const isCsvTableVisible =
+      editorState.fileType === "csv" && editorState.csv.showTable;
 
     switch (action) {
       case "undo":
-        editorUndo(view);
+        if (isCsvTableVisible) {
+          editorState.csv.undo?.();
+        } else {
+          if (!view) return;
+          editorUndo(view, true);
+        }
         break;
       case "redo":
-        editorRedo(view);
+        if (isCsvTableVisible) {
+          editorState.csv.redo?.();
+        } else {
+          if (!view) return;
+          editorRedo(view, true);
+        }
         break;
       case "cut":
+        if (isCsvTableVisible) return;
+        if (!view) return;
         await editorCut(view);
         break;
       case "copy":
+        if (isCsvTableVisible) return;
+        if (!view) return;
         await editorCopy(view);
         break;
       case "paste":
+        if (isCsvTableVisible) return;
+        if (!view) return;
         await editorPaste(view);
         break;
       case "selectAll":
+        if (isCsvTableVisible) return;
+        if (!view) return;
         editorSelectAll(view);
         break;
     }
