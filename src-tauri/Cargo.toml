@@ -32,3 +32,6 @@ objc2 = "0.6"
 objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSColor"] }
 objc2-quartz-core = { version = "0.3", features = ["CALayer"] }
 
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-window-state = "2"
+

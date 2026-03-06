@@ -125,6 +125,9 @@ importers:
       '@tauri-apps/plugin-os':
         specifier: ~2.3.2
         version: 2.3.2
+      '@tauri-apps/plugin-window-state':
+        specifier: ~2.4.1
+        version: 2.4.1
       codemirror:
         specifier: ^6.0.2
         version: 6.0.2
@@ -1114,6 +1117,9 @@ packages:
 
   '@tauri-apps/plugin-os@2.3.2':
     resolution: {integrity: sha512-n+nXWeuSeF9wcEsSPmRnBEGrRgOy6jjkSU+UVCOV8YUGKb2erhDOxis7IqRXiRVHhY8XMKks00BJ0OAdkpf6+A==}
+
+  '@tauri-apps/plugin-window-state@2.4.1':
+    resolution: {integrity: sha512-OuvdrzyY8Q5Dbzpj+GcrnV1iCeoZbcFdzMjanZMMcAEUNy/6PH5pxZPXpaZLOR7whlzXiuzx0L9EKZbH7zpdRw==}
 
   '@types/cookie@0.6.0':
     resolution: {integrity: sha512-4Kh9a6B2bQciAhf7FSuMRRkUWecJgJu9nPnx3yzpsfXX/c50REIqpHY4C82bXP90qrLtXtkDxTZosYO3UpOwlA==}
@@ -2484,6 +2490,10 @@ snapshots:
       '@tauri-apps/api': 2.10.1
 
   '@tauri-apps/plugin-os@2.3.2':
+    dependencies:
+      '@tauri-apps/api': 2.10.1
+
+  '@tauri-apps/plugin-window-state@2.4.1':
     dependencies:
       '@tauri-apps/api': 2.10.1
 

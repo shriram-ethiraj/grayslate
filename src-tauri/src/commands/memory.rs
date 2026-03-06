@@ -18,10 +18,7 @@ pub fn get_memory_info() -> Result<MemoryInfo, String> {
     sys.refresh_memory();
     sys.refresh_processes(ProcessesToUpdate::Some(&[pid]), false);
 
-    let process_used = sys
-        .process(pid)
-        .map(|p| p.memory())
-        .unwrap_or(0);
+    let process_used = sys.process(pid).map(|p| p.memory()).unwrap_or(0);
 
     Ok(MemoryInfo {
         total: sys.total_memory(),

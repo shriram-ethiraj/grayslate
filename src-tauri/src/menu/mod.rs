@@ -12,17 +12,12 @@ struct MacOsMenuState {
 /// screen.  Menu events are forwarded to the webview as Tauri events so
 /// the existing Svelte action handlers can process them unchanged.
 #[cfg(target_os = "macos")]
-pub fn build_native_menu(
-    app: &tauri::AppHandle,
-) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
+pub fn build_native_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
     use tauri::menu::{CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder, SubmenuBuilder};
     use tauri::Manager;
 
     let app_menu = SubmenuBuilder::new(app, "Grayslate")
-        .item(
-            &MenuItemBuilder::with_id("about", "About Grayslate")
-                .build(app)?,
-        )
+        .item(&MenuItemBuilder::with_id("about", "About Grayslate").build(app)?)
         .build()?;
 
     let file_menu = SubmenuBuilder::new(app, "File")
