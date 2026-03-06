@@ -22,6 +22,7 @@ export function useScrollVirtualizer(options: {
 
     let scrollTop = $state(0);
     let containerHeight = $state(600);
+    let effectiveScrollHeight = $state(HEADER_HEIGHT);
 
     const rowHeight = $derived(options.estimateSize());
     const totalCount = $derived(options.count());
@@ -32,6 +33,37 @@ export function useScrollVirtualizer(options: {
     const virtualTotalHeight = $derived(
         (needsScaling ? MAX_SCROLL_HEIGHT : trueTotalRowHeight) + HEADER_HEIGHT,
     );
+
+    const effectiveTotalHeight = $derived(
+        needsScaling
+            ? Math.min(
+                  virtualTotalHeight,
+                  Math.max(HEADER_HEIGHT, effectiveScrollHeight),
+              )
+            : virtualTotalHeight,
+    );
+
+    function getVisibleCount(viewportHeight: number) {
+        return Math.max(
+            1,
+            Math.ceil(Math.max(0, viewportHeight - HEADER_HEIGHT) / rowHeight),
+        );
+    }
+
+    function getMaxRowScroll(viewportHeight: number) {
+        return Math.max(0, effectiveTotalHeight - viewportHeight - HEADER_HEIGHT);
+    }
+
+    function updateScrollMetrics(el: HTMLElement) {
+        const measuredContainerHeight = el.clientHeight;
+        containerHeight = Math.min(measuredContainerHeight, window.innerHeight * 3);
+
+        const measuredScrollHeight = el.scrollHeight;
+        effectiveScrollHeight = measuredScrollHeight > 0 ? measuredScrollHeight : virtualTotalHeight;
+
+        const maxScrollTop = Math.max(0, measuredScrollHeight - containerHeight);
+        scrollTop = Math.min(el.scrollTop, maxScrollTop);
+    }
 
     $effect(() => {
         const el = options.getScrollElement();
@@ -46,18 +78,18 @@ export function useScrollVirtualizer(options: {
                     // (e.g. flex chain broken).  Clamp to the window height
                     // so we never spawn millions of virtual items.
                     containerHeight = Math.min(h, window.innerHeight * 3);
+                    effectiveScrollHeight = el.scrollHeight || virtualTotalHeight;
                 }
             }
         });
         observer.observe(el);
 
         const onScroll = () => {
-            scrollTop = el.scrollTop;
+            updateScrollMetrics(el);
         };
         el.addEventListener("scroll", onScroll, { passive: true });
 
-        containerHeight = el.clientHeight;
-        scrollTop = el.scrollTop;
+        updateScrollMetrics(el);
 
         return () => {
             observer.disconnect();
@@ -65,12 +97,26 @@ export function useScrollVirtualizer(options: {
         };
     });
 
+    $effect(() => {
+        const el = options.getScrollElement();
+        if (!el) {
+            effectiveScrollHeight = virtualTotalHeight;
+            return;
+        }
+
+        const frame = requestAnimationFrame(() => {
+            updateScrollMetrics(el);
+        });
+
+        return () => {
+            cancelAnimationFrame(frame);
+        };
+    });
+
     const virtualItems = $derived.by(() => {
         if (totalCount === 0) return [];
 
-        const visibleCount = Math.ceil(
-            Math.max(0, containerHeight - HEADER_HEIGHT) / rowHeight,
-        );
+        const visibleCount = getVisibleCount(containerHeight);
         const rowScrollTop = Math.max(0, scrollTop - HEADER_HEIGHT);
 
         let firstVisibleRow: number;
@@ -78,10 +124,10 @@ export function useScrollVirtualizer(options: {
         if (!needsScaling) {
             firstVisibleRow = Math.floor(rowScrollTop / rowHeight);
         } else {
-            const maxScroll = Math.max(1, virtualTotalHeight - containerHeight);
-            const fraction = Math.min(1, rowScrollTop / Math.max(1, maxScroll));
+            const maxRowScroll = Math.max(1, getMaxRowScroll(containerHeight));
+            const fraction = Math.min(1, rowScrollTop / maxRowScroll);
             const maxFirstRow = Math.max(0, totalCount - visibleCount);
-            firstVisibleRow = Math.round(fraction * maxFirstRow);
+            firstVisibleRow = Math.floor(fraction * maxFirstRow);
         }
 
         const maxFirst = Math.max(0, totalCount - visibleCount);
@@ -97,10 +143,10 @@ export function useScrollVirtualizer(options: {
         if (!needsScaling) {
             blockStart = HEADER_HEIGHT + startIdx * rowHeight;
         } else {
-            blockStart = scrollTop - (firstVisibleRow - startIdx) * rowHeight;
+            blockStart = HEADER_HEIGHT + rowScrollTop - (firstVisibleRow - startIdx) * rowHeight;
             if (endIdx === totalCount - 1) {
                 const renderedHeight = (endIdx - startIdx + 1) * rowHeight;
-                blockStart = Math.max(blockStart, virtualTotalHeight - renderedHeight);
+                blockStart = Math.max(blockStart, effectiveTotalHeight - renderedHeight);
             }
         }
 
@@ -155,25 +201,31 @@ export function useScrollVirtualizer(options: {
                     el.scrollTo({ top: Math.max(0, top) });
                 }
             } else {
-                const visibleCount = Math.ceil(
-                    Math.max(0, containerHeight - HEADER_HEIGHT) / rowHeight,
-                );
+                const visibleCount = getVisibleCount(containerHeight);
+                const maxFirstRow = Math.max(0, totalCount - visibleCount);
+                const maxRowScroll = getMaxRowScroll(containerHeight);
 
                 // "auto": check if already visible in scaled mode
                 if (align === "auto") {
                     const rowScrollTop = Math.max(0, el.scrollTop - HEADER_HEIGHT);
-                    const maxScroll = Math.max(1, virtualTotalHeight - containerHeight);
-                    const fraction = Math.min(1, rowScrollTop / Math.max(1, maxScroll));
-                    const maxFirstRow = Math.max(0, totalCount - visibleCount);
-                    const firstVisibleRow = Math.round(fraction * maxFirstRow);
+                    const fraction = Math.min(1, rowScrollTop / Math.max(1, maxRowScroll));
+                    const firstVisibleRow = Math.floor(fraction * maxFirstRow);
                     const lastVisibleRow = firstVisibleRow + visibleCount - 1;
                     if (index >= firstVisibleRow && index <= lastVisibleRow) return;
                 }
 
-                const maxFirstRow = Math.max(1, totalCount - visibleCount);
-                const fraction = Math.min(1, index / maxFirstRow);
-                const maxScroll = Math.max(0, virtualTotalHeight - containerHeight);
-                el.scrollTo({ top: fraction * maxScroll });
+                let targetFirstRow = index;
+                if (align === "center") {
+                    targetFirstRow = index - Math.floor((visibleCount - 1) / 2);
+                } else if (align === "end") {
+                    targetFirstRow = index - visibleCount + 1;
+                }
+
+                targetFirstRow = Math.max(0, Math.min(targetFirstRow, maxFirstRow));
+
+                const fraction =
+                    maxFirstRow === 0 ? 0 : Math.min(1, targetFirstRow / maxFirstRow);
+                el.scrollTo({ top: HEADER_HEIGHT + fraction * maxRowScroll });
             }
         },
     };
