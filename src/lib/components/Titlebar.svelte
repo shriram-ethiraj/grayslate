@@ -14,12 +14,12 @@
     editorUndo,
     editorRedo,
     editorCut,
-    editorCopy,
+    editorCopySelectionOrAll,
     editorPaste,
     editorSelectAll,
   } from "$lib/editor/core/actions";
   import {
-    copyMarkdownPreviewSelection,
+    copyMarkdownPreviewSelectionOrAll,
     isMarkdownPreviewActive,
     selectAllMarkdownPreview,
   } from "$lib/editor/components/markdown/previewActions";
@@ -136,12 +136,12 @@
         break;
       case "copy":
         if (markdownPreviewActive) {
-          await copyMarkdownPreviewSelection();
+          await copyMarkdownPreviewSelectionOrAll();
           return;
         }
         if (isCsvTableVisible) return;
         if (!view) return;
-        await editorCopy(view);
+        await editorCopySelectionOrAll(view);
         break;
       case "paste":
         if (markdownPreviewActive) return;

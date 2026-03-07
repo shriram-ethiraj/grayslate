@@ -56,6 +56,18 @@
     editorState.fileType = activeLanguage as FileType;
   });
 
+  $effect(() => {
+    editorState.currentDocumentLength = value.length;
+  });
+
+  $effect(() => {
+    if (editorState.activeSurface === "markdown-preview") {
+      return;
+    }
+
+    editorState.currentSelectionSize = selectionSize;
+  });
+
   const checkLanguage = debounce((content: string) => {
     if (language === "auto" && content) {
       const result = languageDetector.detect(content);
@@ -467,18 +479,23 @@
             -->
       <ResizablePaneGroup direction="horizontal" class="flex-1 min-h-0">
         <ResizablePane defaultSize={50} minSize={15} class="relative min-h-0">
-          <div class="absolute inset-0">
-            {#key activeFilePath}
-              <Editor
-                bind:value
-                bind:line
-                bind:col
-                bind:selectionSize
-                language={activeLanguage}
-                bind:editorView
-                session={editorSession}
-              />
-            {/key}
+          <div
+            class="split-surface relative h-full min-h-0 min-w-0"
+            data-active={editorState.activeSurface === "editor" && editorState.markdown.showPreview}
+          >
+            <div class="absolute inset-0">
+              {#key activeFilePath}
+                <Editor
+                  bind:value
+                  bind:line
+                  bind:col
+                  bind:selectionSize
+                  language={activeLanguage}
+                  bind:editorView
+                  session={editorSession}
+                />
+              {/key}
+            </div>
           </div>
         </ResizablePane>
 
@@ -487,9 +504,14 @@
           <ResizablePane
             defaultSize={50}
             minSize={15}
-            class="flex flex-col min-h-0"
+            class="flex flex-col min-h-0 min-w-0"
           >
-            <MarkdownPreview content={value} {editorView} />
+            <div
+              class="split-surface flex flex-col flex-1 min-h-0 min-w-0"
+              data-active={editorState.activeSurface === "markdown-preview"}
+            >
+              <MarkdownPreview content={value} {editorView} />
+            </div>
           </ResizablePane>
         {/if}
       </ResizablePaneGroup>
@@ -527,3 +549,28 @@
     {csvInfo}
   />
 </div>
+
+<style>
+  .split-surface {
+    position: relative;
+  }
+
+  /* Thin top-edge active indicator, hidden by default */
+  .split-surface::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    z-index: 10;
+    pointer-events: none;
+    background: var(--ring);
+    opacity: 0;
+    transition: opacity 140ms ease;
+  }
+
+  .split-surface[data-active="true"]::before {
+    opacity: 0.6;
+  }
+</style>

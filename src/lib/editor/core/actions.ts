@@ -5,6 +5,16 @@ import { toast } from "svelte-sonner";
 import { findNext, findPrevious, replaceNext, replaceAll, SearchQuery, setSearchQuery, getSearchQuery } from "@codemirror/search";
 import { editorState } from "$lib/state/editor.svelte";
 
+export function editorHasSelection(view: EditorView | undefined) {
+    if (!view) return false;
+    return !view.state.selection.main.empty;
+}
+
+export function getEditorAllText(view: EditorView | undefined) {
+    if (!view) return "";
+    return view.state.doc.toString();
+}
+
 export async function editorCut(view: EditorView | undefined) {
     if (!view) return;
     const selection = view.state.selection.main;
@@ -22,17 +32,41 @@ export async function editorCut(view: EditorView | undefined) {
     }
 }
 
-export async function editorCopy(view: EditorView | undefined) {
-    if (!view) return;
+export async function editorCopy(view: EditorView | undefined): Promise<boolean> {
+    if (!view) return false;
     const selection = view.state.selection.main;
-    if (selection.empty) return;
+    if (selection.empty) return false;
     const text = view.state.sliceDoc(selection.from, selection.to);
     try {
         await writeText(text);
         view.focus();
+        return true;
     } catch {
         toast.error("Failed to copy text");
+        return false;
     }
+}
+
+export async function editorCopyAll(view: EditorView | undefined): Promise<boolean> {
+    if (!view) return false;
+    const text = getEditorAllText(view);
+    if (!text) return false;
+    try {
+        await writeText(text);
+        view.focus();
+        return true;
+    } catch {
+        toast.error("Failed to copy text");
+        return false;
+    }
+}
+
+export async function editorCopySelectionOrAll(view: EditorView | undefined): Promise<boolean> {
+    if (!view) return false;
+    if (editorHasSelection(view)) {
+        return editorCopy(view);
+    }
+    return editorCopyAll(view);
 }
 
 export async function editorPaste(view: EditorView | undefined) {

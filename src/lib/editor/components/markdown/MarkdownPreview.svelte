@@ -9,7 +9,8 @@
   import { editorState } from "$lib/state/editor.svelte";
   import {
     activateMarkdownPreview,
-    copyMarkdownPreviewSelection,
+    copyMarkdownPreviewSelectionOrAll,
+    getMarkdownPreviewSelectionText,
     registerMarkdownPreviewElement,
     selectAllMarkdownPreview,
     unregisterMarkdownPreviewElement,
@@ -33,7 +34,7 @@
       key: "Mod+C",
       callback: (event) => {
         event.preventDefault();
-        void copyMarkdownPreviewSelection();
+        void copyMarkdownPreviewSelectionOrAll();
       },
       options: { ignoreInputs: false },
     },
@@ -41,6 +42,7 @@
 
   function activatePreviewSurface() {
     activateMarkdownPreview();
+    editorState.currentSelectionSize = getMarkdownPreviewSelectionText().length;
     // Clear any CodeMirror selection so the two panes don't show
     // simultaneous highlights side-by-side.
     if (editorView) {
@@ -250,10 +252,31 @@
     return () => unregisterMarkdownPreviewElement(previewElement);
   });
 
+  $effect(() => {
+    if (!previewEl) return;
+
+    function syncPreviewSelectionSize() {
+      if (editorState.activeSurface !== "markdown-preview") {
+        return;
+      }
+
+      editorState.currentSelectionSize =
+        getMarkdownPreviewSelectionText().length;
+    }
+
+    document.addEventListener("selectionchange", syncPreviewSelectionSize);
+    return () => {
+      document.removeEventListener("selectionchange", syncPreviewSelectionSize);
+    };
+  });
+
   onDestroy(() => {
     // AGGRESSIVE MEMORY CLEANUP
     if (previewEl) {
       unregisterMarkdownPreviewElement(previewEl);
+    }
+    if (editorState.activeSurface === "markdown-preview") {
+      editorState.currentSelectionSize = 0;
     }
     if (editorState.activeSurface === "markdown-preview") {
       editorState.activeSurface = editorView ? "editor" : undefined;

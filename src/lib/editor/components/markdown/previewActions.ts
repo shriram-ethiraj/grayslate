@@ -64,6 +64,14 @@ export function getMarkdownPreviewSelectionText(): string {
   return previewRange.toString();
 }
 
+export function getMarkdownPreviewAllText(): string {
+  if (!previewElement) return "";
+
+  const range = document.createRange();
+  range.selectNodeContents(previewElement);
+  return range.toString();
+}
+
 export function hasMarkdownPreviewSelection(): boolean {
   return getMarkdownPreviewSelectionText().length > 0;
 }
@@ -80,6 +88,28 @@ export async function copyMarkdownPreviewSelection(): Promise<boolean> {
     toast.error("Failed to copy text");
     return false;
   }
+}
+
+export async function copyMarkdownPreviewAll(): Promise<boolean> {
+  const text = getMarkdownPreviewAllText();
+  if (!text) return false;
+
+  try {
+    await writeText(text);
+    focusMarkdownPreview();
+    return true;
+  } catch {
+    toast.error("Failed to copy text");
+    return false;
+  }
+}
+
+export async function copyMarkdownPreviewSelectionOrAll(): Promise<boolean> {
+  if (hasMarkdownPreviewSelection()) {
+    return copyMarkdownPreviewSelection();
+  }
+
+  return copyMarkdownPreviewAll();
 }
 
 export function selectAllMarkdownPreview(): boolean {

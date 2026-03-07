@@ -25,6 +25,8 @@ export type EditorSurface = "editor" | "markdown-preview";
 export const editorState = $state<{
     activeView?: EditorView;
     activeSurface?: EditorSurface;
+    currentDocumentLength: number;
+    currentSelectionSize: number;
     fileType: FileType;
     wordWrap: boolean;
     csv: {
@@ -53,6 +55,8 @@ export const editorState = $state<{
     };
 }>({
     activeSurface: undefined,
+    currentDocumentLength: 0,
+    currentSelectionSize: 0,
     fileType: "text",
     wordWrap: false,
     csv: {
