@@ -20,8 +20,11 @@ export type FileType =
     | "dockerfile"
     | "auto";
 
+export type EditorSurface = "editor" | "markdown-preview";
+
 export const editorState = $state<{
     activeView?: EditorView;
+    activeSurface?: EditorSurface;
     fileType: FileType;
     wordWrap: boolean;
     csv: {
@@ -49,6 +52,7 @@ export const editorState = $state<{
         currentMatch: number;
     };
 }>({
+    activeSurface: undefined,
     fileType: "text",
     wordWrap: false,
     csv: {

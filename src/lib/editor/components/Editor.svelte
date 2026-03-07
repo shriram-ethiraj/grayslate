@@ -111,6 +111,23 @@
     view = cmView;
     editorView = cmView;
     editorState.activeView = cmView;
+    editorState.activeSurface = "editor";
+
+    function activateEditorSurface() {
+      editorState.activeSurface = "editor";
+      // Clear any DOM text selection from the markdown preview so the
+      // two panes don't show simultaneous highlights side-by-side.
+      const domSel = window.getSelection();
+      if (domSel && !domSel.isCollapsed) {
+        domSel.removeAllRanges();
+      }
+    }
+
+    cmView.dom.addEventListener("pointerdown", activateEditorSurface, {
+      passive: true,
+    });
+    cmView.dom.addEventListener("focusin", activateEditorSurface);
+    cmView.dom.addEventListener("contextmenu", activateEditorSurface);
 
     // Watch for light/dark class toggling on <html> and swap the theme.
     // attributeFilter already guarantees only class mutations arrive, so
@@ -149,10 +166,16 @@
       },
       destroy() {
         observer.disconnect();
+        cmView.dom.removeEventListener("pointerdown", activateEditorSurface);
+        cmView.dom.removeEventListener("focusin", activateEditorSurface);
+        cmView.dom.removeEventListener("contextmenu", activateEditorSurface);
         captureManagedEditorView(session as ManagedEditorSession, cmView);
         cmView.destroy();
         if (editorState.activeView === cmView) {
           editorState.activeView = undefined;
+        }
+        if (editorState.activeSurface === "editor") {
+          editorState.activeSurface = undefined;
         }
         view = undefined;
         editorView = undefined;

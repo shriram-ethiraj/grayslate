@@ -18,6 +18,11 @@
     editorPaste,
     editorSelectAll,
   } from "$lib/editor/core/actions";
+  import {
+    copyMarkdownPreviewSelection,
+    isMarkdownPreviewActive,
+    selectAllMarkdownPreview,
+  } from "$lib/editor/components/markdown/previewActions";
   import CodiconChromeRestore from "~icons/codicon/chrome-restore";
   import CodiconChromeMaximize from "~icons/codicon/chrome-maximize";
   import { registerHotkeys } from "$lib/hotkeys";
@@ -99,9 +104,14 @@
     const view = editorState.activeView;
     const isCsvTableVisible =
       editorState.fileType === "csv" && editorState.csv.showTable;
+    const isMarkdownPreviewVisible =
+      editorState.fileType === "markdown" && editorState.markdown.showPreview;
+    const markdownPreviewActive =
+      isMarkdownPreviewVisible && isMarkdownPreviewActive();
 
     switch (action) {
       case "undo":
+        if (markdownPreviewActive) return;
         if (isCsvTableVisible) {
           editorState.csv.undo?.();
         } else {
@@ -110,6 +120,7 @@
         }
         break;
       case "redo":
+        if (markdownPreviewActive) return;
         if (isCsvTableVisible) {
           editorState.csv.redo?.();
         } else {
@@ -118,21 +129,31 @@
         }
         break;
       case "cut":
+        if (markdownPreviewActive) return;
         if (isCsvTableVisible) return;
         if (!view) return;
         await editorCut(view);
         break;
       case "copy":
+        if (markdownPreviewActive) {
+          await copyMarkdownPreviewSelection();
+          return;
+        }
         if (isCsvTableVisible) return;
         if (!view) return;
         await editorCopy(view);
         break;
       case "paste":
+        if (markdownPreviewActive) return;
         if (isCsvTableVisible) return;
         if (!view) return;
         await editorPaste(view);
         break;
       case "selectAll":
+        if (markdownPreviewActive) {
+          selectAllMarkdownPreview();
+          return;
+        }
         if (isCsvTableVisible) return;
         if (!view) return;
         editorSelectAll(view);

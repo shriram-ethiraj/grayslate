@@ -39,8 +39,8 @@
 
   /* Restore explicit input behaviors */
   input, textarea, [contenteditable="true"], .selectable {
-    -webkit-user-select: auto;
-    user-select: auto;
+    -webkit-user-select: text;
+    user-select: text;
     cursor: text;
   }
 

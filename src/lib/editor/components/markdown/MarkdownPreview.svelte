@@ -2,13 +2,57 @@
   import DOMPurify from "dompurify";
   import { Marked, type Token } from "marked";
   import { createScrollSync } from "./scrollSync";
+  import MarkdownPreviewContextMenu from "./MarkdownPreviewContextMenu.svelte";
+  import { hotkey, type HotkeyBinding } from "$lib/hotkeys";
   import type { EditorView } from "codemirror";
   import { onDestroy } from "svelte";
+  import { editorState } from "$lib/state/editor.svelte";
+  import {
+    activateMarkdownPreview,
+    copyMarkdownPreviewSelection,
+    registerMarkdownPreviewElement,
+    selectAllMarkdownPreview,
+    unregisterMarkdownPreviewElement,
+  } from "./previewActions";
 
   let { content, editorView }: { content: string; editorView?: EditorView } =
     $props();
 
   let previewEl = $state<HTMLElement | undefined>(undefined);
+
+  const previewHotkeys: HotkeyBinding[] = [
+    {
+      key: "Mod+A",
+      callback: (event) => {
+        event.preventDefault();
+        selectAllMarkdownPreview();
+      },
+      options: { ignoreInputs: false },
+    },
+    {
+      key: "Mod+C",
+      callback: (event) => {
+        event.preventDefault();
+        void copyMarkdownPreviewSelection();
+      },
+      options: { ignoreInputs: false },
+    },
+  ];
+
+  function activatePreviewSurface() {
+    activateMarkdownPreview();
+    // Clear any CodeMirror selection so the two panes don't show
+    // simultaneous highlights side-by-side.
+    if (editorView) {
+      const sel = editorView.state.selection;
+      if (!sel.main.empty) {
+        editorView.dispatch({
+          selection: { anchor: sel.main.head },
+          userEvent: "select",
+        });
+      }
+    }
+  }
 
   /** Block-level token types that advance the search offset in walkTokens. */
   const BLOCK_TOKENS = new Set([
@@ -198,17 +242,39 @@
     };
   });
 
+  $effect(() => {
+    if (!previewEl) return;
+
+    const previewElement = previewEl;
+    registerMarkdownPreviewElement(previewElement);
+    return () => unregisterMarkdownPreviewElement(previewElement);
+  });
+
   onDestroy(() => {
     // AGGRESSIVE MEMORY CLEANUP
+    if (previewEl) {
+      unregisterMarkdownPreviewElement(previewEl);
+    }
+    if (editorState.activeSurface === "markdown-preview") {
+      editorState.activeSurface = editorView ? "editor" : undefined;
+    }
     previewEl = undefined;
     content = "";
     htmlPreview = "";
   });
 </script>
 
+<!-- svelte-ignore a11y_no_noninteractive_tabindex a11y_no_static_element_interactions -->
 <div
   bind:this={previewEl}
-  class="flex-1 w-full min-w-0 bg-background overflow-y-auto overscroll-none p-8 prose prose-sm dark:prose-invert max-w-none prose-pre:bg-[#ffffff] prose-pre:text-[#212121] dark:prose-pre:bg-[#23262E] dark:prose-pre:text-[#D5CED9] prose-code:text-[#212121] dark:prose-code:text-[#D5CED9] prose-pre:border prose-pre:border-border prose-pre:shadow-sm"
+  use:hotkey={previewHotkeys}
+  class="selectable flex-1 w-full min-w-0 bg-background overflow-y-auto overscroll-none p-8 prose prose-sm dark:prose-invert max-w-none prose-pre:bg-[#ffffff] prose-pre:text-[#212121] dark:prose-pre:bg-[#23262E] dark:prose-pre:text-[#D5CED9] prose-code:text-[#212121] dark:prose-code:text-[#D5CED9] prose-pre:border prose-pre:border-border prose-pre:shadow-sm"
+  tabindex="0"
+  role="document"
+  onpointerdown={activatePreviewSurface}
+  onfocusin={activatePreviewSurface}
 >
   {@html htmlPreview}
 </div>
+
+<MarkdownPreviewContextMenu {previewEl} />
