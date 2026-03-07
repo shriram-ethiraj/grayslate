@@ -19,7 +19,7 @@
   import CsvTableBody from "./CsvTableBody.svelte";
   import CsvContextMenu from "./CsvContextMenu.svelte";
   import type {
-    CsvReplayStep,
+    CsvMirrorTextUpdate,
     CsvRowWindow,
     CsvTableController,
     CsvTableFlushResult,
@@ -58,6 +58,7 @@
     delimiter: ",",
     errors: [],
     version: 0,
+    liveMirrorEnabled: false,
   };
 
   const EMPTY_ROW_WINDOW: CsvRowWindow = {
@@ -101,7 +102,15 @@
 
   let {
     content = $bindable(""),
-    tableInfo = $bindable({ rows: 0, cols: 0, delimiter: "", errors: 0 }),
+    tableInfo = $bindable({
+      rows: 0,
+      cols: 0,
+      delimiter: "",
+      errors: 0,
+      liveMirrorEnabled: false,
+    }),
+    onMirrorReset,
+    onMirrorUpdate,
   } = $props();
 
   let snapshot = $state.raw<CsvTableSnapshot>(EMPTY_SNAPSHOT);
@@ -114,9 +123,6 @@
   let nextRequestId = 0;
   let pendingRequests = new Map<number, PendingRequest>();
   let latestRowWindowToken = 0;
-  let replayBaseText = "";
-  let replayUndoStack: CsvReplayStep[] = [];
-  let replayRedoStack: CsvReplayStep[] = [];
 
   let tableContainerRef = $state<HTMLDivElement | undefined>(undefined);
   let contextMenu = $state<{
@@ -163,6 +169,11 @@
         return;
       }
 
+      if (message.type === "mirror-text-update") {
+        onMirrorUpdate?.(message.update);
+        return;
+      }
+
       const pending = pendingRequests.get(message.requestId);
       if (!pending) return;
 
@@ -194,37 +205,8 @@
   }
 
   function resetReplayState(baseText: string): void {
-    replayBaseText = baseText;
     lastSyncedContent = baseText;
-    replayUndoStack = [];
-    replayRedoStack = [];
-  }
-
-  function recordReplayStep(previousText: string, nextText: string, userEvent: string): void {
-    if (previousText === nextText) {
-      return;
-    }
-
-    replayUndoStack.push({ text: nextText, userEvent });
-    replayRedoStack = [];
-  }
-
-  function applyReplayUndo(): void {
-    const step = replayUndoStack.pop();
-    if (!step) {
-      return;
-    }
-
-    replayRedoStack.push(step);
-  }
-
-  function applyReplayRedo(): void {
-    const step = replayRedoStack.pop();
-    if (!step) {
-      return;
-    }
-
-    replayUndoStack.push(step);
+    onMirrorReset?.(baseText);
   }
 
   export async function flushToTextHistory(): Promise<CsvTableFlushResult> {
@@ -237,12 +219,7 @@
     lastSyncedContent = response.text;
     content = response.text;
     return {
-      baseText: replayBaseText,
       text: response.text,
-      replaySteps: replayUndoStack.map((step) => ({
-        text: step.text,
-        userEvent: step.userEvent,
-      })),
       version: response.version,
     };
   }
@@ -293,8 +270,6 @@
 
   async function applyMutationResponse(
     response: CsvWorkerResponse,
-    userEvent: string,
-    mode: "forward" | "undo" | "redo",
   ): Promise<boolean> {
     if (response.type !== "mutation-applied") {
       return false;
@@ -304,18 +279,7 @@
       return false;
     }
 
-    const previousText = lastSyncedContent;
     snapshot = response.snapshot;
-    lastSyncedContent = response.text;
-    content = response.text;
-
-    if (mode === "forward") {
-      recordReplayStep(previousText, response.text, userEvent);
-    } else if (mode === "undo") {
-      applyReplayUndo();
-    } else {
-      applyReplayRedo();
-    }
 
     rowWindow = { ...EMPTY_ROW_WINDOW, version: snapshot.version };
     await refreshViewportRows(true);
@@ -338,16 +302,16 @@
       return response.type === "cell" ? response.value : "";
     },
     async runMutation(mutation, userEvent) {
-      const response = await sendRequest({ type: "mutate", mutation });
-      return applyMutationResponse(response, userEvent, "forward");
+      const response = await sendRequest({ type: "mutate", mutation, userEvent });
+      return applyMutationResponse(response);
     },
     async undo() {
       const response = await sendRequest({ type: "undo" });
-      return applyMutationResponse(response, "undo.table", "undo");
+      return applyMutationResponse(response);
     },
     async redo() {
       const response = await sendRequest({ type: "redo" });
-      return applyMutationResponse(response, "redo.table", "redo");
+      return applyMutationResponse(response);
     },
   };
 
@@ -531,6 +495,7 @@
       cols: snapshot.headers.length,
       delimiter: delimiterLabel,
       errors: snapshot.errors.length,
+      liveMirrorEnabled: snapshot.liveMirrorEnabled,
     };
   });
 

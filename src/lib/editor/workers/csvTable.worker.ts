@@ -1,10 +1,12 @@
 import Papa from "papaparse";
 import { serializeCsv } from "../core/csvParser";
-import type {
-    CsvMutationRequest,
-    CsvTableSnapshot,
-    CsvWorkerRequest,
-    CsvWorkerResponse,
+import {
+    LIVE_MIRROR_ROW_THRESHOLD,
+    type CsvMirrorTextUpdate,
+    type CsvMutationRequest,
+    type CsvTableSnapshot,
+    type CsvWorkerRequest,
+    type CsvWorkerResponse,
 } from "../components/csv/csvTableProtocol";
 
 type CellEdit = {
@@ -102,6 +104,7 @@ type CsvState = {
     serializedVersion: number;
     undoStack: TableOp[][];
     redoStack: TableOp[][];
+    liveMirrorEnabled: boolean;
 };
 
 const CHUNK_SIZE = 50_000;
@@ -117,6 +120,7 @@ const state: CsvState = {
     serializedVersion: 0,
     undoStack: [],
     redoStack: [],
+    liveMirrorEnabled: false,
 };
 
 function postResponse(response: CsvWorkerResponse): void {
@@ -130,6 +134,7 @@ function snapshot(): CsvTableSnapshot {
         delimiter: state.delimiter,
         errors: [...state.errors],
         version: state.version,
+        liveMirrorEnabled: state.liveMirrorEnabled,
     };
 }
 
@@ -211,52 +216,57 @@ function ensureRowWidth(row: string[], col: number): void {
     }
 }
 
-function applyOps(ops: TableOp[]): void {
+type TableModel = {
+    headers: string[];
+    rows: string[][];
+};
+
+function applyOpsToModel(model: TableModel, ops: TableOp[]): void {
     for (const op of ops) {
         switch (op.type) {
             case "cell": {
-                const row = state.rows[op.row];
+                const row = model.rows[op.row];
                 if (!row) break;
                 ensureRowWidth(row, op.col);
                 row[op.col] = op.newValue;
                 break;
             }
             case "header-cell": {
-                while (state.headers.length <= op.col) {
-                    state.headers.push("");
+                while (model.headers.length <= op.col) {
+                    model.headers.push("");
                 }
-                state.headers[op.col] = op.newValue;
+                model.headers[op.col] = op.newValue;
                 break;
             }
             case "row-add":
-                state.rows.splice(op.index, 0, [...op.data]);
+                model.rows.splice(op.index, 0, [...op.data]);
                 break;
             case "row-delete":
-                state.rows.splice(op.index, 1);
+                model.rows.splice(op.index, 1);
                 break;
             case "bulk-row-delete":
-                state.rows.splice(op.start, op.end - op.start + 1);
+                model.rows.splice(op.start, op.end - op.start + 1);
                 break;
             case "bulk-row-add":
-                state.rows.splice(op.start, 0, ...cloneRows(op.data));
+                model.rows.splice(op.start, 0, ...cloneRows(op.data));
                 break;
             case "bulk-col-delete": {
-                state.headers.splice(op.start, op.end - op.start + 1);
-                for (const row of state.rows) {
+                model.headers.splice(op.start, op.end - op.start + 1);
+                for (const row of model.rows) {
                     row.splice(op.start, op.end - op.start + 1);
                 }
-                if (state.headers.length === 0) {
-                    state.rows = [];
+                if (model.headers.length === 0) {
+                    model.rows = [];
                 }
                 break;
             }
             case "bulk-col-add": {
-                state.headers.splice(op.start, 0, ...op.headers);
-                while (state.rows.length < op.data.length) {
-                    state.rows.push([]);
+                model.headers.splice(op.start, 0, ...op.headers);
+                while (model.rows.length < op.data.length) {
+                    model.rows.push([]);
                 }
-                for (let index = 0; index < state.rows.length; index += 1) {
-                    const row = state.rows[index];
+                for (let index = 0; index < model.rows.length; index += 1) {
+                    const row = model.rows[index];
                     const rowData = op.data[index] ?? [];
                     row.splice(op.start, 0, ...rowData);
                 }
@@ -264,7 +274,7 @@ function applyOps(ops: TableOp[]): void {
             }
             case "bulk-cell-clear": {
                 for (let rowIndex = op.startRow; rowIndex <= op.endRow; rowIndex += 1) {
-                    const row = state.rows[rowIndex];
+                    const row = model.rows[rowIndex];
                     if (!row) continue;
                     for (let colIndex = op.startCol; colIndex <= op.endCol; colIndex += 1) {
                         ensureRowWidth(row, colIndex);
@@ -275,7 +285,7 @@ function applyOps(ops: TableOp[]): void {
             }
             case "bulk-cell-fill": {
                 for (let rowIndex = op.startRow; rowIndex <= op.endRow; rowIndex += 1) {
-                    const row = state.rows[rowIndex];
+                    const row = model.rows[rowIndex];
                     if (!row) continue;
                     const dataRow = op.data[rowIndex - op.startRow];
                     if (!dataRow) continue;
@@ -290,22 +300,54 @@ function applyOps(ops: TableOp[]): void {
     }
 }
 
-function commitMutation(requestId: number, ops: TableOp[], pushToHistory: boolean, applied: boolean): void {
+function applyOps(ops: TableOp[]): void {
+    applyOpsToModel(state, ops);
+}
+
+function postMirrorTextUpdate(requestId: number, userEvent: string): void {
+    if (!state.liveMirrorEnabled) {
+        return;
+    }
+
+    state.text = serializeCsv(state.headers, state.rows, state.delimiter);
+    state.serializedVersion = state.version;
+
+    const update: CsvMirrorTextUpdate = {
+        text: state.text,
+        userEvent,
+        version: state.version,
+    };
+
+    postResponse({
+        type: "mirror-text-update",
+        requestId,
+        update,
+    });
+}
+
+function commitMutation(
+    requestId: number,
+    ops: TableOp[],
+    pushToHistory: boolean,
+    applied: boolean,
+    mirrorUserEvent?: string,
+): void {
     if (applied && ops.length > 0) {
         applyOps(ops);
         if (pushToHistory) {
             pushHistory(ops);
         }
         state.version += 1;
-        state.text = serializeCsv(state.headers, state.rows, state.delimiter);
-        state.serializedVersion = state.version;
+
+        if (mirrorUserEvent) {
+            postMirrorTextUpdate(requestId, mirrorUserEvent);
+        }
     }
 
     postResponse({
         type: "mutation-applied",
         requestId,
         snapshot: snapshot(),
-        text: state.text,
         applied,
     });
 }
@@ -489,10 +531,12 @@ function parseAndInitialize(text: string, requestId: number): void {
     state.text = text;
     state.undoStack = [];
     state.redoStack = [];
+    state.liveMirrorEnabled = false;
     state.version += 1;
     state.serializedVersion = state.version;
 
     if (!text.trim()) {
+        state.liveMirrorEnabled = true;
         postResponse({ type: "initialized", requestId, snapshot: snapshot() });
         return;
     }
@@ -528,6 +572,7 @@ function parseAndInitialize(text: string, requestId: number): void {
             }
         },
         complete() {
+            state.liveMirrorEnabled = state.rows.length <= LIVE_MIRROR_ROW_THRESHOLD;
             postResponse({
                 type: "initialized",
                 requestId,
@@ -585,7 +630,7 @@ self.onmessage = (event: MessageEvent<CsvWorkerRequest>) => {
             }
             case "mutate": {
                 const { ops, applied } = buildMutationOps(message.mutation);
-                commitMutation(message.requestId, ops, true, applied);
+                commitMutation(message.requestId, ops, true, applied, message.userEvent);
                 return;
             }
             case "undo": {
@@ -595,7 +640,7 @@ self.onmessage = (event: MessageEvent<CsvWorkerRequest>) => {
                     return;
                 }
                 state.redoStack.push(entry);
-                commitMutation(message.requestId, invertOps(entry), false, true);
+                commitMutation(message.requestId, invertOps(entry), false, true, "undo.table");
                 return;
             }
             case "redo": {
@@ -605,7 +650,7 @@ self.onmessage = (event: MessageEvent<CsvWorkerRequest>) => {
                     return;
                 }
                 state.undoStack.push(entry);
-                commitMutation(message.requestId, entry, false, true);
+                commitMutation(message.requestId, entry, false, true, "redo.table");
                 return;
             }
             case "flush-text": {

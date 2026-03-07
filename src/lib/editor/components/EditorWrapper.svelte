@@ -14,12 +14,14 @@
   import type { EditorView } from "codemirror";
   import {
     createManagedEditorSession,
-    dispatchManagedEditorChange,
     dispatchManagedEditorTextChange,
     ensureManagedEditorState,
     type ManagedEditorSession,
   } from "$lib/editor/core/editorSession";
-  import type { CsvTableFlushResult } from "./csv/csvTableProtocol";
+  import {
+    type CsvMirrorTextUpdate,
+    type CsvTableFlushResult,
+  } from "./csv/csvTableProtocol";
   import {
     editorState,
     updateEditorLoader,
@@ -71,9 +73,143 @@
   let editorSession = $state.raw<ManagedEditorSession>(
     createManagedEditorSession(),
   );
-  let csvTableView = $state<{ flushToTextHistory: () => Promise<CsvTableFlushResult> } | undefined>(
-    undefined,
-  );
+  let csvTableView = $state<{
+    flushToTextHistory: () => Promise<CsvTableFlushResult>;
+  } | undefined>(undefined);
+  let csvMirrorQueue = $state.raw<CsvMirrorTextUpdate[]>([]);
+  let csvMirrorDrainHandle = $state.raw<
+    | { kind: "idle"; id: number }
+    | { kind: "timeout"; id: ReturnType<typeof setTimeout> }
+    | undefined
+  >(undefined);
+
+  type IdleSchedulerWindow = Window & typeof globalThis & {
+    requestIdleCallback?: (callback: IdleRequestCallback) => number;
+    cancelIdleCallback?: (handle: number) => void;
+  };
+
+  function cancelCsvMirrorDrain(): void {
+    if (csvMirrorDrainHandle === undefined || typeof window === "undefined") {
+      csvMirrorDrainHandle = undefined;
+      return;
+    }
+
+    const idleWindow = window as IdleSchedulerWindow;
+
+    if (csvMirrorDrainHandle.kind === "idle" && idleWindow.cancelIdleCallback) {
+      idleWindow.cancelIdleCallback(csvMirrorDrainHandle.id);
+    } else if (csvMirrorDrainHandle.kind === "timeout") {
+      clearTimeout(csvMirrorDrainHandle.id);
+    }
+
+    csvMirrorDrainHandle = undefined;
+  }
+
+  function applyCsvMirrorUpdate(update: CsvMirrorTextUpdate): void {
+    if (!editorSession.state) {
+      ensureManagedEditorState(editorSession, value, activeLanguage);
+    }
+
+    dispatchManagedEditorTextChange(editorSession, update.text, {
+      userEvent: update.userEvent,
+      focus: false,
+      separateUndoStep: true,
+    });
+  }
+
+  function drainCsvMirrorQueueSlice(deadline?: IdleDeadline): void {
+    csvMirrorDrainHandle = undefined;
+
+    let processed = 0;
+    while (csvMirrorQueue.length > 0) {
+      const update = csvMirrorQueue.shift();
+      if (!update) {
+        break;
+      }
+
+      applyCsvMirrorUpdate(update);
+      processed += 1;
+
+      if (processed >= 2) {
+        break;
+      }
+
+      if (deadline && deadline.timeRemaining() < 4) {
+        break;
+      }
+    }
+
+    if (csvMirrorQueue.length > 0) {
+      scheduleCsvMirrorDrain();
+    }
+  }
+
+  function scheduleCsvMirrorDrain(): void {
+    if (csvMirrorDrainHandle !== undefined || typeof window === "undefined") {
+      return;
+    }
+
+    const idleWindow = window as IdleSchedulerWindow;
+
+    if (idleWindow.requestIdleCallback) {
+      csvMirrorDrainHandle = {
+        kind: "idle",
+        id: idleWindow.requestIdleCallback((deadline) => {
+          drainCsvMirrorQueueSlice(deadline);
+        }),
+      };
+      return;
+    }
+
+    csvMirrorDrainHandle = {
+      kind: "timeout",
+      id: setTimeout(() => {
+        drainCsvMirrorQueueSlice();
+      }, 0),
+    };
+  }
+
+  async function drainCsvMirrorQueueNow(): Promise<void> {
+    cancelCsvMirrorDrain();
+
+    let processed = 0;
+    while (csvMirrorQueue.length > 0) {
+      const update = csvMirrorQueue.shift();
+      if (!update) {
+        break;
+      }
+
+      applyCsvMirrorUpdate(update);
+      processed += 1;
+
+      if (processed % 8 === 0) {
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      }
+    }
+  }
+
+  function handleCsvMirrorReset(baseText: string): void {
+    cancelCsvMirrorDrain();
+    csvMirrorQueue = [];
+
+    if (!editorSession.state) {
+      ensureManagedEditorState(editorSession, baseText, activeLanguage);
+      return;
+    }
+
+    if (editorSession.state.doc.toString() !== baseText) {
+      dispatchManagedEditorTextChange(editorSession, baseText, {
+        userEvent: "table.mirror.reset",
+        focus: false,
+        addToHistory: false,
+      });
+    }
+  }
+
+  function handleCsvMirrorUpdate(update: CsvMirrorTextUpdate): void {
+    csvMirrorQueue.push(update);
+    scheduleCsvMirrorDrain();
+  }
 
   // -----------------------------------------------------------------------
   // Menu: "File > Open File..."
@@ -168,7 +304,13 @@
     activeLanguage === "csv" && editorState.csv.showTable,
   );
 
-  let csvInfo = $state({ rows: 0, cols: 0, delimiter: "", errors: 0 });
+  let csvInfo = $state({
+    rows: 0,
+    cols: 0,
+    delimiter: "",
+    errors: 0,
+    liveMirrorEnabled: false,
+  });
 
   async function requestCsvTableMode(showTable: boolean): Promise<void> {
     if (showTable === editorState.csv.showTable) {
@@ -195,31 +337,32 @@
     });
 
     try {
-      const { baseText, text: nextText, replaySteps } = await csvTableView.flushToTextHistory();
+      const previousText = value;
+      const useLiveMirror = csvInfo.liveMirrorEnabled;
+
+      if (useLiveMirror) {
+        await drainCsvMirrorQueueNow();
+      } else {
+        cancelCsvMirrorDrain();
+        csvMirrorQueue = [];
+      }
+
+      const { text: nextText } = await csvTableView.flushToTextHistory();
       value = nextText;
 
       if (!editorSession.state) {
-        ensureManagedEditorState(editorSession, baseText, activeLanguage);
-      } else if (replaySteps.length > 0 && editorSession.state.doc.toString() !== baseText) {
-        dispatchManagedEditorTextChange(editorSession, baseText, {
-          userEvent: "table.replay.reset",
-          focus: false,
-          addToHistory: false,
-        });
-      }
-
-      for (const step of replaySteps) {
-        dispatchManagedEditorTextChange(editorSession, step.text, {
-          userEvent: step.userEvent,
-          focus: false,
-          separateUndoStep: true,
-        });
+        ensureManagedEditorState(
+          editorSession,
+          useLiveMirror ? nextText : previousText,
+          activeLanguage,
+        );
       }
 
       if (editorSession.state?.doc.toString() !== nextText) {
         dispatchManagedEditorTextChange(editorSession, nextText, {
-          userEvent: "flush.table",
+          userEvent: useLiveMirror ? "table.mirror.flush" : "flush.table",
           focus: false,
+          addToHistory: useLiveMirror ? false : undefined,
         });
       }
 
@@ -260,6 +403,8 @@
             bind:this={csvTableView}
             bind:content={value}
             bind:tableInfo={csvInfo}
+            onMirrorReset={handleCsvMirrorReset}
+            onMirrorUpdate={handleCsvMirrorUpdate}
           />
         </div>
       {:else}

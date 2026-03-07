@@ -4,6 +4,7 @@ export type CsvTableSnapshot = {
     delimiter: string;
     errors: string[];
     version: number;
+  liveMirrorEnabled: boolean;
 };
 
 export type CsvRowWindow = {
@@ -19,15 +20,16 @@ export type CsvSelectionBlock = {
     endCol: number;
 } | null;
 
-export type CsvReplayStep = {
+export const LIVE_MIRROR_ROW_THRESHOLD = 100_000;
+
+export type CsvMirrorTextUpdate = {
   text: string;
   userEvent: string;
+  version: number;
 };
 
 export type CsvTableFlushResult = {
-  baseText: string;
   text: string;
-  replaySteps: CsvReplayStep[];
   version: number;
 };
 
@@ -108,6 +110,7 @@ export type CsvWorkerRequest =
           type: "mutate";
           requestId: number;
           mutation: CsvMutationRequest;
+          userEvent: string;
       }
     | {
           type: "undo";
@@ -147,8 +150,12 @@ export type CsvWorkerResponse =
           type: "mutation-applied";
           requestId: number;
           snapshot: CsvTableSnapshot;
-          text: string;
           applied: boolean;
+      }
+    | {
+          type: "mirror-text-update";
+          requestId: number;
+          update: CsvMirrorTextUpdate;
       }
         | {
           type: "flushed-text";

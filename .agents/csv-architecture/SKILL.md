@@ -1,6 +1,6 @@
 ---
-name: CSV Table Editor Architecture
-description: Current implementation reference for CSV table mode, worker data flow, virtualization, and deferred replay into CodeMirror history.
+name: csv-architecture
+description: Current implementation reference for CSV table mode, worker data flow, virtualization, and thresholded live mirroring into CodeMirror history.
 ---
 
 # CSV Table Editor Architecture
@@ -38,9 +38,10 @@ This skill documents the CSV table implementation that is currently in the repos
 ### 3. CSV Table View Responsibilities
 
 - `CsvTableView.svelte` is the orchestration layer for the mounted table.
-- It owns the worker lifecycle, request/response bookkeeping, replay stacks, viewport refreshes, and table metadata shown in the UI.
+- It owns the worker lifecycle, request/response bookkeeping, viewport refreshes, and table metadata shown in the UI.
 - It binds `content` to the outer editor wrapper, but table state is driven primarily by worker responses, not direct DOM editing.
 - It keeps `snapshot` and `rowWindow` as raw state objects to avoid deep reactive overhead on large datasets.
+- It reports whether the current table session is eligible for live CodeMirror mirroring.
 
 ### 4. Worker-Centered Data Model
 
@@ -51,6 +52,7 @@ This skill documents the CSV table implementation that is currently in the repos
 	- `delimiter`
 	- `errors`
 	- serialized `text`
+	- session-scoped `liveMirrorEnabled`
 	- `version`
 	- `serializedVersion`
 	- structural `undoStack` and `redoStack`
@@ -77,18 +79,16 @@ This skill documents the CSV table implementation that is currently in the repos
 - `rows`
 - `cell`
 - `mutation-applied`
+- `mirror-text-update`
 - `flushed-text`
 - `error`
 
 ### Important Contract Rules
 
-- Every successful mutation response must include the updated serialized CSV text.
-- `CsvTableFlushResult` returns:
-	- `baseText`: the table-entry text used as the replay baseline
-	- `text`: the latest serialized CSV text
-	- `replaySteps`: ordered text snapshots with `userEvent`
-	- `version`: worker version at flush time
-- Do not change this contract casually. The switch back to text mode depends on it.
+- `CsvTableSnapshot.liveMirrorEnabled` is fixed when table mode is initialized.
+- Live mirroring is only enabled for sessions with at most 100,000 data rows at table-entry time.
+- When live mirroring is enabled, forward table edits plus table undo/redo emit `mirror-text-update` messages for the preserved CodeMirror session.
+- `flush-text` returns only the latest serialized CSV text and version.
 
 ## Undo/Redo Model
 
@@ -101,12 +101,10 @@ This skill documents the CSV table implementation that is currently in the repos
 
 ### Text Mode Undo After Leaving Table Mode
 
-- While table mode is active, CodeMirror history is not updated live.
-- `CsvTableView.svelte` records local replay steps as ordered text snapshots plus `userEvent` labels.
-- When leaving table mode, `EditorWrapper.svelte` calls `flushToTextHistory()`.
-- The wrapper ensures the managed CodeMirror session is aligned to `baseText` without adding a history entry.
-- It then replays each recorded step back into CodeMirror one transaction at a time with isolated history.
-- This is what allows text-mode undo to walk table edits one by one.
+- For sessions with up to 100,000 data rows, table changes mirror live into the preserved CodeMirror session with isolated undo steps.
+- When leaving table mode for those sessions, the wrapper drains pending mirror updates, flushes final text, and only realigns without adding another history entry if needed.
+- For larger sessions, live mirroring is disabled for the entire table session.
+- When leaving table mode for larger sessions, the wrapper applies one final text update so a single CodeMirror undo returns to the exact pre-table text.
 
 ### Reset Rule After Text Changes
 
@@ -119,8 +117,9 @@ This skill documents the CSV table implementation that is currently in the repos
 1. UI action in `useCsvEditorState.svelte.ts` creates a `CsvMutationRequest`.
 2. `CsvTableView.svelte` sends the request to the worker.
 3. The worker computes structural ops, applies them, serializes updated CSV text, increments version, and returns `mutation-applied`.
-4. `CsvTableView.svelte` updates local snapshot state, updates `content`, and records or rewinds replay state depending on forward/undo/redo mode.
-5. The visible row window is refreshed only for the required viewport range.
+4. If `liveMirrorEnabled` is true, the worker also emits a `mirror-text-update` for the preserved CodeMirror session.
+5. `CsvTableView.svelte` updates local snapshot state and refreshes viewport data.
+6. The visible row window is refreshed only for the required viewport range.
 
 ## Virtualization Model
 
@@ -142,19 +141,20 @@ This skill documents the CSV table implementation that is currently in the repos
 2. Do not keep a hidden CodeMirror `EditorView` mounted during table mode.
 3. Do not rebuild the full editor state for simple language, wrap, or replay changes.
 4. Do not return massive row payloads to the main thread when a narrow row window will do.
-5. Do not switch back to live CodeMirror mirroring during table mode. The current architecture is deferred replay on mode exit.
+5. Do not enable live CodeMirror mirroring for table sessions above 100,000 data rows.
 6. Do not remove the virtualizer safety caps.
 
 ## Failure Modes To Watch
 
-- If table edits collapse into one text-mode undo step, inspect replay-step recording and the text returned from worker mutations.
+- If small CSV sessions collapse into one text-mode undo step, inspect `liveMirrorEnabled`, worker `mirror-text-update` emissions, and queue draining in `EditorWrapper.svelte`.
+- If large CSV sessions spike memory during table edits, confirm `liveMirrorEnabled` stayed false for that table session.
 - If the last rows become unreachable, inspect the virtualizer's scroll-height mapping.
 - If hotkeys stop firing in table mode, inspect DOM focus and element-scoped hotkey registration.
-- If switching between text and table causes history drift, inspect `baseText` alignment before replay.
+- If switching between text and table causes history drift, inspect the final flush alignment path in `EditorWrapper.svelte`.
 
 ## Safe Change Checklist
 
 - Update `csvTableProtocol.ts` together with worker/frontend changes.
-- Preserve `baseText` + `replaySteps` semantics when modifying flush behavior.
+- Preserve the 100,000-row live mirror cutoff unless the behavior is being intentionally redesigned.
 - Keep structural undo/redo inside the worker.
 - Re-run `pnpm run check` after any protocol or component change.
