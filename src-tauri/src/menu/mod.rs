@@ -79,6 +79,7 @@ pub fn build_native_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::M
         .build()?;
 
     let menu_builder = MenuBuilder::new(app)
+        .item(&app_menu)
         .item(&file_menu)
         .item(&edit_menu);
 

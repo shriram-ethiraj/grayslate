@@ -1,12 +1,5 @@
 <script lang="ts">
-  import type { Component } from "svelte";
-  import Bug from "~icons/lucide/bug";
   import LanguagePicker from "./LanguagePicker.svelte";
-  import {
-    gcDebugControls,
-    setGcDebugEnabled,
-    toggleGcDebugPanel,
-  } from "$lib/state/gc-debug-controls.svelte";
 
   let {
     line,
@@ -18,53 +11,11 @@
     isCsvTableActive = false,
     csvInfo = { rows: 0, cols: 0, delimiter: "", errors: 0 },
   } = $props();
-
-  let GcDebugDialogComponent = $state<Component | null>(null);
-
-  $effect(() => {
-    if (!gcDebugControls.enabled) {
-      GcDebugDialogComponent = null;
-      return;
-    }
-
-    if (GcDebugDialogComponent) {
-      return;
-    }
-
-    let cancelled = false;
-
-    void import("$lib/editor/components/GcDebugDialog.svelte").then((mod) => {
-      if (!cancelled) {
-        GcDebugDialogComponent = mod.default;
-      }
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  });
 </script>
 
 <div
-  class="flex h-6 w-full shrink-0 items-center justify-between px-3 text-[11px] bg-sidebar border-t border-border/40 text-muted-foreground select-none font-medium"
+  class="flex h-6 w-full shrink-0 items-center justify-end px-3 text-[11px] bg-sidebar border-t border-border/40 text-muted-foreground select-none font-medium"
 >
-  <div class="flex items-center space-x-3 h-full">
-    <button
-      class="flex h-full items-center rounded px-2 {gcDebugControls.enabled
-        ? 'text-sky-500 hover:text-sky-400'
-        : 'text-foreground/80 hover:bg-muted/50 hover:text-foreground'}"
-      onclick={() => {
-        if (!gcDebugControls.enabled) {
-          setGcDebugEnabled(true);
-        }
-        toggleGcDebugPanel();
-      }}
-      aria-label="Toggle GC diagnostics"
-      title="Toggle GC diagnostics"
-    >
-      <Bug class="h-3.5 w-3.5" />
-    </button>
-  </div>
   <div class="flex items-center h-full">
     {#if isCsvTableActive}
       <div
@@ -92,7 +43,3 @@
     <LanguagePicker bind:language {detectedLanguage} />
   </div>
 </div>
-
-{#if gcDebugControls.enabled && GcDebugDialogComponent}
-  <GcDebugDialogComponent />
-{/if}

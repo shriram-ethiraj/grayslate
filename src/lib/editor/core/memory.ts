@@ -1,9 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { reportGcDebugFinding } from "$lib/state/gc-debug-controls.svelte";
-import type {
-  GcDebugDecisionStage,
-  GcReclaimTriggerSource,
-} from "$lib/state/gc-debug.svelte";
+import { type as getOsType } from "@tauri-apps/plugin-os";
 
 interface MemoryInfo {
   available: number;
@@ -26,9 +22,8 @@ type ShrinkMetrics = {
   postShrinkRatio: number;
 };
 
-let currentDocBytes = 0;
 let reclaimRunning = false;
-let lastReclaimAt = 0;
+let reclaimSupported: boolean | undefined;
 
 function docLengthToBytes(length: number): number {
   return Math.max(0, length) * UTF16_BYTES_PER_CODE_UNIT;
@@ -50,72 +45,40 @@ function getShrinkMetrics(
   };
 }
 
+async function isReclaimSupportedPlatform(): Promise<boolean> {
+  if (reclaimSupported !== undefined) {
+    return reclaimSupported;
+  }
+
+  try {
+    reclaimSupported = getOsType() !== "macos";
+  } catch (error) {
+    console.warn("[GC Pressure] Failed to detect platform", error);
+    reclaimSupported = false;
+  }
+
+  return reclaimSupported;
+}
+
 /**
- * Reclaim stale JS heap memory after large file swaps.
+ * Reclaim stale JS heap memory after large file swaps on Windows/Linux.
  *
- * Allocates an ArrayBuffer sized proportionally to the system's current RAM
- * usage, writes to every 4 KB page to force the OS to physically commit
- * every page into RSS, then releases the buffer. This serves two purposes:
- *
- * 1. **V8 heap pressure** — the sudden spike in live heap pushes past V8's
- *    dynamic allocation limit, triggering a full Mark-Compact major GC that
- *    sweeps the now-unreachable CodeMirror state, old file string, Lezer
- *    syntax tree, and view decorations.
- *
- * 2. **OS-level signal** — physically committed pages are visible to the OS
- *    memory manager. On Windows, WebView2 receives memory pressure
- *    callbacks; on macOS/Linux the kernel reclaims the pages aggressively
- *    after release. This is why GC-E consistently reduces RSS across all
- *    three platforms while virtual-only allocations are unreliable.
- *
- * Pressure is computed from **system used RAM** — not from file size or
- * content length — because the actual heap bloat includes CodeMirror's
- * 3-5× overhead, DOM nodes, and internal V8 bookkeeping that can't be
- * estimated from `string.length` alone.
- *
- * The 100 ms yield gives Svelte and CodeMirror time to tear down unreachable
- * objects before the GC sweep begins.
+ * Allocates an ArrayBuffer sized proportionally to current system RAM usage,
+ * writes to every 4 KiB page to force the OS to physically commit the buffer,
+ * then releases it. This spikes V8's external-memory accounting just long
+ * enough to provoke a major GC sweep after large editor teardowns.
  */
-async function executeReclaim(source: GcReclaimTriggerSource): Promise<void> {
+async function executeReclaim(): Promise<void> {
   if (reclaimRunning) {
-    reportGcDebugFinding({
-      timestamp: Date.now(),
-      stage: "skipped",
-      source,
-      reason: "GC trigger skipped because another reclaim run is already in progress.",
-      currentDocBytes,
-      lastReclaimAt,
-    });
     return;
   }
 
   reclaimRunning = true;
 
-  reportGcDebugFinding({
-    timestamp: Date.now(),
-    stage: "running",
-    source,
-    reason: `Running GC trigger from ${source}.`,
-    currentDocBytes,
-    lastReclaimAt,
-    lastError: "",
-  });
-
   try {
     const info = await invoke<MemoryInfo>("get_memory_info");
 
     if (info.available < MIN_AVAILABLE_RAM_FOR_PRESSURE) {
-      reportGcDebugFinding({
-        timestamp: Date.now(),
-        stage: "skipped",
-        source,
-        reason: "GC trigger skipped because available system RAM is below the safety threshold.",
-        currentDocBytes,
-        lastReclaimAt,
-        lastSystemUsed: info.used,
-        lastAvailable: info.available,
-        lastPressureBytes: 0,
-      });
       return;
     }
 
@@ -127,17 +90,6 @@ async function executeReclaim(source: GcReclaimTriggerSource): Promise<void> {
     pressureMB = Math.min(pressureMB, availableMB * 0.25);
 
     if (pressureMB <= 0) {
-      reportGcDebugFinding({
-        timestamp: Date.now(),
-        stage: "skipped",
-        source,
-        reason: "GC trigger skipped because the pressure allocation resolved to zero after safety limits.",
-        currentDocBytes,
-        lastReclaimAt,
-        lastSystemUsed: info.used,
-        lastAvailable: info.available,
-        lastPressureBytes: 0,
-      });
       return;
     }
 
@@ -146,7 +98,10 @@ async function executeReclaim(source: GcReclaimTriggerSource): Promise<void> {
     // Yield to let Svelte + CodeMirror teardown complete
     await new Promise<void>((r) => setTimeout(r, 100));
 
-    // Allocate and commit every 4 KB page
+    // Phase 1: V8 (Windows / Linux via WebView2) pressure.
+    // Writing to every page forces the OS to physically commit all pages,
+    // making the spike visible to V8's external-memory counter and
+    // triggering a full Mark-Compact major GC.
     let buf: ArrayBuffer | null = new ArrayBuffer(pressureBytes);
     let view: Uint8Array | null = new Uint8Array(buf);
     for (let offset = 0; offset < view.length; offset += 4096) {
@@ -154,38 +109,11 @@ async function executeReclaim(source: GcReclaimTriggerSource): Promise<void> {
     }
     view = null;
     buf = null;
-    lastReclaimAt = Date.now();
-
-    reportGcDebugFinding({
-      timestamp: Date.now(),
-      stage: "completed",
-      source,
-      reason: `GC trigger completed from ${source}.`,
-      currentDocBytes,
-      lastReclaimAt,
-      lastSystemUsed: info.used,
-      lastAvailable: info.available,
-      lastPressureBytes: pressureBytes,
-    });
   } catch (e) {
-    const errorMessage = e instanceof Error ? e.message : String(e);
-    reportGcDebugFinding({
-      timestamp: Date.now(),
-      stage: "failed",
-      source,
-      reason: "GC trigger failed while applying memory pressure.",
-      currentDocBytes,
-      lastReclaimAt,
-      lastError: errorMessage,
-    });
     console.warn("[GC Pressure]", e);
   } finally {
     reclaimRunning = false;
   }
-}
-
-export async function reclaimMemory(): Promise<void> {
-  await executeReclaim("manual");
 }
 
 export function requestFileOpenReclaim(
@@ -198,41 +126,22 @@ export function requestFileOpenReclaim(
     previousDocBytes,
     nextDocBytes,
   );
-  currentDocBytes = nextDocBytes;
 
-  let stage: GcDebugDecisionStage;
-  let reason: string;
+  const shouldReclaim =
+    previousDocBytes >= MIN_PEAK_DOC_BYTES &&
+    shrinkBytes >= MIN_SHRINK_BYTES &&
+    shrinkRatio >= MIN_SHRINK_RATIO &&
+    postShrinkRatio <= MAX_POST_SHRINK_RATIO;
 
-  if (previousDocBytes < MIN_PEAK_DOC_BYTES) {
-    stage = "skipped";
-    reason = "File-open fallback skipped because the previous document is below the minimum reclaim threshold.";
-  } else if (shrinkBytes < MIN_SHRINK_BYTES) {
-    stage = "skipped";
-    reason = "File-open fallback skipped because the document swap did not release enough content.";
-  } else if (shrinkRatio < MIN_SHRINK_RATIO) {
-    stage = "skipped";
-    reason = "File-open fallback skipped because the document swap shrink ratio is below the configured minimum.";
-  } else if (postShrinkRatio > MAX_POST_SHRINK_RATIO) {
-    stage = "skipped";
-    reason = "File-open fallback skipped because too much of the previous document is still retained after the swap.";
-  } else {
-    stage = "running";
-    reason = "File-open fallback passed shrink thresholds and will attempt reclaim.";
+  if (!shouldReclaim) {
+    return;
   }
 
-  reportGcDebugFinding({
-    timestamp: Date.now(),
-    stage,
-    source: "file-open",
-    reason,
-    currentDocBytes,
-    lastReclaimAt,
-    lastShrinkBytes: shrinkBytes,
-    lastShrinkRatio: shrinkRatio,
-    lastPostShrinkRatio: postShrinkRatio,
+  void isReclaimSupportedPlatform().then((supported) => {
+    if (!supported) {
+      return;
+    }
+
+    void executeReclaim();
   });
-
-  if (stage === "running") {
-    void executeReclaim("file-open");
-  }
 }

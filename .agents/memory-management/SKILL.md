@@ -26,34 +26,35 @@ Pressure is computed from **system used RAM** (via Rust `sysinfo` crate), NOT fr
 - If pressure computes to ≤ 0 after safety, we abort.
 
 ### How It Works
-1. **Yield 100ms**: Wait for Svelte + CodeMirror teardown to finish. Old editor references must be unreachable before the GC sweep begins. 100ms is sufficient cross-platform — WebView2/V8 (Windows) needs the most headroom; WKWebView/JSC (macOS) and WebKitGTK/JSC (Linux) are faster.
+1. **Yield 100ms**: Wait for Svelte + CodeMirror teardown to finish. Old editor references must be unreachable before the GC sweep begins. 100ms is sufficient cross-platform — WebView2/V8 (Windows) needs the most headroom.
 2. **Allocate**: `new ArrayBuffer(pressureBytes)` — spikes V8's heap.
-3. **Commit every page**: Write `1` to every 4 KB offset in the buffer. This forces the OS to **physically commit** all pages into RSS (resident set size), not just reserve virtual address space. This is the critical difference from a naive allocation — it makes the pressure visible to both:
-   - **V8's heap accounting** → triggers a full Mark-Compact major GC.
-   - **The OS memory manager** → on Windows, WebView2 receives memory pressure callbacks; on macOS/Linux, the kernel reclaims the pages aggressively after release.
-4. **Release**: Nullify the buffer. The GC now sees the full spike as reclaimable and sweeps it along with the old unreachable file state.
+3. **Phase 1 — Commit every page (V8 / Windows / Linux)**: Write `1` to every 4 KB offset in the buffer. This forces the OS to **physically commit** all pages into RSS, not just reserve virtual address space. V8 explicitly tracks ArrayBuffer backing-store bytes in its external-memory counter; the spike pushes past V8's `kExternalAllocationSoftLimit` (64 MB) and triggers a full Mark-Compact major GC.
+4. **macOS Exception**: macOS uses WKWebView (JavaScriptCore), which handles memory differently and does not respond to the same `ArrayBuffer` pressure trick. Consequently, this manual GC trigger is **disabled on macOS**.
+5. **Release**: Nullify the buffer. The GC sweeps it together with the old unreachable file state.
 
 ### When It Runs
-`reclaimMemory()` is called on **every file open** in `EditorWrapper.svelte`, unconditionally. There is no content-length threshold — the function is cheap when the system isn't bloated (the 20 MB floor is harmless) and essential when it is.
+`reclaimMemory()` (triggered via `requestFileOpenReclaim`) is called on **file open** in `EditorWrapper.svelte`. It runs only if specific "shrink" thresholds are met (e.g., swapping a large file for a significantly smaller one) to avoid unnecessary overhead during small operations.
 
 ## Current Implementation Notes
 
-- The frontend first asks Rust for `total`, `available`, `used`, and `process_used` memory via `get_memory_info`.
-- `reclaimMemory()` skips the pressure trick when the app RSS is already low (`PROCESS_RSS_THRESHOLD` in `memory.ts`).
+- The frontend first asks Rust for `available` and `used` memory via `get_memory_info`.
+- `reclaimMemory()` skips the pressure trick if available RAM is below `MIN_AVAILABLE_RAM_FOR_PRESSURE`.
 - The pressure buffer is sized from current system usage, then committed page-by-page in JavaScript.
 - The function is intentionally called only after the old editor instance has had time to unmount.
+- **Platform Check**: The logic is explicitly disabled on macOS via `isReclaimSupportedPlatform()`.
 
 ## 🦀 Rust Backend (`memory.rs`)
 The `get_memory_info` command uses the `sysinfo` crate.
 
-- **Fast Refresh**: Uses `System::new()` (not `new_all()`) and `refresh_memory()` to minimize CPU overhead. `new_all()` enumerates all processes, CPUs, disks, and NICs — far too expensive for a simple RAM check.
-- **Typed Return**: Returns a `Result<MemoryInfo, String>` with a `#[derive(Serialize)]` struct containing `total`, `available`, `used`, and `process_used`.
+- **Fast Refresh**: Uses `System::new()` (not `new_all()`) and `refresh_memory()` to minimize CPU overhead.
+- **Typed Return**: Returns a `Result<MemoryInfo, String>` with a `#[derive(Serialize)]` struct containing `available` and `used` memory.
 
 ## ⚠️ Critical Rules
 
-1. **Always write to every 4 KB page** of the pressure buffer. Virtual-only `ArrayBuffer` allocations are unreliable — the OS may lazily back them and V8's GC heuristics may not "see" uncommitted memory.
+1. **Always write to every 4 KB page** of the pressure buffer. Virtual-only `ArrayBuffer` allocations are unreliable.
 2. **Never allocate more than 150 MB** in the pressure trick.
 3. **Never allocate if available RAM < 500 MB** (avoid swap storms).
 4. **Always yield 100ms** before allocating to let Svelte and CodeMirror teardown complete.
-5. **Single pass only.** Do NOT use multiple allocation passes — rapid successive allocations confuse V8's heap accounting in WebView2 and cause it to *retain* memory instead of releasing it. This was tested and confirmed during development.
-6. **Do NOT re-introduce content-length-based sizing.** It was tested and proved unreliable — the actual heap bloat depends on CodeMirror overhead that can't be estimated from `string.length`.
+5. **Single pass only.** Do NOT use multiple allocation passes.
+6. **Threshold-based execution.** Only run the reclaim when replacing a large document with a significantly smaller one, as defined by `MIN_PEAK_DOC_BYTES`, `MIN_SHRINK_BYTES`, and `MIN_SHRINK_RATIO`.
+7. **macOS is unsupported.** Do not attempt to trigger manual GC on macOS as the standard V8 pressure techniques do not apply to JavaScriptCore in the same way.
