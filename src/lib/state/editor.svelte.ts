@@ -26,6 +26,7 @@ export const editorState = $state<{
     activeView?: EditorView;
     activeSurface?: EditorSurface;
     isUntitledDocument: boolean;
+    isDirty: boolean;
     currentDocumentLength: number;
     currentSelectionSize: number;
     fileType: FileType;
@@ -57,6 +58,7 @@ export const editorState = $state<{
 }>({
     activeSurface: undefined,
     isUntitledDocument: true,
+    isDirty: false,
     currentDocumentLength: 0,
     currentSelectionSize: 0,
     fileType: "text",

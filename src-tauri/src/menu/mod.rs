@@ -26,10 +26,20 @@ pub fn build_native_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::M
                 .accelerator("CmdOrCtrl+N")
                 .build(app)?,
         )
-        .separator()
         .item(
             &MenuItemBuilder::with_id("open-file", "Open File...")
                 .accelerator("CmdOrCtrl+O")
+                .build(app)?,
+        )
+        .separator()
+        .item(
+            &MenuItemBuilder::with_id("save-file", "Save")
+                .accelerator("CmdOrCtrl+S")
+                .build(app)?,
+        )
+        .item(
+            &MenuItemBuilder::with_id("save-file-as", "Save As...")
+                .accelerator("CmdOrCtrl+Shift+S")
                 .build(app)?,
         )
         .build()?;
@@ -112,6 +122,12 @@ pub fn handle_macos_menu_event(app: &tauri::AppHandle, event: tauri::menu::MenuE
         }
         "open-file" => {
             let _ = window.emit("menu://open-file", true);
+        }
+        "save-file" => {
+            let _ = window.emit("menu://save-file", true);
+        }
+        "save-file-as" => {
+            let _ = window.emit("menu://save-file-as", true);
         }
         "edit-undo" => {
             let _ = window.emit("menu://edit-action", "undo");

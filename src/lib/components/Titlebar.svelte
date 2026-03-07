@@ -104,6 +104,14 @@
     await emit("menu://open-file");
   }
 
+  async function handleSave() {
+    await emit("menu://save-file");
+  }
+
+  async function handleSaveAs() {
+    await emit("menu://save-file-as");
+  }
+
   async function handleEdit(action: string) {
     const view = editorState.activeView;
     const isCsvTableVisible =
@@ -184,6 +192,22 @@
         options: { ignoreInputs: false },
       },
       {
+        key: "Mod+S",
+        callback: (e) => {
+          e.preventDefault();
+          handleSave();
+        },
+        options: { ignoreInputs: false },
+      },
+      {
+        key: "Mod+Shift+S",
+        callback: (e) => {
+          e.preventDefault();
+          handleSaveAs();
+        },
+        options: { ignoreInputs: false },
+      },
+      {
         key: "Alt+Z",
         callback: (e) => {
           if (isMac) return;
@@ -219,6 +243,15 @@
         <Menubar.Item onclick={handleOpen}>
           Open File...
           <Menubar.Shortcut>{formatForDisplay("Mod+O")}</Menubar.Shortcut>
+        </Menubar.Item>
+        <Menubar.Separator />
+        <Menubar.Item onclick={handleSave}>
+          Save
+          <Menubar.Shortcut>{formatForDisplay("Mod+S")}</Menubar.Shortcut>
+        </Menubar.Item>
+        <Menubar.Item onclick={handleSaveAs}>
+          Save As...
+          <Menubar.Shortcut>{formatForDisplay("Mod+Shift+S")}</Menubar.Shortcut>
         </Menubar.Item>
       </Menubar.Content>
     </Menubar.Menu>

@@ -27,6 +27,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::file::read_file_content,
+            commands::file::resolve_default_notes_root,
+            commands::file::write_file_content,
             commands::memory::get_memory_info,
             menu::set_menu_word_wrap,
         ])

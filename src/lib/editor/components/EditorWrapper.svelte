@@ -32,10 +32,34 @@
     completeEditorLoader,
     type FileType,
   } from "$lib/state/editor.svelte";
-  import { open as openFilePicker } from "@tauri-apps/plugin-dialog";
+  import { resolveNotesRoot } from "$lib/files/notesRoot";
+  import {
+    basename,
+    join,
+  } from "@tauri-apps/api/path";
+  import {
+    open as openFilePicker,
+    save as saveFilePicker,
+  } from "@tauri-apps/plugin-dialog";
   import { invoke } from "@tauri-apps/api/core";
   import { toast } from "svelte-sonner";
   import { requestFileOpenReclaim } from "$lib/editor/core/memory";
+
+  type SavedDocumentSource = "file";
+
+  type ActiveDocument =
+    | {
+        kind: "untitled";
+        key: string;
+        createdAt: number;
+        lastSavedValue: string;
+      }
+    | {
+        kind: "saved";
+        path: string;
+        source: SavedDocumentSource;
+        lastSavedValue: string;
+      };
 
   let value = $state("");
   let line = $state(1);
@@ -44,8 +68,85 @@
   let language = $state("auto");
   let detectedLanguage = $state("text");
 
-  function createUntitledDocumentKey(): string {
-    return `untitled:${Date.now()}`;
+  function createUntitledDocument(now = Date.now()): ActiveDocument {
+    return {
+      kind: "untitled",
+      key: `untitled:${now}`,
+      createdAt: now,
+      lastSavedValue: "",
+    };
+  }
+
+  function getDocumentKey(document: ActiveDocument): string {
+    return document.kind === "untitled" ? document.key : document.path;
+  }
+
+  function getPreferredExtension(fileType: string): string {
+    switch (fileType) {
+      case "csv":
+        return "csv";
+      case "markdown":
+        return "md";
+      case "json":
+        return "json";
+      case "javascript":
+        return "js";
+      case "typescript":
+        return "ts";
+      case "python":
+        return "py";
+      case "html":
+        return "html";
+      case "css":
+        return "css";
+      case "yaml":
+        return "yaml";
+      case "c":
+        return "c";
+      case "cpp":
+        return "cpp";
+      case "java":
+        return "java";
+      case "go":
+        return "go";
+      case "xml":
+        return "xml";
+      case "shell":
+        return "sh";
+      default:
+        return "txt";
+    }
+  }
+
+  function buildUntitledFilename(document: ActiveDocument): string {
+    const createdAt =
+      document.kind === "untitled" ? document.createdAt : Date.now();
+    const stamp = new Date(createdAt)
+      .toISOString()
+      .replace(/:/g, "-")
+      .replace(/\.\d{3}Z$/, "Z");
+    return `note-${stamp}.${getPreferredExtension(activeLanguage)}`;
+  }
+
+  async function getPathLabel(path: string): Promise<string> {
+    try {
+      return await basename(path);
+    } catch {
+      return path.replace(/\\/g, "/").split("/").pop() ?? path;
+    }
+  }
+
+  async function syncLanguageFromPath(path: string): Promise<void> {
+    if (language !== "auto") {
+      return;
+    }
+
+    const filename = await getPathLabel(path);
+    const extLanguage = languageDetector.detect("", filename);
+    if (extLanguage) {
+      language = extLanguage;
+      detectedLanguage = extLanguage;
+    }
   }
 
   // Compute the actual language to apply to the editor
@@ -53,7 +154,9 @@
     language === "auto" ? detectedLanguage : language,
   );
 
-  let activeFilePath = $state(createUntitledDocumentKey());
+  let activeDocument = $state.raw<ActiveDocument>(createUntitledDocument());
+  let activeFilePath = $derived(getDocumentKey(activeDocument));
+  let isDirty = $derived(value !== activeDocument.lastSavedValue);
 
   // Sync activeLanguage to global editorState
   $effect(() => {
@@ -65,7 +168,11 @@
   });
 
   $effect(() => {
-    editorState.isUntitledDocument = activeFilePath.startsWith("untitled:");
+    editorState.isUntitledDocument = activeDocument.kind === "untitled";
+  });
+
+  $effect(() => {
+    editorState.isDirty = isDirty;
   });
 
   $effect(() => {
@@ -254,14 +361,14 @@
 
   function resetEditorDocument(
     nextValue: string,
-    nextDocumentKey: string,
+    nextDocument: ActiveDocument,
     nextLanguage = "auto",
     nextDetectedLanguage = "text",
   ): void {
     checkLanguage.cancel();
     clearCsvMirrorState();
     clearRetainedEditorState();
-    activeFilePath = nextDocumentKey;
+    activeDocument = nextDocument;
     editorSession = createManagedEditorSession();
     value = nextValue;
     line = 1;
@@ -277,7 +384,7 @@
     const previousSession = editorSession;
     const previousDocLength = previousSession.state?.doc.length ?? value.length;
 
-    resetEditorDocument("", createUntitledDocumentKey());
+    resetEditorDocument("", createUntitledDocument());
 
     await new Promise<void>((resolve) => setTimeout(resolve, 10));
 
@@ -342,7 +449,12 @@
 
       resetEditorDocument(
         content,
-        filePath,
+        {
+          kind: "saved",
+          path: filePath,
+          source: "file",
+          lastSavedValue: content,
+        },
         nextLanguage,
         nextDetectedLanguage,
       );
@@ -364,6 +476,98 @@
     }
   }
 
+  async function getContentForSave(): Promise<string> {
+    if (activeLanguage === "csv" && editorState.csv.showTable && csvTableView) {
+      if (csvInfo.liveMirrorEnabled) {
+        await drainCsvMirrorQueueNow();
+      } else {
+        cancelCsvMirrorDrain();
+        csvMirrorQueue = [];
+      }
+
+      const { text } = await csvTableView.flushToTextHistory();
+      return text;
+    }
+
+    return value;
+  }
+
+  async function writeDocumentToPath(path: string, content: string): Promise<void> {
+    const filename = await getPathLabel(path);
+
+    startLoaderTicker("Saving file…", filename, {
+      ceiling: 88,
+      factor: 0.08,
+      minStep: 0.4,
+      interval: 70,
+      startAt: 8,
+    });
+
+    try {
+      await invoke("write_file_content", { path, content });
+      await syncLanguageFromPath(path);
+      activeDocument = {
+        kind: "saved",
+        path,
+        source: "file",
+        lastSavedValue: content,
+      };
+    } finally {
+      stopLoaderTicker();
+      hideEditorLoader();
+    }
+  }
+
+  async function buildManagedSavePath(): Promise<string> {
+    const notesRoot = await resolveNotesRoot();
+    return join(notesRoot, buildUntitledFilename(activeDocument));
+  }
+
+  async function saveFile(): Promise<void> {
+    try {
+      const content = await getContentForSave();
+
+      if (activeDocument.kind === "saved") {
+        if (content === activeDocument.lastSavedValue) {
+          return;
+        }
+
+        await writeDocumentToPath(activeDocument.path, content);
+        return;
+      }
+
+      const savePath = await buildManagedSavePath();
+      await writeDocumentToPath(savePath, content);
+    } catch (err: unknown) {
+      const msg = typeof err === "string" ? err : "Failed to save file.";
+      toast.error(msg);
+    }
+  }
+
+  async function saveFileAs(): Promise<void> {
+    try {
+      const content = await getContentForSave();
+      const defaultPath =
+        activeDocument.kind === "saved"
+          ? activeDocument.path
+          : await buildManagedSavePath();
+
+      const selectedPath = await saveFilePicker({
+        title: "Save As",
+        defaultPath,
+      });
+
+      if (!selectedPath) {
+        return;
+      }
+
+      await writeDocumentToPath(selectedPath, content);
+    } catch (err: unknown) {
+      const msg = typeof err === "string" ? err : "Failed to save file.";
+      toast.error(msg);
+    }
+  }
+
   // Register (and later clean up) the file-menu event listeners.
   $effect(() => {
     const unlistenPromise = import("@tauri-apps/api/event").then(
@@ -374,10 +578,18 @@
         const unlistenOpenFile = await listen("menu://open-file", () => {
           void openFile();
         });
+        const unlistenSaveFile = await listen("menu://save-file", () => {
+          void saveFile();
+        });
+        const unlistenSaveFileAs = await listen("menu://save-file-as", () => {
+          void saveFileAs();
+        });
 
         return () => {
           unlistenNewFile();
           unlistenOpenFile();
+          unlistenSaveFile();
+          unlistenSaveFileAs();
         };
       },
     );
