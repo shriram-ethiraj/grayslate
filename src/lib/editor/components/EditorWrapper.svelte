@@ -44,12 +44,16 @@
   let language = $state("auto");
   let detectedLanguage = $state("text");
 
+  function createUntitledDocumentKey(): string {
+    return `untitled:${Date.now()}`;
+  }
+
   // Compute the actual language to apply to the editor
   let activeLanguage = $derived(
     language === "auto" ? detectedLanguage : language,
   );
 
-  let activeFilePath = $state("");
+  let activeFilePath = $state(createUntitledDocumentKey());
 
   // Sync activeLanguage to global editorState
   $effect(() => {
@@ -58,6 +62,10 @@
 
   $effect(() => {
     editorState.currentDocumentLength = value.length;
+  });
+
+  $effect(() => {
+    editorState.isUntitledDocument = activeFilePath.startsWith("untitled:");
   });
 
   $effect(() => {
@@ -244,6 +252,41 @@
     editorState.findReplace.currentMatch = 0;
   }
 
+  function resetEditorDocument(
+    nextValue: string,
+    nextDocumentKey: string,
+    nextLanguage = "auto",
+    nextDetectedLanguage = "text",
+  ): void {
+    checkLanguage.cancel();
+    clearCsvMirrorState();
+    clearRetainedEditorState();
+    activeFilePath = nextDocumentKey;
+    editorSession = createManagedEditorSession();
+    value = nextValue;
+    line = 1;
+    col = 1;
+    selectionSize = 0;
+    language = nextLanguage;
+    detectedLanguage = nextDetectedLanguage;
+    editorState.csv.showTable = false;
+    editorState.activeSurface = "editor";
+  }
+
+  async function createNewFile(): Promise<void> {
+    const previousSession = editorSession;
+    const previousDocLength = previousSession.state?.doc.length ?? value.length;
+
+    resetEditorDocument("", createUntitledDocumentKey());
+
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+
+    disposeManagedEditorSession(previousSession);
+
+    // Reclaim stale heap after tearing down a large document into a blank editor.
+    requestFileOpenReclaim(previousDocLength, 0);
+  }
+
   // -----------------------------------------------------------------------
   // Menu: "File > Open File..."
   //
@@ -294,20 +337,15 @@
       // If the filename's extension alone resolves to a language,
       // pin it directly — no need for "auto" mode, and the debounced
       const extLang = languageDetector.detect("", filename);
-      if (extLang) {
-        language = extLang;
-        detectedLanguage = extLang;
-      } else {
-        language = "auto";
-        detectedLanguage = detected;
-      }
+      const nextLanguage = extLang ?? "auto";
+      const nextDetectedLanguage = extLang ?? detected;
 
-      checkLanguage.cancel();
-      clearCsvMirrorState();
-      clearRetainedEditorState();
-      activeFilePath = filePath;
-      editorSession = createManagedEditorSession();
-      value = content;
+      resetEditorDocument(
+        content,
+        filePath,
+        nextLanguage,
+        nextDetectedLanguage,
+      );
 
       // Yield to let Svelte update the DOM and dispose old CodeMirror instance
       await new Promise<void>((r) => setTimeout(r, 10));
@@ -326,13 +364,22 @@
     }
   }
 
-  // Register (and later clean up) the menu-event listener.
+  // Register (and later clean up) the file-menu event listeners.
   $effect(() => {
-    // load the event helper only when this effect runs so the static
-    // import can be removed. the promise resolves to an `unlisten` function
-    // which we call on cleanup.
-    const unlistenPromise = import("@tauri-apps/api/event").then(({ listen }) =>
-      listen("menu://open-file", () => openFile()),
+    const unlistenPromise = import("@tauri-apps/api/event").then(
+      async ({ listen }) => {
+        const unlistenNewFile = await listen("menu://new-file", () => {
+          void createNewFile();
+        });
+        const unlistenOpenFile = await listen("menu://open-file", () => {
+          void openFile();
+        });
+
+        return () => {
+          unlistenNewFile();
+          unlistenOpenFile();
+        };
+      },
     );
 
     return () => {

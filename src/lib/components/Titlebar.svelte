@@ -96,6 +96,10 @@
     unlistenResize?.();
   });
 
+  async function handleNewFile() {
+    await emit("menu://new-file");
+  }
+
   async function handleOpen() {
     await emit("menu://open-file");
   }
@@ -164,6 +168,14 @@
   $effect(() => {
     return registerHotkeys([
       {
+        key: "Mod+N",
+        callback: (e) => {
+          e.preventDefault();
+          handleNewFile();
+        },
+        options: { ignoreInputs: false },
+      },
+      {
         key: "Mod+O",
         callback: (e) => {
           e.preventDefault();
@@ -199,6 +211,11 @@
     <Menubar.Menu>
       <Menubar.Trigger class="cursor-pointer">File</Menubar.Trigger>
       <Menubar.Content>
+        <Menubar.Item onclick={handleNewFile}>
+          New File
+          <Menubar.Shortcut>{formatForDisplay("Mod+N")}</Menubar.Shortcut>
+        </Menubar.Item>
+        <Menubar.Separator />
         <Menubar.Item onclick={handleOpen}>
           Open File...
           <Menubar.Shortcut>{formatForDisplay("Mod+O")}</Menubar.Shortcut>

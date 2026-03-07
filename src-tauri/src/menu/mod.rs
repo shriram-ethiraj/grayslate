@@ -22,6 +22,12 @@ pub fn build_native_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::M
 
     let file_menu = SubmenuBuilder::new(app, "File")
         .item(
+            &MenuItemBuilder::with_id("new-file", "New File")
+                .accelerator("CmdOrCtrl+N")
+                .build(app)?,
+        )
+        .separator()
+        .item(
             &MenuItemBuilder::with_id("open-file", "Open File...")
                 .accelerator("CmdOrCtrl+O")
                 .build(app)?,
@@ -89,6 +95,7 @@ pub fn build_native_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::M
 /// Handle macOS native menu events: forward each item click to the webview
 /// as a Tauri event so the Svelte action handlers can process them unchanged.
 ///
+/// - `menu://new-file`     → EditorWrapper's createNewFile()
 /// - `menu://open-file`    → EditorWrapper's openFile()
 /// - `menu://edit-action`  → Titlebar's handleEdit(action) / word-wrap toggle
 #[cfg(target_os = "macos")]
@@ -100,6 +107,9 @@ pub fn handle_macos_menu_event(app: &tauri::AppHandle, event: tauri::menu::MenuE
     };
 
     match event.id.as_ref() {
+        "new-file" => {
+            let _ = window.emit("menu://new-file", true);
+        }
         "open-file" => {
             let _ = window.emit("menu://open-file", true);
         }

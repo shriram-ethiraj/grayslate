@@ -4,13 +4,17 @@
 	import ThemeToggle from "$lib/components/theme-toggle.svelte";
 	import Titlebar from "$lib/components/Titlebar.svelte";
 	import * as Sidebar from "$lib/components/ui/sidebar/index.js";
+	import { Button } from "$lib/components/ui/button/index.js";
+	import { editorState } from "$lib/state/editor.svelte";
 	import {
 		ResizablePaneGroup,
 		ResizablePane,
 		ResizableHandle,
 	} from "$lib/components/ui/resizable/index.js";
+	import { emit } from "@tauri-apps/api/event";
 	import { Toaster } from "$lib/components/ui/sonner/index.js";
 	import EditorActions from "$lib/editor/components/EditorActions.svelte";
+	import LucideFilePlusCorner from '~icons/lucide/file-plus-corner';
 	import "./layout.css";
 
 	const { children } = $props();
@@ -65,6 +69,14 @@
 	function handlePaneExpand() {
 		sidebarOpen = true;
 	}
+
+	async function handleNewFile() {
+		await emit("menu://new-file");
+	}
+
+	const isNewFileDisabled = $derived(
+		editorState.isUntitledDocument && editorState.currentDocumentLength === 0,
+	);
 </script>
 
 <div class="flex h-screen w-full flex-col overflow-hidden">
@@ -111,8 +123,22 @@
 						<header
 							class="flex h-12 w-full shrink-0 items-center justify-between border-b bg-background px-4"
 						>
-							<Sidebar.Trigger class="-ml-1" />
-						<div class="flex items-center gap-2">
+							<div class="flex items-center gap-1">
+								<Sidebar.Trigger class="-ml-1" />
+								<Button
+									variant="ghost"
+									size="icon"
+									aria-label="New file"
+									title={isNewFileDisabled ? "Already on a new file" : "New file"}
+									disabled={isNewFileDisabled}
+									onclick={() => {
+										void handleNewFile();
+									}}
+								>
+									<LucideFilePlusCorner class="h-[1.2rem] w-[1.2rem] transition-all" />
+								</Button>
+							</div>
+							<div class="flex items-center gap-2">
 								<EditorActions />
 								<ThemeToggle />
 							</div>
