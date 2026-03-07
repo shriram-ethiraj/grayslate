@@ -78,11 +78,11 @@ pub fn build_native_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::M
         )
         .build()?;
 
-    MenuBuilder::new(app)
-        .item(&app_menu)
+    let menu_builder = MenuBuilder::new(app)
         .item(&file_menu)
-        .item(&edit_menu)
-        .build()
+        .item(&edit_menu);
+
+    menu_builder.build()
 }
 
 /// Handle macOS native menu events: forward each item click to the webview

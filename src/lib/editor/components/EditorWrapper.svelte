@@ -35,7 +35,7 @@
   import { open as openFilePicker } from "@tauri-apps/plugin-dialog";
   import { invoke } from "@tauri-apps/api/core";
   import { toast } from "svelte-sonner";
-  import { reclaimMemory } from "$lib/editor/core/memory";
+  import { requestFileOpenReclaim } from "$lib/editor/core/memory";
 
   let value = $state("");
   let line = $state(1);
@@ -74,9 +74,12 @@
   let editorSession = $state.raw<ManagedEditorSession>(
     createManagedEditorSession(),
   );
-  let csvTableView = $state<{
-    flushToTextHistory: () => Promise<CsvTableFlushResult>;
-  } | undefined>(undefined);
+  let csvTableView = $state<
+    | {
+        flushToTextHistory: () => Promise<CsvTableFlushResult>;
+      }
+    | undefined
+  >(undefined);
   let csvMirrorQueue = $state.raw<CsvMirrorTextUpdate[]>([]);
   let csvMirrorDrainHandle = $state.raw<
     | { kind: "idle"; id: number }
@@ -84,10 +87,11 @@
     | undefined
   >(undefined);
 
-  type IdleSchedulerWindow = Window & typeof globalThis & {
-    requestIdleCallback?: (callback: IdleRequestCallback) => number;
-    cancelIdleCallback?: (handle: number) => void;
-  };
+  type IdleSchedulerWindow = Window &
+    typeof globalThis & {
+      requestIdleCallback?: (callback: IdleRequestCallback) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
 
   function cancelCsvMirrorDrain(): void {
     if (csvMirrorDrainHandle === undefined || typeof window === "undefined") {
@@ -259,6 +263,8 @@
 
     try {
       const previousSession = editorSession;
+      const previousDocLength =
+        previousSession.state?.doc.length ?? value.length;
       const content = await invoke<string>("read_file_content", {
         path: filePath,
       });
@@ -286,18 +292,18 @@
 
       checkLanguage.cancel();
       clearCsvMirrorState();
-        clearRetainedEditorState();
+      clearRetainedEditorState();
       activeFilePath = filePath;
-        editorSession = createManagedEditorSession();
+      editorSession = createManagedEditorSession();
       value = content;
 
       // Yield to let Svelte update the DOM and dispose old CodeMirror instance
       await new Promise<void>((r) => setTimeout(r, 10));
 
-        disposeManagedEditorSession(previousSession);
+      disposeManagedEditorSession(previousSession);
 
-      // Reclaim stale heap from the previous file (full-page-commit strategy)
-      reclaimMemory();
+      // Reclaim stale heap from the previous file through the shared controller.
+      requestFileOpenReclaim(previousDocLength, content.length);
     } catch (err: unknown) {
       const msg = typeof err === "string" ? err : "Failed to open file.";
       toast.error(msg);
@@ -395,7 +401,9 @@
     } catch (error) {
       stopLoaderTicker();
       hideEditorLoader();
-      toast.error(error instanceof Error ? error.message : "Failed to prepare CSV text.");
+      toast.error(
+        error instanceof Error ? error.message : "Failed to prepare CSV text.",
+      );
     }
   }
 

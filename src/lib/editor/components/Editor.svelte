@@ -31,8 +31,6 @@
   // $state so the value propagates reactively as a prop to JsonContextMenu.
   let view = $state<EditorView | undefined>(undefined);
 
-  let langEffectInitialized = false;
-
   $effect(() => {
     attachSessionBindings(session as ManagedEditorSession, {
       setValue: (nextValue) => {
@@ -57,15 +55,20 @@
     };
   });
 
+  // ---------------------------------------------------------------------------
+  // Language compartment reconfiguration
+  //
+  // We intentionally do NOT skip the first run (unlike the old boolean-guard
+  // approach). On first mount the `use:editor` action runs synchronously and
+  // sets `view`, so when this effect fires `view` is already available and
+  // the correct language is applied immediately. This also handles the case
+  // where the Editor is remounted (e.g. activeLanguage flips to "csv") while
+  // reusing an existing session whose state still carries the old language.
+  // ---------------------------------------------------------------------------
   $effect(() => {
-    const lang = language; // declare reactive dependency
-    if (!langEffectInitialized) {
-      langEffectInitialized = true;
-      return;
-    }
-    if (view) {
-      setManagedEditorLanguage(session as ManagedEditorSession, lang);
-    }
+    const lang = language;
+    if (!view) return;
+    setManagedEditorLanguage(session as ManagedEditorSession, lang);
   });
 
   // ---------------------------------------------------------------------------
