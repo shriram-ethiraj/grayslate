@@ -1,92 +1,160 @@
 ---
 name: CSV Table Editor Architecture
-description: Overview of components, state, and utilities for the high-performance CSV Table Editor.
+description: Current implementation reference for CSV table mode, worker data flow, virtualization, and deferred replay into CodeMirror history.
 ---
 
 # CSV Table Editor Architecture
 
-This directory contains the components, state, and utilities that power the high-performance CSV Table Editor view in GraySlate.
+This skill documents the CSV table implementation that is currently in the repository. Use this file when changing table mode, virtualization, worker protocols, undo/redo, or the text-mode handoff.
 
-The CSV Table Editor is built to handle massive CSV files (millions of rows) without freezing the UI, providing an Excel-like editing experience with smooth scrolling, instant cell editing, and reliable undo/redo capabilities.
+## Primary Files
 
-## High-Level Architecture
+- `src/lib/editor/components/EditorWrapper.svelte`
+- `src/lib/editor/components/csv/CsvTableView.svelte`
+- `src/lib/editor/components/csv/useCsvEditorState.svelte.ts`
+- `src/lib/editor/components/csv/useScrollVirtualizer.svelte.ts`
+- `src/lib/editor/components/csv/csvTableProtocol.ts`
+- `src/lib/editor/workers/csvTable.worker.ts`
+- `src/lib/editor/core/editorSession.ts`
 
-The architecture is divided into four main pillars:
-1. **Orchestration**: `EditorWrapper.svelte`, `CsvTableView.svelte`
-2. **State & History**: `editorSession.ts`, `useCsvEditorState.svelte.ts`, `useCsvHistory.svelte.ts`
-3. **Presentation & Virtualization**: `CsvTableBody.svelte`, `CsvTableHeader.svelte`, `useScrollVirtualizer.svelte.ts` (external to this dir)
-4. **Web Workers**: `csvParser.worker.ts`
+## Current Architecture
 
----
+### 1. Mode Ownership
 
-## 1. Orchestration (`EditorWrapper.svelte`, `CsvTableView.svelte`)
+- `EditorWrapper.svelte` owns the mode switch between raw text and CSV table mode.
+- Text mode uses CodeMirror through a managed session.
+- Table mode mounts `CsvTableView.svelte` on demand.
+- While table mode is visible, the heavy CodeMirror `EditorView` is not kept mounted.
+- The preserved CodeMirror `EditorState` remains available through `ManagedEditorSession` so text mode can resume without losing document state or history.
 
-These components coordinate mode switches, parsing, and synchronization between the visible CSV table and the preserved CodeMirror document state.
+### 2. Managed CodeMirror Session
 
-**Key Responsibilities:**
-- **On-demand table mounting**: The CSV table only mounts when the user explicitly enters table mode. It does not stay alive in the background.
-- **Headless CodeMirror preservation**: `EditorWrapper.svelte` keeps a persistent CodeMirror `EditorState` through `editorSession.ts`, but destroys the heavy `EditorView` while table mode is visible.
-- **State Synchronization**: `CsvTableView.svelte` bridges the raw CSV string `content` and the parsed `headers/rows` state.
-- **Background reparse**: Text-driven CSV updates are reparsed in the background without tearing down the visible table DOM.
-- **TanStack Table Instance**: Initializes `@tanstack/svelte-table` purely for **column metadata, resizing, and headers**. It does *not* pass the millions of rows directly to TanStack for performance reasons.
-- **Virtualization Init**: Initializes the `useScrollVirtualizer` to manage scroll state.
+- `editorSession.ts` stores a `ManagedEditorSession` with `state`, optional live `view`, and shared compartments.
+- `ensureManagedEditorState()` creates the headless state once and reuses it across remounts.
+- `captureManagedEditorView()` stores the latest `EditorState` before the visible editor is destroyed.
+- `dispatchManagedEditorChange()` and `dispatchManagedEditorTextChange()` are the only supported ways to push controlled CSV-originated text changes into the preserved session.
+- Separate undo steps are created with CodeMirror history isolation annotations, not by rebuilding the document from scratch.
 
-## 2. State & History Integration
+### 3. CSV Table View Responsibilities
 
-### `useCsvEditorState.svelte.ts`
-Handles the immediate, interactive state of the table grid.
-- **Focus & Selection**: Tracks which cell is focused (`focusedCell`) and handles Excel-like keyboard navigation (Arrows, Tab, Shift+Tab, Home, End, PageUp, PageDown).
-- **Editing**: Tracks the active editing session (`editingCell` and `editValue`). Triggers on `Enter`, `F2`, or standard typing.
-- **Mutations**: Applies structured table operations to parsed data immediately for responsive table-mode UX.
-- **Mirroring into CodeMirror**: Every forward table operation, table undo, and table redo computes the resulting CSV text and mirrors it into the preserved CodeMirror session as a normal transaction so text mode can later undo table work.
-- **Command ownership**: While table mode is open, undo/redo commands are handled by table history, not by CodeMirror.
+- `CsvTableView.svelte` is the orchestration layer for the mounted table.
+- It owns the worker lifecycle, request/response bookkeeping, replay stacks, viewport refreshes, and table metadata shown in the UI.
+- It binds `content` to the outer editor wrapper, but table state is driven primarily by worker responses, not direct DOM editing.
+- It keeps `snapshot` and `rowWindow` as raw state objects to avoid deep reactive overhead on large datasets.
 
-### `useCsvHistory.svelte.ts`
-Provides a structural Undo/Redo stack.
-- Instead of saving the entire 50MB CSV string on every keystroke, it saves lightweight `TableOp` events (e.g., `CellEdit`, `RowAdd`, `RowDelete`).
-- Capped at `MAX_HISTORY` (200 steps) to preserve memory constraint.
-- Calling `undo()` or `redo()` yields the operations to reverse or apply while table mode is active.
+### 4. Worker-Centered Data Model
 
-### `editorSession.ts`
-Provides the persistent, headless CodeMirror session.
-- **Persistent `EditorState`**: Keeps the document, selection, and CodeMirror history alive even after the visible `EditorView` is destroyed.
-- **On-demand `EditorView`**: Recreates the real editor DOM only when the user returns to text mode.
-- **Mirrored transactions**: Accepts text changes from CSV table operations via `dispatchManagedEditorTextChange()` so CodeMirror history remains useful in text mode.
-- **Shared compartments**: Owns theme, language, and word-wrap compartments so the rebuilt `EditorView` resumes from the same state.
+- `csvTable.worker.ts` is the source of truth for parsed CSV table data while table mode is active.
+- The worker stores:
+	- `headers`
+	- `rows`
+	- `delimiter`
+	- `errors`
+	- serialized `text`
+	- `version`
+	- `serializedVersion`
+	- structural `undoStack` and `redoStack`
+- The worker is responsible for parsing, row-window reads, single-cell reads, mutations, undo, redo, and final text flush.
 
-## 3. Presentation & Virtualization
+## Worker Protocol
 
-To render millions of rows continuously, we avoid standard DOM rendering and TanStack's default body rendering.
+`csvTableProtocol.ts` defines the request/response contract.
 
-- **`CsvTableHeader.svelte`**: Renders the `<thead/>`. Fully sticky. Integrates directly with TanStack's `headerGroups` for accurate sizing and resize handles.
-- **`CsvTableBody.svelte`**: Renders the `<tbody/>`. Maps over the `virtualizer.virtualItems` instead of the raw rows. Calculates exact positioning (`translateY`) based on scroll offset.
-- **Direct Row Rendering**: In the body, rows are directly indexed (`rawRows[virtualRow.index]`) rendering basic `<td>`s. 
+### Requests
 
-## 4. Web Workers / Data Flow
+- `initialize`
+- `get-rows`
+- `get-cell`
+- `mutate`
+- `undo`
+- `redo`
+- `flush-text`
 
-For large files, synchronous `PapaParse` operations will crash or freeze the main thread. 
+### Responses
 
-### `csvParser.worker.ts`
-Used when first entering the Table View, or when the text is modified from the raw Markdown view.
-- **Chunking**: Uses PapaParse's `step` function to stream chunks of 50,000 rows back to the main thread incrementally.
-- **Request versioning**: Parse messages include a `requestId` so stale parse results can be ignored when multiple text updates arrive quickly.
-- **Non-destructive refresh**: Text-driven CSV refreshes keep the current table mounted while a new parse runs, then atomically replace `parsed` when the latest request completes.
+- `initialize-progress`
+- `initialized`
+- `rows`
+- `cell`
+- `mutation-applied`
+- `flushed-text`
+- `error`
 
-There is no serializer worker in the current implementation. Table operations serialize on the main thread and mirror the result into the preserved CodeMirror session.
+### Important Contract Rules
 
-## Current Sync Rules
+- Every successful mutation response must include the updated serialized CSV text.
+- `CsvTableFlushResult` returns:
+	- `baseText`: the table-entry text used as the replay baseline
+	- `text`: the latest serialized CSV text
+	- `replaySteps`: ordered text snapshots with `userEvent`
+	- `version`: worker version at flush time
+- Do not change this contract casually. The switch back to text mode depends on it.
 
-- **Text mode visible**: The mounted CodeMirror `EditorView` is authoritative.
-- **Table mode visible**: The table is the immediate UI authority, and `useCsvHistory.svelte.ts` owns active undo/redo commands for the table session.
-- **Table -> CodeMirror**: Every table change, table undo, and table redo is mirrored into the preserved CodeMirror `EditorState` as a normal transaction.
-- **CodeMirror -> Table**: Arbitrary text edits are not translated into semantic table ops. Instead, `CsvTableView.svelte` reparses the current CSV text and swaps in the new parsed result.
-- **Mode switches**: The visible CodeMirror `EditorView` is destroyed in table mode and recreated from the preserved `EditorState` when returning to text mode.
+## Undo/Redo Model
 
-## Optimization Checklist
+### Table Mode Undo/Redo
 
-If you are modifying this system, prioritize these metrics:
-1. **Reactivity**: Keep the `parsed` object as `$state.raw`. Deep Svelte 5 reactivity on millions of arrays will cause immediate out-of-memory crashes.
-2. **Column Sizing**: Ensure TanStack Table state is isolated from the row rendering. A column resize should not force a full re-render of the virtualized rows unless absolutely necessary.
-3. **Headless CM state**: Preserve `EditorState` across CSV mode switches, but avoid keeping a hidden `EditorView` mounted for large CSV files.
-4. **Parser Chunk Size**: Keep `csvParser.worker.ts` chunk sizes low (e.g. `50,000` rows maximum). Returning a huge row array from a worker instantly halts the main thread during the clone phase.
-5. **Refresh stability**: Do not unmount the table for normal text-driven refreshes. Background reparse plus atomic swap is the intended path.
+- Table mode undo/redo is structural and worker-owned.
+- The worker stores arrays of `TableOp` entries rather than full CSV snapshots for the active table session.
+- `undo` pops from `undoStack`, pushes onto `redoStack`, inverts the ops, applies them, increments version, and returns updated serialized text.
+- `redo` pops from `redoStack`, reapplies the ops, pushes back to `undoStack`, increments version, and returns updated serialized text.
+
+### Text Mode Undo After Leaving Table Mode
+
+- While table mode is active, CodeMirror history is not updated live.
+- `CsvTableView.svelte` records local replay steps as ordered text snapshots plus `userEvent` labels.
+- When leaving table mode, `EditorWrapper.svelte` calls `flushToTextHistory()`.
+- The wrapper ensures the managed CodeMirror session is aligned to `baseText` without adding a history entry.
+- It then replays each recorded step back into CodeMirror one transaction at a time with isolated history.
+- This is what allows text-mode undo to walk table edits one by one.
+
+### Reset Rule After Text Changes
+
+- Arbitrary text-mode edits are not converted back into semantic table operations.
+- When table mode is entered from modified text, the table is rebuilt from the current text.
+- The table-local replay history is reset from that new text baseline.
+
+## Mutation Flow
+
+1. UI action in `useCsvEditorState.svelte.ts` creates a `CsvMutationRequest`.
+2. `CsvTableView.svelte` sends the request to the worker.
+3. The worker computes structural ops, applies them, serializes updated CSV text, increments version, and returns `mutation-applied`.
+4. `CsvTableView.svelte` updates local snapshot state, updates `content`, and records or rewinds replay state depending on forward/undo/redo mode.
+5. The visible row window is refreshed only for the required viewport range.
+
+## Virtualization Model
+
+- `useScrollVirtualizer.svelte.ts` handles row virtualization.
+- The virtualizer only renders the visible rows plus a bounded overscan window.
+- There is a hard cap on virtual items to protect the browser from catastrophic layout behavior.
+- The virtualizer must use the effective scroll height of the scroll element when scaled mode is active, otherwise the final rows can become unreachable on browsers with scroll-height caps.
+- Do not replace this with naive full-table rendering or unbounded TanStack row rendering.
+
+## TanStack Table Usage
+
+- `@tanstack/svelte-table` is used for column metadata, sizing, and header behavior.
+- It is not used as the primary row rendering engine for large CSV datasets.
+- Rows in the body are rendered from the virtualized row window, not from a full TanStack row model.
+
+## Performance Rules
+
+1. Keep large table state in `$state.raw` when deep reactivity would be expensive.
+2. Do not keep a hidden CodeMirror `EditorView` mounted during table mode.
+3. Do not rebuild the full editor state for simple language, wrap, or replay changes.
+4. Do not return massive row payloads to the main thread when a narrow row window will do.
+5. Do not switch back to live CodeMirror mirroring during table mode. The current architecture is deferred replay on mode exit.
+6. Do not remove the virtualizer safety caps.
+
+## Failure Modes To Watch
+
+- If table edits collapse into one text-mode undo step, inspect replay-step recording and the text returned from worker mutations.
+- If the last rows become unreachable, inspect the virtualizer's scroll-height mapping.
+- If hotkeys stop firing in table mode, inspect DOM focus and element-scoped hotkey registration.
+- If switching between text and table causes history drift, inspect `baseText` alignment before replay.
+
+## Safe Change Checklist
+
+- Update `csvTableProtocol.ts` together with worker/frontend changes.
+- Preserve `baseText` + `replaySteps` semantics when modifying flush behavior.
+- Keep structural undo/redo inside the worker.
+- Re-run `pnpm run check` after any protocol or component change.

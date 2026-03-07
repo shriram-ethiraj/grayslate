@@ -18,6 +18,30 @@ Welcome to the Grayslate project. This document serves as a "production-grade" r
 
 ---
 
+## 🧭 Where To Look
+
+Keep this file compact. Detailed implementation notes belong in the skill files.
+
+- Frontend patterns: `.agents/svelte-frontend/SKILL.md`
+- CodeMirror session model: `.agents/codemirror-core/SKILL.md`
+- Editor extension patterns: `.agents/editor-extensions/SKILL.md`
+- CSV table architecture: `.agents/csv-architecture/SKILL.md`
+- Hotkeys: `.agents/tanstack-hotkeys/SKILL.md`
+- Memory reclamation: `.agents/memory-management/SKILL.md`
+- Tauri backend: `.agents/tauri-backend/SKILL.md`
+- Layout safety rules: `.agents/layout-chain/SKILL.md`
+
+## 🔎 Current High-Level Reality
+
+- File open flows through `EditorWrapper.svelte` into Rust `read_file_content`, with a current 200 MB backend-enforced limit.
+- CodeMirror document state is preserved in a managed session even when the live editor view is destroyed.
+- CSV table mode is worker-driven and mounted on demand.
+- CSV table edits are replayed into CodeMirror history when switching back to text mode, not mirrored live while table mode is active.
+- Markdown preview uses `marked` plus `dompurify` with scroll-sync hooks.
+- Loader and memory-reclamation behavior are shared infrastructure, not CSV-specific logic.
+
+---
+
 ## 📐 Architecture & Coding Standards
 
 ### 1. Frontend (Svelte 5 & TypeScript)
@@ -36,6 +60,8 @@ Welcome to the Grayslate project. This document serves as a "production-grade" r
 
 - Keep `EditorState` separate from Svelte's `$state` to avoid reactivity loops.
 - Perform updates via `Transaction`s.
+- Preserve document state in a managed session even when the live `EditorView` is unmounted.
+- Use compartments for language/theme/word-wrap reconfiguration instead of rebuilding the editor state unnecessarily.
 - **Performance:** Cap Lezer tree traversals to avoid freezing the main thread.
 
 ### 3. Desktop / Backend (Tauri v2 & Rust)
@@ -58,15 +84,17 @@ Welcome to the Grayslate project. This document serves as a "production-grade" r
 
 ### 5. Application Features & Core Libraries
 
-**> To know more about the CSV Virtualizer, YOU MUST READ the `.agents/csv-architecture/SKILL.md` file.**
+**> To know more about the CSV architecture and virtualizer, YOU MUST READ the `.agents/csv-architecture/SKILL.md` file.**
 **> To know more about keyboard shortcut management (hotkeys), YOU MUST READ the `.agents/tanstack-hotkeys/SKILL.md` file.**
 **> To know more about memory management and GC pressure, YOU MUST READ the `.agents/memory-management/SKILL.md` file.**
 
 - **Language Detection:** Uses a fast, heuristic synchronous pipeline.
-- **Memory Management:** Uses a Rust `sysinfo` integration and a frontend "GC Pressure" trick to reclaim heap when switching away from large files (>2 MB).
-- **CSV Table View:** Uses a custom scroll virtualizer with a hard cap of 200 items. Limits exist to prevent browser max-height limits from rendering millions of DOM elements.
-- **CSV Mode Architecture:** CSV table mode mounts on demand, keeps its own table-session undo/redo stack, and mirrors each table change into a preserved headless CodeMirror `EditorState`. The heavy CodeMirror `EditorView` should not stay mounted while table mode is visible.
+- **Memory Management:** Uses a Rust `sysinfo` integration and a frontend "GC Pressure" trick to reclaim heap after expensive editor teardown, especially after file switches.
+- **CSV Table View:** Uses a custom scroll virtualizer with hard safety caps; see the CSV skill for the current details.
+- **CSV Mode Architecture:** CSV table mode mounts on demand, performs parsing and mutations in a worker, and replays table edits into CodeMirror history only when switching back to text mode.
 - **Markdown Preview:** Parsed via `marked` and sanitized via `dompurify`, with custom bi-directional scroll synchronization.
+- **Hotkeys:** Use `@tanstack/hotkeys` through the shared helpers in `src/lib/hotkeys.ts`; table-specific shortcuts should remain element-scoped.
+- **File Loading:** File reads are validated in Rust and currently allow files up to 200 MB.
 
 ---
 

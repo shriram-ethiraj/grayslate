@@ -1,5 +1,5 @@
-import { Compartment, EditorState } from "@codemirror/state";
-import { redo } from "@codemirror/commands";
+import { Compartment, EditorState, Transaction, type Annotation } from "@codemirror/state";
+import { isolateHistory, redo } from "@codemirror/commands";
 import { EditorView, keymap } from "@codemirror/view";
 import { basicSetup } from "codemirror";
 import { search } from "@codemirror/search";
@@ -11,7 +11,7 @@ import { colorHints } from "$lib/editor/extensions/colorHints";
 import { getLanguageExtension } from "$lib/editor/config/languageExtensions";
 import { contextMenuExtension } from "$lib/editor/extensions/contextMenuExtension";
 import { editorState } from "$lib/state/editor.svelte";
-import { getMinimalTextChange } from "$lib/editor/core/csvCodeMirror";
+import { getMinimalTextChange, type TextChangeSpec } from "$lib/editor/core/csvCodeMirror";
 
 type SessionBindings = {
     setValue: (value: string) => void;
@@ -206,12 +206,58 @@ export function captureManagedEditorView(
     session.view = undefined;
 }
 
+export function dispatchManagedEditorChange(
+    session: ManagedEditorSession,
+    changes: TextChangeSpec,
+    options?: {
+        userEvent?: string;
+        focus?: boolean;
+        separateUndoStep?: boolean;
+        addToHistory?: boolean;
+    },
+): boolean {
+    if (!session.state) {
+        return false;
+    }
+
+    const annotations: Annotation<unknown>[] = [];
+    if (options?.separateUndoStep) {
+        annotations.push(isolateHistory.of("full"));
+    }
+    if (options?.addToHistory === false) {
+        annotations.push(Transaction.addToHistory.of(false));
+    }
+
+    if (session.view) {
+        session.view.dispatch({
+            changes,
+            userEvent: options?.userEvent ?? "input",
+            annotations: annotations.length > 0 ? annotations : undefined,
+        });
+
+        if (options?.focus !== false) {
+            session.view.focus();
+        }
+        return true;
+    }
+
+    session.state = session.state.update({
+        changes,
+        userEvent: options?.userEvent ?? "input",
+        annotations: annotations.length > 0 ? annotations : undefined,
+    }).state;
+    syncBindings(session, session.state);
+    return true;
+}
+
 export function dispatchManagedEditorTextChange(
     session: ManagedEditorSession,
     nextText: string,
     options?: {
         userEvent?: string;
         focus?: boolean;
+        separateUndoStep?: boolean;
+        addToHistory?: boolean;
     },
 ): boolean {
     if (!session.state) {
@@ -224,22 +270,5 @@ export function dispatchManagedEditorTextChange(
         return false;
     }
 
-    if (session.view) {
-        session.view.dispatch({
-            changes,
-            userEvent: options?.userEvent ?? "input",
-        });
-
-        if (options?.focus !== false) {
-            session.view.focus();
-        }
-        return true;
-    }
-
-    session.state = session.state.update({
-        changes,
-        userEvent: options?.userEvent ?? "input",
-    }).state;
-    syncBindings(session, session.state);
-    return true;
+    return dispatchManagedEditorChange(session, changes, options);
 }

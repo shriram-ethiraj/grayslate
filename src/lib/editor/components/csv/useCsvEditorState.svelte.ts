@@ -29,6 +29,8 @@ export function useCsvEditorState(
     controller: CsvTableController,
     columns: () => ColumnDef<string[], string>[],
     scrollToIndex: (index: number, options?: { align?: "auto" | "start" | "center" | "end" }) => void,
+    onColumnsReordered?: (start: number, end: number, target: number) => void,
+    focusGrid?: () => void,
 ) {
     let editingCell = $state<{ rowIndex: number; colIndex: number } | null>(null);
     let focusedCell = $state<{ rowIndex: number; colIndex: number } | null>(null);
@@ -66,6 +68,7 @@ export function useCsvEditorState(
         if (userEvent === "delete.table.row") return { message: "Deleting row…", subMessage };
         if (userEvent === "input.table.column-add") return { message: "Adding column…", subMessage };
         if (userEvent === "input.table.row-add") return { message: "Adding row…", subMessage };
+        if (userEvent === "move.table.column") return { message: "Moving columns…", subMessage };
         if (userEvent === "move.table.row") return { message: "Moving rows…", subMessage };
         if (userEvent === "undo.table") return { message: "Undoing table change…", subMessage };
         if (userEvent === "redo.table") return { message: "Redoing table change…", subMessage };
@@ -126,16 +129,100 @@ export function useCsvEditorState(
         return !!block && block.startRow === 0 && block.endRow >= Math.max(0, getRowCount() - 1);
     }
 
+    function isRowSelection(block: SelectionBlock = selectionBlock): boolean {
+        if (!isEntireRowSelection(block)) return false;
+        if (isEntireColumnSelection(block)) {
+            return focusedCell?.rowIndex !== -1;
+        }
+        return true;
+    }
+
+    function isColumnSelection(block: SelectionBlock = selectionBlock): boolean {
+        if (!isEntireColumnSelection(block)) return false;
+        if (isEntireRowSelection(block)) {
+            return focusedCell?.rowIndex === -1;
+        }
+        return true;
+    }
+
     function getSelectedRowRange(): { start: number; end: number } | null {
-        if (isEntireRowSelection()) return { start: selectionBlock!.startRow, end: selectionBlock!.endRow };
+        if (isRowSelection()) return { start: selectionBlock!.startRow, end: selectionBlock!.endRow };
         if (focusedCell && focusedCell.rowIndex >= 0) return { start: focusedCell.rowIndex, end: focusedCell.rowIndex };
         return null;
     }
 
     function getSelectedColumnRange(): { start: number; end: number } | null {
-        if (isEntireColumnSelection()) return { start: selectionBlock!.startCol, end: selectionBlock!.endCol };
+        if (isColumnSelection()) return { start: selectionBlock!.startCol, end: selectionBlock!.endCol };
         if (focusedCell && focusedCell.colIndex >= 0) return { start: focusedCell.colIndex, end: focusedCell.colIndex };
         return null;
+    }
+
+    function cloneSelectionBlock(block: SelectionBlock): SelectionBlock {
+        return block ? { ...block } : null;
+    }
+
+    function getFocusColumnAfterRowDelete(columnCount: number): number | null {
+        if (columnCount <= 0) return null;
+        if (!focusedCell || focusedCell.colIndex < 0) return 0;
+        return Math.min(focusedCell.colIndex, columnCount - 1);
+    }
+
+    function getRowDeleteTarget(block: Exclude<SelectionBlock, null>) {
+        const nextRowCount = getRowCount() - (block.endRow - block.startRow + 1);
+        const columnCount = columns().length;
+        const focusCol = getFocusColumnAfterRowDelete(columnCount);
+
+        if (nextRowCount <= 0 || focusCol === null) {
+            return { nextFocusedCell: null, nextSelectionBlock: null };
+        }
+
+        const targetRow = Math.min(block.startRow, nextRowCount - 1);
+
+        return {
+            nextFocusedCell: { rowIndex: targetRow, colIndex: focusCol },
+            nextSelectionBlock: {
+                startRow: targetRow,
+                endRow: targetRow,
+                startCol: 0,
+                endCol: columnCount - 1,
+            },
+        };
+    }
+
+    function getColumnDeleteTarget(block: Exclude<SelectionBlock, null>) {
+        const nextColumnCount = columns().length - (block.endCol - block.startCol + 1);
+
+        if (nextColumnCount <= 0) {
+            return { nextFocusedCell: null, nextSelectionBlock: null };
+        }
+
+        const targetCol = Math.min(block.startCol, nextColumnCount - 1);
+
+        return {
+            nextFocusedCell: { rowIndex: -1, colIndex: targetCol },
+            nextSelectionBlock: {
+                startRow: 0,
+                endRow: Math.max(0, getRowCount() - 1),
+                startCol: targetCol,
+                endCol: targetCol,
+            },
+        };
+    }
+
+    async function restoreStructuralSelection(
+        nextFocusedCell: { rowIndex: number; colIndex: number } | null,
+        nextSelectionBlock: SelectionBlock,
+    ) {
+        focusedCell = nextFocusedCell;
+        selectionBlock = nextSelectionBlock;
+
+        if (!nextFocusedCell) {
+            focusGrid?.();
+            return;
+        }
+
+        await tick();
+        navigateAndFocus();
     }
 
     function startEditing(
@@ -236,23 +323,55 @@ export function useCsvEditorState(
 
         const block = selectionBlock;
 
-        if (isEntireRowSelection(block)) {
+        if (isRowSelection(block)) {
+            const restoreFocus = focusedCell ? { ...focusedCell } : null;
+            const restoreSelection = cloneSelectionBlock(block);
+            const { nextFocusedCell, nextSelectionBlock } = getRowDeleteTarget(block);
             selectionBlock = null;
             focusedCell = null;
             void runAsyncAction(
                 "delete.table.row",
-                () => controller.runMutation({ type: "delete-rows", start: block.startRow, end: block.endRow }, "delete.table.row"),
+                async () => {
+                    const applied = await controller.runMutation(
+                        { type: "delete-rows", start: block.startRow, end: block.endRow },
+                        "delete.table.row",
+                    );
+                    if (applied) {
+                        await restoreStructuralSelection(nextFocusedCell, nextSelectionBlock);
+                        return applied;
+                    }
+
+                    focusedCell = restoreFocus;
+                    selectionBlock = restoreSelection;
+                    return applied;
+                },
                 block,
             );
             return;
         }
 
-        if (isEntireColumnSelection(block)) {
+        if (isColumnSelection(block)) {
+            const restoreFocus = focusedCell ? { ...focusedCell } : null;
+            const restoreSelection = cloneSelectionBlock(block);
+            const { nextFocusedCell, nextSelectionBlock } = getColumnDeleteTarget(block);
             selectionBlock = null;
             focusedCell = null;
             void runAsyncAction(
                 "delete.table.column",
-                () => controller.runMutation({ type: "delete-columns", start: block.startCol, end: block.endCol }, "delete.table.column"),
+                async () => {
+                    const applied = await controller.runMutation(
+                        { type: "delete-columns", start: block.startCol, end: block.endCol },
+                        "delete.table.column",
+                    );
+                    if (applied) {
+                        await restoreStructuralSelection(nextFocusedCell, nextSelectionBlock);
+                        return applied;
+                    }
+
+                    focusedCell = restoreFocus;
+                    selectionBlock = restoreSelection;
+                    return applied;
+                },
                 block,
             );
             return;
@@ -363,16 +482,77 @@ export function useCsvEditorState(
         };
         focusedCell = {
             rowIndex: targetStart,
-            colIndex: focusedCell?.colIndex ?? 0,
+            colIndex: Math.max(0, focusedCell?.colIndex ?? 0),
         };
         navigateAndFocus();
 
-        void runAsyncAction("move.table.row", () =>
-            controller.runMutation(
+        void runAsyncAction("move.table.row", async () => {
+            const applied = await controller.runMutation(
                 { type: "move-rows", start: range.start, end: range.end, direction },
                 "move.table.row",
-            ),
-        );
+            );
+            if (applied) {
+                await tick();
+                navigateAndFocus();
+            }
+            return applied;
+        });
+    }
+
+    function updateColumnSelection(targetStart: number, count: number) {
+        const targetEnd = targetStart + count - 1;
+        selectionBlock = {
+            startRow: 0,
+            endRow: Math.max(0, getRowCount() - 1),
+            startCol: targetStart,
+            endCol: targetEnd,
+        };
+        focusedCell = {
+            rowIndex: -1,
+            colIndex: targetStart,
+        };
+        navigateAndFocus();
+    }
+
+    function moveSelectedColumns(direction: -1 | 1) {
+        const range = getSelectedColumnRange();
+        if (!range) return;
+
+        const count = range.end - range.start + 1;
+        const targetStart = range.start + direction;
+        const columnCount = columns().length;
+        if (targetStart < 0 || targetStart + count > columnCount) return;
+
+        updateColumnSelection(targetStart, count);
+
+        void runAsyncAction("move.table.column", async () => {
+            const applied = await controller.runMutation(
+                { type: "move-columns", start: range.start, end: range.end, direction },
+                "move.table.column",
+            );
+            if (applied) {
+                onColumnsReordered?.(range.start, range.end, targetStart);
+                await tick();
+                navigateAndFocus();
+            }
+            return applied;
+        });
+    }
+
+    function canMoveSelectedRows(direction: -1 | 1): boolean {
+        const range = getSelectedRowRange();
+        if (!range) return false;
+        const count = range.end - range.start + 1;
+        const targetStart = range.start + direction;
+        return targetStart >= 0 && targetStart + count <= getRowCount();
+    }
+
+    function canMoveSelectedColumns(direction: -1 | 1): boolean {
+        const range = getSelectedColumnRange();
+        if (!range) return false;
+        const count = range.end - range.start + 1;
+        const targetStart = range.start + direction;
+        return targetStart >= 0 && targetStart + count <= columns().length;
     }
 
     function handleUndo() {
@@ -404,6 +584,7 @@ export function useCsvEditorState(
     function focusCurrentCell() {
         if (!focusedCell) return;
         tick().then(() => {
+            focusGrid?.();
             const cell = document.querySelector(
                 `[data-row="${focusedCell!.rowIndex}"][data-col="${focusedCell!.colIndex}"]`,
             ) as HTMLElement | null;
@@ -476,6 +657,16 @@ export function useCsvEditorState(
         {
             key: "Alt+ArrowDown",
             callback: () => moveSelectedRows(1),
+            options: { preventDefault: true, ignoreInputs: true },
+        },
+        {
+            key: "Alt+ArrowLeft",
+            callback: () => moveSelectedColumns(-1),
+            options: { preventDefault: true, ignoreInputs: true },
+        },
+        {
+            key: "Alt+ArrowRight",
+            callback: () => moveSelectedColumns(1),
             options: { preventDefault: true, ignoreInputs: true },
         },
         {
@@ -772,8 +963,8 @@ export function useCsvEditorState(
         set isSelecting(value) {
             isSelecting = value;
         },
-        isRowSelection: () => isEntireRowSelection(),
-        isColumnSelection: () => isEntireColumnSelection(),
+        isRowSelection: () => isRowSelection(),
+        isColumnSelection: () => isColumnSelection(),
         startEditing,
         commitEdit,
         cancelEdit,
@@ -785,8 +976,14 @@ export function useCsvEditorState(
         addColumnLeft,
         addColumnRight,
         deleteSelectedColumns,
+        moveSelectedColumnsLeft: () => moveSelectedColumns(-1),
+        moveSelectedColumnsRight: () => moveSelectedColumns(1),
         moveSelectedRowsUp: () => moveSelectedRows(-1),
         moveSelectedRowsDown: () => moveSelectedRows(1),
+        canMoveSelectedRowsUp: () => canMoveSelectedRows(-1),
+        canMoveSelectedRowsDown: () => canMoveSelectedRows(1),
+        canMoveSelectedColumnsLeft: () => canMoveSelectedColumns(-1),
+        canMoveSelectedColumnsRight: () => canMoveSelectedColumns(1),
         handleUndo,
         handleRedo,
         cellHotkeys,

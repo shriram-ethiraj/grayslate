@@ -19,8 +19,10 @@
   import CsvTableBody from "./CsvTableBody.svelte";
   import CsvContextMenu from "./CsvContextMenu.svelte";
   import type {
+    CsvReplayStep,
     CsvRowWindow,
     CsvTableController,
+    CsvTableFlushResult,
     CsvTableSnapshot,
     CsvWorkerRequest,
     CsvWorkerResponse,
@@ -75,6 +77,28 @@
     return updater;
   }
 
+  function reorderColumnSizing(
+    sizing: ColumnSizingState,
+    start: number,
+    end: number,
+    target: number,
+  ): ColumnSizingState {
+    const entries = snapshot.headers.map((_, index) => sizing[`col_${index}`] ?? null);
+    const movedEntries = entries.slice(start, end + 1);
+    const remainingEntries = [
+      ...entries.slice(0, start),
+      ...entries.slice(end + 1),
+    ];
+    remainingEntries.splice(target, 0, ...movedEntries);
+
+    return remainingEntries.reduce<ColumnSizingState>((nextSizing, size, index) => {
+      if (size !== null) {
+        nextSizing[`col_${index}`] = size;
+      }
+      return nextSizing;
+    }, {});
+  }
+
   let {
     content = $bindable(""),
     tableInfo = $bindable({ rows: 0, cols: 0, delimiter: "", errors: 0 }),
@@ -90,11 +114,18 @@
   let nextRequestId = 0;
   let pendingRequests = new Map<number, PendingRequest>();
   let latestRowWindowToken = 0;
+  let replayBaseText = "";
+  let replayUndoStack: CsvReplayStep[] = [];
+  let replayRedoStack: CsvReplayStep[] = [];
 
   let tableContainerRef = $state<HTMLDivElement | undefined>(undefined);
-  let contextMenu = $state<{ openMenu: (x: number, y: number) => void } | null>(
-    null,
-  );
+  let contextMenu = $state<{
+    openMenu: (
+      x: number,
+      y: number,
+      options?: { mode?: "selection" | "insert-column" },
+    ) => void;
+  } | null>(null);
   let wrapperRef = $state<HTMLDivElement | undefined>(undefined);
 
   function formatRowCount(count: number): string {
@@ -162,7 +193,41 @@
     });
   }
 
-  export async function flushToText(): Promise<string> {
+  function resetReplayState(baseText: string): void {
+    replayBaseText = baseText;
+    lastSyncedContent = baseText;
+    replayUndoStack = [];
+    replayRedoStack = [];
+  }
+
+  function recordReplayStep(previousText: string, nextText: string, userEvent: string): void {
+    if (previousText === nextText) {
+      return;
+    }
+
+    replayUndoStack.push({ text: nextText, userEvent });
+    replayRedoStack = [];
+  }
+
+  function applyReplayUndo(): void {
+    const step = replayUndoStack.pop();
+    if (!step) {
+      return;
+    }
+
+    replayRedoStack.push(step);
+  }
+
+  function applyReplayRedo(): void {
+    const step = replayRedoStack.pop();
+    if (!step) {
+      return;
+    }
+
+    replayUndoStack.push(step);
+  }
+
+  export async function flushToTextHistory(): Promise<CsvTableFlushResult> {
     const response = await sendRequest({ type: "flush-text" });
     if (response.type !== "flushed-text") {
       throw new Error("Unexpected CSV flush response");
@@ -171,7 +236,15 @@
     snapshot = { ...snapshot, version: response.version };
     lastSyncedContent = response.text;
     content = response.text;
-    return response.text;
+    return {
+      baseText: replayBaseText,
+      text: response.text,
+      replaySteps: replayUndoStack.map((step) => ({
+        text: step.text,
+        userEvent: step.userEvent,
+      })),
+      version: response.version,
+    };
   }
 
   function getVisibleRow(index: number): string[] | undefined {
@@ -183,7 +256,7 @@
   }
 
   async function refreshViewportRows(force = false): Promise<void> {
-    if (snapshot.rowCount === 0) {
+    if (snapshot.rowCount === 0 || snapshot.headers.length === 0) {
       rowWindow = { ...EMPTY_ROW_WINDOW, version: snapshot.version };
       return;
     }
@@ -220,6 +293,8 @@
 
   async function applyMutationResponse(
     response: CsvWorkerResponse,
+    userEvent: string,
+    mode: "forward" | "undo" | "redo",
   ): Promise<boolean> {
     if (response.type !== "mutation-applied") {
       return false;
@@ -229,7 +304,19 @@
       return false;
     }
 
+    const previousText = lastSyncedContent;
     snapshot = response.snapshot;
+    lastSyncedContent = response.text;
+    content = response.text;
+
+    if (mode === "forward") {
+      recordReplayStep(previousText, response.text, userEvent);
+    } else if (mode === "undo") {
+      applyReplayUndo();
+    } else {
+      applyReplayRedo();
+    }
+
     rowWindow = { ...EMPTY_ROW_WINDOW, version: snapshot.version };
     await refreshViewportRows(true);
     return true;
@@ -252,15 +339,15 @@
     },
     async runMutation(mutation, userEvent) {
       const response = await sendRequest({ type: "mutate", mutation });
-      await applyMutationResponse(response);
+      return applyMutationResponse(response, userEvent, "forward");
     },
     async undo() {
       const response = await sendRequest({ type: "undo" });
-      return applyMutationResponse(response);
+      return applyMutationResponse(response, "undo.table", "undo");
     },
     async redo() {
       const response = await sendRequest({ type: "redo" });
-      return applyMutationResponse(response);
+      return applyMutationResponse(response, "redo.table", "redo");
     },
   };
 
@@ -288,6 +375,7 @@
         throw new Error("Unexpected CSV initialization response");
       }
 
+      resetReplayState(text);
       snapshot = response.snapshot;
       rowWindow = { ...EMPTY_ROW_WINDOW, version: snapshot.version };
       latestRowWindowToken += 1;
@@ -300,7 +388,11 @@
           `${snapshot.rowCount.toLocaleString()} rows`,
         );
 
-        if (snapshot.rowCount > 0 && !csvEditorState.focusedCell) {
+        if (
+          snapshot.rowCount > 0 &&
+          snapshot.headers.length > 0 &&
+          !csvEditorState.focusedCell
+        ) {
           csvEditorState.focusedCell = { rowIndex: 0, colIndex: 0 };
           csvEditorState.navigateAndFocus();
         }
@@ -322,7 +414,7 @@
   let stableColumns: ColumnDef<string[], string>[] = [];
 
   let columns = $derived.by(() => {
-    const headerKey = snapshot.headers.join("\0");
+    const headerKey = `${snapshot.headers.length}\0${snapshot.headers.join("\0")}`;
     if (headerKey === prevHeaderKey) return stableColumns;
     prevHeaderKey = headerKey;
     stableColumns = snapshot.headers.map(
@@ -337,10 +429,20 @@
     return stableColumns;
   });
 
+  let visibleRowCount = $derived(
+    snapshot.headers.length === 0 ? 0 : snapshot.rowCount,
+  );
+
   const csvEditorState = useCsvEditorState(
     controller,
     () => columns,
     (index, options) => virtualizer.scrollToIndex(index, options),
+    (start, end, target) => {
+      columnSizing = reorderColumnSizing(columnSizing, start, end, target);
+    },
+    () => {
+      wrapperRef?.focus();
+    },
   );
 
   $effect(() => {
@@ -394,7 +496,7 @@
   });
 
   const virtualizer = useScrollVirtualizer({
-    count: () => snapshot.rowCount,
+    count: () => visibleRowCount,
     getScrollElement: () => tableContainerRef,
     estimateSize: () => 32,
     overscan: 20,
@@ -594,10 +696,14 @@
       if (cell) {
         const rowIndex = parseInt(cell.getAttribute("data-row")!, 10);
         const colIndex = parseInt(cell.getAttribute("data-col")!, 10);
-        if (rowIndex === -1 && colIndex === -1) return;
 
         const numRows = snapshot.rowCount;
         const numCols = columns.length;
+
+        if (colIndex === -1 && rowIndex === -1) {
+          contextMenu?.openMenu(e.clientX, e.clientY, { mode: "insert-column" });
+          return;
+        }
 
         let inSelection = false;
         if (csvEditorState.selectionBlock) {

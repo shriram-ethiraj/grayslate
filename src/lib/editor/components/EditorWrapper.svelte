@@ -14,9 +14,12 @@
   import type { EditorView } from "codemirror";
   import {
     createManagedEditorSession,
+    dispatchManagedEditorChange,
     dispatchManagedEditorTextChange,
+    ensureManagedEditorState,
     type ManagedEditorSession,
   } from "$lib/editor/core/editorSession";
+  import type { CsvTableFlushResult } from "./csv/csvTableProtocol";
   import {
     editorState,
     updateEditorLoader,
@@ -68,7 +71,7 @@
   let editorSession = $state.raw<ManagedEditorSession>(
     createManagedEditorSession(),
   );
-  let csvTableView = $state<{ flushToText: () => Promise<string> } | undefined>(
+  let csvTableView = $state<{ flushToTextHistory: () => Promise<CsvTableFlushResult> } | undefined>(
     undefined,
   );
 
@@ -78,7 +81,7 @@
   // The Tauri menu emits "menu://open-file" when the user clicks the item
   // (or presses Ctrl/Cmd+O via its accelerator). We open a native file
   // picker, then invoke read_file_content on the Rust side which enforces
-  // the 50 MB size limit before returning the text.
+  // the current 200 MB size limit before returning the text.
   // -----------------------------------------------------------------------
   async function openFile(): Promise<void> {
     const selected = await openFilePicker({
@@ -192,12 +195,34 @@
     });
 
     try {
-      const nextText = await csvTableView.flushToText();
+      const { baseText, text: nextText, replaySteps } = await csvTableView.flushToTextHistory();
       value = nextText;
-      dispatchManagedEditorTextChange(editorSession, nextText, {
-        userEvent: "flush.table",
-        focus: false,
-      });
+
+      if (!editorSession.state) {
+        ensureManagedEditorState(editorSession, baseText, activeLanguage);
+      } else if (replaySteps.length > 0 && editorSession.state.doc.toString() !== baseText) {
+        dispatchManagedEditorTextChange(editorSession, baseText, {
+          userEvent: "table.replay.reset",
+          focus: false,
+          addToHistory: false,
+        });
+      }
+
+      for (const step of replaySteps) {
+        dispatchManagedEditorTextChange(editorSession, step.text, {
+          userEvent: step.userEvent,
+          focus: false,
+          separateUndoStep: true,
+        });
+      }
+
+      if (editorSession.state?.doc.toString() !== nextText) {
+        dispatchManagedEditorTextChange(editorSession, nextText, {
+          userEvent: "flush.table",
+          focus: false,
+        });
+      }
+
       completeEditorLoader("CSV text ready", "", 120, () => {
         editorState.csv.showTable = false;
       });

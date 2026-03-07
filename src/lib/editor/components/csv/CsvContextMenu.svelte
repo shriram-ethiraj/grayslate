@@ -1,6 +1,8 @@
 <script lang="ts">
   import { tick } from "svelte";
   import Plus from "~icons/lucide/plus";
+  import ArrowLeft from "~icons/lucide/arrow-left";
+  import ArrowRight from "~icons/lucide/arrow-right";
   import ArrowUp from "~icons/lucide/arrow-up";
   import ArrowDown from "~icons/lucide/arrow-down";
   import Trash2 from "~icons/lucide/trash-2";
@@ -20,6 +22,7 @@
   let menuX = $state(0);
   let menuY = $state(0);
   let menuRef = $state<HTMLDivElement | null>(null);
+  let menuMode = $state<"selection" | "insert-column">("selection");
 
   const itemBase =
     "relative flex w-full items-center rounded-sm px-2 py-1.5 text-sm outline-hidden select-none";
@@ -28,9 +31,36 @@
 
   const isRowSelection = $derived(editorState.isRowSelection());
   const isColumnSelection = $derived(editorState.isColumnSelection());
+  const canMoveRowUp = $derived.by(() => {
+    editorState.selectionBlock;
+    editorState.focusedCell;
+    return editorState.canMoveSelectedRowsUp();
+  });
+  const canMoveRowDown = $derived.by(() => {
+    editorState.selectionBlock;
+    editorState.focusedCell;
+    return editorState.canMoveSelectedRowsDown();
+  });
+  const canMoveColumnLeft = $derived.by(() => {
+    editorState.selectionBlock;
+    editorState.focusedCell;
+    return editorState.canMoveSelectedColumnsLeft();
+  });
+  const canMoveColumnRight = $derived.by(() => {
+    editorState.selectionBlock;
+    editorState.focusedCell;
+    return editorState.canMoveSelectedColumnsRight();
+  });
 
-  export function openMenu(x: number, y: number) {
-    if (!editorState.selectionBlock) return;
+  export function openMenu(
+    x: number,
+    y: number,
+    options?: { mode?: "selection" | "insert-column" },
+  ) {
+    const nextMode = options?.mode ?? "selection";
+    if (nextMode === "selection" && !editorState.selectionBlock) return;
+
+    menuMode = nextMode;
     open = true;
     menuX = x;
     menuY = y;
@@ -86,6 +116,11 @@
     }
     editorState.deleteSelection();
   }
+
+  function handleInsertColumnLeft() {
+    close();
+    editorState.addColumnLeft();
+  }
 </script>
 
 {#if open}
@@ -98,7 +133,16 @@
     tabindex="-1"
     oncontextmenu={(e) => e.preventDefault()}
   >
-    {#if isRowSelection}
+    {#if menuMode === "insert-column"}
+      <button class={itemEnabled} role="menuitem" onclick={handleInsertColumnLeft}>
+        <Plus class="mr-2 h-4 w-4 shrink-0" />
+        <span>Insert Column Left</span>
+      </button>
+    {:else if isRowSelection}
+      <button class={itemEnabled} role="menuitem" onclick={handleInsertColumnLeft}>
+        <Plus class="mr-2 h-4 w-4 shrink-0" />
+        <span>Insert Column Left</span>
+      </button>
       <button class={itemEnabled} role="menuitem" onclick={() => {
         close();
         editorState.addRowAbove();
@@ -113,26 +157,30 @@
         <Plus class="mr-2 h-4 w-4 shrink-0" />
         <span>Insert Row Below</span>
       </button>
-      <button class={itemEnabled} role="menuitem" onclick={() => {
-        close();
-        editorState.moveSelectedRowsUp();
-      }}>
-        <ArrowUp class="mr-2 h-4 w-4 shrink-0" />
-        <span>Move Row Up</span>
-        <span class="ml-auto pl-4 text-xs text-muted-foreground"
-          >{formatForDisplay("Alt+ArrowUp")}</span
-        >
-      </button>
-      <button class={itemEnabled} role="menuitem" onclick={() => {
-        close();
-        editorState.moveSelectedRowsDown();
-      }}>
-        <ArrowDown class="mr-2 h-4 w-4 shrink-0" />
-        <span>Move Row Down</span>
-        <span class="ml-auto pl-4 text-xs text-muted-foreground"
-          >{formatForDisplay("Alt+ArrowDown")}</span
-        >
-      </button>
+      {#if canMoveRowUp}
+        <button class={itemEnabled} role="menuitem" onclick={() => {
+          close();
+          editorState.moveSelectedRowsUp();
+        }}>
+          <ArrowUp class="mr-2 h-4 w-4 shrink-0" />
+          <span>Move Row Up</span>
+          <span class="ml-auto pl-4 text-xs text-muted-foreground"
+            >{formatForDisplay("Alt+ArrowUp")}</span
+          >
+        </button>
+      {/if}
+      {#if canMoveRowDown}
+        <button class={itemEnabled} role="menuitem" onclick={() => {
+          close();
+          editorState.moveSelectedRowsDown();
+        }}>
+          <ArrowDown class="mr-2 h-4 w-4 shrink-0" />
+          <span>Move Row Down</span>
+          <span class="ml-auto pl-4 text-xs text-muted-foreground"
+            >{formatForDisplay("Alt+ArrowDown")}</span
+          >
+        </button>
+      {/if}
       <button class={destructiveItem} role="menuitem" onclick={handleDelete}>
         <Trash2 class="mr-2 h-4 w-4 shrink-0" />
         <span>Delete Row</span>
@@ -141,10 +189,7 @@
         >
       </button>
     {:else if isColumnSelection}
-      <button class={itemEnabled} role="menuitem" onclick={() => {
-        close();
-        editorState.addColumnLeft();
-      }}>
+      <button class={itemEnabled} role="menuitem" onclick={handleInsertColumnLeft}>
         <Plus class="mr-2 h-4 w-4 shrink-0" />
         <span>Insert Column Left</span>
       </button>
@@ -155,6 +200,30 @@
         <Plus class="mr-2 h-4 w-4 shrink-0" />
         <span>Insert Column Right</span>
       </button>
+      {#if canMoveColumnLeft}
+        <button class={itemEnabled} role="menuitem" onclick={() => {
+          close();
+          editorState.moveSelectedColumnsLeft();
+        }}>
+          <ArrowLeft class="mr-2 h-4 w-4 shrink-0" />
+          <span>Move Column Left</span>
+          <span class="ml-auto pl-4 text-xs text-muted-foreground"
+            >{formatForDisplay("Alt+ArrowLeft")}</span
+          >
+        </button>
+      {/if}
+      {#if canMoveColumnRight}
+        <button class={itemEnabled} role="menuitem" onclick={() => {
+          close();
+          editorState.moveSelectedColumnsRight();
+        }}>
+          <ArrowRight class="mr-2 h-4 w-4 shrink-0" />
+          <span>Move Column Right</span>
+          <span class="ml-auto pl-4 text-xs text-muted-foreground"
+            >{formatForDisplay("Alt+ArrowRight")}</span
+          >
+        </button>
+      {/if}
       <button class={destructiveItem} role="menuitem" onclick={handleDelete}>
         <Trash2 class="mr-2 h-4 w-4 shrink-0" />
         <span>Delete Column</span>

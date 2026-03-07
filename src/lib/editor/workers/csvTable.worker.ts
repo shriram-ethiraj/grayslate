@@ -245,10 +245,16 @@ function applyOps(ops: TableOp[]): void {
                 for (const row of state.rows) {
                     row.splice(op.start, op.end - op.start + 1);
                 }
+                if (state.headers.length === 0) {
+                    state.rows = [];
+                }
                 break;
             }
             case "bulk-col-add": {
                 state.headers.splice(op.start, 0, ...op.headers);
+                while (state.rows.length < op.data.length) {
+                    state.rows.push([]);
+                }
                 for (let index = 0; index < state.rows.length; index += 1) {
                     const row = state.rows[index];
                     const rowData = op.data[index] ?? [];
@@ -291,12 +297,15 @@ function commitMutation(requestId: number, ops: TableOp[], pushToHistory: boolea
             pushHistory(ops);
         }
         state.version += 1;
+        state.text = serializeCsv(state.headers, state.rows, state.delimiter);
+        state.serializedVersion = state.version;
     }
 
     postResponse({
         type: "mutation-applied",
         requestId,
         snapshot: snapshot(),
+        text: state.text,
         applied,
     });
 }
@@ -404,12 +413,13 @@ function buildMutationOps(mutation: CsvMutationRequest): { ops: TableOp[]; appli
             };
         }
         case "add-column": {
+            const rowCount = Math.max(state.rows.length, 1);
             return {
                 ops: [{
                     type: "bulk-col-add",
                     start: mutation.index,
                     headers: [""],
-                    data: state.rows.map(() => [""]),
+                    data: Array.from({ length: rowCount }, () => [""]),
                 }],
                 applied: true,
             };
@@ -433,6 +443,36 @@ function buildMutationOps(mutation: CsvMutationRequest): { ops: TableOp[]; appli
                         type: "bulk-row-add",
                         start: targetStart,
                         data: cloneRows(movedRows),
+                    },
+                ],
+                applied: true,
+            };
+        }
+        case "move-columns": {
+            const count = mutation.end - mutation.start + 1;
+            const targetStart = mutation.start + mutation.direction;
+            if (targetStart < 0 || targetStart + count > state.headers.length) {
+                return { ops: [], applied: false };
+            }
+            const movedHeaders = state.headers.slice(mutation.start, mutation.end + 1);
+            if (movedHeaders.length === 0) {
+                return { ops: [], applied: false };
+            }
+            const movedData = state.rows.map((row) => row.slice(mutation.start, mutation.end + 1));
+            return {
+                ops: [
+                    {
+                        type: "bulk-col-delete",
+                        start: mutation.start,
+                        end: mutation.end,
+                        headers: [...movedHeaders],
+                        data: cloneRows(movedData),
+                    },
+                    {
+                        type: "bulk-col-add",
+                        start: targetStart,
+                        headers: [...movedHeaders],
+                        data: cloneRows(movedData),
                     },
                 ],
                 applied: true,

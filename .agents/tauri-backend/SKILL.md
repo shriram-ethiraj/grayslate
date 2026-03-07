@@ -5,6 +5,29 @@ description: Rules for using Tauri v2 APIs safely and effectively with Rust.
 
 # Tauri and Rust Backend Guidelines
 
+## Current Backend Surface In Grayslate
+
+Primary files:
+
+- `src-tauri/src/lib.rs`
+- `src-tauri/src/commands/file.rs`
+- `src-tauri/src/commands/memory.rs`
+- `src-tauri/src/menu/mod.rs`
+- `src-tauri/src/window/mod.rs`
+
+Commands currently exposed to the frontend:
+
+- `read_file_content`
+- `get_memory_info`
+- `set_menu_word_wrap`
+
+Current implementation notes:
+
+- File reads are validated in Rust before returning content to the frontend.
+- The current enforced file size limit is 200 MB.
+- macOS native menu wiring is handled in Rust; Windows and Linux use the in-window menu implementation.
+- The app builder uses Tauri v2 plugins for window state, OS info, opener, dialog, and clipboard.
+
 ## Core Principles
 
 - **Tauri v2 APIs:** Ensure we are using Tauri v2 IPC (`@tauri-apps/api/core` Invoke calls, not v1).

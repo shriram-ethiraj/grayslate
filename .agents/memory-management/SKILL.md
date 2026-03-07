@@ -2,6 +2,12 @@
 
 This document outlines the approach used in Grayslate to ensure memory is reclaimed promptly when switching between files.
 
+## Primary Files
+
+- `src/lib/editor/core/memory.ts`
+- `src-tauri/src/commands/memory.rs`
+- `src/lib/editor/components/EditorWrapper.svelte`
+
 ## 🧠 The Problem
 JavaScript engines (V8, JavaScriptCore) are often lazy. Large strings and the corresponding CodeMirror state (document trees, syntax trees) can occupy 5–10× the raw file size in the heap. When a user opens a new file, the old state becomes unreachable, but the engine might wait until the heap is nearly full before running a **Major GC** pass.
 
@@ -30,11 +36,18 @@ Pressure is computed from **system used RAM** (via Rust `sysinfo` crate), NOT fr
 ### When It Runs
 `reclaimMemory()` is called on **every file open** in `EditorWrapper.svelte`, unconditionally. There is no content-length threshold — the function is cheap when the system isn't bloated (the 20 MB floor is harmless) and essential when it is.
 
+## Current Implementation Notes
+
+- The frontend first asks Rust for `total`, `available`, `used`, and `process_used` memory via `get_memory_info`.
+- `reclaimMemory()` skips the pressure trick when the app RSS is already low (`PROCESS_RSS_THRESHOLD` in `memory.ts`).
+- The pressure buffer is sized from current system usage, then committed page-by-page in JavaScript.
+- The function is intentionally called only after the old editor instance has had time to unmount.
+
 ## 🦀 Rust Backend (`memory.rs`)
 The `get_memory_info` command uses the `sysinfo` crate.
 
 - **Fast Refresh**: Uses `System::new()` (not `new_all()`) and `refresh_memory()` to minimize CPU overhead. `new_all()` enumerates all processes, CPUs, disks, and NICs — far too expensive for a simple RAM check.
-- **Typed Return**: Returns a `Result<MemoryInfo, String>` with a `#[derive(Serialize)]` struct containing `total`, `available`, and `used` (bytes).
+- **Typed Return**: Returns a `Result<MemoryInfo, String>` with a `#[derive(Serialize)]` struct containing `total`, `available`, `used`, and `process_used`.
 
 ## ⚠️ Critical Rules
 

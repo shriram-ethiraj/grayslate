@@ -27,7 +27,7 @@
     {/each}
   </colgroup>
   <thead>
-    {#each table.getHeaderGroups() as headerGroup}
+    {#if table.getHeaderGroups().length === 0}
       <tr>
         <th
           class="csv-row-num-header"
@@ -36,74 +36,84 @@
           style="width: {indexColWidth}px; min-width: {indexColWidth}px; max-width: {indexColWidth}px;"
           >#</th
         >
-        {#each headerGroup.headers as header, colIndex}
-          {@const isEditing =
-            editorState.editingCell?.rowIndex === -1 &&
-            editorState.editingCell?.colIndex === colIndex}
-          {@const isFocused =
-            editorState.focusedCell?.rowIndex === -1 &&
-            editorState.focusedCell?.colIndex === colIndex}
-          {@const isSelected =
-            editorState.selectionBlock &&
-            editorState.selectionBlock.startRow === 0 &&
-            editorState.selectionBlock.endRow >= totalRows - 1 &&
-            colIndex >= editorState.selectionBlock.startCol &&
-            colIndex <= editorState.selectionBlock.endCol}
-          <th
-            class="csv-cell-header"
-            class:focused={isFocused}
-            class:selected={isSelected}
-            data-row="-1"
-            data-col={colIndex}
-            style="width: {header.getSize()}px; min-width: {header.getSize()}px; max-width: {header.getSize()}px;"
-            ondblclick={() => {
-              // Extract title without React-like objects. The header string is just text.
-              // In our parsed setup `header.column.columnDef.header` is a string
-              const title =
-                typeof header.column.columnDef.header === "string"
-                  ? header.column.columnDef.header
-                  : "";
-              editorState.startEditing(-1, colIndex, title);
-            }}
-            role="columnheader"
-            tabindex={isFocused ? 0 : -1}
-            aria-selected={isFocused}
-          >
-            <div class="csv-header-content" class:editing={isEditing}>
-              {#if isEditing}
-                <input
-                  class="csv-edit-input"
-                  type="text"
-                  bind:value={editorState.editValue}
-                  onblur={() => editorState.commitEdit()}
-                  use:hotkey={editorState.editHotkeys}
-                />
-              {:else if !header.isPlaceholder}
-                <FlexRender
-                  content={header.column.columnDef.header}
-                  context={header.getContext()}
-                />
-              {/if}
-            </div>
-            <!-- Resize handle -->
-            <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-            <div
-              class="csv-resize-handle"
-              class:resizing={header.column.getIsResizing()}
-              onmousedown={header.getResizeHandler()}
-              ontouchstart={header.getResizeHandler()}
-              ondblclick={(e) => {
-                e.stopPropagation();
-                header.column.resetSize();
-              }}
-              role="separator"
-              aria-orientation="vertical"
-              tabindex="-1"
-            ></div>
-          </th>
-        {/each}
       </tr>
-    {/each}
+    {:else}
+      {#each table.getHeaderGroups() as headerGroup}
+        <tr>
+          <th
+            class="csv-row-num-header"
+            data-row="-1"
+            data-col="-1"
+            style="width: {indexColWidth}px; min-width: {indexColWidth}px; max-width: {indexColWidth}px;"
+            >#</th
+          >
+          {#each headerGroup.headers as header, colIndex}
+            {@const isEditing =
+              editorState.editingCell?.rowIndex === -1 &&
+              editorState.editingCell?.colIndex === colIndex}
+            {@const isFocused =
+              editorState.focusedCell?.rowIndex === -1 &&
+              editorState.focusedCell?.colIndex === colIndex}
+            {@const isSelected =
+              editorState.selectionBlock &&
+              editorState.selectionBlock.startRow === 0 &&
+              editorState.selectionBlock.endRow >= totalRows - 1 &&
+              colIndex >= editorState.selectionBlock.startCol &&
+              colIndex <= editorState.selectionBlock.endCol}
+            <th
+              class="csv-cell-header"
+              class:focused={isFocused}
+              class:selected={isSelected}
+              data-row="-1"
+              data-col={colIndex}
+              style="width: {header.getSize()}px; min-width: {header.getSize()}px; max-width: {header.getSize()}px;"
+              ondblclick={() => {
+                const title =
+                  typeof header.column.columnDef.header === "string"
+                    ? header.column.columnDef.header
+                    : "";
+                editorState.startEditing(-1, colIndex, title);
+              }}
+              role="columnheader"
+              tabindex={isFocused ? 0 : -1}
+              aria-selected={isFocused}
+            >
+              <div class="csv-header-content" class:editing={isEditing}>
+                {#if isEditing}
+                  <input
+                    class="csv-edit-input"
+                    type="text"
+                    bind:value={editorState.editValue}
+                    onblur={() => editorState.commitEdit()}
+                    use:hotkey={editorState.editHotkeys}
+                  />
+                {:else if !header.isPlaceholder}
+                  <FlexRender
+                    content={header.column.columnDef.header}
+                    context={header.getContext()}
+                  />
+                {/if}
+              </div>
+              <!-- Resize handle -->
+              <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+              <div
+                class="csv-resize-handle"
+                class:resizing={header.column.getIsResizing()}
+                onmousedown={header.getResizeHandler()}
+                ontouchstart={header.getResizeHandler()}
+                ondblclick={(e) => {
+                  e.stopPropagation();
+                  header.column.resetSize();
+                }}
+                role="separator"
+                aria-orientation="vertical"
+                tabindex="-1"
+              ></div>
+            </th>
+          {/each}
+        </tr>
+      {/each}
+    {/if}
   </thead>
 </table>
 

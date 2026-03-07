@@ -19,6 +19,18 @@ export type CsvSelectionBlock = {
     endCol: number;
 } | null;
 
+export type CsvReplayStep = {
+  text: string;
+  userEvent: string;
+};
+
+export type CsvTableFlushResult = {
+  baseText: string;
+  text: string;
+  replaySteps: CsvReplayStep[];
+  version: number;
+};
+
 export type CsvMutationRequest =
     | {
           type: "edit-cell";
@@ -63,6 +75,12 @@ export type CsvMutationRequest =
       }
     | {
           type: "move-rows";
+          start: number;
+          end: number;
+          direction: -1 | 1;
+      }
+        | {
+          type: "move-columns";
           start: number;
           end: number;
           direction: -1 | 1;
@@ -129,6 +147,7 @@ export type CsvWorkerResponse =
           type: "mutation-applied";
           requestId: number;
           snapshot: CsvTableSnapshot;
+          text: string;
           applied: boolean;
       }
         | {
@@ -147,7 +166,7 @@ export interface CsvTableController {
     getSnapshot(): CsvTableSnapshot;
     getCachedCellValue(rowIndex: number, colIndex: number): string;
     fetchCellValue(rowIndex: number, colIndex: number): Promise<string>;
-    runMutation(mutation: CsvMutationRequest, userEvent: string): Promise<void>;
+    runMutation(mutation: CsvMutationRequest, userEvent: string): Promise<boolean>;
     undo(): Promise<boolean>;
     redo(): Promise<boolean>;
 }
