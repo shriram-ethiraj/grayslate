@@ -935,6 +935,15 @@ export function useCsvEditorState(
         }
     }
 
+    function dispose() {
+        editingCell = null;
+        focusedCell = null;
+        selectionBlock = null;
+        isSelecting = false;
+        editValue = "";
+        isMutationInFlight = false;
+    }
+
     return {
         get editingCell() {
             return editingCell;
@@ -990,5 +999,6 @@ export function useCsvEditorState(
         editHotkeys,
         handleCellKeydown,
         navigateAndFocus,
+        dispose,
     };
 }

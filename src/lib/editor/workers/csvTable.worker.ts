@@ -109,6 +109,7 @@ type CsvState = {
 
 const CHUNK_SIZE = 50_000;
 const MAX_HISTORY = 200;
+const DIRTY_SERIALIZED_VERSION = -1;
 
 const state: CsvState = {
     headers: [],
@@ -339,8 +340,15 @@ function commitMutation(
         }
         state.version += 1;
 
-        if (mirrorUserEvent) {
+        if (state.liveMirrorEnabled && mirrorUserEvent) {
             postMirrorTextUpdate(requestId, mirrorUserEvent);
+        } else {
+            // Outside live-mirror sessions, keep the original source text only until
+            // the first structural change. The latest text can be regenerated on the
+            // final flush, which avoids holding a second full-document string in RAM
+            // during large table-editing sessions.
+            state.text = "";
+            state.serializedVersion = DIRTY_SERIALIZED_VERSION;
         }
     }
 
@@ -605,7 +613,9 @@ self.onmessage = (event: MessageEvent<CsvWorkerRequest>) => {
                     requestId: message.requestId,
                     window: {
                         start,
-                        rows: start <= end ? cloneRows(state.rows.slice(start, end + 1)) : [],
+                        // postMessage already structured-clones the payload crossing the
+                        // worker boundary, so avoid an extra deep clone here.
+                        rows: start <= end ? state.rows.slice(start, end + 1) : [],
                         version: state.version,
                     },
                 });

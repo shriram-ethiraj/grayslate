@@ -80,11 +80,12 @@
 
   function reorderColumnSizing(
     sizing: ColumnSizingState,
+    colCount: number,
     start: number,
     end: number,
     target: number,
   ): ColumnSizingState {
-    const entries = snapshot.headers.map((_, index) => sizing[`col_${index}`] ?? null);
+    const entries = Array.from({ length: colCount }, (_, index) => sizing[`col_${index}`] ?? null);
     const movedEntries = entries.slice(start, end + 1);
     const remainingEntries = [
       ...entries.slice(0, start),
@@ -134,6 +135,17 @@
   } | null>(null);
   let wrapperRef = $state<HTMLDivElement | undefined>(undefined);
 
+  function resetColumnSizingInfoState(): ColumnSizingInfoState {
+    return {
+      startOffset: null,
+      startSize: null,
+      deltaOffset: null,
+      deltaPercentage: null,
+      isResizingColumn: false,
+      columnSizingStart: [],
+    };
+  }
+
   function formatRowCount(count: number): string {
     if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M rows…`;
     if (count >= 1_000) return `${(count / 1_000).toFixed(0)}K rows…`;
@@ -146,6 +158,38 @@
       pending.reject(error);
     }
     pendingRequests.clear();
+  }
+
+  function disposeTableWorker(): void {
+    if (tableWorker) {
+      tableWorker.onmessage = null;
+      tableWorker.terminate();
+      tableWorker = undefined;
+    }
+  }
+
+  function releaseLargeTableState(): void {
+    latestRowWindowToken += 1;
+    nextRequestId = 0;
+    pendingRequests = new Map<number, PendingRequest>();
+    snapshot = EMPTY_SNAPSHOT;
+    rowWindow = EMPTY_ROW_WINDOW;
+    lastSyncedContent = "";
+    prevHeaderKey = "";
+    stableColumns = [];
+    columnSizing = {};
+    columnSizingInfo = resetColumnSizingInfoState();
+    tableContainerRef = undefined;
+    wrapperRef = undefined;
+    contextMenu = null;
+    tableInfo = {
+      rows: 0,
+      cols: 0,
+      delimiter: "",
+      errors: 0,
+      liveMirrorEnabled: false,
+    };
+    csvEditorState.dispose();
   }
 
   function createTableWorker() {
@@ -402,7 +446,7 @@
     () => columns,
     (index, options) => virtualizer.scrollToIndex(index, options),
     (start, end, target) => {
-      columnSizing = reorderColumnSizing(columnSizing, start, end, target);
+      columnSizing = reorderColumnSizing(columnSizing, snapshot.headers.length, start, end, target);
     },
     () => {
       wrapperRef?.focus();
@@ -422,14 +466,7 @@
   });
 
   let columnSizing = $state<ColumnSizingState>({});
-  let columnSizingInfo = $state<ColumnSizingInfoState>({
-    startOffset: null,
-    startSize: null,
-    deltaOffset: null,
-    deltaPercentage: null,
-    isResizingColumn: false,
-    columnSizingStart: [],
-  });
+  let columnSizingInfo = $state<ColumnSizingInfoState>(resetColumnSizingInfoState());
 
   const table = createTable({
     get data() {
@@ -506,7 +543,8 @@
       stopLoaderTicker();
       hideEditorLoader();
       resetPendingRequests("CSV table worker disposed");
-      tableWorker?.terminate();
+      disposeTableWorker();
+      releaseLargeTableState();
     };
   });
 
@@ -731,13 +769,11 @@
           }
         }
 
-        const sb = csvEditorState.selectionBlock;
-        if (sb) {
-          const isRowSelection = sb.startCol === 0 && sb.endCol >= numCols - 1;
-          const isColSelection = sb.startRow === 0 && sb.endRow >= numRows - 1;
-          if (isRowSelection || isColSelection) {
-            contextMenu?.openMenu(e.clientX, e.clientY);
-          }
+        if (
+          csvEditorState.selectionBlock &&
+          (csvEditorState.isRowSelection() || csvEditorState.isColumnSelection())
+        ) {
+          contextMenu?.openMenu(e.clientX, e.clientY);
         }
       }
     }}

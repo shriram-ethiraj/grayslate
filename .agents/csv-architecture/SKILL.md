@@ -51,12 +51,13 @@ This skill documents the CSV table implementation that is currently in the repos
 	- `rows`
 	- `delimiter`
 	- `errors`
-	- serialized `text`
+	- serialized `text` cache
 	- session-scoped `liveMirrorEnabled`
 	- `version`
 	- `serializedVersion`
 	- structural `undoStack` and `redoStack`
 - The worker is responsible for parsing, row-window reads, single-cell reads, mutations, undo, redo, and final text flush.
+- For non-live-mirrored sessions, the worker may drop the cached serialized text after the first mutation and regenerate it only on `flush-text` to save RAM during large table-editing sessions.
 
 ## Worker Protocol
 
@@ -87,7 +88,7 @@ This skill documents the CSV table implementation that is currently in the repos
 
 - `CsvTableSnapshot.liveMirrorEnabled` is fixed when table mode is initialized.
 - Live mirroring is only enabled for sessions with at most 100,000 data rows at table-entry time.
-- When live mirroring is enabled, forward table edits plus table undo/redo emit `mirror-text-update` messages for the preserved CodeMirror session.
+- When live mirroring is enabled, forward table edits plus table undo/redo emit `mirror-text-update` messages carrying the latest serialized CSV text for the preserved CodeMirror session.
 - `flush-text` returns only the latest serialized CSV text and version.
 
 ## Undo/Redo Model
@@ -141,8 +142,10 @@ This skill documents the CSV table implementation that is currently in the repos
 2. Do not keep a hidden CodeMirror `EditorView` mounted during table mode.
 3. Do not rebuild the full editor state for simple language, wrap, or replay changes.
 4. Do not return massive row payloads to the main thread when a narrow row window will do.
-5. Do not enable live CodeMirror mirroring for table sessions above 100,000 data rows.
-6. Do not remove the virtualizer safety caps.
+5. Let the worker boundary's structured clone handle viewport row transport; do not add an extra deep clone before `postMessage` unless the transport contract changes.
+6. Live mirroring currently serializes the full CSV text per mirrored step; do not raise the 100,000-row cutoff casually because the cost scales with total document size.
+7. Do not enable live CodeMirror mirroring for table sessions above 100,000 data rows.
+8. Do not remove the virtualizer safety caps.
 
 ## Failure Modes To Watch
 

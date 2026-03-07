@@ -15,6 +15,7 @@
   import {
     createManagedEditorSession,
     dispatchManagedEditorTextChange,
+    disposeManagedEditorSession,
     ensureManagedEditorState,
     type ManagedEditorSession,
   } from "$lib/editor/core/editorSession";
@@ -211,6 +212,22 @@
     scheduleCsvMirrorDrain();
   }
 
+  function clearCsvMirrorState(): void {
+    cancelCsvMirrorDrain();
+    csvMirrorQueue = [];
+    csvTableView = undefined;
+  }
+
+  function clearRetainedEditorState(): void {
+    editorView = undefined;
+    editorState.activeView = undefined;
+    editorState.findReplace.visible = false;
+    editorState.findReplace.findText = "";
+    editorState.findReplace.replaceText = "";
+    editorState.findReplace.matchCount = 0;
+    editorState.findReplace.currentMatch = 0;
+  }
+
   // -----------------------------------------------------------------------
   // Menu: "File > Open File..."
   //
@@ -241,6 +258,7 @@
     });
 
     try {
+      const previousSession = editorSession;
       const content = await invoke<string>("read_file_content", {
         path: filePath,
       });
@@ -266,12 +284,17 @@
         detectedLanguage = detected;
       }
 
+      checkLanguage.cancel();
+      clearCsvMirrorState();
+        clearRetainedEditorState();
       activeFilePath = filePath;
-  editorSession = createManagedEditorSession();
+        editorSession = createManagedEditorSession();
       value = content;
 
       // Yield to let Svelte update the DOM and dispose old CodeMirror instance
       await new Promise<void>((r) => setTimeout(r, 10));
+
+        disposeManagedEditorSession(previousSession);
 
       // Reclaim stale heap from the previous file (full-page-commit strategy)
       reclaimMemory();
@@ -380,6 +403,10 @@
     editorState.csv.requestShowTable = requestCsvTableMode;
 
     return () => {
+      checkLanguage.cancel();
+      clearCsvMirrorState();
+      clearRetainedEditorState();
+      disposeManagedEditorSession(editorSession);
       if (editorState.csv.requestShowTable === requestCsvTableMode) {
         editorState.csv.requestShowTable = undefined;
       }

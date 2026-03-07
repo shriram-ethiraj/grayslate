@@ -206,6 +206,15 @@ export function captureManagedEditorView(
     session.view = undefined;
 }
 
+export function disposeManagedEditorSession(session: ManagedEditorSession) {
+    session.view = undefined;
+    session.bindings = undefined;
+    session.themeCompartment = undefined;
+    session.langCompartment = undefined;
+    session.wordWrapCompartment = undefined;
+    session.state = undefined;
+}
+
 export function dispatchManagedEditorChange(
     session: ManagedEditorSession,
     changes: TextChangeSpec,
