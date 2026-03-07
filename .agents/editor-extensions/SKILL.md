@@ -293,10 +293,15 @@ Keeps the Markdown editor and the rendered preview pane scrolled to the same log
 
 ### Architecture
 
-1. **Anchor map** — Built by reading `[data-line]` attributes injected into the preview HTML by the Markdown renderer. Each anchor maps an editor line fraction to a preview scroll fraction.
-2. **Active pane detection** — Pointer and focus events (`pointerenter`, `pointermove`, `pointerdown`, `focusin`, `wheel`, `touchstart`) determine which pane the user is interacting with. Only that pane drives the sync; the other pane is the passive follower.
-3. **Lerp animation** — Both panes use a `rAF`-based lerp loop (`factor = 0.25`, `threshold = 0.5px`) for smooth scrolling rather than instant jumps.
-4. **Anchor refresh** — A `MutationObserver` on the preview element rebuilds the anchor map 100ms after any DOM change (e.g., re-renders). An `load` capture listener handles image load reflows.
+1. **Shared coordinate space (`linePercent`)** — Both panes translate through a normalized 0–1 line-progress value rather than mapping pixels directly to each other. This decouples editor geometry (variable line heights) from preview geometry (variable block heights after rendering).
+2. **Anchor map** — Built by reading `[data-line]` attributes injected into the preview HTML by `MarkdownPreview.svelte`. Each anchor maps a `linePercent` (source position) to a `previewFraction` (preview scroll position). Sentinel anchors at `{0, 0}` and `{1, 1}` ensure full range coverage. Interpolation is piecewise-linear; edges are extrapolated. Close anchors (< 0.001 apart by `linePercent`) are deduplicated, keeping the one with the higher `previewFraction`.
+3. **Active pane detection** — Six interaction events (`pointerenter`, `pointermove`, `pointerdown`, `focusin`, `wheel`, `touchstart`) on both the `.cm-editor` container and the preview element determine which pane owns scrolling. Only the active pane drives sync; the passive pane follows via lerp. Switching panes cancels the follower's pending lerp RAF to avoid fighting the user.
+4. **Lerp animation** — Both panes use a rAF-based lerp loop (`LERP_FACTOR = 0.25`, `LERP_THRESHOLD = 0.5px`). The loop terminates when the distance is below threshold and snaps to the exact target.
+5. **Anchor refresh** — Anchors are rebuilt via a two-step defer (setTimeout → rAF boundary) to ensure layout is complete before reading `offsetTop` values. Four triggers with separate delays:
+   - `MutationObserver` on preview DOM → `MUTATION_REFRESH_DELAY = 90ms`
+   - `ResizeObserver` on both preview element **and** editor scroll DOM → `RESIZE_REFRESH_DELAY = 60ms`
+   - Image `load`/`error` capture events — `IMAGE_SETTLE_DELAY = 40ms` when all pending images resolve, `IMAGE_REFRESH_DELAY = 140ms` while more images are still loading
+6. **Position preservation on refresh** — `applyAnchorRefresh` converts the active pane's current scroll position to `linePercent` using the *old* anchor map before rebuilding. After rebuilding it re-derives the passive pane's scroll target from the new map, so async layout shifts (image loads, re-renders) do not cause visible drift.
 
 ### Key exports
 
@@ -312,9 +317,11 @@ createScrollSync(editorView: EditorView, previewEl: HTMLElement): () => void
 
 ```typescript
 interface ScrollAnchor {
-    editorFraction: number;   // 0.0 = top, 1.0 = bottom of editor scroll range
-    previewFraction: number;  // 0.0 = top, 1.0 = bottom of preview scroll range
+    linePercent: number;      // 0.0–1.0 normalized source-document progress
+    previewFraction: number;  // 0.0–1.0 normalized preview scroll progress
 }
 ```
 
-Interpolation between anchors is linear; the edges (before the first anchor and after the last) are linearly extrapolated to ensure the top and bottom of both panes always match.
+### `MarkdownPreview.svelte` — renderer integration
+
+The `renderMarkdown` function in `MarkdownPreview.svelte` is what injects the `data-line` attributes consumed by `buildAnchorMap`. It uses `marked`'s `walkTokens` hook to compute source line numbers from token character offsets, then custom renderer extensions add `data-line` to every top-level block element (`heading`, `paragraph`, `code`, `blockquote`, `list`, `table`, `hr`). Only top-level blocks get `data-line`; nested blocks (e.g. a paragraph inside a blockquote) fall through gracefully with no attribute — this is intentional because top-level block density is sufficient for smooth scroll anchoring. Output is sanitized with DOMPurify using `ADD_ATTR: ["data-line"]` to preserve the custom attribute.

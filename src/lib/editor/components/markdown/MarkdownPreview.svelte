@@ -184,14 +184,16 @@
   $effect(() => {
     if (!previewEl || !editorView) return;
 
-    // Small delay so the preview DOM updates with new content first
+    // Wait until the next paint so the rendered preview DOM is measurable.
     let syncCleanup: (() => void) | undefined;
-    const timer = setTimeout(() => {
-      syncCleanup = createScrollSync(editorView!, previewEl!);
-    }, 50);
+    const previewElement = previewEl;
+    const view = editorView;
+    const frameId = requestAnimationFrame(() => {
+      syncCleanup = createScrollSync(view, previewElement);
+    });
 
     return () => {
-      clearTimeout(timer);
+      cancelAnimationFrame(frameId);
       syncCleanup?.();
     };
   });
