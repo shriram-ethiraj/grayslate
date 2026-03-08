@@ -62,11 +62,29 @@
       };
 
   let value = $state("");
+  let documentLength = $state(0);
+  let lineCount = $state(1);
   let line = $state(1);
   let col = $state(1);
   let selectionSize = $state(0);
   let language = $state("auto");
   let detectedLanguage = $state("text");
+
+  function countDocumentLines(text: string): number {
+    if (text.length === 0) {
+      return 1;
+    }
+
+    let count = 1;
+
+    for (let index = 0; index < text.length; index += 1) {
+      if (text.charCodeAt(index) === 10) {
+        count += 1;
+      }
+    }
+
+    return count;
+  }
 
   function createUntitledDocument(now = Date.now()): ActiveDocument {
     return {
@@ -164,7 +182,7 @@
   });
 
   $effect(() => {
-    editorState.currentDocumentLength = value.length;
+    editorState.currentDocumentLength = documentLength;
   });
 
   $effect(() => {
@@ -371,6 +389,8 @@
     activeDocument = nextDocument;
     editorSession = createManagedEditorSession();
     value = nextValue;
+    documentLength = nextValue.length;
+    lineCount = countDocumentLines(nextValue);
     line = 1;
     col = 1;
     selectionSize = 0;
@@ -785,6 +805,8 @@
           {#key activeFilePath}
             <Editor
               bind:value
+              bind:documentLength
+              bind:lineCount
               bind:line
               bind:col
               bind:selectionSize
@@ -798,6 +820,8 @@
     {/if}
   </div>
   <StatusBar
+    {documentLength}
+    {lineCount}
     {line}
     {col}
     {selectionSize}

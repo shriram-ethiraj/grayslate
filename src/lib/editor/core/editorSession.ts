@@ -15,6 +15,8 @@ import { getMinimalTextChange, type TextChangeSpec } from "$lib/editor/core/csvC
 
 type SessionBindings = {
     setValue: (value: string) => void;
+    setDocumentLength: (length: number) => void;
+    setLineCount: (count: number) => void;
     setLine: (line: number) => void;
     setCol: (col: number) => void;
     setSelectionSize: (size: number) => void;
@@ -54,6 +56,8 @@ function syncBindings(
     const lineInfo = state.doc.lineAt(main.head);
 
     bindings.setValue(state.doc.toString());
+    bindings.setDocumentLength(state.doc.length);
+    bindings.setLineCount(state.doc.lines);
     bindings.setLine(lineInfo.number);
     bindings.setCol(main.head - lineInfo.from + 1);
     bindings.setSelectionSize(

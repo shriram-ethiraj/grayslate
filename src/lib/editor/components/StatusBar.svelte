@@ -2,6 +2,8 @@
   import LanguagePicker from "./LanguagePicker.svelte";
 
   let {
+    documentLength = 0,
+    lineCount = 1,
     line,
     col,
     selectionSize = 0,
@@ -33,13 +35,21 @@
         {/if}
       </div>
     {:else}
-      <button
-        class="flex items-center hover:bg-muted/50 hover:text-foreground h-full px-2 transition-colors cursor-default"
-      >
-        Ln {line}, Col {col}{#if selectionSize > 0}&nbsp;({selectionSize}
-          selected){/if}
-      </button>
+      <div class="flex items-center gap-2 h-full px-2 cursor-default">
+        <span>Length {documentLength}, Lines {lineCount}</span>
+        <span class="text-border/80">|</span>
+        <button
+          title="Go to Line"
+          class="hover:bg-muted/50 hover:text-foreground h-full px-1.5 transition-colors cursor-default"
+        >
+          Ln {line}, Col {col}
+        </button>
+        {#if selectionSize > 0}
+          <span>({selectionSize} selected)</span>
+        {/if}
+      </div>
     {/if}
+    <span class="text-border/80">|</span>
     <LanguagePicker bind:language {detectedLanguage} />
   </div>
 </div>

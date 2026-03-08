@@ -21,6 +21,8 @@
 
   let {
     value = $bindable(),
+    documentLength = $bindable(0),
+    lineCount = $bindable(1),
     line = $bindable(1),
     col = $bindable(1),
     selectionSize = $bindable(0),
@@ -36,6 +38,12 @@
     attachSessionBindings(session as ManagedEditorSession, {
       setValue: (nextValue) => {
         value = nextValue;
+      },
+      setDocumentLength: (nextDocumentLength) => {
+        documentLength = nextDocumentLength;
+      },
+      setLineCount: (nextLineCount) => {
+        lineCount = nextLineCount;
       },
       setLine: (nextLine) => {
         line = nextLine;
