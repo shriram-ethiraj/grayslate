@@ -20,7 +20,7 @@ type SessionBindings = {
     setLine: (line: number) => void;
     setCol: (col: number) => void;
     setSelectionSize: (size: number) => void;
-    onViewUpdate: (view: EditorView) => void;
+    onViewUpdate: (view: EditorView, docChanged: boolean) => void;
 };
 
 export type ManagedEditorSession = {
@@ -46,18 +46,25 @@ function syncBindings(
     session: ManagedEditorSession,
     state: EditorState,
     view?: EditorView,
+    docChanged = true,
 ) {
     const bindings = session.bindings;
     if (!bindings) {
         return;
     }
 
+    // Only serialize the full document text when it actually changed.
+    // doc.toString() is O(n) on the rope and triggers an O(n) Svelte
+    // equality check — catastrophic on multi-million-row files when
+    // fired on every cursor move.
+    if (docChanged) {
+        bindings.setValue(state.doc.toString());
+        bindings.setDocumentLength(state.doc.length);
+        bindings.setLineCount(state.doc.lines);
+    }
+
     const main = state.selection.main;
     const lineInfo = state.doc.lineAt(main.head);
-
-    bindings.setValue(state.doc.toString());
-    bindings.setDocumentLength(state.doc.length);
-    bindings.setLineCount(state.doc.lines);
     bindings.setLine(lineInfo.number);
     bindings.setCol(main.head - lineInfo.from + 1);
     bindings.setSelectionSize(
@@ -65,7 +72,7 @@ function syncBindings(
     );
 
     if (view) {
-        bindings.onViewUpdate(view);
+        bindings.onViewUpdate(view, docChanged);
     }
 }
 
@@ -164,7 +171,7 @@ export function ensureManagedEditorState(
             EditorView.updateListener.of((update) => {
                 session.state = update.state;
                 if (update.selectionSet || update.docChanged) {
-                    syncBindings(session, update.state, update.view);
+                    syncBindings(session, update.state, update.view, update.docChanged);
                 }
             }),
         ],

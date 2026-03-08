@@ -5,6 +5,184 @@ import { toast } from "svelte-sonner";
 import { findNext, findPrevious, replaceNext, replaceAll, SearchQuery, setSearchQuery, getSearchQuery } from "@codemirror/search";
 import { editorState } from "$lib/state/editor.svelte";
 
+const SEARCH_MATCH_CACHE_LIMIT = 20_000;
+const SEARCH_CHECKPOINT_INTERVAL = 512;
+
+type SearchMatchRange = {
+    from: number;
+    to: number;
+};
+
+type SearchCheckpoint = {
+    from: number;
+    index: number;
+};
+
+type SearchStatsCache = {
+    docLength: number;
+    query: SearchQuery;
+    matchCount: number;
+    matches?: SearchMatchRange[];
+    checkpoints: SearchCheckpoint[];
+};
+
+type UpdateSearchStatsOptions = {
+    docChanged?: boolean;
+    forceRescan?: boolean;
+};
+
+let searchStatsCache: SearchStatsCache | undefined;
+
+function clearSearchStats(): void {
+    editorState.findReplace.matchCount = 0;
+    editorState.findReplace.currentMatch = 0;
+}
+
+function clearSearchStatsCache(): void {
+    searchStatsCache = undefined;
+}
+
+function shouldReuseSearchStatsCache(
+    cache: SearchStatsCache | undefined,
+    view: EditorView,
+    query: SearchQuery,
+    options?: UpdateSearchStatsOptions,
+): cache is SearchStatsCache {
+    if (!cache || options?.forceRescan || options?.docChanged) {
+        return false;
+    }
+
+    return cache.docLength === view.state.doc.length && cache.query.eq(query);
+}
+
+function rebuildSearchStatsCache(view: EditorView, query: SearchQuery): SearchStatsCache {
+    let matchCount = 0;
+    const matches: SearchMatchRange[] = [];
+    const checkpoints: SearchCheckpoint[] = [];
+
+    const cursor = query.getCursor(view.state);
+    let matchItem = cursor.next();
+    while (!matchItem.done) {
+        matchCount += 1;
+        const match = matchItem.value;
+
+        if (matches.length < SEARCH_MATCH_CACHE_LIMIT) {
+            matches.push({ from: match.from, to: match.to });
+        }
+
+        if (matchCount === 1 || matchCount % SEARCH_CHECKPOINT_INTERVAL === 0) {
+            checkpoints.push({ from: match.from, index: matchCount });
+        }
+
+        matchItem = cursor.next();
+    }
+
+    const nextCache: SearchStatsCache = {
+        docLength: view.state.doc.length,
+        query,
+        matchCount,
+        checkpoints,
+    };
+
+    if (matchCount <= SEARCH_MATCH_CACHE_LIMIT) {
+        nextCache.matches = matches;
+    }
+
+    searchStatsCache = nextCache;
+    return nextCache;
+}
+
+function findFirstMatchAfterSelection(
+    matches: SearchMatchRange[],
+    selectionTo: number,
+): number {
+    let low = 0;
+    let high = matches.length;
+
+    while (low < high) {
+        const mid = Math.floor((low + high) / 2);
+        if (matches[mid].from <= selectionTo) {
+            low = mid + 1;
+        } else {
+            high = mid;
+        }
+    }
+
+    return low;
+}
+
+function getCurrentMatchFromExactCache(
+    matches: SearchMatchRange[],
+    selectionFrom: number,
+    selectionTo: number,
+): number {
+    if (matches.length === 0) {
+        return 0;
+    }
+
+    const firstAfterIndex = findFirstMatchAfterSelection(matches, selectionTo);
+    const candidateIndex = Math.max(0, firstAfterIndex - 1);
+    const candidate = matches[candidateIndex];
+
+    if (candidate && candidate.from <= selectionTo && candidate.to >= selectionFrom) {
+        return candidateIndex + 1;
+    }
+
+    if (firstAfterIndex < matches.length) {
+        return firstAfterIndex + 1;
+    }
+
+    return 1;
+}
+
+function getCurrentMatchFromCheckpoints(
+    view: EditorView,
+    query: SearchQuery,
+    cache: SearchStatsCache,
+    selectionFrom: number,
+    selectionTo: number,
+): number {
+    if (cache.matchCount === 0) {
+        return 0;
+    }
+
+    let checkpoint: SearchCheckpoint | undefined;
+    let low = 0;
+    let high = cache.checkpoints.length;
+
+    while (low < high) {
+        const mid = Math.floor((low + high) / 2);
+        if (cache.checkpoints[mid].from <= selectionTo) {
+            checkpoint = cache.checkpoints[mid];
+            low = mid + 1;
+        } else {
+            high = mid;
+        }
+    }
+
+    const startFrom = checkpoint?.from ?? 0;
+    let currentIndex = checkpoint ? checkpoint.index - 1 : 0;
+    const cursor = query.getCursor(view.state, startFrom);
+    let matchItem = cursor.next();
+
+    while (!matchItem.done) {
+        currentIndex += 1;
+        const match = matchItem.value;
+
+        if (match.from <= selectionTo && match.to >= selectionFrom) {
+            return currentIndex;
+        }
+
+        if (match.from > selectionTo) {
+            return currentIndex;
+        }
+
+        matchItem = cursor.next();
+    }
+
+    return 1;
+}
+
 export function editorHasSelection(view: EditorView | undefined) {
     if (!view) return false;
     return !view.state.selection.main.empty;
@@ -136,6 +314,7 @@ export function editorSetSearchQuery(
     caseSensitive: boolean = false,
 ) {
     if (!view) return;
+    clearSearchStatsCache();
     view.dispatch({
         effects: setSearchQuery.of(
             new SearchQuery({ search, replace, caseSensitive, literal: true })
@@ -143,56 +322,34 @@ export function editorSetSearchQuery(
     });
 }
 
-export function updateSearchStats(view: EditorView | undefined) {
+export function updateSearchStats(
+    view: EditorView | undefined,
+    options?: UpdateSearchStatsOptions,
+) {
     if (!view || !editorState.findReplace.visible || !editorState.findReplace.findText) {
-        editorState.findReplace.matchCount = 0;
-        editorState.findReplace.currentMatch = 0;
+        clearSearchStats();
+        clearSearchStatsCache();
         return;
     }
 
     const query = getSearchQuery(view.state);
     if (!query || !query.valid) {
-        editorState.findReplace.matchCount = 0;
-        editorState.findReplace.currentMatch = 0;
+        clearSearchStats();
+        clearSearchStatsCache();
         return;
     }
 
-    let matchCount = 0;
-    let currentMatch = 0;
-    const cursor = query.getCursor(view.state);
     const head = view.state.selection.main.head;
     const anchor = view.state.selection.main.anchor;
-
-    // Find min and max of selection to check if a match intersects with or is near the selection
     const selectionFrom = Math.min(head, anchor);
     const selectionTo = Math.max(head, anchor);
 
-    // Track the first match that is strictly after the cursor, to fall back on
-    // if the cursor isn't inside any match.
-    let firstMatchAfter = 0;
-    let hasFoundCurrent = false;
+    const cache = shouldReuseSearchStatsCache(searchStatsCache, view, query, options)
+        ? searchStatsCache
+        : rebuildSearchStatsCache(view, query);
 
-    let matchItem = cursor.next();
-    while (!matchItem.done) {
-        matchCount++;
-        const match = matchItem.value;
-
-        // If the match overlaps or touches the current selection, we consider it the current match
-        if (!hasFoundCurrent && match.from <= selectionTo && match.to >= selectionFrom) {
-            currentMatch = matchCount;
-            hasFoundCurrent = true;
-        } else if (!hasFoundCurrent && match.from > selectionTo && firstMatchAfter === 0) {
-            firstMatchAfter = matchCount;
-        }
-        matchItem = cursor.next();
-    }
-
-    if (!hasFoundCurrent && matchCount > 0) {
-        // If cursor is before all matches, first match is 1 (which `firstMatchAfter` would be)
-        // If cursor is after all matches, `firstMatchAfter` is 0, so we wrap around to 1.
-        currentMatch = firstMatchAfter || 1;
-    }
-
-    editorState.findReplace.matchCount = matchCount;
-    editorState.findReplace.currentMatch = currentMatch;
+    editorState.findReplace.matchCount = cache.matchCount;
+    editorState.findReplace.currentMatch = cache.matches
+        ? getCurrentMatchFromExactCache(cache.matches, selectionFrom, selectionTo)
+        : getCurrentMatchFromCheckpoints(view, query, cache, selectionFrom, selectionTo);
 }

@@ -105,7 +105,7 @@
 
     if (view && fr.visible) {
       editorSetSearchQuery(view, findText, replaceText, false);
-      updateSearchStats(view);
+      updateSearchStats(view, { forceRescan: true });
     }
   });
 

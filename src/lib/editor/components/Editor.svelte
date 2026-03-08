@@ -54,8 +54,8 @@
       setSelectionSize: (nextSelectionSize) => {
         selectionSize = nextSelectionSize;
       },
-      onViewUpdate: (targetView) => {
-        updateSearchStats(targetView);
+      onViewUpdate: (targetView, docChanged) => {
+        updateSearchStats(targetView, { docChanged });
       },
     });
 
