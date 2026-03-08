@@ -23,6 +23,17 @@ function getCanvasCtx() {
 const colorCache = new Map<string, string | null>();
 
 /**
+ * Release all cached color validation results and the shared canvas context.
+ * Call on file switch to avoid cross-file cache pollution and free the canvas.
+ */
+export function clearColorCache(): void {
+    colorCache.clear();
+    if (sharedCtx) {
+        sharedCtx = null;
+    }
+}
+
+/**
  * Validates a matched color string by asking the browser to parse it.
  * Returns null if the browser rejects it (fillStyle stays at the default).
  */

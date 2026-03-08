@@ -34,9 +34,17 @@
   // $state so the value propagates reactively as a prop to JsonContextMenu.
   let view = $state<EditorView | undefined>(undefined);
 
+  // Guard flag: when syncBindings pushes a value update that originated
+  // from the editor itself, there is no need for the Svelte action's
+  // `update()` callback to compare the new string against `doc.toString()`
+  // (a second O(n) serialization). The flag is set just before the
+  // binding writes `value` and consumed by the action.
+  let skipNextValueUpdate = false;
+
   $effect(() => {
     attachSessionBindings(session as ManagedEditorSession, {
       setValue: (nextValue) => {
+        skipNextValueUpdate = true;
         value = nextValue;
       },
       setDocumentLength: (nextDocumentLength) => {
@@ -166,8 +174,16 @@
 
     return {
       update(newValue: string) {
-        // Guard against infinite loops: only patch when the change
-        // originated outside the editor (e.g. file load / undo).
+        // When the change originated from the editor (syncBindings →
+        // setValue), the guard flag is already set and we can skip the
+        // expensive doc.toString() comparison entirely.
+        if (skipNextValueUpdate) {
+          skipNextValueUpdate = false;
+          return;
+        }
+
+        // External value change — patch the editor if the content
+        // actually differs.
         if (newValue !== cmView.state.doc.toString()) {
           cmView.dispatch({
             changes: {
@@ -222,10 +238,20 @@
   /* CodeMirror must fill the container and match its scroll-behaviour */
   :global(.cm-editor) {
     height: 100%;
+    /* Layout containment: tells the browser this subtree's layout is
+       independent of the rest of the page, letting it skip expensive
+       style-recalc and layout passes outside this boundary during scroll. */
+    contain: strict;
   }
 
   :global(.cm-scroller) {
     overscroll-behavior: none;
+  }
+
+  /* Promote the content layer to its own compositor layer so viewport
+     shifts during fast scroll are GPU-composited instead of reflowed. */
+  :global(.cm-content) {
+    will-change: transform;
   }
 
   /* Line-number gutter width — mirrors VS Code's default */

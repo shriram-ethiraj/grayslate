@@ -7,6 +7,8 @@ import { editorState } from "$lib/state/editor.svelte";
 
 const SEARCH_MATCH_CACHE_LIMIT = 20_000;
 const SEARCH_CHECKPOINT_INTERVAL = 512;
+/** Time budget for search-stats scanning. If exceeded the count is approximate. */
+const MAX_SEARCH_SCAN_MS = 500;
 
 type SearchMatchRange = {
     from: number;
@@ -24,6 +26,8 @@ type SearchStatsCache = {
     matchCount: number;
     matches?: SearchMatchRange[];
     checkpoints: SearchCheckpoint[];
+    /** True when the scan was cut short by the time budget. */
+    approximate?: boolean;
 };
 
 type UpdateSearchStatsOptions = {
@@ -38,7 +42,7 @@ function clearSearchStats(): void {
     editorState.findReplace.currentMatch = 0;
 }
 
-function clearSearchStatsCache(): void {
+export function clearSearchStatsCache(): void {
     searchStatsCache = undefined;
 }
 
@@ -59,6 +63,8 @@ function rebuildSearchStatsCache(view: EditorView, query: SearchQuery): SearchSt
     let matchCount = 0;
     const matches: SearchMatchRange[] = [];
     const checkpoints: SearchCheckpoint[] = [];
+    const scanStart = performance.now();
+    let approximate = false;
 
     const cursor = query.getCursor(view.state);
     let matchItem = cursor.next();
@@ -74,6 +80,13 @@ function rebuildSearchStatsCache(view: EditorView, query: SearchQuery): SearchSt
             checkpoints.push({ from: match.from, index: matchCount });
         }
 
+        // Safety: abort if the scan has consumed its time budget so the
+        // UI stays responsive on very large documents with common terms.
+        if (matchCount % 1000 === 0 && performance.now() - scanStart > MAX_SEARCH_SCAN_MS) {
+            approximate = true;
+            break;
+        }
+
         matchItem = cursor.next();
     }
 
@@ -82,9 +95,10 @@ function rebuildSearchStatsCache(view: EditorView, query: SearchQuery): SearchSt
         query,
         matchCount,
         checkpoints,
+        approximate,
     };
 
-    if (matchCount <= SEARCH_MATCH_CACHE_LIMIT) {
+    if (!approximate && matchCount <= SEARCH_MATCH_CACHE_LIMIT) {
         nextCache.matches = matches;
     }
 
@@ -349,7 +363,15 @@ export function updateSearchStats(
         : rebuildSearchStatsCache(view, query);
 
     editorState.findReplace.matchCount = cache.matchCount;
-    editorState.findReplace.currentMatch = cache.matches
-        ? getCurrentMatchFromExactCache(cache.matches, selectionFrom, selectionTo)
-        : getCurrentMatchFromCheckpoints(view, query, cache, selectionFrom, selectionTo);
+
+    // When the scan was cut short by the time budget, the match count
+    // is a lower bound and currentMatch positioning would be unreliable
+    // — show 0 so the UI displays "N+" without a misleading position.
+    if (cache.approximate) {
+        editorState.findReplace.currentMatch = 0;
+    } else {
+        editorState.findReplace.currentMatch = cache.matches
+            ? getCurrentMatchFromExactCache(cache.matches, selectionFrom, selectionTo)
+            : getCurrentMatchFromCheckpoints(view, query, cache, selectionFrom, selectionTo);
+    }
 }

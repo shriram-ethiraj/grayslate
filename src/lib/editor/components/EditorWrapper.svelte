@@ -17,6 +17,7 @@
     dispatchManagedEditorTextChange,
     disposeManagedEditorSession,
     ensureManagedEditorState,
+    flushPendingValueSync,
     type ManagedEditorSession,
   } from "$lib/editor/core/editorSession";
   import {
@@ -44,6 +45,8 @@
   import { invoke } from "@tauri-apps/api/core";
   import { toast } from "svelte-sonner";
   import { requestFileOpenReclaim } from "$lib/editor/core/memory";
+  import { clearSearchStatsCache } from "$lib/editor/core/actions";
+  import { clearColorCache } from "$lib/editor/extensions/colorHints";
 
   type SavedDocumentSource = "file";
 
@@ -375,6 +378,10 @@
     editorState.findReplace.replaceText = "";
     editorState.findReplace.matchCount = 0;
     editorState.findReplace.currentMatch = 0;
+
+    // Free module-level caches that persist across file switches.
+    clearSearchStatsCache();
+    clearColorCache();
   }
 
   function resetEditorDocument(
@@ -386,6 +393,12 @@
     checkLanguage.cancel();
     clearCsvMirrorState();
     clearRetainedEditorState();
+
+    // Eagerly release the previous file's content string (up to 200MB)
+    // so it becomes GC-eligible immediately rather than lingering until
+    // the old activeDocument object is collected.
+    (activeDocument as Record<string, unknown>).lastSavedValue = "";
+
     activeDocument = nextDocument;
     editorSession = createManagedEditorSession();
     value = nextValue;
@@ -509,7 +522,9 @@
       return text;
     }
 
-    return value;
+    // Read directly from CM state for freshness — `value` may lag
+    // behind by up to VALUE_SYNC_DEBOUNCE_MS for large documents.
+    return editorSession.state?.doc.toString() ?? value;
   }
 
   async function writeDocumentToPath(path: string, content: string): Promise<void> {
@@ -532,6 +547,9 @@
         source: "file",
         lastSavedValue: content,
       };
+      // Flush any pending debounced value sync so that `isDirty`
+      // resolves immediately after saving (value === lastSavedValue).
+      flushPendingValueSync(editorSession);
     } finally {
       stopLoaderTicker();
       hideEditorLoader();
@@ -705,6 +723,9 @@
       checkLanguage.cancel();
       clearCsvMirrorState();
       clearRetainedEditorState();
+      // Eagerly release large strings before session dispose.
+      (activeDocument as Record<string, unknown>).lastSavedValue = "";
+      value = "";
       disposeManagedEditorSession(editorSession);
       if (editorState.csv.requestShowTable === requestCsvTableMode) {
         editorState.csv.requestShowTable = undefined;

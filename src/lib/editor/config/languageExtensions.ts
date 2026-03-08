@@ -52,15 +52,30 @@ import {
     dart,
 } from "@codemirror/legacy-modes/mode/clike";
 
+export interface LanguageExtensionOptions {
+    /**
+     * When `true`, strips heavy viewport-driven decorations (inlay hints,
+     * fold widgets, key-path highlights) that fire on every scroll shift.
+     * Lezer grammar (syntax highlighting) is kept — it runs incrementally.
+     */
+    lightweight?: boolean;
+}
+
 /**
  * Returns the CodeMirror extension (or extension array) for the given
  * language identifier.  Returns an empty array for unknown / plain-text
  * languages so callers can always spread or pass the return value directly.
  */
-export function getLanguageExtension(langId: string): Extension | Extension[] {
+export function getLanguageExtension(
+    langId: string,
+    options?: LanguageExtensionOptions,
+): Extension | Extension[] {
+    const lightweight = options?.lightweight ?? false;
     switch (langId) {
         case "json":
-            return [json(), jsonInlayHints, jsonFoldWidget, jsonKeyPath];
+            return lightweight
+                ? [json()]
+                : [json(), jsonInlayHints, jsonFoldWidget, jsonKeyPath];
         case "javascript":
             return javascript({ jsx: true });
         case "typescript":
@@ -100,7 +115,9 @@ export function getLanguageExtension(langId: string): Extension | Extension[] {
             //
             // Each extension is self-contained and independently
             // publishable — compose them here for the full experience.
-            return [csvRainbowHighlight];
+            // For very large CSVs the rainbow highlighter is dropped
+            // because it rebuilds decorations on every viewport shift.
+            return lightweight ? [] : [csvRainbowHighlight];
         case "shell":
             return StreamLanguage.define(shell);
         case "dockerfile":

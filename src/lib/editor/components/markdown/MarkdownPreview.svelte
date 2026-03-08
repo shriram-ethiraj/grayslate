@@ -91,6 +91,8 @@
     return lo + 1;
   }
 
+  const PURIFY_CONFIG = { ADD_ATTR: ["data-line"] };
+
   /**
    * Renders markdown to HTML with data-line attributes on block-level elements.
    *
@@ -216,9 +218,7 @@
       });
 
       const html = markedInstance.parse(src) as string;
-      return DOMPurify.sanitize(html, {
-        ADD_ATTR: ["data-line"],
-      });
+      return DOMPurify.sanitize(html, PURIFY_CONFIG);
     } catch {
       return "<p>Error parsing markdown</p>";
     }
@@ -284,6 +284,7 @@
       editorState.activeSurface = editorView ? "editor" : undefined;
     }
     previewEl = undefined;
+    editorView = undefined;
     content = "";
     htmlPreview = "";
   });

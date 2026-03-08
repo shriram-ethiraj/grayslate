@@ -13,6 +13,35 @@ import { contextMenuExtension } from "$lib/editor/extensions/contextMenuExtensio
 import { editorState } from "$lib/state/editor.svelte";
 import { getMinimalTextChange, type TextChangeSpec } from "$lib/editor/core/csvCodeMirror";
 
+// ---------------------------------------------------------------------------
+// Large-document value-sync debounce
+// ---------------------------------------------------------------------------
+// For documents above this threshold (in characters), `syncBindings` defers
+// the expensive `doc.toString()` serialization by VALUE_SYNC_DEBOUNCE_MS.
+// Lightweight metadata (doc.length, doc.lines) is always pushed immediately.
+const LARGE_DOC_THRESHOLD = 5_000_000; // ~10 MB UTF-16
+const VALUE_SYNC_DEBOUNCE_MS = 300;
+
+// ---------------------------------------------------------------------------
+// Large-document scroll performance
+// ---------------------------------------------------------------------------
+// Documents above this line count have heavy viewport-driven decorations
+// (colorHints, JSON inlay hints, fold widgets, etc.) disabled.  These
+// extensions fire on every viewport shift and cause frame drops during fast
+// scroll.  Syntax highlighting (Lezer) is NOT stripped — it runs
+// incrementally and doesn't block the compositor.
+const LARGE_DOC_LINE_THRESHOLD = 100_000;
+
+const valueSyncTimers = new WeakMap<ManagedEditorSession, ReturnType<typeof setTimeout>>();
+
+function clearValueSyncTimer(session: ManagedEditorSession): void {
+    const timer = valueSyncTimers.get(session);
+    if (timer !== undefined) {
+        clearTimeout(timer);
+        valueSyncTimers.delete(session);
+    }
+}
+
 type SessionBindings = {
     setValue: (value: string) => void;
     setDocumentLength: (length: number) => void;
@@ -30,14 +59,25 @@ export type ManagedEditorSession = {
     fontSizeCompartment?: Compartment;
     langCompartment?: Compartment;
     wordWrapCompartment?: Compartment;
+    decorationCompartment?: Compartment;
     bindings?: SessionBindings;
 };
 
 function createFontSizeExtension(fontSize: number) {
+    // An explicit line-height gives CodeMirror's height-map B-tree a
+    // stable, predictable value for every line.  Without it, the browser
+    // infers a height that can vary with font-loading and subpixel
+    // rounding, causing viewport mis-estimations and scroll jumps.
+    const lineHeight = `${Math.round(fontSize * 1.5)}px`;
     return EditorView.theme({
         // eslint-disable-next-line @typescript-eslint/naming-convention
         "&": {
             fontSize: `${fontSize}px`,
+            lineHeight,
+        },
+        // eslint-disable-next-line @typescript-eslint/naming-convention
+        ".cm-content": {
+            lineHeight,
         },
     });
 }
@@ -53,14 +93,29 @@ function syncBindings(
         return;
     }
 
-    // Only serialize the full document text when it actually changed.
-    // doc.toString() is O(n) on the rope and triggers an O(n) Svelte
-    // equality check — catastrophic on multi-million-row files when
-    // fired on every cursor move.
+    // Only update document metadata when the document actually changed.
     if (docChanged) {
-        bindings.setValue(state.doc.toString());
+        // O(1) metadata — always pushed immediately.
         bindings.setDocumentLength(state.doc.length);
         bindings.setLineCount(state.doc.lines);
+
+        // Full-text serialization: doc.toString() is O(n) on the rope
+        // and triggers an O(n) Svelte equality check. For documents above
+        // LARGE_DOC_THRESHOLD we debounce the serialization so that rapid
+        // keystrokes don't each pay the full O(n) cost.
+        clearValueSyncTimer(session);
+
+        if (state.doc.length < LARGE_DOC_THRESHOLD) {
+            bindings.setValue(state.doc.toString());
+        } else {
+            const timer = setTimeout(() => {
+                valueSyncTimers.delete(session);
+                if (session.state && session.bindings) {
+                    session.bindings.setValue(session.state.doc.toString());
+                }
+            }, VALUE_SYNC_DEBOUNCE_MS);
+            valueSyncTimers.set(session, timer);
+        }
     }
 
     const main = state.selection.main;
@@ -130,6 +185,7 @@ export function attachSessionBindings(
 }
 
 export function detachSessionBindings(session: ManagedEditorSession) {
+    clearValueSyncTimer(session);
     session.bindings = undefined;
 }
 
@@ -146,11 +202,15 @@ export function ensureManagedEditorState(
     session.fontSizeCompartment = new Compartment();
     session.langCompartment = new Compartment();
     session.wordWrapCompartment = new Compartment();
+    session.decorationCompartment = new Compartment();
 
     const isDark = document.documentElement.classList.contains("dark");
     const initialThemeExt = createTheme(
         isDark ? andromedaConfig : materialLightConfig,
     );
+
+    const lineCount = doc.split("\n").length;
+    const isLargeDoc = lineCount > LARGE_DOC_LINE_THRESHOLD;
 
     session.state = EditorState.create({
         doc,
@@ -161,11 +221,13 @@ export function ensureManagedEditorState(
             scrollPastEnd(),
             session.themeCompartment.of(initialThemeExt),
             session.fontSizeCompartment.of(createFontSizeExtension(editorState.fontSize)),
-            session.langCompartment.of(getLanguageExtension(language)),
+            session.langCompartment.of(
+                getLanguageExtension(language, { lightweight: isLargeDoc }),
+            ),
             session.wordWrapCompartment.of(
                 editorState.wordWrap ? EditorView.lineWrapping : [],
             ),
-            colorHints,
+            session.decorationCompartment.of(isLargeDoc ? [] : colorHints),
             contextMenuExtension,
             EditorView.contentAttributes.of({ spellcheck: "false" }),
             EditorView.updateListener.of((update) => {
@@ -189,8 +251,11 @@ export function setManagedEditorLanguage(
         return;
     }
 
+    const isLargeDoc = session.view.state.doc.lines > LARGE_DOC_LINE_THRESHOLD;
     session.view.dispatch({
-        effects: session.langCompartment.reconfigure(getLanguageExtension(language)),
+        effects: session.langCompartment.reconfigure(
+            getLanguageExtension(language, { lightweight: isLargeDoc }),
+        ),
     });
 }
 
@@ -244,7 +309,22 @@ export function captureManagedEditorView(
     session.view = undefined;
 }
 
+/**
+ * Cancel any pending debounced value sync and immediately serialize
+ * the current document into the bound `value`.
+ *
+ * Call this before save operations so that `value` and `isDirty`
+ * reflect the freshest editor content regardless of debounce state.
+ */
+export function flushPendingValueSync(session: ManagedEditorSession): void {
+    clearValueSyncTimer(session);
+    if (session.state && session.bindings) {
+        session.bindings.setValue(session.state.doc.toString());
+    }
+}
+
 export function disposeManagedEditorSession(session: ManagedEditorSession) {
+    clearValueSyncTimer(session);
     session.view = undefined;
     session.bindings = undefined;
     session.themeCompartment = undefined;

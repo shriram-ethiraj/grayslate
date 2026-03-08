@@ -195,7 +195,11 @@
               class="text-xs text-muted-foreground pointer-events-none whitespace-nowrap px-1 shrink-0"
             >
               {#if fr.matchCount > 0}
-                {fr.currentMatch}/{fr.matchCount}
+                {#if fr.currentMatch === 0}
+                  {fr.matchCount}+
+                {:else}
+                  {fr.currentMatch}/{fr.matchCount}
+                {/if}
               {:else}
                 No results
               {/if}

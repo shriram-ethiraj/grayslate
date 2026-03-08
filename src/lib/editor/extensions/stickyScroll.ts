@@ -250,7 +250,9 @@ function warmCloneCache(
     view: EditorView,
     scopes: StickyScope[],
     cache: Map<number, HTMLElement>,
+    setter?: (lineNumber: number, el: HTMLElement) => void,
 ): void {
+    const put = setter ?? ((ln: number, el: HTMLElement) => cache.set(ln, el));
     for (const scope of scopes) {
         const el = findLineElement(view, scope.openLine);
         if (el) {
@@ -258,7 +260,7 @@ function warmCloneCache(
             // last capture (e.g. theme switch, extension reconfigure).
             const fragment = document.createElement("span");
             cloneLineContent(el, fragment);
-            cache.set(scope.openLine, fragment);
+            put(scope.openLine, fragment);
         }
     }
 }
@@ -480,7 +482,19 @@ function createStickyScrollPanel(
     // Line-clone cache: maps 1-based line numbers to deep-cloned DOM
     // fragments of the corresponding `.cm-line` elements.  Warmed
     // proactively on viewport changes; invalidated on doc changes.
+    // Capped to avoid unbounded growth when scrolling through many scopes.
+    const MAX_CLONE_CACHE_SIZE = 100;
     const lineCloneCache = new Map<number, HTMLElement>();
+
+    /** Insert into the clone cache, evicting the oldest entry if at capacity. */
+    function cacheLineClone(lineNumber: number, el: HTMLElement): void {
+        if (lineCloneCache.size >= MAX_CLONE_CACHE_SIZE && !lineCloneCache.has(lineNumber)) {
+            // Map iterates in insertion order — first key is the oldest.
+            const oldest = lineCloneCache.keys().next().value;
+            if (oldest !== undefined) lineCloneCache.delete(oldest);
+        }
+        lineCloneCache.set(lineNumber, el);
+    }
 
     // ── Render a single line into container ──────────────────────────
 
@@ -503,7 +517,7 @@ function createStickyScrollPanel(
             // Update cache with the freshest clone.
             const cacheEntry = document.createElement("span");
             cloneLineContent(liveEl, cacheEntry);
-            lineCloneCache.set(lineNumber, cacheEntry);
+            cacheLineClone(lineNumber, cacheEntry);
             return;
         }
 
@@ -599,8 +613,7 @@ function createStickyScrollPanel(
     // ── Initial setup ────────────────────────────────────────────────
     syncLayoutStyles(root, view, layoutCache);
     // Proactively cache scope lines that are in the initial viewport.
-    warmCloneCache(view, scopes, lineCloneCache);
-    renderStack();
+    warmCloneCache(view, scopes, lineCloneCache, cacheLineClone);    renderStack();
     view.scrollDOM.addEventListener("scroll", onScroll, { passive: true });
 
     return {
@@ -630,7 +643,7 @@ function createStickyScrollPanel(
             // This is cheap (one querySelector per scope line) and keeps
             // the cache fresh after theme switches and viewport changes.
             if (update.viewportChanged || reparse) {
-                warmCloneCache(update.view, scopes, lineCloneCache);
+                warmCloneCache(update.view, scopes, lineCloneCache, cacheLineClone);
             }
 
             // Sync layout (font, gutter, background) with the editor.
