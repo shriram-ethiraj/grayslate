@@ -78,19 +78,14 @@ export function buildJsonPath(view: EditorView, pos: number, side: -1 | 1): stri
             // Count non-structural siblings before `current` to derive the 0-based index.
             let index = 0;
             let sibling: SyntaxNode | null = parent.firstChild;
-            let isCapped = false;
             while (sibling !== null && sibling.from !== current.from) {
-                if (index > 100) {
-                    isCapped = true;
-                    break; // Prevent massive loop freeze
-                }
                 const n = sibling.name;
                 if (n !== "[" && n !== "]" && n !== "," && n !== "⚠") {
                     index++;
                 }
                 sibling = sibling.nextSibling;
             }
-            parts.push(isCapped ? `[?]` : `[${index}]`);
+            parts.push(`[${index}]`);
             current = parent;
         } else {
             // Object, JsonText, or punctuation tokens — walk upward without adding a segment.
