@@ -10,6 +10,11 @@
   import X from "~icons/lucide/x";
 
   import { editorState } from "$lib/state/editor.svelte";
+  import AboutDialog from "$lib/components/AboutDialog.svelte";
+  import {
+    checkForAppUpdates,
+    openAboutDialog,
+  } from "$lib/state/appMenu.svelte";
   import {
     editorUndo,
     editorRedo,
@@ -43,6 +48,8 @@
 
   // Unlisten callback for the macOS native menu edit-action event.
   let unlistenEditAction: (() => void) | undefined;
+  let unlistenAbout: (() => void) | undefined;
+  let unlistenCheckForUpdates: (() => void) | undefined;
   let unlistenWordWrap: (() => void) | undefined;
 
   // --- Linux / WebKitGTK first-click fix ---
@@ -70,6 +77,14 @@
     // used instead. Forward native menu edit events to the same handlers
     // used by the custom Menubar on Windows/Linux.
     if (osType === "macos") {
+      unlistenAbout = await listen("menu://about", () => {
+        void handleAbout();
+      });
+
+      unlistenCheckForUpdates = await listen("menu://check-for-updates", () => {
+        void handleCheckForUpdates();
+      });
+
       unlistenEditAction = await listen<string>(
         "menu://edit-action",
         (event) => {
@@ -91,10 +106,20 @@
   });
 
   onDestroy(() => {
+    unlistenAbout?.();
+    unlistenCheckForUpdates?.();
     unlistenEditAction?.();
     unlistenWordWrap?.();
     unlistenResize?.();
   });
+
+  async function handleAbout() {
+    await openAboutDialog();
+  }
+
+  async function handleCheckForUpdates() {
+    await checkForAppUpdates({ openDialog: true });
+  }
 
   async function handleNewFile() {
     await emit("menu://new-file");
@@ -296,6 +321,16 @@
         >
       </Menubar.Content>
     </Menubar.Menu>
+    <Menubar.Menu>
+      <Menubar.Trigger class="cursor-pointer">Help</Menubar.Trigger>
+      <Menubar.Content>
+        <Menubar.Item onclick={handleCheckForUpdates}
+          >Check for Updates...</Menubar.Item
+        >
+        <Menubar.Separator />
+        <Menubar.Item onclick={handleAbout}>About Grayslate</Menubar.Item>
+      </Menubar.Content>
+    </Menubar.Menu>
   </Menubar.Root>
 {/snippet}
 
@@ -395,3 +430,5 @@
     </div>
   {/if}
 </div>
+
+<AboutDialog />

@@ -17,6 +17,11 @@ pub fn build_native_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::M
     use tauri::Manager;
 
     let app_menu = SubmenuBuilder::new(app, "Grayslate")
+        .item(
+            &MenuItemBuilder::with_id("check-for-updates", "Check for Updates...")
+                .build(app)?,
+        )
+        .separator()
         .item(&MenuItemBuilder::with_id("about", "About Grayslate").build(app)?)
         .build()?;
 
@@ -117,6 +122,12 @@ pub fn handle_macos_menu_event(app: &tauri::AppHandle, event: tauri::menu::MenuE
     };
 
     match event.id.as_ref() {
+        "about" => {
+            let _ = window.emit("menu://about", true);
+        }
+        "check-for-updates" => {
+            let _ = window.emit("menu://check-for-updates", true);
+        }
         "new-file" => {
             let _ = window.emit("menu://new-file", true);
         }

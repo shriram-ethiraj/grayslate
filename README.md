@@ -1,7 +1,7 @@
 <div align="center">
   <img src="app-icon.png" alt="Grayslate Logo" width="128" />
   <h1>Grayslate</h1>
-  <p><strong>A blazingly fast, privacy-first desktop code and data editor built with Tauri and SvelteKit.</strong></p>
+  <p><strongA fast scratchpad for code, data, and quick thinking.</strong></p>
   
   <p>
     <a href="https://github.com/shriram-ethiraj/grayslate/blob/main/LICENSE">
