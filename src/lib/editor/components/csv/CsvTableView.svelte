@@ -68,6 +68,15 @@
   };
 
   const VIEWPORT_PREFETCH_ROWS = 80;
+  const DEFAULT_CSV_ROW_FONT_SIZE = 13;
+  const DEFAULT_CSV_HEADER_FONT_SIZE = 12;
+  const DEFAULT_CSV_INDEX_FONT_SIZE = 11;
+  const DEFAULT_CSV_ROW_HEIGHT = 32;
+  const DEFAULT_CSV_HEADER_HEIGHT = 34;
+
+  function scaleFromEditorFont(baseSize: number): number {
+    return Math.max(8, Math.round((editorState.fontSize * baseSize) / 15));
+  }
 
   function applyUpdater<T>(updater: Updater<T>, current: T): T {
     if (typeof updater === "function") {
@@ -499,9 +508,27 @@
   const virtualizer = useScrollVirtualizer({
     count: () => visibleRowCount,
     getScrollElement: () => tableContainerRef,
-    estimateSize: () => 32,
+    estimateSize: () => csvRowHeight,
+    headerHeight: () => csvHeaderHeight,
     overscan: 20,
   });
+
+  let csvRowFontSize = $derived(scaleFromEditorFont(DEFAULT_CSV_ROW_FONT_SIZE));
+  let csvHeaderFontSize = $derived(scaleFromEditorFont(DEFAULT_CSV_HEADER_FONT_SIZE));
+  let csvIndexFontSize = $derived(scaleFromEditorFont(DEFAULT_CSV_INDEX_FONT_SIZE));
+  let csvRowHeight = $derived(
+    Math.max(
+      DEFAULT_CSV_ROW_HEIGHT,
+      Math.ceil(csvRowFontSize * 1.5 + 12),
+    ),
+  );
+  let csvHeaderHeight = $derived(
+    Math.max(
+      DEFAULT_CSV_HEADER_HEIGHT,
+      Math.ceil(csvHeaderFontSize * 1.5 + 16),
+    ),
+  );
+  let csvOverlayFontSize = $derived(Math.max(10, scaleFromEditorFont(DEFAULT_CSV_INDEX_FONT_SIZE)));
 
   let indexColWidth = $derived(
     Math.max(50, 24 + String(snapshot.rowCount).length * 8),
@@ -590,6 +617,7 @@
   <div
     class="csv-table-wrapper"
     class:csv-table-refreshing={refreshing}
+    style={`--csv-row-font-size: ${csvRowFontSize}px; --csv-header-font-size: ${csvHeaderFontSize}px; --csv-index-font-size: ${csvIndexFontSize}px; --csv-row-height: ${csvRowHeight}px; --csv-header-height: ${csvHeaderHeight}px; --csv-overlay-font-size: ${csvOverlayFontSize}px;`}
     bind:this={wrapperRef}
     tabindex="0"
     role="grid"
@@ -844,7 +872,7 @@
     border-radius: 999px;
     background: color-mix(in srgb, var(--background) 92%, transparent);
     color: var(--muted-foreground);
-    font-size: 11px;
+    font-size: var(--csv-overlay-font-size, 11px);
     backdrop-filter: blur(6px);
     pointer-events: none;
   }

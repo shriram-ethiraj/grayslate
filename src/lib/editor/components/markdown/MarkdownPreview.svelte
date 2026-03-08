@@ -228,6 +228,7 @@
 
   // Bidirectional scroll sync
   $effect(() => {
+    const fontSize = editorState.fontSize;
     if (!previewEl || !editorView) return;
 
     // Wait until the next paint so the rendered preview DOM is measurable.
@@ -235,6 +236,7 @@
     const previewElement = previewEl;
     const view = editorView;
     const frameId = requestAnimationFrame(() => {
+      void fontSize;
       syncCleanup = createScrollSync(view, previewElement);
     });
 
@@ -292,6 +294,7 @@
   bind:this={previewEl}
   use:hotkey={previewHotkeys}
   class="selectable flex-1 w-full min-w-0 bg-background overflow-y-auto overscroll-none p-8 prose prose-sm dark:prose-invert max-w-none prose-pre:bg-[#ffffff] prose-pre:text-[#212121] dark:prose-pre:bg-[#23262E] dark:prose-pre:text-[#D5CED9] prose-code:text-[#212121] dark:prose-code:text-[#D5CED9] prose-pre:border prose-pre:border-border prose-pre:shadow-sm"
+  style={`font-size: ${editorState.fontSize}px;`}
   tabindex="0"
   role="document"
   onpointerdown={activatePreviewSurface}

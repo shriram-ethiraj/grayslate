@@ -10,6 +10,11 @@
   import X from "~icons/lucide/x";
 
   import { editorState } from "$lib/state/editor.svelte";
+  import {
+    decreaseEditorFontSize,
+    increaseEditorFontSize,
+    resetEditorFontSize,
+  } from "$lib/state/editor.svelte";
   import AboutDialog from "$lib/components/AboutDialog.svelte";
   import {
     checkForAppUpdates,
@@ -45,12 +50,16 @@
   const redoShortcut = $derived(
     isMac ? formatForDisplay("Mod+Shift+Z") : formatForDisplay("Mod+Y"),
   );
+  const increaseFontSizeShortcut = $derived(isMac ? "Cmd++" : "Ctrl++");
+  const decreaseFontSizeShortcut = $derived(isMac ? "Cmd+-" : "Ctrl+-");
+  const resetFontSizeShortcut = $derived(isMac ? "Cmd+0" : "Ctrl+0");
 
   // Unlisten callback for the macOS native menu edit-action event.
   let unlistenEditAction: (() => void) | undefined;
   let unlistenAbout: (() => void) | undefined;
   let unlistenCheckForUpdates: (() => void) | undefined;
   let unlistenWordWrap: (() => void) | undefined;
+  let unlistenViewAction: (() => void) | undefined;
 
   // --- Linux / WebKitGTK first-click fix ---
   // WebKitGTK swallows the first pointerdown as a "focus the webview" event,
@@ -102,6 +111,10 @@
           editorState.wordWrap = event.payload;
         },
       );
+
+      unlistenViewAction = await listen<string>("menu://view-action", (event) => {
+        handleView(event.payload);
+      });
     }
   });
 
@@ -110,6 +123,7 @@
     unlistenCheckForUpdates?.();
     unlistenEditAction?.();
     unlistenWordWrap?.();
+    unlistenViewAction?.();
     unlistenResize?.();
   });
 
@@ -198,6 +212,20 @@
     }
   }
 
+  function handleView(action: string) {
+    switch (action) {
+      case "increaseFontSize":
+        increaseEditorFontSize();
+        break;
+      case "decreaseFontSize":
+        decreaseEditorFontSize();
+        break;
+      case "resetFontSize":
+        resetEditorFontSize();
+        break;
+    }
+  }
+
   $effect(() => {
     return registerHotkeys([
       {
@@ -238,6 +266,38 @@
           if (isMac) return;
           e.preventDefault();
           editorState.wordWrap = !editorState.wordWrap;
+        },
+        options: { ignoreInputs: false },
+      },
+      {
+        key: { key: "=", mod: true },
+        callback: (e) => {
+          e.preventDefault();
+          handleView("increaseFontSize");
+        },
+        options: { ignoreInputs: false },
+      },
+      {
+        key: { key: "=", mod: true, shift: true },
+        callback: (e) => {
+          e.preventDefault();
+          handleView("increaseFontSize");
+        },
+        options: { ignoreInputs: false },
+      },
+      {
+        key: "Mod+-",
+        callback: (e) => {
+          e.preventDefault();
+          handleView("decreaseFontSize");
+        },
+        options: { ignoreInputs: false },
+      },
+      {
+        key: "Mod+0",
+        callback: (e) => {
+          e.preventDefault();
+          handleView("resetFontSize");
         },
         options: { ignoreInputs: false },
       },
@@ -322,6 +382,26 @@
       </Menubar.Content>
     </Menubar.Menu>
     <Menubar.Menu>
+      <Menubar.Trigger class="cursor-pointer">View</Menubar.Trigger>
+      <Menubar.Content>
+        <Menubar.Item onclick={() => handleView("increaseFontSize")}
+          >Increase Font Size<Menubar.Shortcut
+            >{increaseFontSizeShortcut}</Menubar.Shortcut
+          ></Menubar.Item
+        >
+        <Menubar.Item onclick={() => handleView("decreaseFontSize")}
+          >Decrease Font Size<Menubar.Shortcut
+            >{decreaseFontSizeShortcut}</Menubar.Shortcut
+          ></Menubar.Item
+        >
+        <Menubar.Item onclick={() => handleView("resetFontSize")}
+          >Reset Font Size<Menubar.Shortcut
+            >{resetFontSizeShortcut}</Menubar.Shortcut
+          ></Menubar.Item
+        >
+      </Menubar.Content>
+    </Menubar.Menu>
+    <Menubar.Menu>
       <Menubar.Trigger class="cursor-pointer">Help</Menubar.Trigger>
       <Menubar.Content>
         <Menubar.Item onclick={handleCheckForUpdates}
@@ -341,7 +421,7 @@
 
   {#if isMac}
     <!-- Mac Traffic Lights Space -->
-    <!-- File & Edit menus are provided by the macOS native system menu bar -->
+    <!-- File, Edit, and View menus are provided by the macOS native system menu bar -->
     <div
       class="group pointer-events-none z-10 flex h-full w-[72px] items-center justify-start gap-2 pl-4"
     ></div>

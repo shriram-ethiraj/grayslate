@@ -25,10 +25,20 @@ export type ManagedEditorSession = {
     state?: EditorState;
     view?: EditorView;
     themeCompartment?: Compartment;
+    fontSizeCompartment?: Compartment;
     langCompartment?: Compartment;
     wordWrapCompartment?: Compartment;
     bindings?: SessionBindings;
 };
+
+function createFontSizeExtension(fontSize: number) {
+    return EditorView.theme({
+        // eslint-disable-next-line @typescript-eslint/naming-convention
+        "&": {
+            fontSize: `${fontSize}px`,
+        },
+    });
+}
 
 function syncBindings(
     session: ManagedEditorSession,
@@ -122,6 +132,7 @@ export function ensureManagedEditorState(
     }
 
     session.themeCompartment = new Compartment();
+    session.fontSizeCompartment = new Compartment();
     session.langCompartment = new Compartment();
     session.wordWrapCompartment = new Compartment();
 
@@ -138,6 +149,7 @@ export function ensureManagedEditorState(
             search({}),
             scrollPastEnd(),
             session.themeCompartment.of(initialThemeExt),
+            session.fontSizeCompartment.of(createFontSizeExtension(editorState.fontSize)),
             session.langCompartment.of(getLanguageExtension(language)),
             session.wordWrapCompartment.of(
                 editorState.wordWrap ? EditorView.lineWrapping : [],
@@ -168,6 +180,21 @@ export function setManagedEditorLanguage(
 
     session.view.dispatch({
         effects: session.langCompartment.reconfigure(getLanguageExtension(language)),
+    });
+}
+
+export function setManagedEditorFontSize(
+    session: ManagedEditorSession,
+    fontSize: number,
+) {
+    if (!session.view || !session.fontSizeCompartment) {
+        return;
+    }
+
+    session.view.dispatch({
+        effects: session.fontSizeCompartment.reconfigure(
+            createFontSizeExtension(fontSize),
+        ),
     });
 }
 
@@ -210,6 +237,7 @@ export function disposeManagedEditorSession(session: ManagedEditorSession) {
     session.view = undefined;
     session.bindings = undefined;
     session.themeCompartment = undefined;
+    session.fontSizeCompartment = undefined;
     session.langCompartment = undefined;
     session.wordWrapCompartment = undefined;
     session.state = undefined;

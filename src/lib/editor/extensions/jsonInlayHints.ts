@@ -1,7 +1,6 @@
-import type { Range } from "@codemirror/state";
-import { ViewPlugin, Decoration, EditorView } from "@codemirror/view";
+import type { Extension, Range } from "@codemirror/state";
+import { ViewPlugin, Decoration, EditorView, WidgetType } from "@codemirror/view";
 import { syntaxTree } from "@codemirror/language";
-import { WidgetType } from "@codemirror/view";
 import type { ViewUpdate, DecorationSet } from "@codemirror/view";
 
 class ArrayIndexWidget extends WidgetType {
@@ -18,22 +17,39 @@ class ArrayIndexWidget extends WidgetType {
         span.className = "cm-json-array-index";
         span.textContent = `${this.index}`;
 
-        // Styling matches VS Code / IntelliJ inlay hints style roughly
-        span.style.color = "var(--cm-hint-color, #888)";
-        span.style.fontSize = "0.9em";
-        span.style.marginRight = "6px";
-        span.style.padding = "0px 4px";
-        span.style.borderRadius = "3px";
-        span.style.backgroundColor = "var(--cm-hint-bg, rgba(128, 128, 128, 0.1))";
-        span.style.userSelect = "none";
-        span.style.pointerEvents = "none";
-        span.style.fontFamily = "monospace";
-
         return span;
     }
 }
 
-export const jsonInlayHints = ViewPlugin.fromClass(class {
+const jsonInlayHintsTheme: Extension = EditorView.baseTheme({
+    ".cm-json-array-index": {
+        display: "inline-flex",
+        alignItems: "center",
+        boxSizing: "border-box",
+        overflow: "hidden",
+        whiteSpace: "nowrap",
+        marginRight: "0.55em",
+        padding: "0.08em 0.42em",
+        borderRadius: "0.4em",
+        backgroundClip: "padding-box",
+        color: "var(--cm-hint-color, #888)",
+        backgroundColor: "var(--cm-hint-bg, rgba(128, 128, 128, 0.1))",
+        fontFamily: "inherit",
+        fontSize: "0.84em",
+        fontWeight: "500",
+        lineHeight: "1.2",
+        verticalAlign: "baseline",
+        userSelect: "none",
+        pointerEvents: "auto",
+        cursor: "default",
+        transition: "background-color 0.15s ease, color 0.15s ease",
+    },
+    ".cm-json-array-index:hover": {
+        backgroundColor: "var(--cm-hint-bg-hover, rgba(128, 128, 128, 0.2))",
+    },
+});
+
+const jsonInlayHintsPlugin = ViewPlugin.fromClass(class {
     decorations: DecorationSet;
 
     constructor(view: EditorView) {
@@ -85,3 +101,5 @@ export const jsonInlayHints = ViewPlugin.fromClass(class {
 }, {
     decorations: v => v.decorations
 });
+
+export const jsonInlayHints: Extension = [jsonInlayHintsPlugin, jsonInlayHintsTheme];

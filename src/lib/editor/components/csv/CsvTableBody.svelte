@@ -155,7 +155,7 @@
   .csv-table {
     width: max-content;
     border-collapse: collapse;
-    font-size: 13px;
+    font-size: var(--csv-row-font-size, 13px);
     font-family: "SF Mono", "Fira Code", "JetBrains Mono", Consolas, monospace;
     table-layout: fixed;
   }
@@ -168,7 +168,7 @@
     text-align: right;
     padding: 6px 8px;
     color: var(--muted-foreground);
-    font-size: 11px;
+    font-size: var(--csv-index-font-size, 11px);
     border-right: 1px solid var(--border);
     user-select: none;
     background: var(--sidebar);
@@ -227,7 +227,7 @@
     border: none;
     outline: none;
     padding: 5px 10px;
-    font-size: 13px;
+    font-size: inherit;
     font-family: inherit;
     background: var(--background);
     color: var(--foreground);

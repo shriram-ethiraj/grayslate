@@ -124,7 +124,7 @@
     z-index: 10;
     width: max-content;
     border-collapse: collapse;
-    font-size: 13px;
+    font-size: var(--csv-row-font-size, 13px);
     font-family: "SF Mono", "Fira Code", "JetBrains Mono", Consolas, monospace;
     table-layout: fixed;
   }
@@ -137,7 +137,8 @@
     padding: 0;
     text-align: left;
     font-weight: 600;
-    font-size: 12px;
+    font-size: var(--csv-header-font-size, 12px);
+    height: var(--csv-header-height, 34px);
     color: var(--foreground);
     white-space: nowrap;
     user-select: none;
@@ -181,7 +182,7 @@
     border: none;
     outline: none;
     padding: 5px 10px;
-    font-size: 12px;
+    font-size: inherit;
     font-weight: 600;
     font-family: inherit;
     background: var(--background);
@@ -222,7 +223,7 @@
     text-align: right;
     padding: 6px 8px;
     color: var(--muted-foreground);
-    font-size: 11px;
+    font-size: var(--csv-index-font-size, 11px);
     border-right: 1px solid var(--border);
     user-select: none;
     background: var(--sidebar);

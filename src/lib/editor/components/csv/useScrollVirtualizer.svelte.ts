@@ -8,10 +8,10 @@ export function useScrollVirtualizer(options: {
     count: () => number;
     getScrollElement: () => HTMLElement | undefined;
     estimateSize: () => number;
+    headerHeight?: () => number;
     overscan?: number;
 }) {
     const MAX_SCROLL_HEIGHT = 30_000_000;
-    const HEADER_HEIGHT = 34;
     /**
      * Safety cap: never render more virtual items than this, regardless of
      * what containerHeight the ResizeObserver reports.  Prevents runaway
@@ -22,23 +22,24 @@ export function useScrollVirtualizer(options: {
 
     let scrollTop = $state(0);
     let containerHeight = $state(600);
-    let effectiveScrollHeight = $state(HEADER_HEIGHT);
+    let effectiveScrollHeight = $state(34);
 
     const rowHeight = $derived(options.estimateSize());
+    const headerHeight = $derived(options.headerHeight?.() ?? 34);
     const totalCount = $derived(options.count());
     const overscan = $derived(options.overscan ?? 10);
 
     const trueTotalRowHeight = $derived(totalCount * rowHeight);
     const needsScaling = $derived(trueTotalRowHeight > MAX_SCROLL_HEIGHT);
     const virtualTotalHeight = $derived(
-        (needsScaling ? MAX_SCROLL_HEIGHT : trueTotalRowHeight) + HEADER_HEIGHT,
+        (needsScaling ? MAX_SCROLL_HEIGHT : trueTotalRowHeight) + headerHeight,
     );
 
     const effectiveTotalHeight = $derived(
         needsScaling
             ? Math.min(
                   virtualTotalHeight,
-                  Math.max(HEADER_HEIGHT, effectiveScrollHeight),
+                  Math.max(headerHeight, effectiveScrollHeight),
               )
             : virtualTotalHeight,
     );
@@ -46,12 +47,12 @@ export function useScrollVirtualizer(options: {
     function getVisibleCount(viewportHeight: number) {
         return Math.max(
             1,
-            Math.ceil(Math.max(0, viewportHeight - HEADER_HEIGHT) / rowHeight),
+            Math.ceil(Math.max(0, viewportHeight - headerHeight) / rowHeight),
         );
     }
 
     function getMaxRowScroll(viewportHeight: number) {
-        return Math.max(0, effectiveTotalHeight - viewportHeight - HEADER_HEIGHT);
+        return Math.max(0, effectiveTotalHeight - viewportHeight - headerHeight);
     }
 
     function updateScrollMetrics(el: HTMLElement) {
@@ -117,7 +118,7 @@ export function useScrollVirtualizer(options: {
         if (totalCount === 0) return [];
 
         const visibleCount = getVisibleCount(containerHeight);
-        const rowScrollTop = Math.max(0, scrollTop - HEADER_HEIGHT);
+        const rowScrollTop = Math.max(0, scrollTop - headerHeight);
 
         let firstVisibleRow: number;
 
@@ -141,9 +142,9 @@ export function useScrollVirtualizer(options: {
 
         let blockStart: number;
         if (!needsScaling) {
-            blockStart = HEADER_HEIGHT + startIdx * rowHeight;
+            blockStart = headerHeight + startIdx * rowHeight;
         } else {
-            blockStart = HEADER_HEIGHT + rowScrollTop - (firstVisibleRow - startIdx) * rowHeight;
+            blockStart = headerHeight + rowScrollTop - (firstVisibleRow - startIdx) * rowHeight;
             if (endIdx === totalCount - 1) {
                 const renderedHeight = (endIdx - startIdx + 1) * rowHeight;
                 blockStart = Math.max(blockStart, effectiveTotalHeight - renderedHeight);
@@ -178,7 +179,7 @@ export function useScrollVirtualizer(options: {
             const align = scrollOpts?.align ?? "auto";
 
             if (!needsScaling) {
-                const itemTop = HEADER_HEIGHT + index * rowHeight;
+                const itemTop = headerHeight + index * rowHeight;
                 const itemBottom = itemTop + rowHeight;
                 const viewTop = el.scrollTop;
                 const viewBottom = viewTop + containerHeight;
@@ -207,7 +208,7 @@ export function useScrollVirtualizer(options: {
 
                 // "auto": check if already visible in scaled mode
                 if (align === "auto") {
-                    const rowScrollTop = Math.max(0, el.scrollTop - HEADER_HEIGHT);
+                    const rowScrollTop = Math.max(0, el.scrollTop - headerHeight);
                     const fraction = Math.min(1, rowScrollTop / Math.max(1, maxRowScroll));
                     const firstVisibleRow = Math.floor(fraction * maxFirstRow);
                     const lastVisibleRow = firstVisibleRow + visibleCount - 1;
@@ -225,7 +226,7 @@ export function useScrollVirtualizer(options: {
 
                 const fraction =
                     maxFirstRow === 0 ? 0 : Math.min(1, targetFirstRow / maxFirstRow);
-                el.scrollTo({ top: HEADER_HEIGHT + fraction * maxRowScroll });
+                el.scrollTo({ top: headerHeight + fraction * maxRowScroll });
             }
         },
     };

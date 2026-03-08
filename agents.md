@@ -23,6 +23,7 @@ Welcome to the Grayslate project. This document serves as a "production-grade" r
 Keep this file compact. Detailed implementation notes belong in the skill files.
 
 - Frontend patterns: `.agents/svelte-frontend/SKILL.md`
+- Code review playbook: `.agents/code-review/SKILL.md`
 - CodeMirror session model: `.agents/codemirror-core/SKILL.md`
 - Editor extension patterns: `.agents/editor-extensions/SKILL.md`
 - CSV table architecture: `.agents/csv-architecture/SKILL.md`

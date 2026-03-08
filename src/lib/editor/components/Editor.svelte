@@ -12,6 +12,7 @@
     captureManagedEditorView,
     createManagedEditorSession,
     detachSessionBindings,
+    setManagedEditorFontSize,
     ensureManagedEditorState,
     setManagedEditorLanguage,
     setManagedEditorWordWrap,
@@ -91,6 +92,12 @@
     const wrap = editorState.wordWrap;
     if (!view) return;
     setManagedEditorWordWrap(session as ManagedEditorSession, wrap);
+  });
+
+  $effect(() => {
+    const fontSize = editorState.fontSize;
+    if (!view) return;
+    setManagedEditorFontSize(session as ManagedEditorSession, fontSize);
   });
 
   // ---------------------------------------------------------------------------

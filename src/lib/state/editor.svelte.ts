@@ -1,5 +1,13 @@
 import type { EditorView } from "codemirror";
 
+export const DEFAULT_EDITOR_FONT_SIZE = 15;
+export const MIN_EDITOR_FONT_SIZE = 10;
+export const MAX_EDITOR_FONT_SIZE = 24;
+
+function clampEditorFontSize(fontSize: number): number {
+    return Math.min(MAX_EDITOR_FONT_SIZE, Math.max(MIN_EDITOR_FONT_SIZE, fontSize));
+}
+
 export type FileType =
     | "text"
     | "csv"
@@ -30,6 +38,7 @@ export const editorState = $state<{
     currentDocumentLength: number;
     currentSelectionSize: number;
     fileType: FileType;
+    fontSize: number;
     wordWrap: boolean;
     csv: {
         showTable: boolean;
@@ -62,6 +71,7 @@ export const editorState = $state<{
     currentDocumentLength: 0,
     currentSelectionSize: 0,
     fileType: "text",
+    fontSize: DEFAULT_EDITOR_FONT_SIZE,
     wordWrap: false,
     csv: {
         showTable: false,
@@ -87,6 +97,22 @@ export const editorState = $state<{
         currentMatch: 0,
     },
 });
+
+export function setEditorFontSize(fontSize: number): void {
+    editorState.fontSize = clampEditorFontSize(fontSize);
+}
+
+export function increaseEditorFontSize(): void {
+    setEditorFontSize(editorState.fontSize + 1);
+}
+
+export function decreaseEditorFontSize(): void {
+    setEditorFontSize(editorState.fontSize - 1);
+}
+
+export function resetEditorFontSize(): void {
+    editorState.fontSize = DEFAULT_EDITOR_FONT_SIZE;
+}
 
 /** Show the editor-area loader overlay with optional sub-message and progress. */
 export function showEditorLoader(message: string, subMessage = "", progress = -1) {

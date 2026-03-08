@@ -5,7 +5,7 @@ struct MacOsMenuState {
     word_wrap_item: std::sync::Mutex<tauri::menu::CheckMenuItem<tauri::Wry>>,
 }
 
-/// Build the macOS-native menu bar (File + Edit).
+/// Build the macOS-native menu bar (File + Edit + View).
 ///
 /// On macOS the in-window shadcn Menubar is hidden; this native menu
 /// provides the same actions via the system menu bar at the top of the
@@ -99,10 +99,29 @@ pub fn build_native_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::M
         )
         .build()?;
 
+    let view_menu = SubmenuBuilder::new(app, "View")
+        .item(
+            &MenuItemBuilder::with_id("view-increase-font-size", "Increase Font Size")
+                .accelerator("CmdOrCtrl+=")
+                .build(app)?,
+        )
+        .item(
+            &MenuItemBuilder::with_id("view-decrease-font-size", "Decrease Font Size")
+                .accelerator("CmdOrCtrl+-")
+                .build(app)?,
+        )
+        .item(
+            &MenuItemBuilder::with_id("view-reset-font-size", "Reset Font Size")
+                .accelerator("CmdOrCtrl+0")
+                .build(app)?,
+        )
+        .build()?;
+
     let menu_builder = MenuBuilder::new(app)
         .item(&app_menu)
         .item(&file_menu)
-        .item(&edit_menu);
+        .item(&edit_menu)
+        .item(&view_menu);
 
     menu_builder.build()
 }
@@ -113,6 +132,7 @@ pub fn build_native_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::M
 /// - `menu://new-file`     → EditorWrapper's createNewFile()
 /// - `menu://open-file`    → EditorWrapper's openFile()
 /// - `menu://edit-action`  → Titlebar's handleEdit(action) / word-wrap toggle
+/// - `menu://view-action`  → Titlebar's handleView(action)
 #[cfg(target_os = "macos")]
 pub fn handle_macos_menu_event(app: &tauri::AppHandle, event: tauri::menu::MenuEvent) {
     use tauri::{Emitter, Manager};
@@ -169,6 +189,15 @@ pub fn handle_macos_menu_event(app: &tauri::AppHandle, event: tauri::menu::MenuE
                 }
             }
             let _ = window.emit("menu://word-wrap-state", checked);
+        }
+        "view-increase-font-size" => {
+            let _ = window.emit("menu://view-action", "increaseFontSize");
+        }
+        "view-decrease-font-size" => {
+            let _ = window.emit("menu://view-action", "decreaseFontSize");
+        }
+        "view-reset-font-size" => {
+            let _ = window.emit("menu://view-action", "resetFontSize");
         }
         _ => {}
     }
