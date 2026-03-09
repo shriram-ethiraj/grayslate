@@ -18,7 +18,7 @@ import { getMinimalTextChange, type TextChangeSpec } from "$lib/editor/core/csvC
 // ---------------------------------------------------------------------------
 // For documents above this threshold (in characters), `syncBindings` defers
 // the expensive `doc.toString()` serialization by VALUE_SYNC_DEBOUNCE_MS.
-// Lightweight metadata (doc.length, doc.lines) is always pushed immediately.
+// O(1) metadata (doc.length, doc.lines) is always pushed immediately.
 const LARGE_DOC_THRESHOLD = 5_000_000; // ~10 MB UTF-16
 const VALUE_SYNC_DEBOUNCE_MS = 300;
 
@@ -221,9 +221,7 @@ export function ensureManagedEditorState(
             scrollPastEnd(),
             session.themeCompartment.of(initialThemeExt),
             session.fontSizeCompartment.of(createFontSizeExtension(editorState.fontSize)),
-            session.langCompartment.of(
-                getLanguageExtension(language, { lightweight: isLargeDoc }),
-            ),
+            session.langCompartment.of(getLanguageExtension(language)),
             session.wordWrapCompartment.of(
                 editorState.wordWrap ? EditorView.lineWrapping : [],
             ),
@@ -251,11 +249,8 @@ export function setManagedEditorLanguage(
         return;
     }
 
-    const isLargeDoc = session.view.state.doc.lines > LARGE_DOC_LINE_THRESHOLD;
     session.view.dispatch({
-        effects: session.langCompartment.reconfigure(
-            getLanguageExtension(language, { lightweight: isLargeDoc }),
-        ),
+        effects: session.langCompartment.reconfigure(getLanguageExtension(language)),
     });
 }
 

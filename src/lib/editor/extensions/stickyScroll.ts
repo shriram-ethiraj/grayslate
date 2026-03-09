@@ -541,7 +541,7 @@ function createStickyScrollPanel(
     function renderStack(): void {
         const stack = computeVisibleStack(view, scopes, maxLines);
 
-        // Lightweight identity key — skip DOM rebuild when unchanged.
+        // Stable identity key — skip DOM rebuild when unchanged.
         const key = stack.map((s) => s.openLine).join(",");
         if (key === prevStackKey) return;
         prevStackKey = key;
