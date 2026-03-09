@@ -8,25 +8,21 @@
     import Copy from "~icons/lucide/copy";
     import Check from "~icons/lucide/check";
     import { editorCopySelectionOrAll } from "$lib/editor/core/actions";
-    import {
-        copyMarkdownPreviewSelectionOrAll,
-    } from "$lib/editor/components/markdown/previewActions";
+    import { copyMarkdownPreviewSelectionOrAll } from "$lib/editor/components/markdown/previewActions";
 
     const COPY_SUCCESS_DURATION_MS = 1200;
 
     let showCopySuccess = $state(false);
     let copySuccessTimer: ReturnType<typeof setTimeout> | undefined;
 
-    const showCopyAction = $derived(
-        !(editorState.fileType === "csv" && editorState.csv.showTable),
-    );
-
     const isCopyDisabled = $derived.by(() => {
-        if (editorState.loader.visible) {
+        if (
+            editorState.loader.visible ||
+            (editorState.fileType === "csv" && editorState.csv.showTable) ||
+            editorState.currentDocumentLength === 0
+        ) {
             return true;
         }
-
-        return editorState.currentDocumentLength === 0;
     });
 
     const copyTitle = $derived.by(() => {
@@ -50,7 +46,10 @@
             return "Copy preview text";
         }
 
-        if (editorState.markdown.showPreview && editorState.fileType === "markdown") {
+        if (
+            editorState.markdown.showPreview &&
+            editorState.fileType === "markdown"
+        ) {
             return "Copy markdown source";
         }
 
@@ -95,25 +94,6 @@
         resetCopySuccessTimer();
     });
 </script>
-
-{#if showCopyAction}
-    <Button
-        variant="ghost"
-        size="icon"
-        aria-label="Copy content"
-        title={copyTitle}
-        disabled={isCopyDisabled}
-        onclick={() => {
-            void handleCopyContent();
-        }}
-    >
-        {#if showCopySuccess}
-            <Check class="h-[1.2rem] w-[1.2rem] transition-all" />
-        {:else}
-            <Copy class="h-[1.2rem] w-[1.2rem] transition-all" />
-        {/if}
-    </Button>
-{/if}
 
 {#if editorState.fileType === "csv"}
     {#if editorState.csv.showTable}
@@ -176,3 +156,20 @@
         <Eye class="h-[1.2rem] w-[1.2rem] transition-all" />
     </Button>
 {/if}
+
+<Button
+    variant="ghost"
+    size="icon"
+    aria-label="Copy content"
+    title={copyTitle}
+    disabled={isCopyDisabled}
+    onclick={() => {
+        void handleCopyContent();
+    }}
+>
+    {#if showCopySuccess}
+        <Check class="h-[1.2rem] w-[1.2rem] transition-all" />
+    {:else}
+        <Copy class="h-[1.2rem] w-[1.2rem] transition-all" />
+    {/if}
+</Button>
