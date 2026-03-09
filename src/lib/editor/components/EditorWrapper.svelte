@@ -47,6 +47,11 @@
   import { requestFileOpenReclaim } from "$lib/editor/core/memory";
   import { clearSearchStatsCache } from "$lib/editor/core/actions";
   import { clearColorCache } from "$lib/editor/extensions/colorHints";
+  import {
+    OPEN_FILE_PATH_EVENT,
+    RECENT_FILES_UPDATED_EVENT,
+    type OpenFilePathPayload,
+  } from "$lib/files/recentFiles";
 
   type SavedDocumentSource = "file";
 
@@ -435,16 +440,7 @@
   // picker, then invoke read_file_content on the Rust side which enforces
   // the current 200 MB size limit before returning the text.
   // -----------------------------------------------------------------------
-  async function openFile(): Promise<void> {
-    const selected = await openFilePicker({
-      multiple: false,
-      directory: false,
-    });
-
-    // User cancelled the dialog
-    if (!selected) return;
-
-    const filePath = selected as string;
+  async function openFileAtPath(filePath: string): Promise<void> {
     const filename = filePath.replace(/\\/g, "/").split("/").pop() ?? "";
 
     // Start a decelerating progress ticker while the Rust read is in-flight
@@ -499,6 +495,8 @@
 
       // Reclaim stale heap from the previous file through the shared controller.
       requestFileOpenReclaim(previousDocLength, content.length);
+      const { emit } = await import("@tauri-apps/api/event");
+      await emit(RECENT_FILES_UPDATED_EVENT);
     } catch (err: unknown) {
       const msg = typeof err === "string" ? err : "Failed to open file.";
       toast.error(msg);
@@ -507,6 +505,18 @@
       stopLoaderTicker();
       hideEditorLoader();
     }
+  }
+
+  async function openFile(): Promise<void> {
+    const selected = await openFilePicker({
+      multiple: false,
+      directory: false,
+    });
+
+    // User cancelled the dialog
+    if (!selected) return;
+
+    await openFileAtPath(selected as string);
   }
 
   async function getContentForSave(): Promise<string> {
@@ -550,6 +560,8 @@
       // Flush any pending debounced value sync so that `isDirty`
       // resolves immediately after saving (value === lastSavedValue).
       flushPendingValueSync(editorSession);
+      const { emit } = await import("@tauri-apps/api/event");
+      await emit(RECENT_FILES_UPDATED_EVENT);
     } finally {
       stopLoaderTicker();
       hideEditorLoader();
@@ -616,6 +628,11 @@
         const unlistenOpenFile = await listen("menu://open-file", () => {
           void openFile();
         });
+        const unlistenOpenFilePath = await listen<OpenFilePathPayload>(OPEN_FILE_PATH_EVENT, (event) => {
+          if (event.payload?.path) {
+            void openFileAtPath(event.payload.path);
+          }
+        });
         const unlistenSaveFile = await listen("menu://save-file", () => {
           void saveFile();
         });
@@ -626,6 +643,7 @@
         return () => {
           unlistenNewFile();
           unlistenOpenFile();
+          unlistenOpenFilePath();
           unlistenSaveFile();
           unlistenSaveFileAs();
         };

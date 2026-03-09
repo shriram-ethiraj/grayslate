@@ -1,5 +1,5 @@
 ---
-name: Svelte Frontend Guidelines
+name: svelte-frontend
 description: Rules for writing Svelte 5, strictly typed TypeScript, and Vite configuration in Grayslate.
 ---
 
@@ -15,3 +15,4 @@ description: Rules for writing Svelte 5, strictly typed TypeScript, and Vite con
   - **Avoid legacy Svelte 4 features** (`$:`, legacy slot architecture). Opt for Svelte 5 `{#snippet}` when handling template injection.
 - **Strong Typing:** Do not use `any`. Define strictly typed interfaces and types for all component props, Tauri IPC payloads, and CodeMirror extensions.
 - **Vite Native:** Keep assets optimized. Import static assets cleanly and let Vite handle caching and bundling.
+- **Tooltip Preference:** Prefer native `title` attributes for simple hover labels such as full paths. Do not add custom tooltip components unless the interaction clearly requires richer content or behavior.

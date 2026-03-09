@@ -1,5 +1,8 @@
+use tauri::Manager;
+
 pub mod commands;
 pub mod menu;
+pub mod storage;
 pub mod window;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -22,6 +25,11 @@ pub fn run() {
 
     builder
         .setup(|app| {
+            let storage = storage::AppStorage::initialize(app.handle()).map_err(|error| {
+                std::io::Error::other(format!("Failed to initialize app storage: {}", error))
+            })?;
+            app.manage(storage);
+
             #[cfg(not(any(target_os = "android", target_os = "ios")))]
             app.handle()
                 .plugin(tauri_plugin_updater::Builder::new().build())?;
@@ -31,8 +39,12 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::file::get_app_setting,
+            commands::file::get_recent_files,
             commands::file::read_file_content,
+            commands::file::resolve_notes_root,
             commands::file::resolve_default_notes_root,
+            commands::file::set_app_setting,
             commands::file::write_file_content,
             commands::memory::get_memory_info,
             commands::update::check_for_updates,

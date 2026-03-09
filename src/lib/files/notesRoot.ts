@@ -1,39 +1,25 @@
 import { normalize } from "@tauri-apps/api/path";
 import { invoke } from "@tauri-apps/api/core";
 
-const NOTES_ROOT_STORAGE_KEY = "grayslate.notesRoot";
+const NOTES_ROOT_SETTING_KEY = "notes_root";
 
-function canUseLocalStorage(): boolean {
-  return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
+export async function getConfiguredNotesRoot(): Promise<string | null> {
+  const storedPath = await invoke<string | null>("get_app_setting", {
+    key: NOTES_ROOT_SETTING_KEY,
+  });
+
+  return storedPath ? normalize(storedPath) : null;
 }
 
-export function getConfiguredNotesRoot(): string | null {
-  if (!canUseLocalStorage()) {
-    return null;
-  }
+export async function setConfiguredNotesRoot(path: string | null): Promise<void> {
+  const normalizedPath = path ? await normalize(path) : null;
 
-  const storedPath = window.localStorage.getItem(NOTES_ROOT_STORAGE_KEY);
-  return storedPath && storedPath.length > 0 ? storedPath : null;
-}
-
-export function setConfiguredNotesRoot(path: string | null): void {
-  if (!canUseLocalStorage()) {
-    return;
-  }
-
-  if (!path) {
-    window.localStorage.removeItem(NOTES_ROOT_STORAGE_KEY);
-    return;
-  }
-
-  window.localStorage.setItem(NOTES_ROOT_STORAGE_KEY, path);
+  await invoke("set_app_setting", {
+    key: NOTES_ROOT_SETTING_KEY,
+    value: normalizedPath,
+  });
 }
 
 export async function resolveNotesRoot(): Promise<string> {
-  const configuredPath = getConfiguredNotesRoot();
-  if (configuredPath) {
-    return normalize(configuredPath);
-  }
-
-  return invoke<string>("resolve_default_notes_root");
+  return invoke<string>("resolve_notes_root");
 }
