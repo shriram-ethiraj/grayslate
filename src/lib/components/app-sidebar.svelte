@@ -9,6 +9,7 @@
     import * as Tabs from "$lib/components/ui/tabs/index.js";
     import { Button } from "$lib/components/ui/button/index.js";
     import Input from "$lib/components/ui/input/input.svelte";
+    import { editorState } from "$lib/state/editor.svelte";
     import {
         getRecentFiles,
         OPEN_FILE_PATH_EVENT,
@@ -60,16 +61,6 @@
         today: "Today",
         "this-week": "This week",
         older: "Older",
-    };
-    const languageTypeTokens: Partial<Record<string, string>> = {
-        text: "TXT",
-        markdown: "MD",
-        javascript: "JS",
-        typescript: "TS",
-        python: "PY",
-        powershell: "PS1",
-        shell: "SH",
-        dockerfile: "DOCKER",
     };
 
     let query = $state("");
@@ -229,12 +220,12 @@
         }
 
         const detectedLanguage = getRecentFileLanguage(recentFile);
-        const token = languageTypeTokens[detectedLanguage];
-        if (token) {
-            return token;
+        const languageMeta = languageMetaByValue.get(detectedLanguage);
+        if (languageMeta?.token) {
+            return languageMeta.token;
         }
 
-        return languageMetaByValue.get(detectedLanguage)?.label.toUpperCase() ?? "FILE";
+        return languageMeta?.label.toUpperCase() ?? "FILE";
     }
 
     function getRecentFileLanguage(recentFile: RecentFileRecord): string {
@@ -509,7 +500,7 @@
                     bind:ref={searchInput}
                     bind:value={query}
                     placeholder="Search library..."
-                    class="border-sidebar-border bg-sidebar ps-9 text-sm shadow-none placeholder:text-sidebar-foreground/45 focus-visible:border-sidebar-ring focus-visible:ring-sidebar-ring/40"
+                    class="border-sidebar-border bg-sidebar ps-9 text-sm shadow-none placeholder:text-sidebar-foreground/45 focus-visible:border-sidebar-ring focus-visible:ring-sidebar-ring"
                 />
             </div>
 
@@ -517,7 +508,7 @@
                 <Select.Trigger
                     aria-label={`Sort library: ${activeSortOption.label}`}
                     title={`Sort library: ${activeSortOption.label}`}
-                    class="h-9 w-9 justify-center gap-0 border-sidebar-border bg-sidebar px-0 text-sidebar-foreground shadow-none focus-visible:border-sidebar-ring focus-visible:ring-sidebar-ring/40 [&>svg:last-child]:hidden"
+                    class="h-9 w-9 justify-center gap-0 border-sidebar-border bg-sidebar px-0 text-sidebar-foreground shadow-none focus-visible:border-sidebar-ring focus-visible:ring-sidebar-ring [&>svg:last-child]:hidden"
                 >
                     {@const ActiveSortIcon = activeSortOption.icon}
                     <span class="flex items-center justify-center">
@@ -581,11 +572,11 @@
                         <section class="space-y-2">
                             {#if section.label}
                                 <div class="flex items-center gap-3 px-2 pt-1">
-                                    <span class="truncate whitespace-nowrap text-[11px] uppercase tracking-[0.12em] text-sidebar-foreground/50">
+                                    <span class="truncate whitespace-nowrap text-[11px] font-semibold uppercase tracking-[0.12em] text-sidebar-foreground/70">
                                         {section.label}
                                     </span>
-                                    <div class="h-px flex-1 bg-sidebar-border/55"></div>
-                                    <span class="shrink-0 whitespace-nowrap text-[10px] text-sidebar-foreground/40">
+                                    <div class="h-px flex-1 bg-sidebar-border/70"></div>
+                                    <span class="shrink-0 whitespace-nowrap text-[10px] text-sidebar-foreground/60">
                                         {section.items.length}
                                     </span>
                                 </div>
@@ -595,14 +586,15 @@
                                 {#each section.items as recentFile (recentFile.path)}
                                     {@const FileIcon = getRecentFileIcon(recentFile)}
                                     {@const fileSize = formatSize(recentFile.size_bytes)}
+                                    {@const isActiveFile = !!editorState.currentFilePath && editorState.currentFilePath === recentFile.path}
                                     <Item.Root
                                         variant="outline"
                                         size="sm"
-                                        class="overflow-hidden border-sidebar-border/65 bg-sidebar/35 p-0 shadow-none"
+                                        class="overflow-hidden p-0 shadow-none {isActiveFile ? 'border-sidebar-ring bg-sidebar-foreground/[0.03]' : 'border-sidebar-border/65 bg-sidebar/35'}"
                                     >
                                         <button
                                             type="button"
-                                            class="group flex w-full min-w-0 items-start gap-3 overflow-hidden px-3.5 py-3 text-left outline-none transition-colors hover:bg-sidebar-accent/70 hover:text-sidebar-accent-foreground focus-visible:bg-sidebar-accent/70 focus-visible:text-sidebar-accent-foreground"
+                                            class="group flex w-full min-w-0 items-start gap-3 overflow-hidden px-3.5 py-3 text-left outline-none transition-colors hover:bg-sidebar-accent/70 hover:text-sidebar-accent-foreground focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-sidebar-ring {isActiveFile ? 'bg-sidebar-foreground/[0.04] text-sidebar-foreground' : ''}"
                                             title={recentFile.path}
                                             onclick={() => {
                                                 void openRecentFile(recentFile.path);
@@ -610,7 +602,7 @@
                                         >
                                             <Item.Media
                                                 variant="icon"
-                                                class="mt-0.5 border-sidebar-border/70 bg-sidebar-accent/45 text-sidebar-foreground/80 group-hover:border-sidebar-background/60 group-hover:bg-sidebar/80 group-hover:text-sidebar-accent-foreground"
+                                                class="mt-0.5 {isActiveFile ? 'border-sidebar-ring/40 bg-sidebar-foreground/[0.04] text-sidebar-foreground' : 'border-sidebar-border/70 bg-sidebar-accent/45 text-sidebar-foreground/80 group-hover:border-sidebar-background/60 group-hover:bg-sidebar/80 group-hover:text-sidebar-accent-foreground'}"
                                             >
                                                 {#if FileIcon}
                                                     <FileIcon class="size-4.5" />
@@ -622,11 +614,11 @@
                                             <Item.Content class="min-w-0 gap-2.5">
                                                 <div class="flex items-start justify-between gap-3">
                                                     <div class="min-w-0 flex-1">
-                                                        <Item.Title class="truncate text-[15px] leading-tight text-sidebar-foreground group-hover:text-sidebar-accent-foreground">
+                                                        <Item.Title class="truncate text-[15px] leading-tight {isActiveFile ? 'text-black dark:text-white' : 'text-sidebar-foreground group-hover:text-sidebar-accent-foreground'}">
                                                             {recentFile.file_name}
                                                         </Item.Title>
 
-                                                        <Item.Description class="mt-1 truncate text-[11.5px] text-sidebar-foreground/62 group-hover:text-sidebar-accent-foreground/74">
+                                                        <Item.Description class="mt-1 truncate text-[11.5px] {isActiveFile ? 'text-black/65 dark:text-white/72' : 'text-sidebar-foreground/62 group-hover:text-sidebar-accent-foreground/74'}">
                                                             {getDirectoryLabel(recentFile.path)}
                                                         </Item.Description>
                                                     </div>
@@ -641,8 +633,8 @@
                                                     {/if}
                                                 </div>
 
-                                                <div class="flex min-w-0 flex-nowrap items-center gap-2 overflow-hidden text-[11px] text-sidebar-foreground/55 group-hover:text-sidebar-accent-foreground/72">
-                                                    <span class="truncate whitespace-nowrap font-medium uppercase tracking-[0.12em] text-sidebar-foreground/72 group-hover:text-sidebar-accent-foreground/88">
+                                                <div class="flex min-w-0 flex-nowrap items-center gap-2 overflow-hidden text-[11px] {isActiveFile ? 'text-black/70 dark:text-white/74' : 'text-sidebar-foreground/55 group-hover:text-sidebar-accent-foreground/72'}">
+                                                    <span class="truncate whitespace-nowrap font-medium uppercase tracking-[0.12em] {isActiveFile ? 'text-black/80 dark:text-white/88' : 'text-sidebar-foreground/72 group-hover:text-sidebar-accent-foreground/88'}">
                                                         {getRecentFileTypeToken(recentFile)}
                                                     </span>
                                                     {#if fileSize}

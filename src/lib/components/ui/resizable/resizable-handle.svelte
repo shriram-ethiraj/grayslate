@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { onMount } from "svelte";
+	import { type } from "@tauri-apps/plugin-os";
 	import GripVerticalIcon from "~icons/lucide/grip-vertical";
 	import * as ResizablePrimitive from "paneforge";
 	import { cn, type WithoutChildrenOrChild } from "$lib/utils.js";
@@ -11,11 +13,18 @@
 	}: WithoutChildrenOrChild<ResizablePrimitive.PaneResizerProps> & {
 		withHandle?: boolean;
 	} = $props();
+
+	let useMacCursorFix = $state(false);
+
+	onMount(async () => {
+		useMacCursorFix = (await type()) === "macos";
+	});
 </script>
 
 <ResizablePrimitive.PaneResizer
 	bind:ref
 	data-slot="resizable-handle"
+	data-macos-cursor-fix={useMacCursorFix ? "true" : undefined}
 	class={cn(
 		"bg-border focus-visible:ring-ring relative z-10 flex w-px items-center justify-center after:absolute after:inset-y-0 after:left-[-6px] after:right-[-6px] focus-visible:ring-1 focus-visible:ring-offset-1 focus-visible:outline-hidden data-[direction=vertical]:h-px data-[direction=vertical]:w-full data-[direction=vertical]:after:inset-x-0 data-[direction=vertical]:after:top-[-6px] data-[direction=vertical]:after:bottom-[-6px] [&[data-direction=vertical]>div]:rotate-90",
 		className,
@@ -33,11 +42,12 @@
 
 <style>
 	/* paneforge injects cursor:ew-resize as an inline style; !important beats it.
-     col-resize / row-resize are correctly recognised by macOS WKWebView. */
-	:global([data-slot="resizable-handle"]) {
+	   Limit the override to macOS because Windows/WebView2 renders the
+	   forced col-resize cursor incorrectly after sidebar resizing. */
+	:global([data-slot="resizable-handle"][data-macos-cursor-fix="true"]) {
 		cursor: col-resize !important;
 	}
-	:global([data-slot="resizable-handle"][data-direction="vertical"]) {
+	:global([data-slot="resizable-handle"][data-direction="vertical"][data-macos-cursor-fix="true"]) {
 		cursor: row-resize !important;
 	}
 </style>

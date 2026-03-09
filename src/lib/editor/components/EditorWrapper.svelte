@@ -202,6 +202,10 @@
   });
 
   $effect(() => {
+    editorState.currentFilePath = activeDocument.kind === "saved" ? activeDocument.path : undefined;
+  });
+
+  $effect(() => {
     if (editorState.activeSurface === "markdown-preview") {
       return;
     }

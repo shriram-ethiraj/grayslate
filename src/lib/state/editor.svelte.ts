@@ -35,6 +35,8 @@ export const editorState = $state<{
     activeSurface?: EditorSurface;
     isUntitledDocument: boolean;
     isDirty: boolean;
+    /** Absolute path of the file currently open in the editor, or undefined for untitled documents. */
+    currentFilePath: string | undefined;
     currentDocumentLength: number;
     currentSelectionSize: number;
     fileType: FileType;
@@ -68,6 +70,7 @@ export const editorState = $state<{
     activeSurface: undefined,
     isUntitledDocument: true,
     isDirty: false,
+    currentFilePath: undefined,
     currentDocumentLength: 0,
     currentSelectionSize: 0,
     fileType: "text",
