@@ -1,93 +1,129 @@
 import { EditorView, ViewPlugin, type ViewUpdate } from "@codemirror/view";
 
 /**
- * Linux / WebKitGTK gutter fallback.
+ * Linux / WebKitGTK gutter workaround.
  *
- * Keep gutters in normal flow so Linux avoids CodeMirror's sticky repaint
- * path, then re-align the live gutter with a single rAF-scheduled transform
- * during horizontal scroll.
+ * WebKitGTK fails to repaint sticky gutters during vertical scroll.
+ *
+ * Strategy:
+ * - Default: non-sticky fallback (position: relative + translateX) — safe
+ *   for vertical scrolling since there is nothing sticky to mis-paint.
+ * - Pure horizontal scroll: switch to position: sticky immediately — the
+ *   browser compositor handles horizontal pinning natively with zero JS
+ *   overhead, so there is no jank.
+ * - Any vertical scroll: switch back to fallback immediately.
+ *
+ * No timers or idle detection needed — the mode is determined purely by
+ * which axis changed in the current scroll event.
  */
-class LinuxStickyGutter {
+class LinuxGutterSync {
 	private gutters: HTMLElement | null = null;
-	private frame = 0;
 	private lastScrollLeft = -1;
+	private lastScrollTop = -1;
+	private isStickyMode = false;
 
 	constructor(private readonly view: EditorView) {
 		this.handleScroll = this.handleScroll.bind(this);
 		this.captureGutters();
-		this.applyOffset();
-		this.view.scrollDOM.addEventListener("scroll", this.handleScroll, { passive: true });
+		this.applyFallbackMode(this.getSnappedScrollLeft());
+		view.scrollDOM.addEventListener("scroll", this.handleScroll, { passive: true });
 	}
 
 	update(update: ViewUpdate) {
 		if (update.geometryChanged || update.viewportChanged) {
 			this.captureGutters();
-			this.scheduleApplyOffset();
+			if (this.isStickyMode) {
+				this.applyStickyMode();
+			} else {
+				this.applyFallbackMode(this.getSnappedScrollLeft());
+			}
 		}
 	}
 
 	destroy() {
 		this.view.scrollDOM.removeEventListener("scroll", this.handleScroll);
-		if (this.frame !== 0) {
-			cancelAnimationFrame(this.frame);
-			this.frame = 0;
-		}
 		if (this.gutters) {
-			this.gutters.style.transform = "";
+			this.resetModeStyles(this.gutters);
 		}
 		this.gutters = null;
 	}
 
 	private handleScroll() {
-		this.scheduleApplyOffset();
+		const scrollLeft = this.getSnappedScrollLeft();
+		const scrollTop = this.view.scrollDOM.scrollTop;
+		const horizontalChanged = scrollLeft !== this.lastScrollLeft;
+		const verticalChanged = scrollTop !== this.lastScrollTop;
+
+		this.lastScrollLeft = scrollLeft;
+		this.lastScrollTop = scrollTop;
+
+		if (verticalChanged) {
+			// Vertical movement → fallback to avoid WebKitGTK repaint bug
+			this.applyFallbackMode(scrollLeft);
+			return;
+		}
+
+		if (horizontalChanged) {
+			// Pure horizontal movement → sticky for native smooth pinning
+			this.applyStickyMode();
+		}
 	}
 
 	private captureGutters() {
-		const nextGutters = this.view.dom.querySelector<HTMLElement>(".cm-gutters");
-		if (this.gutters && this.gutters !== nextGutters) {
-			this.gutters.style.transform = "";
-		}
-
-		if (this.gutters !== nextGutters) {
+		const next = this.view.dom.querySelector<HTMLElement>(".cm-gutters");
+		if (this.gutters && this.gutters !== next) {
+			this.resetModeStyles(this.gutters);
 			this.lastScrollLeft = -1;
+			this.lastScrollTop = -1;
 		}
-
-		this.gutters = nextGutters;
+		this.gutters = next;
 	}
 
-	private scheduleApplyOffset() {
-		if (this.frame !== 0) {
-			return;
-		}
-
-		this.frame = requestAnimationFrame(() => {
-			this.frame = 0;
-			this.applyOffset();
-		});
+	private getSnappedScrollLeft() {
+		const rawScrollLeft = this.view.scrollDOM.scrollLeft;
+		const dpr = window.devicePixelRatio || 1;
+		return Math.round(rawScrollLeft * dpr) / dpr;
 	}
 
-	private applyOffset() {
-		if (!this.gutters) {
-			return;
-		}
+	/** Native sticky — browser handles horizontal pinning, no JS needed. */
+	private applyStickyMode() {
+		if (!this.gutters) return;
+		this.isStickyMode = true;
+		this.gutters.style.setProperty("position", "sticky");
+		this.gutters.style.setProperty("left", "0px");
+		this.gutters.style.removeProperty("transform");
+		this.gutters.style.removeProperty("will-change");
+	}
 
-		const scrollLeft = this.view.scrollDOM.scrollLeft;
-		if (scrollLeft === this.lastScrollLeft) {
-			return;
-		}
+	/** JS fallback — safe for vertical scroll on WebKitGTK. */
+	private applyFallbackMode(scrollLeft: number) {
+		if (!this.gutters) return;
+		this.isStickyMode = false;
+		this.gutters.style.setProperty("position", "relative");
+		this.gutters.style.removeProperty("left");
+		this.gutters.style.removeProperty("will-change");
+		this.gutters.style.setProperty(
+			"transform",
+			scrollLeft === 0
+				? ""
+				: `translateX(${scrollLeft}px)`,
+		);
+	}
 
-		this.lastScrollLeft = scrollLeft;
-		this.gutters.style.transform = scrollLeft === 0 ? "" : `translateX(${scrollLeft}px)`;
+	private resetModeStyles(gutters: HTMLElement) {
+		gutters.style.removeProperty("position");
+		gutters.style.removeProperty("left");
+		gutters.style.removeProperty("transform");
+		gutters.style.removeProperty("will-change");
 	}
 }
 
 export const linuxStickyGutter = [
-	ViewPlugin.fromClass(LinuxStickyGutter),
+	ViewPlugin.fromClass(LinuxGutterSync),
 	EditorView.theme({
-	".cm-gutters": {
-		position: "relative",
-		zIndex: "2",
-		flexShrink: "0",
-	},
-}),
+		".cm-gutters": {
+			zIndex: "2",
+			flexShrink: "0",
+		},
+	}),
 ];

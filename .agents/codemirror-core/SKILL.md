@@ -21,22 +21,15 @@ Tauri on Linux runs on **WebKitGTK**. CodeMirror's default fixed gutters use sti
 
 ### Required rule
 
-- Prefer `gutters({ fixed: false })` for the main editor session unless the sticky/fixed gutter behavior is explicitly required and has been re-verified on Linux.
+- Keep the normal CodeMirror path on macOS and Windows with `gutters({ fixed: true })`.
+- On Linux, use `gutters({ fixed: false })` and attach the Linux-only gutter plugin from `src/lib/editor/extensions/linuxStickyGutter.ts`.
 
 ### Why
 
-- This avoids the WebKitGTK sticky-gutter **vertical** repaint path entirely.
-- The repo uses a **CSS-only horizontal sticky** approach
-  (`position: sticky; left: 0` on `.cm-gutters`) instead of CodeMirror's
-  built-in `fixed: true` mode.
-- The key distinction: CM's `fixed: true` adds both vertical (`top`) and
-  horizontal (`left`) sticky positioning — the vertical part triggers the
-  WebKitGTK repaint bug. Our approach uses **`left: 0` only**, so gutters
-  scroll normally in the vertical direction (no repaint issue) while the
-  browser compositor pins them horizontally with zero JS and zero frame lag.
-- **Do NOT** use JS-driven `transform: translateX(scrollLeft)` — it always
-  trails the compositor by at least one frame, causing visible gutter drift
-  during momentum/smooth scroll.
+- WebKitGTK can fail to repaint sticky gutters during vertical scroll.
+- The repo avoids that path on Linux by keeping gutters in normal vertical flow and switching modes by scroll axis.
+- The Linux plugin uses a fallback `position: relative` plus `translateX(scrollLeft)` path for vertical-safe behavior, and only switches to `position: sticky; left: 0` during pure horizontal scrolling.
+- Do not reintroduce compositor-only gutter hacks such as `translateZ(0)` as the primary Linux fix. They were tested and were not reliable in this repo.
 - This does **not** materially increase RAM use or document-state cost.
 
 ## Editor-surface CSS performance guidance
