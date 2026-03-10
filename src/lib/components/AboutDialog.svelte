@@ -1,5 +1,6 @@
 <script lang="ts">
     import { openUrl } from "@tauri-apps/plugin-opener";
+    import aboutImage from "$lib/assets/grayslate-about.png";
     import { Badge } from "$lib/components/ui/badge/index.js";
     import * as Dialog from "$lib/components/ui/dialog/index.js";
     import { Button } from "$lib/components/ui/button/index.js";
@@ -69,11 +70,11 @@
         <div class="grid min-h-[18rem] gap-0 md:grid-cols-[17rem_minmax(0,1fr)]">
             <div class="border-b bg-muted/30 p-8 text-center md:border-r md:border-b-0">
                 <div class="flex h-full flex-col items-center justify-center gap-4">
-                <img
-                    src="/grayslate-about.png"
-                    alt="Grayslate icon"
-                    class="h-32 w-32 object-contain md:h-36 md:w-36"
-                />
+                    <img
+                        src={aboutImage}
+                        alt="Grayslate icon"
+                        class="h-32 w-32 object-contain md:h-36 md:w-36"
+                    />
 
                     <p class="text-2xl font-semibold tracking-tight text-foreground">
                         {appMenuState.appName}
