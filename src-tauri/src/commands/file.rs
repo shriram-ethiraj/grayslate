@@ -9,17 +9,15 @@ use std::{
     },
 };
 
-use tauri::{Manager, path::BaseDirectory};
-
+use crate::filesystem::{classify_file_source, resolve_default_notes_root_path, resolve_notes_root_path};
 use crate::storage::{
-    AppStorage, FileEventType, FileSource, RecentFileRecord, SETTING_NOTES_ROOT, normalize_path_key,
+    AppStorage, FileEventType, RecentFileRecord, SETTING_NOTES_ROOT,
 };
 
 /// Maximum file size allowed to be opened: 200 MB.
 const MAX_FILE_SIZE: u64 = 200 * 1024 * 1024;
 const FILE_READ_CHUNK_SIZE: usize = 256 * 1024;
 const FILE_READ_CANCELLED_MESSAGE: &str = "File read cancelled.";
-const MANAGED_NOTES_DIRECTORY: &str = "Grayslate";
 const MAX_RECENT_FILES_LIMIT: usize = 200;
 
 #[derive(Clone)]
@@ -122,48 +120,6 @@ fn validate_write_path(path: &Path) -> Result<(), String> {
     }
 
     Ok(())
-}
-
-fn resolve_default_notes_root_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    let documents_dir = app
-        .path()
-        .resolve("", BaseDirectory::Document)
-        .map_err(|error| format!("Unable to locate the Documents directory: {}", error))?;
-
-    Ok(documents_dir.join(MANAGED_NOTES_DIRECTORY))
-}
-
-fn resolve_notes_root_path(
-    app: &tauri::AppHandle,
-    storage: &AppStorage,
-) -> Result<PathBuf, String> {
-    if let Some(configured_path) = storage.get_setting(SETTING_NOTES_ROOT)? {
-        let configured_path = PathBuf::from(configured_path);
-        if !configured_path.is_absolute() {
-            return Err("Configured notes root must be an absolute path.".to_string());
-        }
-
-        return Ok(configured_path);
-    }
-
-    resolve_default_notes_root_path(app)
-}
-
-fn classify_file_source(
-    app: &tauri::AppHandle,
-    storage: &AppStorage,
-    path: &Path,
-) -> Result<FileSource, String> {
-    let notes_root = resolve_notes_root_path(app, storage)?;
-    let notes_root_key = normalize_path_key(&notes_root)?;
-    let path_key = normalize_path_key(path)?;
-    let is_internal = path_key == notes_root_key || path_key.starts_with(&(notes_root_key + "/"));
-
-    Ok(if is_internal {
-        FileSource::Internal
-    } else {
-        FileSource::External
-    })
 }
 
 fn clamp_recent_files_limit(limit: Option<usize>) -> usize {

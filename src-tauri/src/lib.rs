@@ -1,7 +1,9 @@
 use tauri::Manager;
 
 pub mod commands;
+pub mod filesystem;
 pub mod menu;
+pub mod search;
 pub mod storage;
 pub mod window;
 
@@ -30,6 +32,7 @@ pub fn run() {
             })?;
             app.manage(storage);
             app.manage(commands::file::FileReadCancellationRegistry::default());
+            app.manage(commands::search::SearchRuntimeState::default());
 
             #[cfg(not(any(target_os = "android", target_os = "ios")))]
             app.handle()
@@ -49,6 +52,7 @@ pub fn run() {
             commands::file::set_app_setting,
             commands::file::write_file_content,
             commands::memory::get_memory_info,
+            commands::search::search_sidebar_files,
             commands::update::check_for_updates,
             commands::update::install_available_update,
             menu::set_menu_word_wrap,

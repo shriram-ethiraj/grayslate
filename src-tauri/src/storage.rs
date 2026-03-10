@@ -47,7 +47,7 @@ impl FileEventType {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 pub struct RecentFileRecord {
     pub path: String,
     pub file_name: String,
@@ -272,7 +272,7 @@ impl AppStorage {
                 FROM tracked_files
                 ORDER BY
                     pinned DESC,
-                    COALESCE(last_opened_at, last_saved_at, last_seen_at, 0) DESC,
+                    COALESCE(last_modified_at, last_saved_at, last_opened_at, last_seen_at, 0) DESC,
                     updated_at DESC
                 LIMIT ?1
                 ",
@@ -305,6 +305,57 @@ impl AppStorage {
         }
 
         Ok(recent_files)
+    }
+
+    pub fn list_tracked_files(&self) -> Result<Vec<RecentFileRecord>, String> {
+        let connection = self.open_connection()?;
+        let mut statement = connection
+            .prepare(
+                "
+                SELECT
+                    path,
+                    file_name,
+                    extension,
+                    source,
+                    exists_on_disk,
+                    size_bytes,
+                    last_opened_at,
+                    last_saved_at,
+                    last_seen_at,
+                    last_modified_at,
+                    pinned
+                FROM tracked_files
+                ORDER BY updated_at DESC
+                ",
+            )
+            .map_err(|error| format!("Failed to prepare tracked files query: {}", error))?;
+
+        let rows = statement
+            .query_map([], |row| {
+                Ok(RecentFileRecord {
+                    path: row.get(0)?,
+                    file_name: row.get(1)?,
+                    extension: row.get(2)?,
+                    source: row.get(3)?,
+                    exists_on_disk: row.get::<_, i64>(4)? != 0,
+                    size_bytes: row.get::<_, Option<i64>>(5)?.map(|value| value as u64),
+                    last_opened_at: row.get(6)?,
+                    last_saved_at: row.get(7)?,
+                    last_seen_at: row.get(8)?,
+                    last_modified_at: row.get(9)?,
+                    pinned: row.get::<_, i64>(10)? != 0,
+                })
+            })
+            .map_err(|error| format!("Failed to execute tracked files query: {}", error))?;
+
+        let mut tracked_files = Vec::new();
+        for row in rows {
+            tracked_files.push(
+                row.map_err(|error| format!("Failed to parse tracked file row: {}", error))?,
+            );
+        }
+
+        Ok(tracked_files)
     }
 
     fn open_connection(&self) -> Result<Connection, String> {
@@ -355,6 +406,9 @@ impl AppStorage {
 
                 CREATE INDEX IF NOT EXISTS idx_tracked_files_recent
                     ON tracked_files(last_opened_at DESC, last_saved_at DESC, updated_at DESC);
+
+                CREATE INDEX IF NOT EXISTS idx_tracked_files_modified
+                    ON tracked_files(last_modified_at DESC, updated_at DESC);
 
                 CREATE TABLE IF NOT EXISTS file_access_events (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,

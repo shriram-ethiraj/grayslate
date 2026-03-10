@@ -19,10 +19,35 @@ export interface RecentFileRecord {
   pinned: boolean;
 }
 
+export interface SidebarSearchResult extends RecentFileRecord {
+  preview_line: string | null;
+  preview_line_number: number | null;
+  match_count: number;
+  filename_score: number;
+  content_score: number;
+  freshness_score: number;
+  usage_score: number;
+  final_score: number;
+}
+
 export interface OpenFilePathPayload {
   path: string;
 }
 
 export async function getRecentFiles(limit = 50): Promise<RecentFileRecord[]> {
   return invoke<RecentFileRecord[]>("get_recent_files", { limit });
+}
+
+export async function searchSidebarFiles(
+  query: string,
+  filterMode: "unified" | RecentFileSource,
+  requestId: number,
+  limit = 80,
+): Promise<SidebarSearchResult[]> {
+  return invoke<SidebarSearchResult[]>("search_sidebar_files", {
+    query,
+    filterMode,
+    requestId,
+    limit,
+  });
 }

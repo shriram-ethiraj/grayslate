@@ -18,6 +18,8 @@
         type OpenFilePathPayload,
         type RecentFileRecord,
         type RecentFileSource,
+        searchSidebarFiles,
+        type SidebarSearchResult,
     } from "$lib/files/recentFiles";
     import Search from "~icons/lucide/search";
     import RefreshCcw from "~icons/lucide/refresh-ccw";
@@ -41,11 +43,12 @@
         | "size-desc"
         | "size-asc";
     type RecencyBucket = "today" | "this-week" | "older";
+    type LibraryFileRecord = RecentFileRecord | SidebarSearchResult;
 
     interface RecentFileSection {
         key: RecencyBucket | "all";
         label: string;
-        items: RecentFileRecord[];
+        items: LibraryFileRecord[];
     }
 
     const RECENT_FILES_LIMIT = 120;
@@ -70,9 +73,12 @@
     let filterMode = $state<FilterMode>(DEFAULT_FILTER_MODE);
     let sortMode = $state<SortMode>(DEFAULT_SORT_MODE);
     let recentFiles = $state<RecentFileRecord[]>([]);
+    let searchResults = $state<SidebarSearchResult[]>([]);
     let isLoading = $state(false);
+    let isSearchLoading = $state(false);
     let loadError = $state("");
-    let requestVersion = 0;
+    let recentFilesRequestVersion = 0;
+    let searchRequestVersion = 0;
     let searchInput = $state<HTMLInputElement | null>(null);
     let focusSearchRequest = $state(0);
 
@@ -86,36 +92,33 @@
                 return false;
             }
 
-            if (normalizedQuery.length === 0) {
-                return true;
-            }
-
-            const haystack = [
-                recentFile.file_name,
-                recentFile.path,
-                recentFile.extension ?? "",
-                getRecentFileTypeToken(recentFile),
-            ]
-                .join(" ")
-                .toLowerCase();
-
-            return haystack.includes(normalizedQuery);
+            return true;
         });
 
         filteredRecentFiles.sort((left, right) => compareRecentFiles(left, right, sortMode));
         return filteredRecentFiles;
     });
 
+    const sortedSearchResults = $derived.by(() => {
+        const sorted = [...searchResults];
+        sorted.sort((left, right) => compareSearchResults(left, right, sortMode));
+        return sorted;
+    });
+
+    const activeResults = $derived<LibraryFileRecord[]>(
+        normalizedQuery.length === 0 ? visibleRecentFiles : sortedSearchResults,
+    );
+
     const recentFileSections = $derived.by(() => {
-        if (sortMode !== "last-modified" && sortMode !== "oldest") {
+        if (normalizedQuery.length > 0 || (sortMode !== "last-modified" && sortMode !== "oldest")) {
             return [{
                 key: "all",
                 label: "",
-                items: visibleRecentFiles,
+                items: activeResults,
             }] satisfies RecentFileSection[];
         }
 
-        return buildRecencySections(visibleRecentFiles, sortMode);
+        return buildRecencySections(activeResults, sortMode);
     });
 
     const filterOptions: Array<{
@@ -217,7 +220,7 @@
         return lastSlash === -1 ? path : normalized.slice(0, lastSlash);
     }
 
-    function getRecentFileTypeToken(recentFile: RecentFileRecord): string {
+    function getRecentFileTypeToken(recentFile: LibraryFileRecord): string {
         const normalizedExtension = recentFile.extension?.replace(/^\./, "").trim().toUpperCase();
         if (normalizedExtension) {
             return normalizedExtension;
@@ -232,19 +235,19 @@
         return languageMeta?.label.toUpperCase() ?? "FILE";
     }
 
-    function getRecentFileLanguage(recentFile: RecentFileRecord): string {
+    function getRecentFileLanguage(recentFile: LibraryFileRecord): string {
         return languageDetector.detect("", recentFile.file_name)
             ?? languageDetector.detect("", recentFile.path)
             ?? "text";
     }
 
-    function getRecentFileIcon(recentFile: RecentFileRecord): LanguageIcon | null {
+    function getRecentFileIcon(recentFile: LibraryFileRecord): LanguageIcon | null {
         return languageMetaByValue.get(getRecentFileLanguage(recentFile))?.icon
             ?? languageMetaByValue.get("text")?.icon
             ?? null;
     }
 
-    function getRecencyTimestamp(recentFile: RecentFileRecord): number | null {
+    function getRecencyTimestamp(recentFile: LibraryFileRecord): number | null {
         return recentFile.last_modified_at
             ?? recentFile.last_saved_at
             ?? recentFile.last_opened_at
@@ -268,7 +271,7 @@
     }
 
     function buildRecencySections(
-        files: RecentFileRecord[],
+        files: LibraryFileRecord[],
         sortOrder: Extract<SortMode, "last-modified" | "oldest">,
     ): RecentFileSection[] {
         const sectionItems: Record<RecencyBucket, RecentFileRecord[]> = {
@@ -326,11 +329,24 @@
         return source === "internal" ? "Slate" : "External";
     }
 
-    function getPrimaryTimestamp(recentFile: RecentFileRecord): number | null {
+    function getPrimaryTimestamp(recentFile: LibraryFileRecord): number | null {
         return recentFile.last_opened_at
             ?? recentFile.last_saved_at
             ?? recentFile.last_modified_at
             ?? recentFile.last_seen_at;
+    }
+
+    function compareSearchResults(
+        left: SidebarSearchResult,
+        right: SidebarSearchResult,
+        sortOrder: SortMode,
+    ): number {
+        // Score always dominates; sortOrder is a tiebreaker only.
+        const byScore = right.final_score - left.final_score;
+        if (byScore !== 0) {
+            return byScore;
+        }
+        return compareRecentFiles(left, right, sortOrder);
     }
 
     function compareRecentFiles(
@@ -398,28 +414,66 @@
     }
 
     async function refreshRecentFiles(): Promise<void> {
-        const currentVersion = ++requestVersion;
+        const currentVersion = ++recentFilesRequestVersion;
         isLoading = true;
-        loadError = "";
+        if (normalizedQuery.length === 0) {
+            loadError = "";
+        }
 
         try {
             const result = await getRecentFiles(RECENT_FILES_LIMIT);
-            if (currentVersion !== requestVersion) {
+            if (currentVersion !== recentFilesRequestVersion) {
                 return;
             }
 
             recentFiles = result;
         } catch (error: unknown) {
-            if (currentVersion !== requestVersion) {
+            if (currentVersion !== recentFilesRequestVersion) {
                 return;
             }
 
-            loadError = typeof error === "string"
-                ? error
-                : "Failed to load recent files.";
+            if (normalizedQuery.length === 0) {
+                loadError = typeof error === "string"
+                    ? error
+                    : "Failed to load recent files.";
+            }
         } finally {
-            if (currentVersion === requestVersion) {
+            if (currentVersion === recentFilesRequestVersion) {
                 isLoading = false;
+            }
+        }
+    }
+
+    async function refreshSearchResults(): Promise<void> {
+        const currentVersion = ++searchRequestVersion;
+        isSearchLoading = true;
+        loadError = "";
+
+        try {
+            const result = await searchSidebarFiles(
+                query.trim(),
+                filterMode,
+                currentVersion,
+            );
+            if (currentVersion !== searchRequestVersion) {
+                return;
+            }
+
+            searchResults = result;
+        } catch (error: unknown) {
+            if (currentVersion !== searchRequestVersion) {
+                return;
+            }
+
+            const message = typeof error === "string"
+                ? error
+                : "Failed to search files.";
+            if (message !== "Search cancelled.") {
+                loadError = message;
+            }
+        } finally {
+            if (currentVersion === searchRequestVersion) {
+                isSearchLoading = false;
             }
         }
     }
@@ -449,6 +503,32 @@
 
     $effect(() => {
         void refreshRecentFiles();
+    });
+
+    $effect(() => {
+        normalizedQuery;
+        filterMode;
+        sidebar.open;
+
+        if (normalizedQuery.length === 0) {
+            searchRequestVersion += 1;
+            searchResults = [];
+            isSearchLoading = false;
+            loadError = "";
+            return;
+        }
+
+        if (!sidebar.open) {
+            return;
+        }
+
+        const timeoutId = window.setTimeout(() => {
+            void refreshSearchResults();
+        }, 120);
+
+        return () => {
+            window.clearTimeout(timeoutId);
+        };
     });
 
     $effect(() => {
@@ -515,10 +595,14 @@
                 aria-label="Refresh recent files"
                 title="Refresh recent files"
                 onclick={() => {
-                    void refreshRecentFiles();
+                    if (normalizedQuery.length > 0) {
+                        void refreshSearchResults();
+                    } else {
+                        void refreshRecentFiles();
+                    }
                 }}
             >
-                <RefreshCcw class={isLoading ? "size-4 animate-spin" : "size-4"} />
+                <RefreshCcw class={isLoading || isSearchLoading ? "size-4 animate-spin" : "size-4"} />
             </Button>
         </div>
 
@@ -528,6 +612,7 @@
                 <Input
                     bind:ref={searchInput}
                     bind:value={query}
+                    clearable
                     placeholder="Search library..."
                     class="border-sidebar-border bg-sidebar ps-9 text-sm shadow-none placeholder:text-sidebar-foreground/45 focus-visible:border-sidebar-ring focus-visible:ring-sidebar-ring"
                 />
@@ -581,7 +666,8 @@
                 <div class="rounded-lg border border-destructive/30 bg-destructive/8 px-3 py-2 text-sm text-destructive">
                     {loadError}
                 </div>
-            {:else if isLoading && recentFiles.length === 0}
+            {:else if ((normalizedQuery.length === 0 && isLoading && recentFiles.length === 0)
+                || (normalizedQuery.length > 0 && isSearchLoading && activeResults.length === 0))}
                 <div class="space-y-2 px-1 pt-1">
                     {#each Array.from({ length: 5 }) as _, index (index)}
                         <div class="rounded-lg border border-sidebar-border/60 bg-sidebar-accent/40 px-3 py-3 animate-pulse">
@@ -590,7 +676,7 @@
                         </div>
                     {/each}
                 </div>
-            {:else if visibleRecentFiles.length === 0}
+            {:else if activeResults.length === 0}
                 <div class="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-sidebar-border/70 px-4 py-10 text-center text-sm text-sidebar-foreground/65">
                     <Files class="size-5 text-sidebar-foreground/45" />
                     <div>{normalizedQuery.length === 0 ? "No recent files yet." : "No files match this search."}</div>
