@@ -25,14 +25,18 @@ Tauri on Linux runs on **WebKitGTK**. CodeMirror's default fixed gutters use sti
 
 ### Why
 
-- This avoids the WebKitGTK sticky-gutter repaint path entirely.
-- If line numbers must stay visible during horizontal scroll, prefer a
-	**manual transform-based gutter pinning** extension over CodeMirror's built-in
-	fixed gutter mode.
-- The preferred repo pattern is: keep `gutters({ fixed: false })`, listen to
-	`scrollDOM.scrollLeft`, and translate `.cm-gutters` with
-	`transform: translateX(...)` inside `requestAnimationFrame`.
-- This preserves the Linux-safe path while restoring sticky-feeling line numbers.
+- This avoids the WebKitGTK sticky-gutter **vertical** repaint path entirely.
+- The repo uses a **CSS-only horizontal sticky** approach
+  (`position: sticky; left: 0` on `.cm-gutters`) instead of CodeMirror's
+  built-in `fixed: true` mode.
+- The key distinction: CM's `fixed: true` adds both vertical (`top`) and
+  horizontal (`left`) sticky positioning — the vertical part triggers the
+  WebKitGTK repaint bug. Our approach uses **`left: 0` only**, so gutters
+  scroll normally in the vertical direction (no repaint issue) while the
+  browser compositor pins them horizontally with zero JS and zero frame lag.
+- **Do NOT** use JS-driven `transform: translateX(scrollLeft)` — it always
+  trails the compositor by at least one frame, causing visible gutter drift
+  during momentum/smooth scroll.
 - This does **not** materially increase RAM use or document-state cost.
 
 ## Editor-surface CSS performance guidance
