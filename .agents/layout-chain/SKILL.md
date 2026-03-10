@@ -1,5 +1,5 @@
 ---
-name: Layout Chain Constraints
+name: layout-chain
 description: Critical guidelines for modifying layout, sidebar, or CSV table view to prevent performance issues.
 ---
 
@@ -61,6 +61,32 @@ Flex items in a **flex-column** container default to `min-height: auto`. This me
 Inside a flex-column chain, `height: 100%` typically resolves to the **content's intrinsic height**, not the parent's allocated space. This causes the element to expand to its content size instead of capping at the viewport.
 
 **Always use `flex: 1; min-height: 0`** (Tailwind: `flex-1 min-h-0`) in place of `height: 100%` anywhere in this layout chain.
+
+---
+
+## Linux / WebKitGTK Border-Clipping Caveat
+
+This project intentionally uses `overflow-hidden` in key layout containers. That is still correct. However, on Linux, Tauri uses **WebKitGTK**, which can render rounded bordered surfaces poorly when a component combines outer rounded borders with clipping.
+
+### Important distinction
+
+- **Layout wrappers** such as `Sidebar.Inset`, pane containers, and scroll containers may still require `overflow-hidden` for containment and virtualizer safety.
+- **Visual shells** such as dialogs, cards, menus, and popovers should avoid owning both the visible rounded border and the clipping behavior on the same element when Linux artifacts appear.
+
+### Safe composition rule
+
+If a surface needs both:
+
+- an outer rounded outline, and
+- clipped inner content,
+
+then use:
+
+1. an **outer shell** for `rounded-*` + border/ring/shadow
+2. an **inner wrapper** for `overflow-hidden`
+3. when needed, `m-px` on the inner wrapper so the outer outline remains visible
+
+This prevents WebKitGTK border seams without weakening the layout-chain containment rules in this document.
 
 ---
 

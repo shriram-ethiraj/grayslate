@@ -55,7 +55,7 @@
 
 <Dialog.Root bind:open={appMenuState.aboutOpen}>
     <Dialog.Content
-        class="overflow-hidden p-0 sm:max-w-[44rem]"
+        class="p-0 sm:max-w-[44rem]"
         onOpenAutoFocus={(event) => {
             event.preventDefault();
         }}
@@ -67,7 +67,10 @@
             </Dialog.Description>
         </Dialog.Header>
 
-        <div class="grid min-h-[18rem] gap-0 md:grid-cols-[17rem_minmax(0,1fr)]">
+           <!-- Inset the clipped content by 1px so the shared dialog ring stays visible on all
+               sides, while still clipping the split layout to the rounded corners. -->
+           <div class="m-px overflow-hidden rounded-[calc(var(--radius-lg)-1px)]">
+           <div class="grid min-h-[18rem] gap-0 md:grid-cols-[17rem_minmax(0,1fr)]">
             <div class="border-b bg-muted/30 p-8 text-center md:border-r md:border-b-0">
                 <div class="flex h-full flex-col items-center justify-center gap-4">
                     <img
@@ -198,6 +201,7 @@
                     </div>
                 </div>
             </div>
+        </div>
         </div>
     </Dialog.Content>
 </Dialog.Root>

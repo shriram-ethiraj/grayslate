@@ -59,10 +59,13 @@
 <!-- Language picker dialog -->
 <Dialog.Root bind:open>
     <Dialog.Content
-        class="overflow-hidden p-0 sm:max-w-[560px] gap-0"
+        class="p-0 sm:max-w-[560px] gap-0"
         showCloseButton={false}
     >
         <span class="sr-only">Select Language Mode</span>
+        <!-- overflow-hidden on inner wrapper, not Dialog.Content, so the dialog border
+             is never clipped. Linux/WebKitGTK: prevents border shimmer artifacts. -->
+        <div class="m-px overflow-hidden rounded-[calc(var(--radius-lg)-1px)]">
         <Command.Root>
             <Command.Input placeholder="Search language..." />
 
@@ -129,5 +132,6 @@
                 </div>
             </Command.List>
         </Command.Root>
+        </div>
     </Dialog.Content>
 </Dialog.Root>
