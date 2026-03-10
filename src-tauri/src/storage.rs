@@ -405,12 +405,14 @@ impl AppStorage {
 
 pub fn normalize_path_key(path: &Path) -> Result<String, String> {
     let normalized = normalize_path_buf(path)?;
-    let mut key = normalized.to_string_lossy().replace('\\', "/");
-
     #[cfg(windows)]
-    {
-        key = key.to_ascii_lowercase();
-    }
+    let key = normalized
+        .to_string_lossy()
+        .replace('\\', "/")
+        .to_ascii_lowercase();
+
+    #[cfg(not(windows))]
+    let key = normalized.to_string_lossy().replace('\\', "/");
 
     Ok(key)
 }
