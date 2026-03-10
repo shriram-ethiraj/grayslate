@@ -128,8 +128,8 @@
 								<Button
 									variant="ghost"
 									size="icon"
-									aria-label="New file"
-									title={isNewFileDisabled ? "Already on a new file" : "New file"}
+									aria-label="New slate"
+									title={isNewFileDisabled ? "Already on a new slate" : "New slate"}
 									disabled={isNewFileDisabled}
 									onclick={() => {
 										void handleNewFile();

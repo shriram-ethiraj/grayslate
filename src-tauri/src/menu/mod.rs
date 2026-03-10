@@ -27,7 +27,7 @@ pub fn build_native_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::M
 
     let file_menu = SubmenuBuilder::new(app, "File")
         .item(
-            &MenuItemBuilder::with_id("new-file", "New File")
+            &MenuItemBuilder::with_id("new-file", "New Slate")
                 .accelerator("CmdOrCtrl+N")
                 .build(app)?,
         )

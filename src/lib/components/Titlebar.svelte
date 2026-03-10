@@ -321,7 +321,7 @@
       <Menubar.Trigger class="cursor-pointer">File</Menubar.Trigger>
       <Menubar.Content>
         <Menubar.Item onclick={handleNewFile}>
-          New File
+          New Slate
           <Menubar.Shortcut>{formatForDisplay("Mod+N")}</Menubar.Shortcut>
         </Menubar.Item>
         <Menubar.Separator />
