@@ -243,6 +243,21 @@
     | { kind: "timeout"; id: ReturnType<typeof setTimeout> }
     | undefined
   >(undefined);
+  let fileOpenRequestVersion = 0;
+
+  function beginFileOpenRequest(): number {
+    fileOpenRequestVersion += 1;
+    return fileOpenRequestVersion;
+  }
+
+  function invalidatePendingFileOpen(): void {
+    fileOpenRequestVersion += 1;
+    void invoke("cancel_file_read").catch(() => undefined);
+  }
+
+  function isActiveFileOpenRequest(requestVersion: number): boolean {
+    return requestVersion === fileOpenRequestVersion;
+  }
 
   type IdleSchedulerWindow = Window &
     typeof globalThis & {
@@ -423,6 +438,8 @@
   }
 
   async function createNewFile(): Promise<void> {
+    invalidatePendingFileOpen();
+
     const previousSession = editorSession;
     const previousDocLength = previousSession.state?.doc.length ?? value.length;
 
@@ -445,6 +462,7 @@
   // the current 200 MB size limit before returning the text.
   // -----------------------------------------------------------------------
   async function openFileAtPath(filePath: string): Promise<void> {
+    const requestVersion = beginFileOpenRequest();
     const filename = filePath.replace(/\\/g, "/").split("/").pop() ?? "";
 
     // Start a decelerating progress ticker while the Rust read is in-flight
@@ -462,17 +480,28 @@
         previousSession.state?.doc.length ?? value.length;
       const content = await invoke<string>("read_file_content", {
         path: filePath,
+        requestId: requestVersion,
       });
+      if (!isActiveFileOpenRequest(requestVersion)) {
+        return;
+      }
 
       stopLoaderTicker();
       updateEditorLoader("Detecting language…", filename, 72);
 
       // Yield to let the UI repaint before running language detection
       await new Promise<void>((r) => setTimeout(r, 0));
+      if (!isActiveFileOpenRequest(requestVersion)) {
+        return;
+      }
+
       const detected = languageDetector.detect(content, filename) ?? "text";
 
       updateEditorLoader("Loading into editor…", filename, 88);
       await new Promise<void>((r) => setTimeout(r, 0));
+      if (!isActiveFileOpenRequest(requestVersion)) {
+        return;
+      }
 
       // If the filename's extension alone resolves to a language,
       // pin it directly — no need for "auto" mode, and the debounced
@@ -502,9 +531,21 @@
       const { emit } = await import("@tauri-apps/api/event");
       await emit(RECENT_FILES_UPDATED_EVENT);
     } catch (err: unknown) {
+      if (!isActiveFileOpenRequest(requestVersion)) {
+        return;
+      }
+
+      if (err === "File read cancelled.") {
+        return;
+      }
+
       const msg = typeof err === "string" ? err : "Failed to open file.";
       toast.error(msg);
     } finally {
+      if (!isActiveFileOpenRequest(requestVersion)) {
+        return;
+      }
+
       // Always clean up — idempotent in the success path
       stopLoaderTicker();
       hideEditorLoader();
@@ -742,6 +783,7 @@
     editorState.csv.requestShowTable = requestCsvTableMode;
 
     return () => {
+      invalidatePendingFileOpen();
       checkLanguage.cancel();
       clearCsvMirrorState();
       clearRetainedEditorState();

@@ -29,6 +29,7 @@ pub fn run() {
                 std::io::Error::other(format!("Failed to initialize app storage: {}", error))
             })?;
             app.manage(storage);
+            app.manage(commands::file::FileReadCancellationRegistry::default());
 
             #[cfg(not(any(target_os = "android", target_os = "ios")))]
             app.handle()
@@ -39,6 +40,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::file::cancel_file_read,
             commands::file::get_app_setting,
             commands::file::get_recent_files,
             commands::file::read_file_content,

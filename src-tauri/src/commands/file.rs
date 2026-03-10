@@ -1,4 +1,13 @@
-use std::path::{Path, PathBuf};
+use std::{
+    collections::HashMap,
+    fs::File,
+    io::{BufReader, Read},
+    path::{Path, PathBuf},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
+};
 
 use tauri::{Manager, path::BaseDirectory};
 
@@ -8,8 +17,96 @@ use crate::storage::{
 
 /// Maximum file size allowed to be opened: 200 MB.
 const MAX_FILE_SIZE: u64 = 200 * 1024 * 1024;
+const FILE_READ_CHUNK_SIZE: usize = 256 * 1024;
+const FILE_READ_CANCELLED_MESSAGE: &str = "File read cancelled.";
 const MANAGED_NOTES_DIRECTORY: &str = "Grayslate";
 const MAX_RECENT_FILES_LIMIT: usize = 200;
+
+#[derive(Clone)]
+struct ActiveFileRead {
+    request_id: u64,
+    cancelled: Arc<AtomicBool>,
+}
+
+#[derive(Default)]
+pub struct FileReadCancellationRegistry {
+    active_reads: Mutex<HashMap<String, ActiveFileRead>>,
+}
+
+impl FileReadCancellationRegistry {
+    fn begin_request(&self, window_label: &str, request_id: u64) -> Arc<AtomicBool> {
+        let mut active_reads = self.active_reads.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let cancelled = Arc::new(AtomicBool::new(false));
+
+        if let Some(previous) = active_reads.insert(
+            window_label.to_string(),
+            ActiveFileRead {
+                request_id,
+                cancelled: Arc::clone(&cancelled),
+            },
+        ) {
+            previous.cancelled.store(true, Ordering::Relaxed);
+        }
+
+        cancelled
+    }
+
+    fn cancel_window_request(&self, window_label: &str) {
+        let mut active_reads = self.active_reads.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+
+        if let Some(previous) = active_reads.remove(window_label) {
+            previous.cancelled.store(true, Ordering::Relaxed);
+        }
+    }
+
+    fn finish_request(&self, window_label: &str, request_id: u64) {
+        let mut active_reads = self.active_reads.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+
+        let should_remove = active_reads
+            .get(window_label)
+            .map(|active| active.request_id == request_id)
+            .unwrap_or(false);
+
+        if should_remove {
+            active_reads.remove(window_label);
+        }
+    }
+}
+
+fn ensure_read_not_cancelled(cancelled: &AtomicBool) -> Result<(), String> {
+    if cancelled.load(Ordering::Relaxed) {
+        return Err(FILE_READ_CANCELLED_MESSAGE.to_string());
+    }
+
+    Ok(())
+}
+
+fn read_text_file_cancellable(path: &Path, cancelled: &AtomicBool) -> Result<String, String> {
+    ensure_read_not_cancelled(cancelled)?;
+
+    let file = File::open(path).map_err(|error| format!("Failed to read file: {}", error))?;
+    let mut reader = BufReader::new(file);
+    let mut bytes = Vec::new();
+    let mut chunk = vec![0_u8; FILE_READ_CHUNK_SIZE];
+
+    loop {
+        ensure_read_not_cancelled(cancelled)?;
+
+        let bytes_read = reader
+            .read(&mut chunk)
+            .map_err(|error| format!("Failed to read file: {}", error))?;
+
+        if bytes_read == 0 {
+            break;
+        }
+
+        bytes.extend_from_slice(&chunk[..bytes_read]);
+    }
+
+    ensure_read_not_cancelled(cancelled)?;
+
+    String::from_utf8(bytes).map_err(|error| format!("Failed to read file: {}", error))
+}
 
 fn validate_write_path(path: &Path) -> Result<(), String> {
     if !path.is_absolute() {
@@ -82,23 +179,57 @@ fn clamp_recent_files_limit(limit: Option<usize>) -> usize {
 pub async fn read_file_content(
     app: tauri::AppHandle,
     storage: tauri::State<'_, AppStorage>,
+    cancellations: tauri::State<'_, FileReadCancellationRegistry>,
+    window: tauri::Window,
     path: String,
+    request_id: u64,
 ) -> Result<String, String> {
-    let metadata = std::fs::metadata(&path).map_err(|e| format!("Cannot access file: {}", e))?;
+    let window_label = window.label().to_string();
+    let cancellation_flag = cancellations.begin_request(&window_label, request_id);
+    let path_buf = PathBuf::from(&path);
 
-    if metadata.len() > MAX_FILE_SIZE {
-        let size_mb = metadata.len() as f64 / (1024.0 * 1024.0);
-        return Err(format!(
-            "File is too large ({:.1} MB). The maximum allowed size is 200 MB.",
-            size_mb
-        ));
+    let result = async {
+        let metadata = std::fs::metadata(&path_buf)
+            .map_err(|error| format!("Cannot access file: {}", error))?;
+
+        ensure_read_not_cancelled(cancellation_flag.as_ref())?;
+
+        if metadata.len() > MAX_FILE_SIZE {
+            let size_mb = metadata.len() as f64 / (1024.0 * 1024.0);
+            return Err(format!(
+                "File is too large ({:.1} MB). The maximum allowed size is 200 MB.",
+                size_mb
+            ));
+        }
+
+        let read_path = path_buf.clone();
+        let read_cancelled = Arc::clone(&cancellation_flag);
+        let content = tauri::async_runtime::spawn_blocking(move || {
+            read_text_file_cancellable(&read_path, read_cancelled.as_ref())
+        })
+        .await
+        .map_err(|error| format!("Failed to join file read task: {}", error))??;
+
+        ensure_read_not_cancelled(cancellation_flag.as_ref())?;
+
+        let source = classify_file_source(&app, storage.inner(), &path_buf)?;
+        storage.record_file_event(&path_buf, source, FileEventType::Open)?;
+
+        Ok(content)
     }
+    .await;
 
-    let content = std::fs::read_to_string(&path).map_err(|e| format!("Failed to read file: {}", e))?;
-    let source = classify_file_source(&app, storage.inner(), Path::new(&path))?;
-    storage.record_file_event(Path::new(&path), source, FileEventType::Open)?;
+    cancellations.finish_request(&window_label, request_id);
 
-    Ok(content)
+    result
+}
+
+#[tauri::command]
+pub fn cancel_file_read(
+    cancellations: tauri::State<'_, FileReadCancellationRegistry>,
+    window: tauri::Window,
+) {
+    cancellations.cancel_window_request(window.label());
 }
 
 #[tauri::command]
