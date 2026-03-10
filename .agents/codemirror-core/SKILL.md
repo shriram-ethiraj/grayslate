@@ -15,22 +15,22 @@ This document outlines the core integration patterns for CodeMirror 6 inside Gra
 - **Performance First:** When building extensions (Fold widgets, Tooltips, Inlay Hints), **never** write unbounded `while` loops that traverse the Lezer tree (e.g. counting every child of a JSON Array). Cap iterations aggressively (e.g. `MAX_SCAN_CHILDREN = 100`) to prevent the main thread from freezing when users paste gigabyte-sized files.
 - **Experimental Extensions:** Unused or WIP CodeMirror extensions (like `stickyScroll`) are kept in `src/lib/editor/extensions/experimental/`. Do not delete these files, but do not import them into the main `languageExtensions.ts` config unless specifically requested.
 
-## Linux / WebKitGTK gutter rule
+## Gutter rule
 
-Tauri on Linux runs on **WebKitGTK**. CodeMirror's default fixed gutters use sticky positioning. In this repo, that path can fail to repaint line numbers after large scrollbar jumps in long files.
+Use CodeMirror's native fixed gutters across all supported platforms.
 
 ### Required rule
 
-- Keep the normal CodeMirror path on macOS and Windows with `gutters({ fixed: true })`.
-- On Linux, use `gutters({ fixed: false })` and attach the Linux-only gutter plugin from `src/lib/editor/extensions/linuxStickyGutter.ts`.
+- Keep `gutters()` in the main editor session.
+- Do not add a Linux-only gutter plugin or platform branch unless there is a verified regression and a measured need for it.
+
+`gutters()` already uses CodeMirror's native fixed gutter behavior by default, so there is no need to pass `fixed: true` explicitly.
 
 ### Why
 
-- WebKitGTK can fail to repaint sticky gutters during vertical scroll.
-- The repo avoids that path on Linux by keeping gutters in normal vertical flow and switching modes by scroll axis.
-- The Linux plugin uses a fallback `position: relative` plus `translateX(scrollLeft)` path for vertical-safe behavior, and only switches to `position: sticky; left: 0` during pure horizontal scrolling.
-- Do not reintroduce compositor-only gutter hacks such as `translateZ(0)` as the primary Linux fix. They were tested and were not reliable in this repo.
-- This does **not** materially increase RAM use or document-state cost.
+- The editor should stay on the simplest supported CodeMirror gutter path by default.
+- Platform-specific gutter behavior increases maintenance cost and makes editor rendering harder to reason about.
+- If Linux / WebKitGTK gutter rendering is revisited later, treat it as a fresh investigation rather than restoring the removed workaround by habit.
 
 ## Editor-surface CSS performance guidance
 
