@@ -590,62 +590,64 @@
                                     <Item.Root
                                         variant="outline"
                                         size="sm"
-                                        class="overflow-hidden p-0 shadow-none {isActiveFile ? 'border-sidebar-ring bg-sidebar-foreground/[0.03]' : 'border-sidebar-border/65 bg-sidebar/35'}"
+                                        class="border-0 p-0 shadow-none [transform:translateZ(0)] {isActiveFile ? 'ring-1 ring-inset ring-sidebar-ring bg-sidebar-foreground/[0.03]' : 'ring-1 ring-inset ring-sidebar-border/65 bg-sidebar/35'}"
                                     >
-                                        <button
-                                            type="button"
-                                            class="group flex w-full min-w-0 items-start gap-3 overflow-hidden px-3.5 py-3 text-left outline-none transition-colors hover:bg-sidebar-accent/70 hover:text-sidebar-accent-foreground focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-sidebar-ring {isActiveFile ? 'bg-sidebar-foreground/[0.04] text-sidebar-foreground' : ''}"
-                                            title={recentFile.path}
-                                            onclick={() => {
-                                                void openRecentFile(recentFile.path);
-                                            }}
-                                        >
-                                            <Item.Media
-                                                variant="icon"
-                                                class="mt-0.5 {isActiveFile ? 'border-sidebar-ring/40 bg-sidebar-foreground/[0.04] text-sidebar-foreground' : 'border-sidebar-border/70 bg-sidebar-accent/45 text-sidebar-foreground/80 group-hover:border-sidebar-background/60 group-hover:bg-sidebar/80 group-hover:text-sidebar-accent-foreground'}"
+                                        <div class="w-full overflow-hidden rounded-[inherit]">
+                                            <button
+                                                type="button"
+                                                class="group flex w-full min-w-0 items-start gap-3 px-3.5 py-3 text-left outline-none transition-colors {isActiveFile ? 'bg-sidebar-foreground/[0.04] text-sidebar-foreground' : 'hover:bg-sidebar-accent/70 hover:text-sidebar-accent-foreground'}"
+                                                title={recentFile.path}
+                                                onclick={() => {
+                                                    void openRecentFile(recentFile.path);
+                                                }}
                                             >
-                                                {#if FileIcon}
-                                                    <FileIcon class="size-4.5" />
-                                                {:else}
-                                                    <Files class="size-4.5" />
-                                                {/if}
-                                            </Item.Media>
+                                                <Item.Media
+                                                    variant="icon"
+                                                    class="mt-0.5 {isActiveFile ? 'border-sidebar-ring/40 bg-sidebar-foreground/[0.04] text-sidebar-foreground' : 'border-sidebar-border/70 bg-sidebar-accent/45 text-sidebar-foreground/80 group-hover:border-sidebar-background/60 group-hover:bg-sidebar/80 group-hover:text-sidebar-accent-foreground'}"
+                                                >
+                                                    {#if FileIcon}
+                                                        <FileIcon class="size-4.5" />
+                                                    {:else}
+                                                        <Files class="size-4.5" />
+                                                    {/if}
+                                                </Item.Media>
 
-                                            <Item.Content class="min-w-0 gap-2.5">
-                                                <div class="flex items-start justify-between gap-3">
-                                                    <div class="min-w-0 flex-1">
-                                                        <Item.Title class="truncate text-[15px] leading-tight {isActiveFile ? 'text-black dark:text-white' : 'text-sidebar-foreground group-hover:text-sidebar-accent-foreground'}">
-                                                            {recentFile.file_name}
-                                                        </Item.Title>
+                                                <Item.Content class="min-w-0 gap-2.5">
+                                                    <div class="flex items-start justify-between gap-3">
+                                                        <div class="min-w-0 flex-1">
+                                                            <Item.Title class="truncate text-[15px] leading-tight {isActiveFile ? 'text-black dark:text-white' : 'text-sidebar-foreground group-hover:text-sidebar-accent-foreground'}">
+                                                                {recentFile.file_name}
+                                                            </Item.Title>
 
-                                                        <Item.Description class="mt-1 truncate text-[11.5px] {isActiveFile ? 'text-black/65 dark:text-white/72' : 'text-sidebar-foreground/62 group-hover:text-sidebar-accent-foreground/74'}">
-                                                            {getDirectoryLabel(recentFile.path)}
-                                                        </Item.Description>
+                                                            <Item.Description class="mt-1 truncate text-[11.5px] {isActiveFile ? 'text-black/65 dark:text-white/72' : 'text-sidebar-foreground/62 group-hover:text-sidebar-accent-foreground/74'}">
+                                                                {getDirectoryLabel(recentFile.path)}
+                                                            </Item.Description>
+                                                        </div>
+
+                                                        {#if !recentFile.exists_on_disk}
+                                                            <Item.Actions class="pt-0.5">
+                                                                <span class="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-amber-500/25 bg-amber-500/10 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.12em] text-amber-600 dark:text-amber-300">
+                                                                    <FileWarning class="size-3.5" />
+                                                                    Missing
+                                                                </span>
+                                                            </Item.Actions>
+                                                        {/if}
                                                     </div>
 
-                                                    {#if !recentFile.exists_on_disk}
-                                                        <Item.Actions class="pt-0.5">
-                                                            <span class="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-amber-500/25 bg-amber-500/10 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.12em] text-amber-600 dark:text-amber-300">
-                                                                <FileWarning class="size-3.5" />
-                                                                Missing
-                                                            </span>
-                                                        </Item.Actions>
-                                                    {/if}
-                                                </div>
-
-                                                <div class="flex min-w-0 flex-nowrap items-center gap-2 overflow-hidden text-[11px] {isActiveFile ? 'text-black/70 dark:text-white/74' : 'text-sidebar-foreground/55 group-hover:text-sidebar-accent-foreground/72'}">
-                                                    <span class="truncate whitespace-nowrap font-medium uppercase tracking-[0.12em] {isActiveFile ? 'text-black/80 dark:text-white/88' : 'text-sidebar-foreground/72 group-hover:text-sidebar-accent-foreground/88'}">
-                                                        {getRecentFileTypeToken(recentFile)}
-                                                    </span>
-                                                    {#if fileSize}
+                                                    <div class="flex min-w-0 flex-nowrap items-center gap-2 overflow-hidden text-[11px] {isActiveFile ? 'text-black/70 dark:text-white/74' : 'text-sidebar-foreground/55 group-hover:text-sidebar-accent-foreground/72'}">
+                                                        <span class="truncate whitespace-nowrap font-medium uppercase tracking-[0.12em] {isActiveFile ? 'text-black/80 dark:text-white/88' : 'text-sidebar-foreground/72 group-hover:text-sidebar-accent-foreground/88'}">
+                                                            {getRecentFileTypeToken(recentFile)}
+                                                        </span>
+                                                        {#if fileSize}
+                                                            <span aria-hidden="true" class="shrink-0">•</span>
+                                                            <span class="truncate whitespace-nowrap">{fileSize}</span>
+                                                        {/if}
                                                         <span aria-hidden="true" class="shrink-0">•</span>
-                                                        <span class="truncate whitespace-nowrap">{fileSize}</span>
-                                                    {/if}
-                                                    <span aria-hidden="true" class="shrink-0">•</span>
-                                                    <span class="truncate whitespace-nowrap">{formatTimestamp(getRecencyTimestamp(recentFile))}</span>
-                                                </div>
-                                            </Item.Content>
-                                        </button>
+                                                        <span class="truncate whitespace-nowrap">{formatTimestamp(getRecencyTimestamp(recentFile))}</span>
+                                                    </div>
+                                                </Item.Content>
+                                            </button>
+                                        </div>
                                     </Item.Root>
                                 {/each}
                             </Item.Group>
