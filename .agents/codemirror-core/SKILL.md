@@ -1,5 +1,5 @@
 ---
-name: CodeMirror Core Integration
+name: codemirror-core
 description: Rules for integrating CodeMirror 6 with Svelte, managing performance, and writing scalable extensions.
 ---
 
@@ -26,7 +26,13 @@ Tauri on Linux runs on **WebKitGTK**. CodeMirror's default fixed gutters use sti
 ### Why
 
 - This avoids the WebKitGTK sticky-gutter repaint path entirely.
-- The tradeoff is UX-only: gutters can scroll horizontally with content.
+- If line numbers must stay visible during horizontal scroll, prefer a
+	**manual transform-based gutter pinning** extension over CodeMirror's built-in
+	fixed gutter mode.
+- The preferred repo pattern is: keep `gutters({ fixed: false })`, listen to
+	`scrollDOM.scrollLeft`, and translate `.cm-gutters` with
+	`transform: translateX(...)` inside `requestAnimationFrame`.
+- This preserves the Linux-safe path while restoring sticky-feeling line numbers.
 - This does **not** materially increase RAM use or document-state cost.
 
 ## Editor-surface CSS performance guidance
@@ -35,12 +41,12 @@ For the main CodeMirror editor surface in this repo:
 
 - **Safe to keep:** `height: 100%` on `.cm-editor`
 - **Safe to keep:** `overscroll-behavior: none` on `.cm-scroller`
-- **Do not re-add by default:** `contain: strict` on `.cm-editor`
-- **Do not re-add by default:** `will-change: transform` on `.cm-content`
+- **Avoid changing casually:** `contain: strict` on `.cm-editor`
+- **Avoid changing casually:** `will-change: transform` on `.cm-content`
 
 ### Rationale
 
 - `overscroll-behavior: none` is harmless here and not related to the gutter repaint bug.
-- `contain: strict` and `will-change: transform` were speculative micro-optimizations, not CodeMirror defaults.
-- In this codebase they are not worth restoring without profiling because they can interact badly with WebKitGTK repaint/compositing behavior and make editor rendering harder to reason about.
+- `contain: strict` and `will-change: transform` are not CodeMirror defaults.
+- Treat them as profiling-sensitive knobs because they can interact badly with WebKitGTK repaint/compositing behavior and make editor rendering harder to reason about.
 - If performance tuning is revisited later, do it from a measured profile and test Linux explicitly with large files and scrollbar dragging.

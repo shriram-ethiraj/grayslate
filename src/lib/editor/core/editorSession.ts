@@ -10,6 +10,7 @@ import { materialLightConfig } from "$lib/themes/material-light";
 import { colorHints } from "$lib/editor/extensions/colorHints";
 import { getLanguageExtension } from "$lib/editor/config/languageExtensions";
 import { contextMenuExtension } from "$lib/editor/extensions/contextMenuExtension";
+import { manualStickyGutters } from "$lib/editor/extensions/manualStickyGutters";
 import { editorState } from "$lib/state/editor.svelte";
 import { getMinimalTextChange, type TextChangeSpec } from "$lib/editor/core/csvCodeMirror";
 
@@ -217,6 +218,7 @@ export function ensureManagedEditorState(
         extensions: [
             createSearchKeymap(),
             gutters({ fixed: false }),
+            manualStickyGutters,
             basicSetup,
             search({}),
             scrollPastEnd(),
