@@ -1,5 +1,6 @@
 <script lang="ts">
     import { tick } from "svelte";
+    import { registerHotkey } from "$lib/hotkeys";
     import type { LanguageIcon } from "$lib/editor/config/supportedLanguages";
     import { languages } from "$lib/editor/config/supportedLanguages";
     import { languageDetector } from "$lib/editor/core/languageDetector";
@@ -48,6 +49,8 @@
     }
 
     const RECENT_FILES_LIMIT = 120;
+    const DEFAULT_FILTER_MODE: FilterMode = "unified";
+    const DEFAULT_SORT_MODE: SortMode = "last-modified";
     const textCollator = new Intl.Collator(undefined, {
         numeric: true,
         sensitivity: "base",
@@ -64,13 +67,14 @@
     };
 
     let query = $state("");
-    let filterMode = $state<FilterMode>("unified");
-    let sortMode = $state<SortMode>("last-modified");
+    let filterMode = $state<FilterMode>(DEFAULT_FILTER_MODE);
+    let sortMode = $state<SortMode>(DEFAULT_SORT_MODE);
     let recentFiles = $state<RecentFileRecord[]>([]);
     let isLoading = $state(false);
     let loadError = $state("");
     let requestVersion = 0;
     let searchInput = $state<HTMLInputElement | null>(null);
+    let focusSearchRequest = $state(0);
 
     const sidebar = Sidebar.useSidebar();
 
@@ -427,11 +431,29 @@
         } satisfies OpenFilePathPayload);
     }
 
+    function requestSearchFocus(): void {
+        focusSearchRequest += 1;
+    }
+
+    function activateLibrarySearch(): void {
+        filterMode = DEFAULT_FILTER_MODE;
+        sortMode = DEFAULT_SORT_MODE;
+        query = "";
+
+        if (!sidebar.open) {
+            sidebar.setOpen(true);
+        }
+
+        requestSearchFocus();
+    }
+
     $effect(() => {
         void refreshRecentFiles();
     });
 
     $effect(() => {
+        focusSearchRequest;
+
         if (!sidebar.open || !searchInput) {
             return;
         }
@@ -452,6 +474,13 @@
         return () => {
             cancelled = true;
         };
+    });
+
+    $effect(() => {
+        return registerHotkey("Mod+P", (event) => {
+            event.preventDefault();
+            activateLibrarySearch();
+        }, { ignoreInputs: false });
     });
 
     $effect(() => {
