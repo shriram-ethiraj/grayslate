@@ -1,6 +1,5 @@
 <script lang="ts">
   import { Window } from "@tauri-apps/api/window";
-  import { type } from "@tauri-apps/plugin-os";
   import { emit, listen } from "@tauri-apps/api/event";
   import { invoke } from "@tauri-apps/api/core";
   import { onMount, onDestroy } from "svelte";
@@ -37,15 +36,15 @@
   import CodiconChromeMaximize from "~icons/codicon/chrome-maximize";
   import { registerHotkeys } from "$lib/hotkeys";
   import { formatForDisplay } from "@tanstack/hotkeys";
+  import { platformState } from "$lib/state/platform.svelte";
 
-  let osType = $state("");
   const appWindow = new Window("main");
 
   let isMaximized = $state(false);
   let unlistenResize: (() => void) | undefined;
 
-  const isMac = $derived(osType === "macos");
-  const isLinux = $derived(osType === "linux");
+  const isMac = $derived(platformState.osType === "macos");
+  const isLinux = $derived(platformState.osType === "linux");
   /** Redo shortcut differs between platforms */
   const redoShortcut = $derived(
     isMac ? formatForDisplay("Mod+Shift+Z") : formatForDisplay("Mod+Y"),
@@ -74,8 +73,6 @@
   }
 
   onMount(async () => {
-    osType = await type();
-
     // Track maximize state for Windows/Linux controls
     isMaximized = await appWindow.isMaximized();
     unlistenResize = await appWindow.onResized(async () => {
@@ -85,7 +82,7 @@
     // On macOS, the in-window Menubar is hidden and the system menu bar is
     // used instead. Forward native menu edit events to the same handlers
     // used by the custom Menubar on Windows/Linux.
-    if (osType === "macos") {
+    if (platformState.osType === "macos") {
       unlistenAbout = await listen("menu://about", () => {
         void handleAbout();
       });

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from "svelte";
 	import { tick } from "svelte";
 	import AppSidebar from "$lib/components/app-sidebar.svelte";
 	import ThemeToggle from "$lib/components/theme-toggle.svelte";
@@ -14,6 +15,7 @@
 	import { emit } from "@tauri-apps/api/event";
 	import { Toaster } from "$lib/components/ui/sonner/index.js";
 	import EditorActions from "$lib/editor/components/EditorActions.svelte";
+	import { initPlatformState, platformState } from "$lib/state/platform.svelte";
 	import LucideFilePlusCorner from '~icons/lucide/file-plus-corner';
 	import "./layout.css";
 
@@ -77,6 +79,10 @@
 	const isNewFileDisabled = $derived(
 		editorState.isUntitledDocument && editorState.currentDocumentLength === 0,
 	);
+
+	onMount(() => {
+		void initPlatformState();
+	});
 </script>
 
 <div class="flex h-screen w-full flex-col overflow-hidden">
@@ -144,7 +150,9 @@
 							</div>
 						</header>
 						<div class="flex min-h-0 min-w-0 flex-1 flex-col">
-							{@render children()}
+							{#if platformState.ready}
+								{@render children()}
+							{/if}
 						</div>
 					</Sidebar.Inset>
 				</ResizablePane>

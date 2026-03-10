@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { type as getOsType } from "@tauri-apps/plugin-os";
+import { getPlatformOsType } from "$lib/state/platform.svelte";
 
 interface MemoryInfo {
   available: number;
@@ -51,7 +51,7 @@ async function isReclaimSupportedPlatform(): Promise<boolean> {
   }
 
   try {
-    reclaimSupported = getOsType() !== "macos";
+    reclaimSupported = getPlatformOsType() !== "macos";
   } catch (error) {
     console.warn("[GC Pressure] Failed to detect platform", error);
     reclaimSupported = false;

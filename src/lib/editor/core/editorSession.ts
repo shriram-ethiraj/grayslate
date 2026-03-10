@@ -1,4 +1,4 @@
-import { Compartment, EditorState, Transaction, type Annotation } from "@codemirror/state";
+import { Compartment, EditorState, Transaction, type Annotation, type Extension } from "@codemirror/state";
 import { isolateHistory, redo } from "@codemirror/commands";
 import { EditorView, gutters, keymap } from "@codemirror/view";
 import { basicSetup } from "codemirror";
@@ -10,9 +10,10 @@ import { materialLightConfig } from "$lib/themes/material-light";
 import { colorHints } from "$lib/editor/extensions/colorHints";
 import { getLanguageExtension } from "$lib/editor/config/languageExtensions";
 import { contextMenuExtension } from "$lib/editor/extensions/contextMenuExtension";
-import { manualStickyGutters } from "$lib/editor/extensions/manualStickyGutters";
+import { linuxStickyGutter } from "$lib/editor/extensions/linuxStickyGutter";
 import { editorState } from "$lib/state/editor.svelte";
 import { getMinimalTextChange, type TextChangeSpec } from "$lib/editor/core/csvCodeMirror";
+import { getPlatformOsType } from "$lib/state/platform.svelte";
 
 // ---------------------------------------------------------------------------
 // Large-document value-sync debounce
@@ -190,6 +191,16 @@ export function detachSessionBindings(session: ManagedEditorSession) {
     session.bindings = undefined;
 }
 
+function getPlatformGutterExtensions(): Extension {
+    const osType = getPlatformOsType();
+
+    if (osType === "linux") {
+        return [gutters({ fixed: false }), linuxStickyGutter];
+    }
+
+    return gutters({ fixed: true });
+}
+
 export function ensureManagedEditorState(
     session: ManagedEditorSession,
     doc: string,
@@ -217,8 +228,7 @@ export function ensureManagedEditorState(
         doc,
         extensions: [
             createSearchKeymap(),
-            gutters({ fixed: false }),
-            manualStickyGutters,
+            getPlatformGutterExtensions(),
             basicSetup,
             search({}),
             scrollPastEnd(),

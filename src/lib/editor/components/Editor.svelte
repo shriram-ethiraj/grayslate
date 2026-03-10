@@ -128,13 +128,7 @@
       ),
       parent: node,
     });
-    // Assign to both the local $state variable and the bindable prop so
-    // both EditorContextMenu and external consumers receive the live view.
-    (session as ManagedEditorSession).view = cmView;
-    view = cmView;
-    editorView = cmView;
-    editorState.activeView = cmView;
-    editorState.activeSurface = "editor";
+    let observer: MutationObserver | undefined;
 
     function activateEditorSurface() {
       editorState.activeSurface = "editor";
@@ -146,6 +140,14 @@
       }
     }
 
+    // Assign to both the local $state variable and the bindable prop so
+    // both EditorContextMenu and external consumers receive the live view.
+    (session as ManagedEditorSession).view = cmView;
+    view = cmView;
+    editorView = cmView;
+    editorState.activeView = cmView;
+    editorState.activeSurface = "editor";
+
     cmView.dom.addEventListener("pointerdown", activateEditorSurface, {
       passive: true,
     });
@@ -155,7 +157,7 @@
     // Watch for light/dark class toggling on <html> and swap the theme.
     // attributeFilter already guarantees only class mutations arrive, so
     // there is no need to re-check mutation.attributeName inside the callback.
-    const observer = new MutationObserver(() => {
+    observer = new MutationObserver(() => {
       const isDarkNow = document.documentElement.classList.contains("dark");
       const editorSession = session as ManagedEditorSession;
       if (!editorSession.themeCompartment) return;
@@ -196,7 +198,7 @@
         }
       },
       destroy() {
-        observer.disconnect();
+        observer?.disconnect();
         cmView.dom.removeEventListener("pointerdown", activateEditorSurface);
         cmView.dom.removeEventListener("focusin", activateEditorSurface);
         cmView.dom.removeEventListener("contextmenu", activateEditorSurface);
@@ -238,20 +240,10 @@
   /* CodeMirror must fill the container and match its scroll-behaviour */
   :global(.cm-editor) {
     height: 100%;
-    /* Layout containment: tells the browser this subtree's layout is
-       independent of the rest of the page, letting it skip expensive
-       style-recalc and layout passes outside this boundary during scroll. */
-    contain: strict;
   }
 
   :global(.cm-scroller) {
     overscroll-behavior: none;
-  }
-
-  /* Promote the content layer to its own compositor layer so viewport
-     shifts during fast scroll are GPU-composited instead of reflowed. */
-  :global(.cm-content) {
-    will-change: transform;
   }
 
   /* Line-number gutter width — mirrors VS Code's default */

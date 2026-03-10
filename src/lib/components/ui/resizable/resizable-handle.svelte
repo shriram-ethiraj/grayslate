@@ -1,9 +1,8 @@
 <script lang="ts">
-	import { onMount } from "svelte";
-	import { type } from "@tauri-apps/plugin-os";
 	import GripVerticalIcon from "~icons/lucide/grip-vertical";
 	import * as ResizablePrimitive from "paneforge";
 	import { cn, type WithoutChildrenOrChild } from "$lib/utils.js";
+	import { platformState } from "$lib/state/platform.svelte";
 
 	let {
 		ref = $bindable(null),
@@ -14,11 +13,7 @@
 		withHandle?: boolean;
 	} = $props();
 
-	let useMacCursorFix = $state(false);
-
-	onMount(async () => {
-		useMacCursorFix = (await type()) === "macos";
-	});
+	const useMacCursorFix = $derived(platformState.osType === "macos");
 </script>
 
 <ResizablePrimitive.PaneResizer
