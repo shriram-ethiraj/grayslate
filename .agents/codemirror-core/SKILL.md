@@ -15,29 +15,22 @@ This document outlines the core integration patterns for CodeMirror 6 inside Gra
 - **Performance First:** When building extensions (Fold widgets, Tooltips, Inlay Hints), **never** write unbounded `while` loops that traverse the Lezer tree (e.g. counting every child of a JSON Array). Cap iterations aggressively (e.g. `MAX_SCAN_CHILDREN = 100`) to prevent the main thread from freezing when users paste gigabyte-sized files.
 - **Experimental Extensions:** Unused or WIP CodeMirror extensions (like `stickyScroll`) are kept in `src/lib/editor/extensions/experimental/`. Do not delete these files, but do not import them into the main `languageExtensions.ts` config unless specifically requested.
 
-## Linux / WebKitGTK gutter rule
+## Gutter rule
 
-Tauri on Linux runs on **WebKitGTK**. CodeMirror's default fixed gutters use sticky positioning. In this repo, that path can fail to repaint line numbers after large scrollbar jumps in long files.
+Use CodeMirror's native fixed gutters across all supported platforms.
 
 ### Required rule
 
-- Prefer `gutters({ fixed: false })` for the main editor session unless the sticky/fixed gutter behavior is explicitly required and has been re-verified on Linux.
+- Keep `gutters()` in the main editor session.
+- Do not add a Linux-only gutter plugin or platform branch unless there is a verified regression and a measured need for it.
+
+`gutters()` already uses CodeMirror's native fixed gutter behavior by default, so there is no need to pass `fixed: true` explicitly.
 
 ### Why
 
-- This avoids the WebKitGTK sticky-gutter **vertical** repaint path entirely.
-- The repo uses a **CSS-only horizontal sticky** approach
-  (`position: sticky; left: 0` on `.cm-gutters`) instead of CodeMirror's
-  built-in `fixed: true` mode.
-- The key distinction: CM's `fixed: true` adds both vertical (`top`) and
-  horizontal (`left`) sticky positioning — the vertical part triggers the
-  WebKitGTK repaint bug. Our approach uses **`left: 0` only**, so gutters
-  scroll normally in the vertical direction (no repaint issue) while the
-  browser compositor pins them horizontally with zero JS and zero frame lag.
-- **Do NOT** use JS-driven `transform: translateX(scrollLeft)` — it always
-  trails the compositor by at least one frame, causing visible gutter drift
-  during momentum/smooth scroll.
-- This does **not** materially increase RAM use or document-state cost.
+- The editor should stay on the simplest supported CodeMirror gutter path by default.
+- Platform-specific gutter behavior increases maintenance cost and makes editor rendering harder to reason about.
+- If Linux / WebKitGTK gutter rendering is revisited later, treat it as a fresh investigation rather than restoring the removed workaround by habit.
 
 ## Editor-surface CSS performance guidance
 
