@@ -512,7 +512,7 @@
                 >
                     {@const ActiveSortIcon = activeSortOption.icon}
                     <span class="flex items-center justify-center">
-                        <ActiveSortIcon class="size-4" />
+                        <ActiveSortIcon class="size-4 text-sidebar-foreground" />
                     </span>
                 </Select.Trigger>
                 <Select.Content class="border-sidebar-border bg-sidebar text-sidebar-foreground">
