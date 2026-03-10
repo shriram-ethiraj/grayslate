@@ -14,3 +14,33 @@ This document outlines the core integration patterns for CodeMirror 6 inside Gra
 - **Clean Transactions:** Dispatch `Transaction` objects cleanly for editor updates rather than violently replacing the document text.
 - **Performance First:** When building extensions (Fold widgets, Tooltips, Inlay Hints), **never** write unbounded `while` loops that traverse the Lezer tree (e.g. counting every child of a JSON Array). Cap iterations aggressively (e.g. `MAX_SCAN_CHILDREN = 100`) to prevent the main thread from freezing when users paste gigabyte-sized files.
 - **Experimental Extensions:** Unused or WIP CodeMirror extensions (like `stickyScroll`) are kept in `src/lib/editor/extensions/experimental/`. Do not delete these files, but do not import them into the main `languageExtensions.ts` config unless specifically requested.
+
+## Linux / WebKitGTK gutter rule
+
+Tauri on Linux runs on **WebKitGTK**. CodeMirror's default fixed gutters use sticky positioning. In this repo, that path can fail to repaint line numbers after large scrollbar jumps in long files.
+
+### Required rule
+
+- Prefer `gutters({ fixed: false })` for the main editor session unless the sticky/fixed gutter behavior is explicitly required and has been re-verified on Linux.
+
+### Why
+
+- This avoids the WebKitGTK sticky-gutter repaint path entirely.
+- The tradeoff is UX-only: gutters can scroll horizontally with content.
+- This does **not** materially increase RAM use or document-state cost.
+
+## Editor-surface CSS performance guidance
+
+For the main CodeMirror editor surface in this repo:
+
+- **Safe to keep:** `height: 100%` on `.cm-editor`
+- **Safe to keep:** `overscroll-behavior: none` on `.cm-scroller`
+- **Do not re-add by default:** `contain: strict` on `.cm-editor`
+- **Do not re-add by default:** `will-change: transform` on `.cm-content`
+
+### Rationale
+
+- `overscroll-behavior: none` is harmless here and not related to the gutter repaint bug.
+- `contain: strict` and `will-change: transform` were speculative micro-optimizations, not CodeMirror defaults.
+- In this codebase they are not worth restoring without profiling because they can interact badly with WebKitGTK repaint/compositing behavior and make editor rendering harder to reason about.
+- If performance tuning is revisited later, do it from a measured profile and test Linux explicitly with large files and scrollbar dragging.

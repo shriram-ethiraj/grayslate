@@ -1,6 +1,6 @@
 import { Compartment, EditorState, Transaction, type Annotation } from "@codemirror/state";
 import { isolateHistory, redo } from "@codemirror/commands";
-import { EditorView, keymap } from "@codemirror/view";
+import { EditorView, gutters, keymap } from "@codemirror/view";
 import { basicSetup } from "codemirror";
 import { search } from "@codemirror/search";
 import { scrollPastEnd } from "@codemirror/view";
@@ -216,6 +216,7 @@ export function ensureManagedEditorState(
         doc,
         extensions: [
             createSearchKeymap(),
+            gutters({ fixed: false }),
             basicSetup,
             search({}),
             scrollPastEnd(),
