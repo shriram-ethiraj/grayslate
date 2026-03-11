@@ -90,6 +90,27 @@ pub fn build_native_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::M
                 .build(app)?,
         )
         .separator()
+        .item(
+            &MenuItemBuilder::with_id("edit-go-to-line", "Go To Line...")
+                .accelerator("CmdOrCtrl+G")
+                .build(app)?,
+        )
+        .item(
+            &MenuItemBuilder::with_id("edit-find", "Find...")
+                .accelerator("CmdOrCtrl+F")
+                .build(app)?,
+        )
+        .item(
+            &MenuItemBuilder::with_id("edit-find-files", "Find Files...")
+                .accelerator("CmdOrCtrl+P")
+                .build(app)?,
+        )
+        .item(
+            &MenuItemBuilder::with_id("edit-replace", "Replace...")
+                .accelerator("CmdOrCtrl+Alt+F")
+                .build(app)?,
+        )
+        .separator()
         .item(&word_wrap_item)
         .separator()
         .item(
@@ -174,6 +195,18 @@ pub fn handle_macos_menu_event(app: &tauri::AppHandle, event: tauri::menu::MenuE
         }
         "edit-paste" => {
             let _ = window.emit("menu://edit-action", "paste");
+        }
+        "edit-go-to-line" => {
+            let _ = window.emit("menu://edit-action", "goToLine");
+        }
+        "edit-find" => {
+            let _ = window.emit("menu://edit-action", "find");
+        }
+        "edit-find-files" => {
+            let _ = window.emit("menu://edit-action", "findFiles");
+        }
+        "edit-replace" => {
+            let _ = window.emit("menu://edit-action", "replace");
         }
         "edit-select-all" => {
             let _ = window.emit("menu://edit-action", "selectAll");

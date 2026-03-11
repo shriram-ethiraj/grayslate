@@ -15,6 +15,7 @@
 	import { emit } from "@tauri-apps/api/event";
 	import { Toaster } from "$lib/components/ui/sonner/index.js";
 	import EditorActions from "$lib/editor/components/EditorActions.svelte";
+	import { librarySidebarState } from "$lib/state/librarySidebar.svelte";
 	import { initPlatformState, platformState } from "$lib/state/platform.svelte";
 	import LucideFilePlusCorner from '~icons/lucide/file-plus-corner';
 	import "./layout.css";
@@ -108,12 +109,23 @@
 					editorState.findReplace.replaceMode = false;
 				}
 			} else if (event.key === "f" && event.altKey) {
-				// Cmd/Ctrl+Alt+F — open find & replace panel
+				// Cmd/Ctrl+Alt+F — open replace panel
 				event.preventDefault();
 				if (!tableActive) {
 					editorState.findReplace.visible = true;
 					editorState.findReplace.replaceMode = true;
 				}
+			} else if (event.key === "h" && !event.altKey) {
+				// Cmd/Ctrl+H — open replace panel
+				event.preventDefault();
+				if (!tableActive) {
+					editorState.findReplace.visible = true;
+					editorState.findReplace.replaceMode = true;
+				}
+			} else if (event.key === "p" && !event.altKey) {
+				// Cmd/Ctrl+P — focus file search
+				event.preventDefault();
+				librarySidebarState.requestActivateSearch?.();
 			} else if (event.key === "g") {
 				// Cmd/Ctrl+G — go to line
 				event.preventDefault();

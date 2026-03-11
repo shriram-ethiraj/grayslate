@@ -42,6 +42,21 @@ function clearValueSyncTimer(session: ManagedEditorSession): void {
     }
 }
 
+function openFindReplaceFromSelection(targetView: EditorView, replaceMode: boolean): boolean {
+    editorState.findReplace.visible = true;
+    editorState.findReplace.replaceMode = replaceMode;
+
+    const selection = targetView.state.selection.main;
+    if (!selection.empty) {
+        editorState.findReplace.findText = targetView.state.sliceDoc(
+            selection.from,
+            selection.to,
+        );
+    }
+
+    return true;
+}
+
 type SessionBindings = {
     setValue: (value: string) => void;
     setDocumentLength: (length: number) => void;
@@ -145,34 +160,17 @@ function createSearchKeymap() {
         },
         {
             key: "Mod-f",
-            run: (targetView) => {
-                editorState.findReplace.visible = true;
-                editorState.findReplace.replaceMode = false;
-                const selection = targetView.state.selection.main;
-                if (!selection.empty) {
-                    editorState.findReplace.findText = targetView.state.sliceDoc(
-                        selection.from,
-                        selection.to,
-                    );
-                }
-                return true;
-            },
+            run: (targetView) => openFindReplaceFromSelection(targetView, false),
+            preventDefault: true,
+        },
+        {
+            key: "Mod-h",
+            run: (targetView) => openFindReplaceFromSelection(targetView, true),
             preventDefault: true,
         },
         {
             key: "Mod-Alt-f",
-            run: (targetView) => {
-                editorState.findReplace.visible = true;
-                editorState.findReplace.replaceMode = true;
-                const selection = targetView.state.selection.main;
-                if (!selection.empty) {
-                    editorState.findReplace.findText = targetView.state.sliceDoc(
-                        selection.from,
-                        selection.to,
-                    );
-                }
-                return true;
-            },
+            run: (targetView) => openFindReplaceFromSelection(targetView, true),
             preventDefault: true,
         },
     ]);

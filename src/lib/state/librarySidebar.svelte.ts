@@ -9,8 +9,10 @@ export interface PendingSidebarFileOpen {
 
 export const librarySidebarState = $state<{
     pendingOpenFile: PendingSidebarFileOpen | undefined;
+    requestActivateSearch?: () => void;
 }>({
     pendingOpenFile: undefined,
+    requestActivateSearch: undefined,
 });
 
 export function setPendingSidebarOpenFile(pendingOpenFile: PendingSidebarFileOpen): void {

@@ -387,6 +387,16 @@
         requestSearchFocus();
     }
 
+    $effect(() => {
+        librarySidebarState.requestActivateSearch = activateLibrarySearch;
+
+        return () => {
+            if (librarySidebarState.requestActivateSearch === activateLibrarySearch) {
+                librarySidebarState.requestActivateSearch = undefined;
+            }
+        };
+    });
+
     // ---------------------------------------------------------------------------
     // Effects
     // ---------------------------------------------------------------------------
@@ -518,7 +528,7 @@
     $effect(() => {
         return registerHotkey("Mod+P", (event) => {
             event.preventDefault();
-            activateLibrarySearch();
+            librarySidebarState.requestActivateSearch?.();
         }, { ignoreInputs: false });
     });
 
