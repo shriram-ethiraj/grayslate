@@ -12,6 +12,10 @@
     import Input from "$lib/components/ui/input/input.svelte";
     import { editorState } from "$lib/state/editor.svelte";
     import {
+        librarySidebarState,
+        setPendingSidebarOpenFile,
+    } from "$lib/state/librarySidebar.svelte";
+    import {
         getRecentFiles,
         OPEN_FILE_PATH_EVENT,
         RECENT_FILES_UPDATED_EVENT,
@@ -36,8 +40,8 @@
 
     type FilterMode = "unified" | RecentFileSource;
     type SortMode =
-        | "last-modified"
-        | "oldest"
+        | "recently-opened"
+        | "least-recently-opened"
         | "name-asc"
         | "name-desc"
         | "size-desc"
@@ -53,15 +57,15 @@
 
     const RECENT_FILES_LIMIT = 120;
     const DEFAULT_FILTER_MODE: FilterMode = "unified";
-    const DEFAULT_SORT_MODE: SortMode = "last-modified";
+    const DEFAULT_SORT_MODE: SortMode = "recently-opened";
     const textCollator = new Intl.Collator(undefined, {
         numeric: true,
         sensitivity: "base",
     });
     const languageMetaByValue = new Map(languages.map((language) => [language.value, language] as const));
-    const recencySectionOrder: Record<Extract<SortMode, "last-modified" | "oldest">, RecencyBucket[]> = {
-        "last-modified": ["today", "this-week", "older"],
-        oldest: ["older", "this-week", "today"],
+    const recencySectionOrder: Record<Extract<SortMode, "recently-opened" | "least-recently-opened">, RecencyBucket[]> = {
+        "recently-opened": ["today", "this-week", "older"],
+        "least-recently-opened": ["older", "this-week", "today"],
     };
     const recencySectionLabels: Record<RecencyBucket, string> = {
         today: "Today",
@@ -85,6 +89,7 @@
     const sidebar = Sidebar.useSidebar();
 
     const normalizedQuery = $derived(query.trim().toLowerCase());
+    const pendingOpenFile = $derived(librarySidebarState.pendingOpenFile);
 
     const visibleRecentFiles = $derived.by(() => {
         const filteredRecentFiles = recentFiles.filter((recentFile) => {
@@ -110,7 +115,7 @@
     );
 
     const recentFileSections = $derived.by(() => {
-        if (normalizedQuery.length > 0 || (sortMode !== "last-modified" && sortMode !== "oldest")) {
+        if (normalizedQuery.length > 0 || (sortMode !== "recently-opened" && sortMode !== "least-recently-opened")) {
             return [{
                 key: "all",
                 label: "",
@@ -152,8 +157,8 @@
         label: string;
         icon: typeof Search;
     }> = [
-        { value: "last-modified", label: "Last modified", icon: Clock3 },
-        { value: "oldest", label: "Oldest first", icon: History },
+        { value: "recently-opened", label: "Recently opened", icon: Clock3 },
+        { value: "least-recently-opened", label: "Least recently opened", icon: History },
         { value: "name-asc", label: "Name (A to Z)", icon: ArrowDownAZ },
         { value: "name-desc", label: "Name (Z to A)", icon: ArrowUpZA },
         { value: "size-desc", label: "Largest first", icon: ArrowDownWideNarrow },
@@ -248,9 +253,8 @@
     }
 
     function getRecencyTimestamp(recentFile: LibraryFileRecord): number | null {
-        return recentFile.last_modified_at
+        return recentFile.last_opened_at
             ?? recentFile.last_saved_at
-            ?? recentFile.last_opened_at
             ?? recentFile.last_seen_at;
     }
 
@@ -272,7 +276,7 @@
 
     function buildRecencySections(
         files: LibraryFileRecord[],
-        sortOrder: Extract<SortMode, "last-modified" | "oldest">,
+        sortOrder: Extract<SortMode, "recently-opened" | "least-recently-opened">,
     ): RecentFileSection[] {
         const sectionItems: Record<RecencyBucket, RecentFileRecord[]> = {
             today: [],
@@ -355,7 +359,7 @@
         sortOrder: SortMode,
     ): number {
         switch (sortOrder) {
-            case "last-modified": {
+            case "recently-opened": {
                 const byTimestamp = compareNumbers(
                     getRecencyTimestamp(right),
                     getRecencyTimestamp(left),
@@ -365,7 +369,7 @@
                 }
                 break;
             }
-            case "oldest": {
+            case "least-recently-opened": {
                 const byTimestamp = compareNumbers(
                     getRecencyTimestamp(left),
                     getRecencyTimestamp(right),
@@ -478,7 +482,15 @@
         }
     }
 
-    async function openRecentFile(path: string): Promise<void> {
+    async function openRecentFile(path: string, source: RecentFileSource): Promise<void> {
+        const requestId = Date.now();
+        setPendingSidebarOpenFile({
+            path,
+            source,
+            requestId,
+            revealInRecentList: false,
+        });
+
         const { emit } = await import("@tauri-apps/api/event");
         await emit(OPEN_FILE_PATH_EVENT, {
             path,
@@ -529,6 +541,18 @@
         return () => {
             window.clearTimeout(timeoutId);
         };
+    });
+
+    $effect(() => {
+        const pending = pendingOpenFile;
+        if (!pending?.revealInRecentList) {
+            return;
+        }
+
+        filterMode = pending.source;
+        if (query.length > 0) {
+            query = "";
+        }
     });
 
     $effect(() => {
@@ -701,7 +725,10 @@
                                 {#each section.items as recentFile (recentFile.path)}
                                     {@const FileIcon = getRecentFileIcon(recentFile)}
                                     {@const fileSize = formatSize(recentFile.size_bytes)}
-                                    {@const isActiveFile = !!editorState.currentFilePath && editorState.currentFilePath === recentFile.path}
+                                    {@const isPendingFile = pendingOpenFile?.path === recentFile.path}
+                                    {@const isActiveFile = pendingOpenFile
+                                        ? isPendingFile
+                                        : (!!editorState.currentFilePath && editorState.currentFilePath === recentFile.path)}
                                     <Item.Root
                                         variant="outline"
                                         size="sm"
@@ -713,7 +740,7 @@
                                                 class="group flex w-full min-w-0 items-start gap-3 px-3.5 py-3 text-left outline-none transition-colors {isActiveFile ? 'bg-sidebar-foreground/[0.04] text-sidebar-foreground' : 'hover:bg-sidebar-accent/70 hover:text-sidebar-accent-foreground'}"
                                                 title={recentFile.path}
                                                 onclick={() => {
-                                                    void openRecentFile(recentFile.path);
+                                                    void openRecentFile(recentFile.path, recentFile.source);
                                                 }}
                                             >
                                                 <Item.Media

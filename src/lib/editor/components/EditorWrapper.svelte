@@ -48,7 +48,13 @@
   import { clearSearchStatsCache } from "$lib/editor/core/actions";
   import { clearColorCache } from "$lib/editor/extensions/colorHints";
   import {
+    librarySidebarState,
+    clearPendingSidebarOpenFile,
+    setPendingSidebarOpenFile,
+  } from "$lib/state/librarySidebar.svelte";
+  import {
     OPEN_FILE_PATH_EVENT,
+    prepareFileOpen,
     RECENT_FILES_UPDATED_EVENT,
     type OpenFilePathPayload,
   } from "$lib/files/recentFiles";
@@ -252,6 +258,7 @@
 
   function invalidatePendingFileOpen(): void {
     fileOpenRequestVersion += 1;
+    clearPendingSidebarOpenFile();
     void invoke("cancel_file_read").catch(() => undefined);
   }
 
@@ -464,17 +471,49 @@
   async function openFileAtPath(filePath: string): Promise<void> {
     const requestVersion = beginFileOpenRequest();
     const filename = filePath.replace(/\\/g, "/").split("/").pop() ?? "";
+    const existingPendingFile = librarySidebarState.pendingOpenFile;
+    const preservesPendingMetadata = existingPendingFile?.path === filePath;
 
-    // Start a decelerating progress ticker while the Rust read is in-flight
-    startLoaderTicker("Reading file…", filename, {
-      ceiling: 65,
-      factor: 0.06,
-      minStep: 0.3,
-      interval: 80,
-      startAt: 5,
+    setPendingSidebarOpenFile({
+      path: filePath,
+      source: preservesPendingMetadata ? existingPendingFile.source : "external",
+      requestId: requestVersion,
+      revealInRecentList: preservesPendingMetadata
+        ? existingPendingFile.revealInRecentList
+        : true,
     });
 
     try {
+      const preparedFile = await prepareFileOpen(filePath);
+      if (!isActiveFileOpenRequest(requestVersion)) {
+        return;
+      }
+
+      setPendingSidebarOpenFile({
+        path: filePath,
+        source: preparedFile.source,
+        requestId: requestVersion,
+        revealInRecentList: preservesPendingMetadata
+          ? existingPendingFile.revealInRecentList
+          : true,
+      });
+
+      const { emit } = await import("@tauri-apps/api/event");
+      await emit(RECENT_FILES_UPDATED_EVENT);
+      if (!isActiveFileOpenRequest(requestVersion)) {
+        return;
+      }
+
+      // Start a decelerating progress ticker after the backend has tracked the
+      // file so the sidebar can refresh from SQLite before the read begins.
+      startLoaderTicker("Reading file…", filename, {
+        ceiling: 65,
+        factor: 0.06,
+        minStep: 0.3,
+        interval: 80,
+        startAt: 5,
+      });
+
       const previousSession = editorSession;
       const previousDocLength =
         previousSession.state?.doc.length ?? value.length;
@@ -528,8 +567,7 @@
 
       // Reclaim stale heap from the previous file through the shared controller.
       requestFileOpenReclaim(previousDocLength, content.length);
-      const { emit } = await import("@tauri-apps/api/event");
-      await emit(RECENT_FILES_UPDATED_EVENT);
+      clearPendingSidebarOpenFile(requestVersion);
     } catch (err: unknown) {
       if (!isActiveFileOpenRequest(requestVersion)) {
         return;
@@ -547,6 +585,7 @@
       }
 
       // Always clean up — idempotent in the success path
+      clearPendingSidebarOpenFile(requestVersion);
       stopLoaderTicker();
       hideEditorLoader();
     }

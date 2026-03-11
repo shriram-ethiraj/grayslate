@@ -80,6 +80,12 @@
 		editorState.isUntitledDocument && editorState.currentDocumentLength === 0,
 	);
 
+	const currentFileName = $derived.by(() => {
+		if (!editorState.currentFilePath) return "Untitled";
+		const parts = editorState.currentFilePath.split(/[\\/]/);
+		return parts[parts.length - 1] || "Untitled";
+	});
+
 	onMount(() => {
 		void initPlatformState();
 	});
@@ -127,9 +133,9 @@
 				>
 					<Sidebar.Inset class="min-w-0 min-h-0 overflow-hidden">
 						<header
-							class="flex h-12 w-full shrink-0 items-center justify-between border-b bg-background px-4"
+							class="relative flex h-12 w-full shrink-0 items-center justify-between border-b bg-background px-4"
 						>
-							<div class="flex items-center gap-1">
+							<div class="relative z-10 flex items-center gap-1">
 								<Sidebar.Trigger class="-ml-1" />
 								<Button
 									variant="ghost"
@@ -144,7 +150,14 @@
 									<LucideFilePlusCorner class="h-[1.2rem] w-[1.2rem] transition-all" />
 								</Button>
 							</div>
-							<div class="flex items-center gap-2">
+							<!-- Centered file name -->
+							<div class="pointer-events-none absolute inset-0 flex items-center justify-center">
+								<span
+									class="pointer-events-auto max-w-[40%] truncate text-sm font-semibold text-foreground text-opacity-90"
+									title={editorState.currentFilePath ?? currentFileName}
+								>{currentFileName}</span>
+							</div>
+							<div class="relative z-10 flex items-center gap-2">
 								<EditorActions />
 								<ThemeToggle />
 							</div>

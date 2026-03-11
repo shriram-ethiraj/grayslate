@@ -272,7 +272,7 @@ impl AppStorage {
                 FROM tracked_files
                 ORDER BY
                     pinned DESC,
-                    COALESCE(last_modified_at, last_saved_at, last_opened_at, last_seen_at, 0) DESC,
+                    COALESCE(last_opened_at, last_saved_at, last_seen_at, 0) DESC,
                     updated_at DESC
                 LIMIT ?1
                 ",
@@ -305,6 +305,49 @@ impl AppStorage {
         }
 
         Ok(recent_files)
+    }
+
+    pub fn get_tracked_file(&self, path: &Path) -> Result<Option<RecentFileRecord>, String> {
+        let path_key = normalize_path_key(path)?;
+        let connection = self.open_connection()?;
+
+        connection
+            .query_row(
+                "
+                SELECT
+                    path,
+                    file_name,
+                    extension,
+                    source,
+                    exists_on_disk,
+                    size_bytes,
+                    last_opened_at,
+                    last_saved_at,
+                    last_seen_at,
+                    last_modified_at,
+                    pinned
+                FROM tracked_files
+                WHERE path_key = ?1
+                ",
+                params![path_key],
+                |row| {
+                    Ok(RecentFileRecord {
+                        path: row.get(0)?,
+                        file_name: row.get(1)?,
+                        extension: row.get(2)?,
+                        source: row.get(3)?,
+                        exists_on_disk: row.get::<_, i64>(4)? != 0,
+                        size_bytes: row.get::<_, Option<i64>>(5)?.map(|value| value as u64),
+                        last_opened_at: row.get(6)?,
+                        last_saved_at: row.get(7)?,
+                        last_seen_at: row.get(8)?,
+                        last_modified_at: row.get(9)?,
+                        pinned: row.get::<_, i64>(10)? != 0,
+                    })
+                },
+            )
+            .optional()
+            .map_err(|error| format!("Failed to read tracked file: {}", error))
     }
 
     pub fn list_tracked_files(&self) -> Result<Vec<RecentFileRecord>, String> {

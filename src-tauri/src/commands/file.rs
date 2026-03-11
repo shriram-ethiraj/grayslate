@@ -133,8 +133,6 @@ fn clamp_recent_files_limit(limit: Option<usize>) -> usize {
 /// - the file exceeds the 200 MB limit.
 #[tauri::command]
 pub async fn read_file_content(
-    app: tauri::AppHandle,
-    storage: tauri::State<'_, AppStorage>,
     cancellations: tauri::State<'_, FileReadCancellationRegistry>,
     window: tauri::Window,
     path: String,
@@ -167,9 +165,6 @@ pub async fn read_file_content(
         .map_err(|error| format!("Failed to join file read task: {}", error))??;
 
         ensure_read_not_cancelled(cancellation_flag.as_ref())?;
-
-        let source = classify_file_source(&app, storage.inner(), &path_buf)?;
-        storage.record_file_event(&path_buf, source, FileEventType::Open)?;
 
         Ok(content)
     }
@@ -249,6 +244,20 @@ pub fn get_recent_files(
     }
 
     storage.list_recent_files(limit)
+}
+
+#[tauri::command]
+pub fn prepare_file_open(
+    app: tauri::AppHandle,
+    storage: tauri::State<'_, AppStorage>,
+    path: String,
+) -> Result<RecentFileRecord, String> {
+    let path_buf = PathBuf::from(&path);
+    let source = classify_file_source(&app, storage.inner(), &path_buf)?;
+    storage.record_file_event(&path_buf, source, FileEventType::Open)?;
+    storage
+        .get_tracked_file(&path_buf)?
+        .ok_or_else(|| "Failed to resolve prepared file entry.".to_string())
 }
 
 #[tauri::command]

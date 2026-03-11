@@ -46,6 +46,7 @@ pub fn run() {
             commands::file::cancel_file_read,
             commands::file::get_app_setting,
             commands::file::get_recent_files,
+            commands::file::prepare_file_open,
             commands::file::read_file_content,
             commands::file::resolve_notes_root,
             commands::file::resolve_default_notes_root,
