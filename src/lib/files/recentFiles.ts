@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 export const OPEN_FILE_PATH_EVENT = "files://open-path";
 export const RECENT_FILES_UPDATED_EVENT = "files://recent-updated";
 
-export type RecentFileSource = "internal" | "external";
+export type RecentFileSource = "slates" | "local";
 
 export interface RecentFileRecord {
   path: string;

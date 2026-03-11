@@ -8,8 +8,8 @@ use crate::{
 };
 
 pub struct SearchScope {
-    pub internal_root: Option<PathBuf>,
-    pub external_files: Vec<PathBuf>,
+    pub slates_root: Option<PathBuf>,
+    pub local_files: Vec<PathBuf>,
     pub tracked_by_key: HashMap<String, RecentFileRecord>,
 }
 
@@ -24,19 +24,19 @@ pub fn resolve_search_scope(
         .map(|record| Ok((normalize_path_key(PathBuf::from(&record.path).as_path())?, record.clone())))
         .collect::<Result<HashMap<_, _>, String>>()?;
 
-    let include_internal = matches!(filter_mode, "unified" | "internal");
-    let include_external = matches!(filter_mode, "unified" | "external");
-    let internal_root = if include_internal {
+    let include_slates = matches!(filter_mode, "unified" | "slates");
+    let include_local = matches!(filter_mode, "unified" | "local");
+    let slates_root = if include_slates {
         let root = resolve_notes_root_path(app, storage)?;
         root.exists().then_some(root)
     } else {
         None
     };
 
-    let external_files = if include_external {
+    let local_files = if include_local {
         tracked_files
             .into_iter()
-            .filter(|record| record.source == "external" && record.exists_on_disk)
+            .filter(|record| record.source == "local" && record.exists_on_disk)
             .map(|record| PathBuf::from(record.path))
             .collect()
     } else {
@@ -44,8 +44,8 @@ pub fn resolve_search_scope(
     };
 
     Ok(SearchScope {
-        internal_root,
-        external_files,
+        slates_root,
+        local_files,
         tracked_by_key,
     })
 }

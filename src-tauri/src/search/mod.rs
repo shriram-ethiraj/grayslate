@@ -133,7 +133,7 @@ fn build_candidates(
                 source: tracked
                     .as_ref()
                     .map(|value| value.source.clone())
-                    .unwrap_or_else(|| "internal".to_string()),
+                    .unwrap_or_else(|| "slates".to_string()),
                 exists_on_disk,
                 size_bytes,
                 last_opened_at: tracked.as_ref().and_then(|value| value.last_opened_at),

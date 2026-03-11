@@ -53,7 +53,7 @@
     import ArrowDownWideNarrow from "~icons/lucide/arrow-down-wide-narrow";
     import ArrowUpNarrowWide from "~icons/lucide/arrow-up-narrow-wide";
     import NotebookText from "~icons/lucide/notebook-text";
-    import ExternalLink from "~icons/lucide/external-link";
+    import LucideHardDrive from '~icons/lucide/hard-drive';
     import FileWarning from "~icons/lucide/file-warning";
 
     // ---------------------------------------------------------------------------
@@ -168,20 +168,20 @@
         {
             value: "unified",
             label: "All",
-            title: "Show internal and external recent files",
+            title: "Show all recently opened files",
             icon: Files,
         },
         {
-            value: "internal",
+            value: "slates",
             label: "Slates",
             title: "Show Grayslate documents only",
             icon: NotebookText,
         },
         {
-            value: "external",
-            label: "External",
-            title: "Show previously opened external files only",
-            icon: ExternalLink,
+            value: "local",
+            label: "Local",
+            title: "Show previously opened local files only",
+            icon: LucideHardDrive,
         },
     ];
 

@@ -40,11 +40,11 @@ pub fn classify_file_source(
     let notes_root = resolve_notes_root_path(app, storage)?;
     let notes_root_key = normalize_path_key(&notes_root)?;
     let path_key = normalize_path_key(path)?;
-    let is_internal = path_key == notes_root_key || path_key.starts_with(&(notes_root_key + "/"));
+    let is_slates = path_key == notes_root_key || path_key.starts_with(&(notes_root_key + "/"));
 
-    Ok(if is_internal {
-        FileSource::Internal
+    Ok(if is_slates {
+        FileSource::Slates
     } else {
-        FileSource::External
+        FileSource::Local
     })
 }

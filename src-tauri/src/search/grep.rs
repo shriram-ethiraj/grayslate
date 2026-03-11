@@ -32,11 +32,11 @@ pub fn list_scope_files(
 ) -> Result<Vec<PathBuf>, String> {
     let mut files = Vec::new();
 
-    if let Some(internal_root) = &scope.internal_root {
-        files.extend(list_directory_files(internal_root, cancelled)?);
+    if let Some(slates_root) = &scope.slates_root {
+        files.extend(list_directory_files(slates_root, cancelled)?);
     }
 
-    files.extend(scope.external_files.iter().cloned());
+    files.extend(scope.local_files.iter().cloned());
     Ok(files)
 }
 

@@ -19,15 +19,15 @@ pub struct AppStorage {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FileSource {
-    Internal,
-    External,
+    Slates,
+    Local,
 }
 
 impl FileSource {
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::Internal => "internal",
-            Self::External => "external",
+            Self::Slates => "slates",
+            Self::Local => "local",
         }
     }
 }
@@ -435,7 +435,7 @@ impl AppStorage {
                     path TEXT NOT NULL,
                     file_name TEXT NOT NULL,
                     extension TEXT,
-                    source TEXT NOT NULL CHECK (source IN ('internal', 'external')),
+                    source TEXT NOT NULL CHECK (source IN ('slates', 'local')),
                     exists_on_disk INTEGER NOT NULL DEFAULT 1,
                     size_bytes INTEGER,
                     last_opened_at INTEGER,
@@ -496,7 +496,87 @@ impl AppStorage {
                     ON transformation_events(file_extension, occurred_at DESC);
                 ",
             )
-            .map_err(|error| format!("Failed to run SQLite migrations: {}", error))
+            .map_err(|error| format!("Failed to run SQLite migrations: {}", error))?;
+
+        self.migrate_source_values()
+    }
+
+    /// One-time migration: renames legacy source values ('external'→'local',
+    /// 'internal'→'slates') and updates the CHECK constraint via the official
+    /// SQLite 12-step table-rebuild procedure.
+    fn migrate_source_values(&self) -> Result<(), String> {
+        let connection = self.open_connection()?;
+
+        // Check whether any legacy rows exist.
+        let needs_migration: bool = connection
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM tracked_files WHERE source IN ('external', 'internal')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+
+        if !needs_migration {
+            return Ok(());
+        }
+
+        // Disable foreign-key enforcement for the duration of the table rebuild.
+        connection
+            .execute("PRAGMA foreign_keys = OFF", [])
+            .map_err(|e| format!("Migration (FK off) failed: {}", e))?;
+
+        let result = connection.execute_batch(
+            "
+            BEGIN;
+
+            CREATE TABLE tracked_files_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                path_key TEXT NOT NULL UNIQUE,
+                path TEXT NOT NULL,
+                file_name TEXT NOT NULL,
+                extension TEXT,
+                source TEXT NOT NULL CHECK (source IN ('slates', 'local')),
+                exists_on_disk INTEGER NOT NULL DEFAULT 1,
+                size_bytes INTEGER,
+                last_opened_at INTEGER,
+                last_saved_at INTEGER,
+                last_seen_at INTEGER,
+                last_modified_at INTEGER,
+                pinned INTEGER NOT NULL DEFAULT 0,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            );
+
+            INSERT INTO tracked_files_new
+            SELECT
+                id, path_key, path, file_name, extension,
+                CASE source
+                    WHEN 'external' THEN 'local'
+                    WHEN 'internal' THEN 'slates'
+                    ELSE source
+                END,
+                exists_on_disk, size_bytes, last_opened_at, last_saved_at,
+                last_seen_at, last_modified_at, pinned, created_at, updated_at
+            FROM tracked_files;
+
+            DROP TABLE tracked_files;
+            ALTER TABLE tracked_files_new RENAME TO tracked_files;
+
+            CREATE INDEX IF NOT EXISTS idx_tracked_files_recent
+                ON tracked_files(last_opened_at DESC, last_saved_at DESC, updated_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_tracked_files_modified
+                ON tracked_files(last_modified_at DESC, updated_at DESC);
+
+            COMMIT;
+            ",
+        );
+
+        // Always re-enable foreign keys before surfacing any error.
+        connection
+            .execute("PRAGMA foreign_keys = ON", [])
+            .map_err(|e| format!("Migration (FK on) failed: {}", e))?;
+
+        result.map_err(|e| format!("Migration (source values) failed: {}", e))
     }
 }
 
