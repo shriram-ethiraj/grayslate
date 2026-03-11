@@ -42,3 +42,8 @@ objc2-quartz-core = { version = "0.3", features = ["CALayer"] }
 tauri-plugin-window-state = "2"
 tauri-plugin-updater = "2"
 
+[profile.release]
+lto = true
+codegen-units = 1
+strip = "symbols"
+
