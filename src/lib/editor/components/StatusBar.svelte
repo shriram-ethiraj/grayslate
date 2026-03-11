@@ -12,6 +12,7 @@
     activeLanguage = "text",
     isCsvTableActive = false,
     csvInfo = { rows: 0, cols: 0, delimiter: "", errors: 0 },
+    onGoToLine = () => {},
   } = $props();
 </script>
 
@@ -39,8 +40,10 @@
         <span>Length {documentLength}, Lines {lineCount}</span>
         <span class="text-border/80">|</span>
         <button
-          title="Go to Line"
-          class="hover:bg-muted/50 hover:text-foreground h-full px-1.5 transition-colors cursor-default"
+          type="button"
+          title="Go to line"
+          class="hover:bg-muted/50 hover:text-foreground h-full px-1.5 transition-colors cursor-pointer"
+          onclick={() => onGoToLine()}
         >
           Ln {line}, Col {col}
         </button>

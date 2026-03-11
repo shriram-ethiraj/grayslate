@@ -88,6 +88,42 @@
 
 	onMount(() => {
 		void initPlatformState();
+
+		// Single app-level handler for all editor keyboard shortcuts.
+		// Runs in capture phase so it fires before CodeMirror and the browser default.
+		// We call preventDefault() to suppress browser/OS defaults (native find bar,
+		// find-next, etc.) but deliberately skip stopPropagation() so CodeMirror's own
+		// keymap still runs when the editor is focused — routing is idempotent.
+		function handleGlobalShortcuts(event: KeyboardEvent): void {
+			const mod = event.metaKey || event.ctrlKey;
+			if (!mod) return;
+
+			const tableActive = editorState.csv.showTable;
+
+			if (event.key === "f" && !event.altKey) {
+				// Cmd/Ctrl+F — open find panel
+				event.preventDefault();
+				if (!tableActive) {
+					editorState.findReplace.visible = true;
+					editorState.findReplace.replaceMode = false;
+				}
+			} else if (event.key === "f" && event.altKey) {
+				// Cmd/Ctrl+Alt+F — open find & replace panel
+				event.preventDefault();
+				if (!tableActive) {
+					editorState.findReplace.visible = true;
+					editorState.findReplace.replaceMode = true;
+				}
+			} else if (event.key === "g") {
+				// Cmd/Ctrl+G — go to line
+				event.preventDefault();
+				if (!tableActive) {
+					editorState.goToLine.requestOpen?.();
+				}
+			}
+		}
+		window.addEventListener("keydown", handleGlobalShortcuts, { capture: true });
+		return () => window.removeEventListener("keydown", handleGlobalShortcuts, { capture: true });
 	});
 </script>
 

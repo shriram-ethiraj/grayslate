@@ -321,6 +321,31 @@ export const editorFindPrevious = (v: EditorView | undefined, f = true) => withV
 export const editorReplaceNext = (v: EditorView | undefined, f = true) => withView(v, replaceNext, f);
 export const editorReplaceAll = (v: EditorView | undefined, f = true) => withView(v, replaceAll, f);
 
+export function editorGoToLine(
+    view: EditorView | undefined,
+    lineNumber: number,
+    focusView: boolean = true,
+): boolean {
+    if (!view || !Number.isFinite(lineNumber)) {
+        return false;
+    }
+
+    const targetLine = Math.max(1, Math.min(view.state.doc.lines, Math.trunc(lineNumber)));
+    const lineInfo = view.state.doc.line(targetLine);
+
+    view.dispatch({
+        selection: { anchor: lineInfo.from },
+        scrollIntoView: true,
+        userEvent: "select.goToLine",
+    });
+
+    if (focusView) {
+        view.focus();
+    }
+
+    return true;
+}
+
 export function editorSetSearchQuery(
     view: EditorView | undefined,
     search: string,

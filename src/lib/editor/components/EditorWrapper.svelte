@@ -4,6 +4,7 @@
   import CsvTableView from "./csv/CsvTableView.svelte";
   import StatusBar from "$lib/editor/components/StatusBar.svelte";
   import EditorLoader from "$lib/editor/components/EditorLoader.svelte";
+  import GoToLineDialog from "$lib/editor/components/GoToLineDialog.svelte";
   import {
     ResizablePaneGroup,
     ResizablePane,
@@ -47,6 +48,7 @@
   import { requestFileOpenReclaim } from "$lib/editor/core/memory";
   import { clearSearchStatsCache } from "$lib/editor/core/actions";
   import { clearColorCache } from "$lib/editor/extensions/colorHints";
+  import { registerHotkey } from "$lib/hotkeys";
   import {
     librarySidebarState,
     clearPendingSidebarOpenFile,
@@ -83,6 +85,7 @@
   let selectionSize = $state(0);
   let language = $state("auto");
   let detectedLanguage = $state("text");
+  let goToLineOpen = $state(false);
 
   function countDocumentLines(text: string): number {
     if (text.length === 0) {
@@ -185,7 +188,6 @@
   let activeLanguage = $derived(
     language === "auto" ? detectedLanguage : language,
   );
-
   let activeDocument = $state.raw<ActiveDocument>(createUntitledDocument());
   let activeFilePath = $derived(getDocumentKey(activeDocument));
   let isDirty = $derived(value !== activeDocument.lastSavedValue);
@@ -370,6 +372,14 @@
         await new Promise<void>((resolve) => setTimeout(resolve, 0));
       }
     }
+  }
+
+  function openGoToLineDialog(): void {
+    if (isCsvTableActive || !editorView) {
+      return;
+    }
+
+    goToLineOpen = true;
   }
 
   function handleCsvMirrorReset(baseText: string): void {
@@ -819,6 +829,32 @@
   }
 
   $effect(() => {
+    return registerHotkey(
+      "Mod+G",
+      (event) => {
+        if (isCsvTableActive || !editorView) {
+          return;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+        openGoToLineDialog();
+      },
+      { ignoreInputs: false },
+    );
+  });
+
+  $effect(() => {
+    editorState.goToLine.requestOpen = openGoToLineDialog;
+
+    return () => {
+      if (editorState.goToLine.requestOpen === openGoToLineDialog) {
+        editorState.goToLine.requestOpen = undefined;
+      }
+    };
+  });
+
+  $effect(() => {
     editorState.csv.requestShowTable = requestCsvTableMode;
 
     return () => {
@@ -830,6 +866,9 @@
       (activeDocument as Record<string, unknown>).lastSavedValue = "";
       value = "";
       disposeManagedEditorSession(editorSession);
+      if (editorState.goToLine.requestOpen === openGoToLineDialog) {
+        editorState.goToLine.requestOpen = undefined;
+      }
       if (editorState.csv.requestShowTable === requestCsvTableMode) {
         editorState.csv.requestShowTable = undefined;
       }
@@ -838,6 +877,8 @@
 </script>
 
 <div class="flex flex-1 flex-col min-h-0 min-w-0">
+  <GoToLineDialog bind:open={goToLineOpen} {editorView} {line} {lineCount} />
+
   <div class="flex flex-1 min-h-0 min-w-0 relative">
     <EditorLoader
       visible={editorState.loader.visible}
@@ -863,6 +904,8 @@
             {#key activeFilePath}
               <Editor
                 bind:value
+                bind:documentLength
+                bind:lineCount
                 bind:line
                 bind:col
                 bind:selectionSize
@@ -890,6 +933,8 @@
               {#key activeFilePath}
                 <Editor
                   bind:value
+                  bind:documentLength
+                  bind:lineCount
                   bind:line
                   bind:col
                   bind:selectionSize
@@ -954,6 +999,7 @@
     {activeLanguage}
     {isCsvTableActive}
     {csvInfo}
+    onGoToLine={openGoToLineDialog}
   />
 </div>
 

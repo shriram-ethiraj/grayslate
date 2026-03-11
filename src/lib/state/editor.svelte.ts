@@ -66,6 +66,9 @@ export const editorState = $state<{
         matchCount: number;
         currentMatch: number;
     };
+    goToLine: {
+        requestOpen?: () => void;
+    };
 }>({
     activeSurface: undefined,
     isUntitledDocument: true,
@@ -98,6 +101,9 @@ export const editorState = $state<{
         replaceText: "",
         matchCount: 0,
         currentMatch: 0,
+    },
+    goToLine: {
+        requestOpen: undefined,
     },
 });
 

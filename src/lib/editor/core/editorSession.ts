@@ -136,6 +136,14 @@ function createSearchKeymap() {
         { key: "Mod-y", run: redo, preventDefault: true },
         { key: "Mod-Shift-z", run: redo, preventDefault: true },
         {
+            key: "Mod-g",
+            run: () => {
+                editorState.goToLine.requestOpen?.();
+                return true;
+            },
+            preventDefault: true,
+        },
+        {
             key: "Mod-f",
             run: (targetView) => {
                 editorState.findReplace.visible = true;
