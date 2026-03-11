@@ -25,6 +25,24 @@
         searchSidebarFiles,
         type SidebarSearchResult,
     } from "$lib/files/recentFiles";
+    import {
+        buildRecencySections,
+        compareRecentFiles,
+        compareSearchResults,
+        DEFAULT_FILTER_MODE,
+        DEFAULT_SORT_MODE,
+        formatSize,
+        formatTimestamp,
+        getDirectoryLabel,
+        getRecencyTimestamp,
+        RECENT_FILES_LIMIT,
+        recencySectionOrder,
+        type FilterMode,
+        type LibraryFileRecord,
+        type RecencyBucket,
+        type RecentFileSection,
+        type SortMode,
+    } from "$lib/files/sidebarUtils";
     import Search from "~icons/lucide/search";
     import RefreshCcw from "~icons/lucide/refresh-ccw";
     import Files from "~icons/lucide/files";
@@ -38,53 +56,62 @@
     import ExternalLink from "~icons/lucide/external-link";
     import FileWarning from "~icons/lucide/file-warning";
 
-    type FilterMode = "unified" | RecentFileSource;
-    type SortMode =
-        | "recently-opened"
-        | "least-recently-opened"
-        | "name-asc"
-        | "name-desc"
-        | "size-desc"
-        | "size-asc";
-    type RecencyBucket = "today" | "this-week" | "older";
-    type LibraryFileRecord = RecentFileRecord | SidebarSearchResult;
+    // ---------------------------------------------------------------------------
+    // Module-level constants (rendering only — types/sort/format live in sidebarUtils.ts)
+    // ---------------------------------------------------------------------------
 
-    interface RecentFileSection {
-        key: RecencyBucket | "all";
-        label: string;
-        items: LibraryFileRecord[];
-    }
-
-    const RECENT_FILES_LIMIT = 120;
-    const DEFAULT_FILTER_MODE: FilterMode = "unified";
-    const DEFAULT_SORT_MODE: SortMode = "recently-opened";
-    const textCollator = new Intl.Collator(undefined, {
-        numeric: true,
-        sensitivity: "base",
-    });
     const languageMetaByValue = new Map(languages.map((language) => [language.value, language] as const));
-    const recencySectionOrder: Record<Extract<SortMode, "recently-opened" | "least-recently-opened">, RecencyBucket[]> = {
-        "recently-opened": ["today", "this-week", "older"],
-        "least-recently-opened": ["older", "this-week", "today"],
-    };
-    const recencySectionLabels: Record<RecencyBucket, string> = {
-        today: "Today",
-        "this-week": "This week",
-        older: "Older",
-    };
+
+    // ---------------------------------------------------------------------------
+    // Component state
+    // ---------------------------------------------------------------------------
 
     let query = $state("");
     let filterMode = $state<FilterMode>(DEFAULT_FILTER_MODE);
     let sortMode = $state<SortMode>(DEFAULT_SORT_MODE);
+
+    // `recentFiles` is the list currently shown. `stagedRecentFiles` holds a
+    // fresh fetch that arrived while the list was frozen (suppressReorder=true);
+    // it is promoted to `recentFiles` on the next explicit user action.
     let recentFiles = $state<RecentFileRecord[]>([]);
+    let stagedRecentFiles = $state<RecentFileRecord[] | undefined>(undefined);
+
     let searchResults = $state<SidebarSearchResult[]>([]);
     let isLoading = $state(false);
     let isSearchLoading = $state(false);
     let loadError = $state("");
+
+    // When true, incoming RECENT_FILES_UPDATED_EVENT updates are staged instead
+    // of applied immediately, preserving the current visual order. Set when the
+    // user opens a file from the sidebar; cleared on any explicit user action
+    // (tab change, sort change, refresh, or opening a file from outside).
+    let suppressReorder = $state(false);
+    // The path of the last file opened via the sidebar, used to decide whether
+    // to keep suppressReorder active when the editor navigation event fires.
+    let lastSidebarOpenedPath = $state<string | undefined>(undefined);
+
+    // Incrementing version counters for in-flight async requests; a stale
+    // response whose version doesn't match the current one is discarded.
     let recentFilesRequestVersion = 0;
     let searchRequestVersion = 0;
+
+    // DOM refs
     let searchInput = $state<HTMLInputElement | null>(null);
+    let resultsScrollContainer = $state<HTMLDivElement | null>(null);
+    // Incrementing counter: bump to request focus of the search input.
     let focusSearchRequest = $state(0);
+
+    // Previous values used to detect *changes* in effects without triggering
+    // on the initial run. Initialized to the current values so the first pass
+    // is always a no-op.
+    let lastObservedEditorPath: string | undefined = editorState.currentFilePath;
+    let lastObservedUntitledState = editorState.isUntitledDocument;
+    let lastObservedFilterMode: FilterMode = DEFAULT_FILTER_MODE;
+    let lastObservedSortMode: SortMode = DEFAULT_SORT_MODE;
+
+    // ---------------------------------------------------------------------------
+    // Derived state
+    // ---------------------------------------------------------------------------
 
     const sidebar = Sidebar.useSidebar();
 
@@ -92,13 +119,15 @@
     const pendingOpenFile = $derived(librarySidebarState.pendingOpenFile);
 
     const visibleRecentFiles = $derived.by(() => {
-        const filteredRecentFiles = recentFiles.filter((recentFile) => {
-            if (filterMode !== "unified" && recentFile.source !== filterMode) {
-                return false;
-            }
+        const filteredRecentFiles = recentFiles.filter((recentFile) =>
+            filterMode === "unified" || recentFile.source === filterMode
+        );
 
-            return true;
-        });
+        // Skip re-sorting while the list is frozen so the order doesn't jump
+        // mid-session when the user has just opened a file.
+        if (suppressReorder && normalizedQuery.length === 0) {
+            return filteredRecentFiles;
+        }
 
         filteredRecentFiles.sort((left, right) => compareRecentFiles(left, right, sortMode));
         return filteredRecentFiles;
@@ -125,6 +154,10 @@
 
         return buildRecencySections(activeResults, sortMode);
     });
+
+    // ---------------------------------------------------------------------------
+    // Static option lists (defined here because they reference icon components)
+    // ---------------------------------------------------------------------------
 
     const filterOptions: Array<{
         value: FilterMode;
@@ -169,61 +202,9 @@
         sortOptions.find((option) => option.value === sortMode) ?? sortOptions[0],
     );
 
-    const relativeTimeFormatter = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
-
-    function formatTimestamp(value: number | null): string {
-        if (!value) {
-            return "Unknown";
-        }
-
-        const deltaMs = value - Date.now();
-        const deltaMinutes = Math.round(deltaMs / 60_000);
-
-        if (Math.abs(deltaMinutes) < 60) {
-            return relativeTimeFormatter.format(deltaMinutes, "minute");
-        }
-
-        const deltaHours = Math.round(deltaMinutes / 60);
-        if (Math.abs(deltaHours) < 48) {
-            return relativeTimeFormatter.format(deltaHours, "hour");
-        }
-
-        const deltaDays = Math.round(deltaHours / 24);
-        if (Math.abs(deltaDays) < 30) {
-            return relativeTimeFormatter.format(deltaDays, "day");
-        }
-
-        const deltaMonths = Math.round(deltaDays / 30);
-        if (Math.abs(deltaMonths) < 12) {
-            return relativeTimeFormatter.format(deltaMonths, "month");
-        }
-
-        return relativeTimeFormatter.format(Math.round(deltaMonths / 12), "year");
-    }
-
-    function formatSize(value: number | null): string {
-        if (!value || value <= 0) {
-            return "";
-        }
-
-        const units = ["B", "KB", "MB", "GB"];
-        let size = value;
-        let unitIndex = 0;
-
-        while (size >= 1024 && unitIndex < units.length - 1) {
-            size /= 1024;
-            unitIndex += 1;
-        }
-
-        const rounded = size >= 10 || unitIndex === 0 ? Math.round(size) : Number(size.toFixed(1));
-        return `${rounded} ${units[unitIndex]}`;
-    }
-
-    function getDirectoryLabel(path: string): string {
-        const normalized = path.replace(/\\/g, "/");
-        const lastSlash = normalized.lastIndexOf("/");
-        return lastSlash === -1 ? path : normalized.slice(0, lastSlash);
-    }
+    // ---------------------------------------------------------------------------
+    // Language / display helpers (depend on languageMetaByValue, stay here)
+    // ---------------------------------------------------------------------------
 
     function getRecentFileTypeToken(recentFile: LibraryFileRecord): string {
         const normalizedExtension = recentFile.extension?.replace(/^\./, "").trim().toUpperCase();
@@ -252,175 +233,31 @@
             ?? null;
     }
 
-    function getRecencyTimestamp(recentFile: LibraryFileRecord): number | null {
-        return recentFile.last_opened_at
-            ?? recentFile.last_saved_at
-            ?? recentFile.last_seen_at;
+    // ---------------------------------------------------------------------------
+    // Reorder suppression
+    // ---------------------------------------------------------------------------
+
+    function clearReorderSuppression(): void {
+        suppressReorder = false;
+        lastSidebarOpenedPath = undefined;
     }
 
-    function getRecencyBucket(timestamp: number | null): RecencyBucket {
-        if (!timestamp) {
-            return "older";
-        }
+    // ---------------------------------------------------------------------------
+    // Data fetching
+    // ---------------------------------------------------------------------------
 
-        const startOfToday = new Date();
-        startOfToday.setHours(0, 0, 0, 0);
-
-        if (timestamp >= startOfToday.getTime()) {
-            return "today";
-        }
-
-        const startOfThisWeek = startOfToday.getTime() - (6 * 24 * 60 * 60 * 1000);
-        return timestamp >= startOfThisWeek ? "this-week" : "older";
-    }
-
-    function buildRecencySections(
-        files: LibraryFileRecord[],
-        sortOrder: Extract<SortMode, "recently-opened" | "least-recently-opened">,
-    ): RecentFileSection[] {
-        const sectionItems: Record<RecencyBucket, RecentFileRecord[]> = {
-            today: [],
-            "this-week": [],
-            older: [],
-        };
-
-        for (const recentFile of files) {
-            sectionItems[getRecencyBucket(getRecencyTimestamp(recentFile))].push(recentFile);
-        }
-
-        return recencySectionOrder[sortOrder]
-            .map((bucket) => ({
-                key: bucket,
-                label: recencySectionLabels[bucket],
-                items: sectionItems[bucket],
-            }))
-            .filter((section) => section.items.length > 0);
-    }
-
-    function compareNumbers(left: number | null, right: number | null): number {
-        if (left === right) {
-            return 0;
-        }
-
-        if (left === null) {
-            return 1;
-        }
-
-        if (right === null) {
-            return -1;
-        }
-
-        return left - right;
-    }
-
-    function compareText(left: string | null | undefined, right: string | null | undefined): number {
-        if (left === right) {
-            return 0;
-        }
-
-        if (!left) {
-            return 1;
-        }
-
-        if (!right) {
-            return -1;
-        }
-
-        return textCollator.compare(left, right);
-    }
-
-    function getSourceLabel(source: RecentFileSource): string {
-        return source === "internal" ? "Slate" : "External";
-    }
-
-    function getPrimaryTimestamp(recentFile: LibraryFileRecord): number | null {
-        return recentFile.last_opened_at
-            ?? recentFile.last_saved_at
-            ?? recentFile.last_modified_at
-            ?? recentFile.last_seen_at;
-    }
-
-    function compareSearchResults(
-        left: SidebarSearchResult,
-        right: SidebarSearchResult,
-        sortOrder: SortMode,
-    ): number {
-        // Score always dominates; sortOrder is a tiebreaker only.
-        const byScore = right.final_score - left.final_score;
-        if (byScore !== 0) {
-            return byScore;
-        }
-        return compareRecentFiles(left, right, sortOrder);
-    }
-
-    function compareRecentFiles(
-        left: RecentFileRecord,
-        right: RecentFileRecord,
-        sortOrder: SortMode,
-    ): number {
-        switch (sortOrder) {
-            case "recently-opened": {
-                const byTimestamp = compareNumbers(
-                    getRecencyTimestamp(right),
-                    getRecencyTimestamp(left),
-                );
-                if (byTimestamp !== 0) {
-                    return byTimestamp;
-                }
-                break;
-            }
-            case "least-recently-opened": {
-                const byTimestamp = compareNumbers(
-                    getRecencyTimestamp(left),
-                    getRecencyTimestamp(right),
-                );
-                if (byTimestamp !== 0) {
-                    return byTimestamp;
-                }
-                break;
-            }
-            case "name-asc": {
-                const byName = compareText(left.file_name, right.file_name);
-                if (byName !== 0) {
-                    return byName;
-                }
-                break;
-            }
-            case "name-desc": {
-                const byName = compareText(right.file_name, left.file_name);
-                if (byName !== 0) {
-                    return byName;
-                }
-                break;
-            }
-            case "size-desc": {
-                const bySize = compareNumbers(right.size_bytes, left.size_bytes);
-                if (bySize !== 0) {
-                    return bySize;
-                }
-                break;
-            }
-            case "size-asc": {
-                const bySize = compareNumbers(left.size_bytes, right.size_bytes);
-                if (bySize !== 0) {
-                    return bySize;
-                }
-                break;
-            }
-        }
-
-        const byName = compareText(left.file_name, right.file_name);
-        if (byName !== 0) {
-            return byName;
-        }
-
-        return compareText(left.path, right.path);
-    }
-
-    async function refreshRecentFiles(): Promise<void> {
+    async function fetchRecentFiles(options?: {
+        applyToVisibleList?: boolean;
+        showLoading?: boolean;
+    }): Promise<void> {
+        const applyToVisibleList = options?.applyToVisibleList ?? true;
+        const showLoading = options?.showLoading ?? true;
         const currentVersion = ++recentFilesRequestVersion;
-        isLoading = true;
-        if (normalizedQuery.length === 0) {
+        if (showLoading) {
+            isLoading = true;
+        }
+
+        if (showLoading && normalizedQuery.length === 0) {
             loadError = "";
         }
 
@@ -430,22 +267,41 @@
                 return;
             }
 
-            recentFiles = result;
+            if (applyToVisibleList) {
+                recentFiles = result;
+                stagedRecentFiles = undefined;
+            } else {
+                stagedRecentFiles = result;
+            }
         } catch (error: unknown) {
             if (currentVersion !== recentFilesRequestVersion) {
                 return;
             }
 
-            if (normalizedQuery.length === 0) {
+            if (showLoading && normalizedQuery.length === 0) {
                 loadError = typeof error === "string"
                     ? error
                     : "Failed to load recent files.";
             }
         } finally {
-            if (currentVersion === recentFilesRequestVersion) {
+            if (showLoading && currentVersion === recentFilesRequestVersion) {
                 isLoading = false;
             }
         }
+    }
+
+    async function refreshRecentFiles(): Promise<void> {
+        await fetchRecentFiles({
+            applyToVisibleList: true,
+            showLoading: true,
+        });
+    }
+
+    async function stageRecentFilesUpdate(): Promise<void> {
+        await fetchRecentFiles({
+            applyToVisibleList: false,
+            showLoading: false,
+        });
     }
 
     async function refreshSearchResults(): Promise<void> {
@@ -482,7 +338,16 @@
         }
     }
 
+    // ---------------------------------------------------------------------------
+    // UI actions
+    // ---------------------------------------------------------------------------
+
     async function openRecentFile(path: string, source: RecentFileSource): Promise<void> {
+        // Freeze the list order so opening a file doesn't immediately re-sort
+        // the sidebar, which would be jarring for sequential file navigation.
+        suppressReorder = true;
+        lastSidebarOpenedPath = path;
+
         const requestId = Date.now();
         setPendingSidebarOpenFile({
             path,
@@ -492,13 +357,22 @@
         });
 
         const { emit } = await import("@tauri-apps/api/event");
-        await emit(OPEN_FILE_PATH_EVENT, {
-            path,
-        } satisfies OpenFilePathPayload);
+        await emit(OPEN_FILE_PATH_EVENT, { path } satisfies OpenFilePathPayload);
     }
 
     function requestSearchFocus(): void {
         focusSearchRequest += 1;
+    }
+
+    function scrollResultsToTop(): void {
+        if (!resultsScrollContainer) {
+            return;
+        }
+
+        resultsScrollContainer.scrollTo({
+            top: 0,
+            behavior: "auto",
+        });
     }
 
     function activateLibrarySearch(): void {
@@ -513,10 +387,16 @@
         requestSearchFocus();
     }
 
+    // ---------------------------------------------------------------------------
+    // Effects
+    // ---------------------------------------------------------------------------
+
     $effect(() => {
         void refreshRecentFiles();
     });
 
+    // Debounced search: clears results immediately when query is empty,
+    // otherwise waits 120 ms after the last keystroke before firing.
     $effect(() => {
         normalizedQuery;
         filterMode;
@@ -549,9 +429,35 @@
             return;
         }
 
+        clearReorderSuppression();
         filterMode = pending.source;
         if (query.length > 0) {
             query = "";
+        }
+    });
+
+    $effect(() => {
+        const currentFilePath = editorState.currentFilePath;
+        const isUntitledDocument = editorState.isUntitledDocument;
+        const pending = pendingOpenFile;
+
+        const editorLocationChanged = currentFilePath !== lastObservedEditorPath
+            || isUntitledDocument !== lastObservedUntitledState;
+
+        lastObservedEditorPath = currentFilePath;
+        lastObservedUntitledState = isUntitledDocument;
+
+        if (!editorLocationChanged || pending) {
+            return;
+        }
+
+        // File was opened from the sidebar — keep the list frozen until a user action.
+        if (suppressReorder && currentFilePath && currentFilePath === lastSidebarOpenedPath) {
+            return;
+        }
+
+        if (suppressReorder || currentFilePath || isUntitledDocument) {
+            clearReorderSuppression();
         }
     });
 
@@ -581,6 +487,35 @@
     });
 
     $effect(() => {
+        const nextFilterMode = filterMode;
+        const nextSortMode = sortMode;
+
+        const filterChanged = nextFilterMode !== lastObservedFilterMode;
+        const sortChanged = nextSortMode !== lastObservedSortMode;
+
+        lastObservedFilterMode = nextFilterMode;
+        lastObservedSortMode = nextSortMode;
+
+        if (!filterChanged && !sortChanged) {
+            return;
+        }
+
+        clearReorderSuppression();
+        scrollResultsToTop();
+
+        if (normalizedQuery.length > 0) {
+            void refreshSearchResults();
+            return;
+        }
+
+        // Apply any staged data that arrived while the list was frozen.
+        if (filterChanged && stagedRecentFiles) {
+            recentFiles = stagedRecentFiles;
+            stagedRecentFiles = undefined;
+        }
+    });
+
+    $effect(() => {
         return registerHotkey("Mod+P", (event) => {
             event.preventDefault();
             activateLibrarySearch();
@@ -593,9 +528,16 @@
 
         const setup = import("@tauri-apps/api/event").then(async ({ listen }) => {
             unlistenRecentFiles = await listen(RECENT_FILES_UPDATED_EVENT, () => {
-                if (!disposed) {
-                    void refreshRecentFiles();
+                if (disposed) {
+                    return;
                 }
+
+                if (pendingOpenFile || suppressReorder) {
+                    void stageRecentFilesUpdate();
+                    return;
+                }
+
+                void refreshRecentFiles();
             });
         });
 
@@ -619,6 +561,7 @@
                 aria-label="Refresh recent files"
                 title="Refresh recent files"
                 onclick={() => {
+                    clearReorderSuppression();
                     if (normalizedQuery.length > 0) {
                         void refreshSearchResults();
                     } else {
@@ -684,7 +627,7 @@
         </Tabs.Root>
     </Sidebar.Group>
 
-    <div class="flex-1 min-h-0 overflow-auto p-2">
+    <div bind:this={resultsScrollContainer} class="flex-1 min-h-0 overflow-auto p-2">
         <Sidebar.Group class="gap-2 p-0">
             {#if loadError}
                 <div class="rounded-lg border border-destructive/30 bg-destructive/8 px-3 py-2 text-sm text-destructive">
