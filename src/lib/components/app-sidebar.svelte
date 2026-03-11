@@ -608,7 +608,7 @@
 
         <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 px-1">
             <div class="relative min-w-0">
-                <Search class="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-sidebar-foreground/50" />
+                <Search class="pointer-events-none absolute left-4 top-1/2 z-10 size-4 -translate-y-1/2 text-sidebar-foreground" />
                 <Input
                     bind:ref={searchInput}
                     bind:value={query}
