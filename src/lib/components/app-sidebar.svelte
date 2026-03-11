@@ -56,7 +56,7 @@
     import ArrowUpZA from "~icons/lucide/arrow-up-z-a";
     import ArrowDownWideNarrow from "~icons/lucide/arrow-down-wide-narrow";
     import ArrowUpNarrowWide from "~icons/lucide/arrow-up-narrow-wide";
-    import NotebookText from "~icons/lucide/notebook-text";
+    import RiCodeBoxLine from '~icons/ri/code-box-line';
     import FolderOpen from "~icons/lucide/folder-open";
     import Copy from "~icons/lucide/copy";
     import LucideHardDrive from '~icons/lucide/hard-drive';
@@ -182,7 +182,7 @@
             value: "slates",
             label: "Slates",
             title: "Show Grayslate documents only",
-            icon: NotebookText,
+            icon: RiCodeBoxLine,
         },
         {
             value: "local",

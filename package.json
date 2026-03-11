@@ -40,6 +40,7 @@
     "@codemirror/view": "^6.39.15",
     "@iconify-json/codicon": "^1.2.47",
     "@iconify-json/lucide": "^1.2.95",
+    "@iconify-json/ri": "^1.2.10",
     "@iconify-json/simple-icons": "^1.2.72",
     "@iconify/iconify": "^3.1.1",
     "@nextjournal/lang-clojure": "^1.0.0",
