@@ -1,9 +1,13 @@
 <script lang="ts">
     import { tick } from "svelte";
+    import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+    import { revealItemInDir } from "@tauri-apps/plugin-opener";
+    import { toast } from "svelte-sonner";
     import { registerHotkey } from "$lib/hotkeys";
     import type { LanguageIcon } from "$lib/editor/config/supportedLanguages";
     import { languages } from "$lib/editor/config/supportedLanguages";
     import { languageDetector } from "$lib/editor/core/languageDetector";
+    import * as ContextMenu from "$lib/components/ui/context-menu/index.js";
     import * as Sidebar from "$lib/components/ui/sidebar/index.js";
     import * as Item from "$lib/components/ui/item/index.js";
     import * as Select from "$lib/components/ui/select/index.js";
@@ -53,8 +57,11 @@
     import ArrowDownWideNarrow from "~icons/lucide/arrow-down-wide-narrow";
     import ArrowUpNarrowWide from "~icons/lucide/arrow-up-narrow-wide";
     import NotebookText from "~icons/lucide/notebook-text";
+    import FolderOpen from "~icons/lucide/folder-open";
+    import Copy from "~icons/lucide/copy";
     import LucideHardDrive from '~icons/lucide/hard-drive';
     import FileWarning from "~icons/lucide/file-warning";
+    import { getPlatformOsType } from "$lib/state/platform.svelte";
 
     // ---------------------------------------------------------------------------
     // Module-level constants (rendering only — types/sort/format live in sidebarUtils.ts)
@@ -358,6 +365,33 @@
 
         const { emit } = await import("@tauri-apps/api/event");
         await emit(OPEN_FILE_PATH_EVENT, { path } satisfies OpenFilePathPayload);
+    }
+
+    function getRevealInFileManagerLabel(): string {
+        switch (getPlatformOsType()) {
+            case "macos":
+                return "Show in Finder";
+            case "linux":
+                return "Show in File Manager";
+            default:
+                return "Show in Explorer";
+        }
+    }
+
+    async function handleCopyRecentFilePath(path: string): Promise<void> {
+        try {
+            await writeText(path);
+        } catch {
+            toast.error("Failed to copy path");
+        }
+    }
+
+    async function handleRevealRecentFile(path: string): Promise<void> {
+        try {
+            await revealItemInDir(path);
+        } catch {
+            toast.error("Failed to open containing folder");
+        }
     }
 
     function requestSearchFocus(): void {
@@ -682,68 +716,102 @@
                                     {@const isActiveFile = pendingOpenFile
                                         ? isPendingFile
                                         : (!!editorState.currentFilePath && editorState.currentFilePath === recentFile.path)}
-                                    <Item.Root
-                                        variant="outline"
-                                        size="sm"
-                                        class="border-0 p-0 shadow-none [transform:translateZ(0)] {isActiveFile ? 'ring-1 ring-inset ring-sidebar-ring bg-sidebar-foreground/[0.03]' : 'ring-1 ring-inset ring-sidebar-border/65 bg-sidebar/35'}"
-                                    >
-                                        <div class="w-full overflow-hidden rounded-[inherit]">
-                                            <button
-                                                type="button"
-                                                class="group flex w-full min-w-0 items-start gap-3 px-3.5 py-3 text-left outline-none transition-colors {isActiveFile ? 'bg-sidebar-foreground/[0.04] text-sidebar-foreground' : 'hover:bg-sidebar-accent/70 hover:text-sidebar-accent-foreground'}"
-                                                title={recentFile.path}
+                                    <ContextMenu.Root>
+                                        <Item.Root
+                                            variant="outline"
+                                            size="sm"
+                                            class="border-0 p-0 shadow-none [transform:translateZ(0)] {isActiveFile ? 'ring-1 ring-inset ring-sidebar-ring bg-sidebar-foreground/[0.03]' : 'ring-1 ring-inset ring-sidebar-border/65 bg-sidebar/35'}"
+                                        >
+                                            <div class="w-full overflow-hidden rounded-[inherit]">
+                                                <ContextMenu.Trigger>
+                                                    {#snippet child({ props })}
+                                                        <button
+                                                            {...props}
+                                                            type="button"
+                                                            class="group flex w-full min-w-0 items-start gap-3 px-3.5 py-3 text-left outline-none transition-colors {isActiveFile ? 'bg-sidebar-foreground/[0.04] text-sidebar-foreground' : 'hover:bg-sidebar-accent/70 hover:text-sidebar-accent-foreground data-[state=open]:bg-sidebar-accent/70 data-[state=open]:text-sidebar-accent-foreground'}"
+                                                            title={recentFile.path}
+                                                            onclick={() => {
+                                                                void openRecentFile(recentFile.path, recentFile.source);
+                                                            }}
+                                                        >
+                                                            <Item.Media
+                                                                variant="icon"
+                                                                class="mt-0.5 {isActiveFile ? 'border-sidebar-ring/40 bg-sidebar-foreground/[0.04] text-sidebar-foreground' : 'border-sidebar-border/70 bg-sidebar-accent/45 text-sidebar-foreground/80 group-hover:border-sidebar-background/60 group-hover:bg-sidebar/80 group-hover:text-sidebar-accent-foreground group-data-[state=open]:border-sidebar-background/60 group-data-[state=open]:bg-sidebar/80 group-data-[state=open]:text-sidebar-accent-foreground'}"
+                                                            >
+                                                                {#if FileIcon}
+                                                                    <FileIcon class="size-4.5" />
+                                                                {:else}
+                                                                    <Files class="size-4.5" />
+                                                                {/if}
+                                                            </Item.Media>
+
+                                                            <Item.Content class="min-w-0 gap-2.5">
+                                                                <div class="flex items-start justify-between gap-3">
+                                                                    <div class="min-w-0 flex-1">
+                                                                        <Item.Title class="truncate text-[15px] leading-tight {isActiveFile ? 'text-black dark:text-white' : 'text-sidebar-foreground group-hover:text-sidebar-accent-foreground group-data-[state=open]:text-sidebar-accent-foreground'}">
+                                                                            {recentFile.file_name}
+                                                                        </Item.Title>
+
+                                                                        <Item.Description class="mt-1 truncate text-[11.5px] {isActiveFile ? 'text-black/65 dark:text-white/72' : 'text-sidebar-foreground/62 group-hover:text-sidebar-accent-foreground/74 group-data-[state=open]:text-sidebar-accent-foreground/74'}">
+                                                                            {getDirectoryLabel(recentFile.path)}
+                                                                        </Item.Description>
+                                                                    </div>
+
+                                                                    {#if !recentFile.exists_on_disk}
+                                                                        <Item.Actions class="pt-0.5">
+                                                                            <span class="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-amber-500/25 bg-amber-500/10 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.12em] text-amber-600 dark:text-amber-300">
+                                                                                <FileWarning class="size-3.5" />
+                                                                                Missing
+                                                                            </span>
+                                                                        </Item.Actions>
+                                                                    {/if}
+                                                                </div>
+
+                                                                <div class="flex min-w-0 flex-nowrap items-center gap-2 overflow-hidden text-[11px] {isActiveFile ? 'text-black/70 dark:text-white/74' : 'text-sidebar-foreground/55 group-hover:text-sidebar-accent-foreground/72 group-data-[state=open]:text-sidebar-accent-foreground/72'}">
+                                                                    <span class="truncate whitespace-nowrap font-medium uppercase tracking-[0.12em] {isActiveFile ? 'text-black/80 dark:text-white/88' : 'text-sidebar-foreground/72 group-hover:text-sidebar-accent-foreground/88 group-data-[state=open]:text-sidebar-accent-foreground/88'}">
+                                                                        {getRecentFileTypeToken(recentFile)}
+                                                                    </span>
+                                                                    {#if fileSize}
+                                                                        <span aria-hidden="true" class="shrink-0">•</span>
+                                                                        <span class="truncate whitespace-nowrap">{fileSize}</span>
+                                                                    {/if}
+                                                                    <span aria-hidden="true" class="shrink-0">•</span>
+                                                                    <span class="truncate whitespace-nowrap">{formatTimestamp(getRecencyTimestamp(recentFile))}</span>
+                                                                </div>
+                                                            </Item.Content>
+                                                        </button>
+                                                    {/snippet}
+                                                </ContextMenu.Trigger>
+                                            </div>
+                                        </Item.Root>
+
+                                        <ContextMenu.Content class="border-sidebar-border bg-sidebar text-sidebar-foreground">
+                                            <ContextMenu.Item
                                                 onclick={() => {
                                                     void openRecentFile(recentFile.path, recentFile.source);
                                                 }}
                                             >
-                                                <Item.Media
-                                                    variant="icon"
-                                                    class="mt-0.5 {isActiveFile ? 'border-sidebar-ring/40 bg-sidebar-foreground/[0.04] text-sidebar-foreground' : 'border-sidebar-border/70 bg-sidebar-accent/45 text-sidebar-foreground/80 group-hover:border-sidebar-background/60 group-hover:bg-sidebar/80 group-hover:text-sidebar-accent-foreground'}"
-                                                >
-                                                    {#if FileIcon}
-                                                        <FileIcon class="size-4.5" />
-                                                    {:else}
-                                                        <Files class="size-4.5" />
-                                                    {/if}
-                                                </Item.Media>
-
-                                                <Item.Content class="min-w-0 gap-2.5">
-                                                    <div class="flex items-start justify-between gap-3">
-                                                        <div class="min-w-0 flex-1">
-                                                            <Item.Title class="truncate text-[15px] leading-tight {isActiveFile ? 'text-black dark:text-white' : 'text-sidebar-foreground group-hover:text-sidebar-accent-foreground'}">
-                                                                {recentFile.file_name}
-                                                            </Item.Title>
-
-                                                            <Item.Description class="mt-1 truncate text-[11.5px] {isActiveFile ? 'text-black/65 dark:text-white/72' : 'text-sidebar-foreground/62 group-hover:text-sidebar-accent-foreground/74'}">
-                                                                {getDirectoryLabel(recentFile.path)}
-                                                            </Item.Description>
-                                                        </div>
-
-                                                        {#if !recentFile.exists_on_disk}
-                                                            <Item.Actions class="pt-0.5">
-                                                                <span class="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-amber-500/25 bg-amber-500/10 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.12em] text-amber-600 dark:text-amber-300">
-                                                                    <FileWarning class="size-3.5" />
-                                                                    Missing
-                                                                </span>
-                                                            </Item.Actions>
-                                                        {/if}
-                                                    </div>
-
-                                                    <div class="flex min-w-0 flex-nowrap items-center gap-2 overflow-hidden text-[11px] {isActiveFile ? 'text-black/70 dark:text-white/74' : 'text-sidebar-foreground/55 group-hover:text-sidebar-accent-foreground/72'}">
-                                                        <span class="truncate whitespace-nowrap font-medium uppercase tracking-[0.12em] {isActiveFile ? 'text-black/80 dark:text-white/88' : 'text-sidebar-foreground/72 group-hover:text-sidebar-accent-foreground/88'}">
-                                                            {getRecentFileTypeToken(recentFile)}
-                                                        </span>
-                                                        {#if fileSize}
-                                                            <span aria-hidden="true" class="shrink-0">•</span>
-                                                            <span class="truncate whitespace-nowrap">{fileSize}</span>
-                                                        {/if}
-                                                        <span aria-hidden="true" class="shrink-0">•</span>
-                                                        <span class="truncate whitespace-nowrap">{formatTimestamp(getRecencyTimestamp(recentFile))}</span>
-                                                    </div>
-                                                </Item.Content>
-                                            </button>
-                                        </div>
-                                    </Item.Root>
+                                                <Files class="size-4" />
+                                                <span>Open</span>
+                                            </ContextMenu.Item>
+                                            <ContextMenu.Item
+                                                onclick={() => {
+                                                    void handleRevealRecentFile(recentFile.path);
+                                                }}
+                                            >
+                                                <FolderOpen class="size-4" />
+                                                <span>{getRevealInFileManagerLabel()}</span>
+                                            </ContextMenu.Item>
+                                            <ContextMenu.Item
+                                                onclick={() => {
+                                                    void handleCopyRecentFilePath(recentFile.path);
+                                                }}
+                                            >
+                                                <Copy class="size-4" />
+                                                <span>Copy Path</span>
+                                            </ContextMenu.Item>
+                                        </ContextMenu.Content>
+                                    </ContextMenu.Root>
                                 {/each}
                             </Item.Group>
                         </section>

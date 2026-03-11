@@ -116,10 +116,15 @@ export function formatSize(value: number | null): string {
 }
 
 /** Returns the parent directory portion of a cross-platform file path. */
-export function getDirectoryLabel(path: string): string {
+export function getParentDirectory(path: string): string | null {
     const normalized = path.replace(/\\/g, "/");
     const lastSlash = normalized.lastIndexOf("/");
-    return lastSlash === -1 ? path : normalized.slice(0, lastSlash);
+    return lastSlash === -1 ? null : normalized.slice(0, lastSlash);
+}
+
+/** Returns a directory label for display, falling back to the original path. */
+export function getDirectoryLabel(path: string): string {
+    return getParentDirectory(path) ?? path;
 }
 
 // ---------------------------------------------------------------------------
