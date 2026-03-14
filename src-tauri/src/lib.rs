@@ -13,7 +13,11 @@ pub fn run() {
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_clipboard_manager::init());
+        .plugin(tauri_plugin_clipboard_manager::init())
+        // Block the webview-native Find UI so Cmd/Ctrl+F always stays inside the app.
+        .plugin(tauri_plugin_prevent_default::Builder::new()
+            .with_flags(tauri_plugin_prevent_default::Flags::FIND)
+            .build());
 
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     let builder = builder.plugin(tauri_plugin_window_state::Builder::default().build());
