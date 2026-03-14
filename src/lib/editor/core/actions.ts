@@ -4,197 +4,88 @@ import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { toast } from "svelte-sonner";
 import { findNext, findPrevious, replaceNext, replaceAll, SearchQuery, setSearchQuery, getSearchQuery } from "@codemirror/search";
 import { editorState } from "$lib/state/editor.svelte";
-
-const SEARCH_MATCH_CACHE_LIMIT = 20_000;
-const SEARCH_CHECKPOINT_INTERVAL = 512;
-/** Time budget for search-stats scanning. If exceeded the count is approximate. */
-const MAX_SEARCH_SCAN_MS = 500;
-
-type SearchMatchRange = {
-    from: number;
-    to: number;
-};
-
-type SearchCheckpoint = {
-    from: number;
-    index: number;
-};
-
-type SearchStatsCache = {
-    docLength: number;
-    query: SearchQuery;
-    matchCount: number;
-    matches?: SearchMatchRange[];
-    checkpoints: SearchCheckpoint[];
-    /** True when the scan was cut short by the time budget. */
-    approximate?: boolean;
-};
+import type {
+    FindStatsWorkerRequest,
+    FindStatsWorkerResponse,
+} from "../workers/findStatsProtocol";
 
 type UpdateSearchStatsOptions = {
     docChanged?: boolean;
     forceRescan?: boolean;
 };
 
-let searchStatsCache: SearchStatsCache | undefined;
+type SearchStatsWorkerState = {
+    docLength: number;
+    queryKey: string;
+};
+
+let searchStatsWorker: Worker | undefined;
+let searchStatsWorkerState: SearchStatsWorkerState | undefined;
+let nextSearchStatsRequestId = 0;
+let latestSearchStatsRequestId = 0;
 
 function clearSearchStats(): void {
     editorState.findReplace.matchCount = 0;
     editorState.findReplace.currentMatch = 0;
+    editorState.findReplace.searching = false;
 }
 
 export function clearSearchStatsCache(): void {
-    searchStatsCache = undefined;
+    searchStatsWorkerState = undefined;
+    latestSearchStatsRequestId = 0;
+    editorState.findReplace.searching = false;
+    if (searchStatsWorker) {
+        searchStatsWorker.onmessage = null;
+        searchStatsWorker.terminate();
+        searchStatsWorker = undefined;
+    }
 }
 
-function shouldReuseSearchStatsCache(
-    cache: SearchStatsCache | undefined,
-    view: EditorView,
-    query: SearchQuery,
-    options?: UpdateSearchStatsOptions,
-): cache is SearchStatsCache {
-    if (!cache || options?.forceRescan || options?.docChanged) {
-        return false;
-    }
-
-    return cache.docLength === view.state.doc.length && cache.query.eq(query);
+function buildSearchQueryKey(query: SearchQuery): string {
+    return JSON.stringify({
+        search: query.search,
+        caseSensitive: query.caseSensitive,
+        literal: query.literal,
+        regexp: query.regexp,
+        wholeWord: query.wholeWord,
+    });
 }
 
-function rebuildSearchStatsCache(view: EditorView, query: SearchQuery): SearchStatsCache {
-    let matchCount = 0;
-    const matches: SearchMatchRange[] = [];
-    const checkpoints: SearchCheckpoint[] = [];
-    const scanStart = performance.now();
-    let approximate = false;
+function ensureSearchStatsWorker(): Worker {
+    if (!searchStatsWorker) {
+        searchStatsWorker = new Worker(
+            new URL("../workers/findStats.worker.ts", import.meta.url),
+            { type: "module" },
+        );
+        searchStatsWorker.onmessage = (event: MessageEvent<FindStatsWorkerResponse>) => {
+            const message = event.data;
+            if (message.requestId !== latestSearchStatsRequestId) {
+                return;
+            }
 
-    const cursor = query.getCursor(view.state);
-    let matchItem = cursor.next();
-    while (!matchItem.done) {
-        matchCount += 1;
-        const match = matchItem.value;
+            if (message.type === "error") {
+                editorState.findReplace.searching = false;
+                console.error("Find stats worker error:", message.error);
+                return;
+            }
 
-        if (matches.length < SEARCH_MATCH_CACHE_LIMIT) {
-            matches.push({ from: match.from, to: match.to });
-        }
-
-        if (matchCount === 1 || matchCount % SEARCH_CHECKPOINT_INTERVAL === 0) {
-            checkpoints.push({ from: match.from, index: matchCount });
-        }
-
-        // Safety: abort if the scan has consumed its time budget so the
-        // UI stays responsive on very large documents with common terms.
-        if (matchCount % 1000 === 0 && performance.now() - scanStart > MAX_SEARCH_SCAN_MS) {
-            approximate = true;
-            break;
-        }
-
-        matchItem = cursor.next();
+            editorState.findReplace.matchCount = message.matchCount;
+            editorState.findReplace.currentMatch = message.currentMatch;
+            editorState.findReplace.searching = false;
+        };
     }
 
-    const nextCache: SearchStatsCache = {
-        docLength: view.state.doc.length,
-        query,
-        matchCount,
-        checkpoints,
-        approximate,
-    };
-
-    if (!approximate && matchCount <= SEARCH_MATCH_CACHE_LIMIT) {
-        nextCache.matches = matches;
-    }
-
-    searchStatsCache = nextCache;
-    return nextCache;
+    return searchStatsWorker;
 }
 
-function findFirstMatchAfterSelection(
-    matches: SearchMatchRange[],
-    selectionTo: number,
-): number {
-    let low = 0;
-    let high = matches.length;
-
-    while (low < high) {
-        const mid = Math.floor((low + high) / 2);
-        if (matches[mid].from <= selectionTo) {
-            low = mid + 1;
-        } else {
-            high = mid;
-        }
-    }
-
-    return low;
+function postSearchStatsRequest(request: FindStatsWorkerRequest): void {
+    latestSearchStatsRequestId = request.requestId;
+    ensureSearchStatsWorker().postMessage(request);
 }
 
-function getCurrentMatchFromExactCache(
-    matches: SearchMatchRange[],
-    selectionFrom: number,
-    selectionTo: number,
-): number {
-    if (matches.length === 0) {
-        return 0;
-    }
-
-    const firstAfterIndex = findFirstMatchAfterSelection(matches, selectionTo);
-    const candidateIndex = Math.max(0, firstAfterIndex - 1);
-    const candidate = matches[candidateIndex];
-
-    if (candidate && candidate.from <= selectionTo && candidate.to >= selectionFrom) {
-        return candidateIndex + 1;
-    }
-
-    if (firstAfterIndex < matches.length) {
-        return firstAfterIndex + 1;
-    }
-
-    return 1;
-}
-
-function getCurrentMatchFromCheckpoints(
-    view: EditorView,
-    query: SearchQuery,
-    cache: SearchStatsCache,
-    selectionFrom: number,
-    selectionTo: number,
-): number {
-    if (cache.matchCount === 0) {
-        return 0;
-    }
-
-    let checkpoint: SearchCheckpoint | undefined;
-    let low = 0;
-    let high = cache.checkpoints.length;
-
-    while (low < high) {
-        const mid = Math.floor((low + high) / 2);
-        if (cache.checkpoints[mid].from <= selectionTo) {
-            checkpoint = cache.checkpoints[mid];
-            low = mid + 1;
-        } else {
-            high = mid;
-        }
-    }
-
-    const startFrom = checkpoint?.from ?? 0;
-    let currentIndex = checkpoint ? checkpoint.index - 1 : 0;
-    const cursor = query.getCursor(view.state, startFrom);
-    let matchItem = cursor.next();
-
-    while (!matchItem.done) {
-        currentIndex += 1;
-        const match = matchItem.value;
-
-        if (match.from <= selectionTo && match.to >= selectionFrom) {
-            return currentIndex;
-        }
-
-        if (match.from > selectionTo) {
-            return currentIndex;
-        }
-
-        matchItem = cursor.next();
-    }
-
-    return 1;
+function nextRequestId(): number {
+    nextSearchStatsRequestId += 1;
+    return nextSearchStatsRequestId;
 }
 
 export function editorHasSelection(view: EditorView | undefined) {
@@ -353,12 +244,15 @@ export function editorSetSearchQuery(
     caseSensitive: boolean = false,
 ) {
     if (!view) return;
-    clearSearchStatsCache();
     view.dispatch({
         effects: setSearchQuery.of(
             new SearchQuery({ search, replace, caseSensitive, literal: true })
         )
     });
+    // The CM updateListener only fires syncBindings for selectionSet or
+    // docChanged — a pure search-query effect triggers neither.  Invoke
+    // stats recomputation explicitly so the worker picks up the new query.
+    updateSearchStats(view);
 }
 
 export function updateSearchStats(
@@ -382,21 +276,40 @@ export function updateSearchStats(
     const anchor = view.state.selection.main.anchor;
     const selectionFrom = Math.min(head, anchor);
     const selectionTo = Math.max(head, anchor);
+    const queryKey = buildSearchQueryKey(query);
+    const shouldRescan =
+        options?.forceRescan ||
+        options?.docChanged ||
+        !searchStatsWorkerState ||
+        searchStatsWorkerState.docLength !== view.state.doc.length ||
+        searchStatsWorkerState.queryKey !== queryKey;
 
-    const cache = shouldReuseSearchStatsCache(searchStatsCache, view, query, options)
-        ? searchStatsCache
-        : rebuildSearchStatsCache(view, query);
+    editorState.findReplace.searching = true;
 
-    editorState.findReplace.matchCount = cache.matchCount;
-
-    // When the scan was cut short by the time budget, the match count
-    // is a lower bound and currentMatch positioning would be unreliable
-    // — show 0 so the UI displays "N+" without a misleading position.
-    if (cache.approximate) {
-        editorState.findReplace.currentMatch = 0;
-    } else {
-        editorState.findReplace.currentMatch = cache.matches
-            ? getCurrentMatchFromExactCache(cache.matches, selectionFrom, selectionTo)
-            : getCurrentMatchFromCheckpoints(view, query, cache, selectionFrom, selectionTo);
+    if (shouldRescan) {
+        searchStatsWorkerState = {
+            docLength: view.state.doc.length,
+            queryKey,
+        };
+        postSearchStatsRequest({
+            type: "scan",
+            requestId: nextRequestId(),
+            text: view.state.doc.toString(),
+            search: query.search,
+            caseSensitive: query.caseSensitive,
+            literal: query.literal,
+            regexp: query.regexp,
+            wholeWord: query.wholeWord,
+            selectionFrom,
+            selectionTo,
+        });
+        return;
     }
+
+    postSearchStatsRequest({
+        type: "selection",
+        requestId: nextRequestId(),
+        selectionFrom,
+        selectionTo,
+    });
 }

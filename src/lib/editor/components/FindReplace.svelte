@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { EditorView } from "codemirror";
   import { untrack } from "svelte";
   import {
     closeEditorPopup,
@@ -12,7 +13,6 @@
     editorReplaceNext,
     editorReplaceAll,
     editorSetSearchQuery,
-    updateSearchStats,
   } from "$lib/editor/core/actions";
   import { Button } from "$lib/components/ui/button";
   import { hotkey, registerHotkey } from "$lib/hotkeys";
@@ -28,6 +28,20 @@
 
   let findText = $state("");
   let replaceText = $state("");
+  let openCount = $state(0);
+  let hasResolvedSearch = $state(false);
+
+  // Debounce constant — how long to wait after the last keystroke before
+  // dispatching the CM search query and running the full-document stats scan.
+  const SEARCH_DEBOUNCE_MS = 150;
+  const SEARCH_TEXTAREA_MIN_HEIGHT_PX = 36;
+  const SEARCH_TEXTAREA_DEFAULT_WIDTH_PX = 240;
+  const searchTextareaClass =
+    "border-input bg-background selection:bg-primary dark:bg-input/30 selection:text-primary-foreground ring-offset-background placeholder:text-muted-foreground resize rounded-md border px-3 py-2 text-base shadow-xs transition-[color,box-shadow] outline-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring overflow-auto min-h-[36px] max-h-[200px] min-w-[220px] max-w-[420px]";
+  let searchDebounceTimer: ReturnType<typeof setTimeout> | undefined;
+  let pendingSearchView: EditorView | undefined;
+  let pendingFindText = "";
+  let pendingReplaceText = "";
 
   // Convenience aliases — avoids repeating long chains everywhere
   const fr = $derived(editorState.findReplace);
@@ -79,43 +93,135 @@
   // Auto-size the find textarea on open based on how much text is in it
   function autoResizeFindOnOpen(node: HTMLTextAreaElement | null) {
     if (!node) return;
-    node.style.height = "30px"; // reset to single row to get accurate scrollHeight
+    node.style.height = `${SEARCH_TEXTAREA_MIN_HEIGHT_PX}px`; // reset to single row to get accurate scrollHeight
     const maxH = 200; // matches max-h-[200px]
     node.style.height = `${Math.min(node.scrollHeight + 2, maxH)}px`;
   }
 
-  // Sync global → local when panel first becomes visible
+  function clearPendingSearchTimer() {
+    if (searchDebounceTimer) {
+      clearTimeout(searchDebounceTimer);
+      searchDebounceTimer = undefined;
+    }
+  }
+
+  function applyPendingSearch() {
+    const targetView = pendingSearchView;
+    const nextFindText = pendingFindText;
+    const nextReplaceText = pendingReplaceText;
+    clearPendingSearchTimer();
+    if (!targetView) return;
+    editorSetSearchQuery(targetView, nextFindText, nextReplaceText, false);
+  }
+
+  function flushPendingSearch() {
+    if (!searchDebounceTimer) return;
+    applyPendingSearch();
+  }
+
+  function findPreviousNow() {
+    flushPendingSearch();
+    editorFindPrevious(view, false);
+  }
+
+  function findNextNow() {
+    flushPendingSearch();
+    editorFindNext(view, false);
+  }
+
+  function replaceNextNow() {
+    flushPendingSearch();
+    editorReplaceNext(view, false);
+  }
+
+  function replaceAllNow() {
+    flushPendingSearch();
+    editorReplaceAll(view, false);
+  }
+
+  // Sync global → local and focus when the panel opens or is reopened while already visible.
+  // openCount is tracked only inside the if-block so incrementing it from the open handler
+  // re-runs this effect even when fr.visible was already true.
   $effect(() => {
     if (fr.visible) {
+      openCount; // re-run on every open/reopen, not just when visibility flips
       untrack(() => {
         findText = fr.findText;
         replaceText = fr.replaceText;
       });
-
-      // Focus and select the existing text inside the find box
-      if (findInputRef) {
-        // We use setTimeout so it happens after the DOM has fully rendered
-        setTimeout(() => {
-          autoResizeFindOnOpen(findInputRef);
-          findInputRef?.focus();
-        }, 10);
-      }
+      // rAF fires before the next paint; $effect already runs post-DOM-flush so
+      // findInputRef is bound, but rAF ensures focus happens atomically with rendering.
+      const frameId = requestAnimationFrame(() => {
+        if (!findInputRef) return;
+        autoResizeFindOnOpen(findInputRef);
+        findInputRef.focus();
+        findInputRef.select();
+      });
+      return () => cancelAnimationFrame(frameId);
     }
   });
 
-  // Sync local → global and drive the CodeMirror search query reactively
+  $effect(() => {
+    if (!fr.visible || !findText.length) {
+      hasResolvedSearch = false;
+      return;
+    }
+
+    if (!fr.searching) {
+      hasResolvedSearch = true;
+    }
+  });
+
+  // Sync local → global and drive the CodeMirror search query reactively.
+  // Only the CodeMirror query dispatch is debounced here. Match counting is
+  // handled asynchronously by a dedicated worker from the editor view-update
+  // path, which keeps typing responsive on large documents.
   $effect(() => {
     fr.findText = findText;
     fr.replaceText = replaceText;
 
     if (view && fr.visible) {
-      editorSetSearchQuery(view, findText, replaceText, false);
-      updateSearchStats(view, { forceRescan: true });
+      pendingSearchView = view;
+      pendingFindText = findText;
+      pendingReplaceText = replaceText;
+
+      clearPendingSearchTimer();
+
+      // Empty search: clear immediately — no need to debounce clearing
+      if (!findText) {
+        fr.searching = false;
+        applyPendingSearch();
+        pendingSearchView = undefined;
+        fr.searching = false;
+        return;
+      }
+
+      // Non-empty search: keep showing the previous count until the next worker
+      // result arrives, but mark the state as pending so action handlers can
+      // flush immediately if the user navigates before the debounce fires.
+      fr.searching = true;
+      searchDebounceTimer = setTimeout(() => {
+        applyPendingSearch();
+      }, SEARCH_DEBOUNCE_MS);
+
+      return () => clearPendingSearchTimer();
+    } else {
+      clearPendingSearchTimer();
+      pendingSearchView = undefined;
+      fr.searching = false;
     }
   });
 
   function hide() {
+    clearPendingSearchTimer();
+    pendingSearchView = undefined;
     fr.visible = false;
+    fr.findText = "";
+    findText = "";
+    // Clear the CM search query so match highlights don't linger
+    if (view) {
+      editorSetSearchQuery(view, "", "", false);
+    }
   }
 
   function close() {
@@ -148,6 +254,7 @@
         if (request.id !== "find-replace") return;
         fr.replaceMode = request.replaceMode;
         fr.visible = true;
+        openCount++;
       },
       close: hide,
     });
@@ -163,17 +270,17 @@
 {#if editorState.findReplace.visible}
   <!-- Floating Find & Replace Panel -->
   <div
-    class="absolute top-4 right-8 z-50 flex flex-col gap-2 rounded-md border border-border bg-popover p-2 shadow-md w-fit max-w-[80vw] max-h-[80vh]"
+    class="absolute top-4 right-8 z-50 flex w-fit max-w-[80vw] max-h-[80vh] flex-col gap-2 rounded-md border border-border bg-popover p-3 shadow-md"
     role="dialog"
     aria-label="Find and Replace"
   >
     <div class="flex flex-col gap-2 w-full h-full">
       <!-- Find Row -->
-      <div class="flex items-start gap-1">
+      <div class="flex items-start gap-2">
         <Button
           variant="ghost"
           size="icon"
-          class="h-6 w-6 shrink-0"
+          class="shrink-0"
           onclick={toggleReplaceMode}
           title="Toggle Replace"
         >
@@ -190,12 +297,12 @@
             use:hotkey={[
               {
                 key: "Enter",
-                callback: () => editorFindNext(view, false),
+                callback: findNextNow,
                 options: { ignoreInputs: false },
               },
               {
                 key: "Shift+Enter",
-                callback: () => editorFindPrevious(view, false),
+                callback: findPreviousNow,
                 options: { ignoreInputs: false },
               },
               {
@@ -205,18 +312,18 @@
               },
             ]}
             placeholder="Find"
-            class="min-h-[30px] max-h-[200px] min-w-[160px] max-w-[400px] resize text-xs placeholder:text-muted-foreground/50 border border-input focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring bg-transparent rounded-md py-1.5 px-2 overflow-auto"
-            style="width: 220px"
+            class={searchTextareaClass}
+            style={`width: ${SEARCH_TEXTAREA_DEFAULT_WIDTH_PX}px`}
             spellcheck="false"
             wrap="off"
             rows="1"
           ></textarea>
           {@render resizeGrip()}
         </div>
-        <div class="flex items-center border-l pl-1 ml-1 self-stretch gap-0.5">
+        <div class="ml-1 flex items-center gap-1 self-stretch border-l pl-2">
           {#if findText.length > 0}
             <span
-              class="text-xs text-muted-foreground pointer-events-none whitespace-nowrap px-1 shrink-0"
+              class="text-sm text-muted-foreground pointer-events-none inline-flex shrink-0 items-center justify-center whitespace-nowrap px-1.5 min-w-[5.5rem]"
             >
               {#if fr.matchCount > 0}
                 {#if fr.currentMatch === 0}
@@ -224,7 +331,7 @@
                 {:else}
                   {fr.currentMatch}/{fr.matchCount}
                 {/if}
-              {:else}
+              {:else if hasResolvedSearch}
                 No results
               {/if}
             </span>
@@ -232,8 +339,7 @@
           <Button
             variant="ghost"
             size="icon"
-            class="h-6 w-6"
-            onclick={() => editorFindPrevious(view, false)}
+            onclick={findPreviousNow}
             title="Previous match ({formatForDisplay('Shift+Enter')})"
             disabled={!canNavigate}
           >
@@ -242,8 +348,7 @@
           <Button
             variant="ghost"
             size="icon"
-            class="h-6 w-6"
-            onclick={() => editorFindNext(view, false)}
+            onclick={findNextNow}
             title="Next match ({formatForDisplay('Enter')})"
             disabled={!canNavigate}
           >
@@ -252,7 +357,7 @@
           <Button
             variant="ghost"
             size="icon"
-            class="h-6 w-6 ml-1"
+            class="ml-1"
             onclick={close}
             title="Close ({formatForDisplay('Escape')})"
           >
@@ -263,7 +368,7 @@
 
       <!-- Replace Row -->
       {#if fr.replaceMode}
-        <div class="flex items-start gap-1 pl-7">
+        <div class="flex items-start gap-2 pl-11">
           <div class="relative flex">
             <textarea
               bind:this={replaceTextareaRef}
@@ -271,7 +376,7 @@
               use:hotkey={[
                 {
                   key: "Enter",
-                  callback: () => editorReplaceNext(view, false),
+                  callback: replaceNextNow,
                   options: { ignoreInputs: false },
                 },
                 {
@@ -281,22 +386,19 @@
                 },
               ]}
               placeholder="Replace"
-              class="min-h-[30px] max-h-[200px] min-w-[160px] max-w-[400px] resize text-xs placeholder:text-muted-foreground/50 border border-input focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring bg-transparent rounded-md px-2 py-1.5 overflow-auto"
-              style="width: 220px"
+              class={searchTextareaClass}
+              style={`width: ${SEARCH_TEXTAREA_DEFAULT_WIDTH_PX}px`}
               spellcheck="false"
               wrap="off"
               rows="1"
             ></textarea>
             {@render resizeGrip()}
           </div>
-          <div
-            class="flex items-start border-l pl-1 ml-1 gap-1 pt-1 self-stretch"
-          >
+          <div class="ml-1 flex items-center gap-1 self-stretch border-l pl-2">
             <Button
               variant="ghost"
               size="icon"
-              class="h-6 w-6"
-              onclick={() => editorReplaceNext(view, false)}
+              onclick={replaceNextNow}
               title="Replace currently selected match"
               disabled={!canReplace}
             >
@@ -305,15 +407,14 @@
             <Button
               variant="ghost"
               size="icon"
-              class="h-6 w-6"
-              onclick={() => editorReplaceAll(view, false)}
+              onclick={replaceAllNow}
               title="Replace All matches"
               disabled={!canReplaceAll}
             >
               <CodIconReplaceAll class="h-4 w-4" />
             </Button>
             <!-- Invisible placeholder to match the Find row's Close button width for perfect horizontal alignment -->
-            <div class="h-6 w-6 ml-1 shrink-0"></div>
+            <div class="ml-1 size-9 shrink-0"></div>
           </div>
         </div>
       {/if}

@@ -88,6 +88,7 @@ export const editorState = $state<{
         replaceText: string;
         matchCount: number;
         currentMatch: number;
+        searching: boolean;
     };
     goToLine: {
         requestOpen?: () => boolean;
@@ -127,6 +128,7 @@ export const editorState = $state<{
         replaceText: "",
         matchCount: 0,
         currentMatch: 0,
+        searching: false,
     },
     goToLine: {
         requestOpen: undefined,
@@ -136,11 +138,13 @@ export const editorState = $state<{
 function syncSelectionToFindReplace(): void {
     const view = editorState.activeView;
     if (!view) {
+        editorState.findReplace.findText = "";
         return;
     }
 
     const selection = view.state.selection.main;
     if (selection.empty) {
+        editorState.findReplace.findText = "";
         return;
     }
 

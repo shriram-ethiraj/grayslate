@@ -47,3 +47,39 @@ For the main CodeMirror editor surface in this repo:
 - `contain: strict` and `will-change: transform` are not CodeMirror defaults.
 - Treat them as profiling-sensitive knobs because they can interact badly with WebKitGTK repaint/compositing behavior and make editor rendering harder to reason about.
 - If performance tuning is revisited later, do it from a measured profile and test Linux explicitly with large files and scrollbar dragging.
+
+## Find and replace worker flow
+
+The in-editor find/replace UI is a custom Svelte panel, not CodeMirror's built-in search panel.
+
+### Current split of responsibilities
+
+- `src/lib/editor/components/FindReplace.svelte` owns the popup UI, local input state, debounce timing, and flush-before-navigate / replace behavior.
+- `src/lib/editor/core/actions.ts` owns the main-thread CodeMirror integration for `setSearchQuery`, highlights, next/previous navigation, replace actions, and worker request dispatch.
+- `src/lib/editor/workers/findStats.worker.ts` owns the expensive full-document scan for `matchCount` and `currentMatch`.
+- `src/lib/editor/workers/findStatsProtocol.ts` is the shared message contract and should be updated together with worker/frontend changes.
+
+### Important architecture rule
+
+- Keep CodeMirror search state on the main thread.
+- Keep expensive counting and current-match computation off the main thread in the worker.
+- Do not move `findNext`, `findPrevious`, `replaceNext`, or `replaceAll` into the worker because they need the live `EditorView`.
+
+### Important update-flow rule
+
+`setSearchQuery` by itself does not count as a document change or selection change.
+
+That means a pure search-query dispatch will not reliably flow through the managed-session `onViewUpdate` path that is used for document/selection synchronization. In this repo, `editorSetSearchQuery()` must explicitly call `updateSearchStats(view)` after dispatching the new `SearchQuery`, otherwise the worker can miss query changes and the visible count can go stale.
+
+### UX behavior to preserve
+
+- Opening find from a selection should seed the find field from the current selection.
+- Closing find should clear the seeded or previously typed find text.
+- While a new worker result is in flight, keep showing the previous resolved count instead of replacing it with a flashing loader or placeholder text.
+- Navigation and replace actions should flush any pending debounced query update first so the action uses the text currently visible in the input.
+
+### Worker lifecycle guidance
+
+- Clear worker state when the panel closes or when the search becomes empty.
+- Ignore stale worker responses by request ID so older scans cannot overwrite newer results.
+- Be careful with `doc.toString()` on large documents: the worker removes the scan cost from the UI thread, but main-thread serialization is still real work and should not be duplicated unnecessarily.
