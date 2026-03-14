@@ -4,7 +4,6 @@
   import Input from "$lib/components/ui/input/input.svelte";
   import { Button } from "$lib/components/ui/button/index.js";
   import { editorGoToLine } from "$lib/editor/core/actions";
-  import { editorState } from "$lib/state/editor.svelte.js";
   import type { EditorView } from "codemirror";
 
   let {
@@ -51,24 +50,6 @@
     inputValue = String(line);
     errorMessage = "";
     void focusInput();
-  });
-
-  // When Cmd/Ctrl+F is pressed while the dialog is open, close it and open
-  // find-replace. The browser's native find bar is already blocked app-wide in
-  // +layout.svelte, but the CodeMirror keymap won't fire here (editor has no
-  // focus), so we handle it explicitly.
-  $effect(() => {
-    if (!open) return;
-    function onWindowKeydown(event: KeyboardEvent): void {
-      if ((event.metaKey || event.ctrlKey) && event.key === "f") {
-        open = false;
-        errorMessage = "";
-        editorState.findReplace.visible = true;
-        editorState.findReplace.replaceMode = false;
-      }
-    }
-    window.addEventListener("keydown", onWindowKeydown, { capture: true });
-    return () => window.removeEventListener("keydown", onWindowKeydown, { capture: true });
   });
 
   function handleInput(): void {

@@ -10,7 +10,11 @@ import { materialLightConfig } from "$lib/themes/material-light";
 import { colorHints } from "$lib/editor/extensions/colorHints";
 import { getLanguageExtension } from "$lib/editor/config/languageExtensions";
 import { contextMenuExtension } from "$lib/editor/extensions/contextMenuExtension";
-import { editorState } from "$lib/state/editor.svelte";
+import {
+    editorState,
+    openFindReplacePanel,
+    openGoToLinePanel,
+} from "$lib/state/editor.svelte";
 import { getMinimalTextChange, type TextChangeSpec } from "$lib/editor/core/csvCodeMirror";
 
 // ---------------------------------------------------------------------------
@@ -43,18 +47,8 @@ function clearValueSyncTimer(session: ManagedEditorSession): void {
 }
 
 function openFindReplaceFromSelection(targetView: EditorView, replaceMode: boolean): boolean {
-    editorState.findReplace.visible = true;
-    editorState.findReplace.replaceMode = replaceMode;
-
-    const selection = targetView.state.selection.main;
-    if (!selection.empty) {
-        editorState.findReplace.findText = targetView.state.sliceDoc(
-            selection.from,
-            selection.to,
-        );
-    }
-
-    return true;
+    editorState.activeView = targetView;
+    return openFindReplacePanel(replaceMode);
 }
 
 type SessionBindings = {
@@ -152,10 +146,7 @@ function createSearchKeymap() {
         { key: "Mod-Shift-z", run: redo, preventDefault: true },
         {
             key: "Mod-g",
-            run: () => {
-                editorState.goToLine.requestOpen?.();
-                return true;
-            },
+            run: () => openGoToLinePanel(),
             preventDefault: true,
         },
         {

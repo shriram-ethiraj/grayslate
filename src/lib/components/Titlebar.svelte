@@ -12,6 +12,8 @@
   import {
     decreaseEditorFontSize,
     increaseEditorFontSize,
+    openFindReplacePanel as openEditorFindReplacePanel,
+    openGoToLinePanel,
     resetEditorFontSize,
   } from "$lib/state/editor.svelte";
   import AboutDialog from "$lib/components/AboutDialog.svelte";
@@ -152,22 +154,6 @@
     await emit("menu://save-file-as");
   }
 
-  function openFindReplacePanel(replaceMode: boolean) {
-    const view = editorState.activeView;
-    editorState.findReplace.visible = true;
-    editorState.findReplace.replaceMode = replaceMode;
-
-    if (!view) return;
-
-    const selection = view.state.selection.main;
-    if (!selection.empty) {
-      editorState.findReplace.findText = view.state.sliceDoc(
-        selection.from,
-        selection.to,
-      );
-    }
-  }
-
   async function handleEdit(action: string) {
     const view = editorState.activeView;
     const isCsvTableVisible =
@@ -219,18 +205,18 @@
         break;
       case "goToLine":
         if (isCsvTableVisible) return;
-        editorState.goToLine.requestOpen?.();
+        openGoToLinePanel();
         break;
       case "find":
         if (isCsvTableVisible) return;
-        openFindReplacePanel(false);
+        openEditorFindReplacePanel(false);
         break;
       case "findFiles":
         librarySidebarState.requestActivateSearch?.();
         break;
       case "replace":
         if (isCsvTableVisible) return;
-        openFindReplacePanel(true);
+        openEditorFindReplacePanel(true);
         break;
       case "selectAll":
         if (markdownPreviewActive) {

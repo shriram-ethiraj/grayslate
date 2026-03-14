@@ -1,6 +1,11 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { editorState } from "$lib/state/editor.svelte";
+  import {
+    closeEditorPopup,
+    editorState,
+    registerEditorPopup,
+    syncEditorPopupOpenState,
+  } from "$lib/state/editor.svelte";
   import {
     editorFindNext,
     editorFindPrevious,
@@ -109,8 +114,12 @@
     }
   });
 
-  function close() {
+  function hide() {
     fr.visible = false;
+  }
+
+  function close() {
+    closeEditorPopup("find-replace");
     view?.focus();
   }
 
@@ -127,6 +136,21 @@
       },
       { ignoreInputs: false },
     );
+  });
+
+  $effect(() => {
+    syncEditorPopupOpenState("find-replace", fr.visible);
+  });
+
+  $effect(() => {
+    return registerEditorPopup("find-replace", {
+      open: (request) => {
+        if (request.id !== "find-replace") return;
+        fr.replaceMode = request.replaceMode;
+        fr.visible = true;
+      },
+      close: hide,
+    });
   });
 </script>
 

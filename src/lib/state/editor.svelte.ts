@@ -29,10 +29,33 @@ export type FileType =
     | "auto";
 
 export type EditorSurface = "editor" | "markdown-preview";
+export type EditorPopupId = "find-replace" | "go-to-line" | "language-picker";
+
+export type EditorPopupOpenRequest =
+    | {
+        id: "find-replace";
+        replaceMode: boolean;
+    }
+    | {
+        id: "go-to-line";
+    }
+    | {
+        id: "language-picker";
+    };
+
+type EditorPopupController = {
+    open: (request: EditorPopupOpenRequest) => void;
+    close: () => void;
+};
+
+const editorPopupControllers = new Map<EditorPopupId, EditorPopupController>();
 
 export const editorState = $state<{
     activeView?: EditorView;
     activeSurface?: EditorSurface;
+    popup: {
+        active: EditorPopupId | undefined;
+    };
     isUntitledDocument: boolean;
     isDirty: boolean;
     /** Absolute path of the file currently open in the editor, or undefined for untitled documents. */
@@ -67,10 +90,13 @@ export const editorState = $state<{
         currentMatch: number;
     };
     goToLine: {
-        requestOpen?: () => void;
+        requestOpen?: () => boolean;
     };
 }>({
     activeSurface: undefined,
+    popup: {
+        active: undefined,
+    },
     isUntitledDocument: true,
     isDirty: false,
     currentFilePath: undefined,
@@ -106,6 +132,108 @@ export const editorState = $state<{
         requestOpen: undefined,
     },
 });
+
+function syncSelectionToFindReplace(): void {
+    const view = editorState.activeView;
+    if (!view) {
+        return;
+    }
+
+    const selection = view.state.selection.main;
+    if (selection.empty) {
+        return;
+    }
+
+    editorState.findReplace.findText = view.state.sliceDoc(selection.from, selection.to);
+}
+
+export function registerEditorPopup(
+    id: EditorPopupId,
+    controller: EditorPopupController,
+): () => void {
+    editorPopupControllers.set(id, controller);
+
+    return () => {
+        if (editorPopupControllers.get(id) !== controller) {
+            return;
+        }
+
+        editorPopupControllers.delete(id);
+        if (editorState.popup.active === id) {
+            editorState.popup.active = undefined;
+        }
+    };
+}
+
+export function syncEditorPopupOpenState(id: EditorPopupId, isOpen: boolean): void {
+    if (isOpen) {
+        editorState.popup.active = id;
+        return;
+    }
+
+    if (editorState.popup.active === id) {
+        editorState.popup.active = undefined;
+    }
+}
+
+export function closeEditorPopup(id?: EditorPopupId): void {
+    const targetId = id ?? editorState.popup.active;
+    if (!targetId) {
+        return;
+    }
+
+    if (editorState.popup.active === targetId) {
+        editorState.popup.active = undefined;
+    }
+
+    editorPopupControllers.get(targetId)?.close();
+}
+
+export function openEditorPopup(request: EditorPopupOpenRequest): boolean {
+    const controller = editorPopupControllers.get(request.id);
+    if (!controller) {
+        return false;
+    }
+
+    const activePopup = editorState.popup.active;
+    if (activePopup && activePopup !== request.id) {
+        closeEditorPopup(activePopup);
+    }
+
+    editorState.popup.active = request.id;
+    controller.open(request);
+    return true;
+}
+
+export function openFindReplacePanel(
+    replaceMode: boolean,
+    options: { seedSelection?: boolean } = {},
+): boolean {
+    if (editorState.csv.showTable) {
+        return false;
+    }
+
+    if (options.seedSelection ?? true) {
+        syncSelectionToFindReplace();
+    }
+
+    return openEditorPopup({
+        id: "find-replace",
+        replaceMode,
+    });
+}
+
+export function openGoToLinePanel(): boolean {
+    if (editorState.csv.showTable) {
+        return false;
+    }
+
+    return editorState.goToLine.requestOpen?.() ?? false;
+}
+
+export function openLanguagePicker(): boolean {
+    return openEditorPopup({ id: "language-picker" });
+}
 
 export function setEditorFontSize(fontSize: number): void {
     editorState.fontSize = clampEditorFontSize(fontSize);

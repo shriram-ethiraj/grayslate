@@ -6,7 +6,11 @@
 	import Titlebar from "$lib/components/Titlebar.svelte";
 	import * as Sidebar from "$lib/components/ui/sidebar/index.js";
 	import { Button } from "$lib/components/ui/button/index.js";
-	import { editorState } from "$lib/state/editor.svelte";
+	import {
+		editorState,
+		openFindReplacePanel,
+		openGoToLinePanel,
+	} from "$lib/state/editor.svelte";
 	import {
 		ResizablePaneGroup,
 		ResizablePane,
@@ -15,7 +19,7 @@
 	import { emit } from "@tauri-apps/api/event";
 	import { Toaster } from "$lib/components/ui/sonner/index.js";
 	import EditorActions from "$lib/editor/components/EditorActions.svelte";
-	import { librarySidebarState } from "$lib/state/librarySidebar.svelte";
+	import { registerHotkeys } from "$lib/hotkeys";
 	import { initPlatformState, platformState } from "$lib/state/platform.svelte";
 	import LucideFilePlusCorner from '~icons/lucide/file-plus-corner';
 	import "./layout.css";
@@ -87,55 +91,52 @@
 		return parts[parts.length - 1] || "Untitled";
 	});
 
+	function editorOwnsActiveElement(): boolean {
+		const activeView = editorState.activeView;
+		const activeElement = document.activeElement;
+
+		return !!activeView && !!activeElement && activeView.dom.contains(activeElement);
+	}
+
 	onMount(() => {
 		void initPlatformState();
+	});
 
-		// Single app-level handler for all editor keyboard shortcuts.
-		// Runs in capture phase so it fires before CodeMirror and the browser default.
-		// We call preventDefault() to suppress browser/OS defaults (native find bar,
-		// find-next, etc.) but deliberately skip stopPropagation() so CodeMirror's own
-		// keymap still runs when the editor is focused — routing is idempotent.
-		function handleGlobalShortcuts(event: KeyboardEvent): void {
-			const mod = event.metaKey || event.ctrlKey;
-			if (!mod) return;
-
-			const tableActive = editorState.csv.showTable;
-
-			if (event.key === "f" && !event.altKey) {
-				// Cmd/Ctrl+F — open find panel
-				event.preventDefault();
-				if (!tableActive) {
-					editorState.findReplace.visible = true;
-					editorState.findReplace.replaceMode = false;
-				}
-			} else if (event.key === "f" && event.altKey) {
-				// Cmd/Ctrl+Alt+F — open replace panel
-				event.preventDefault();
-				if (!tableActive) {
-					editorState.findReplace.visible = true;
-					editorState.findReplace.replaceMode = true;
-				}
-			} else if (event.key === "h" && !event.altKey) {
-				// Cmd/Ctrl+H — open replace panel
-				event.preventDefault();
-				if (!tableActive) {
-					editorState.findReplace.visible = true;
-					editorState.findReplace.replaceMode = true;
-				}
-			} else if (event.key === "p" && !event.altKey) {
-				// Cmd/Ctrl+P — focus file search
-				event.preventDefault();
-				librarySidebarState.requestActivateSearch?.();
-			} else if (event.key === "g") {
-				// Cmd/Ctrl+G — go to line
-				event.preventDefault();
-				if (!tableActive) {
-					editorState.goToLine.requestOpen?.();
-				}
-			}
-		}
-		window.addEventListener("keydown", handleGlobalShortcuts, { capture: true });
-		return () => window.removeEventListener("keydown", handleGlobalShortcuts, { capture: true });
+	$effect(() => {
+		return registerHotkeys([
+			{
+				key: "Mod+F",
+				callback: () => {
+					if (editorOwnsActiveElement()) return;
+					openFindReplacePanel(false);
+				},
+				options: { ignoreInputs: false, stopPropagation: false },
+			},
+			{
+				key: "Mod+Alt+F",
+				callback: () => {
+					if (editorOwnsActiveElement()) return;
+					openFindReplacePanel(true);
+				},
+				options: { ignoreInputs: false, stopPropagation: false },
+			},
+			{
+				key: "Mod+H",
+				callback: () => {
+					if (editorOwnsActiveElement()) return;
+					openFindReplacePanel(true);
+				},
+				options: { ignoreInputs: false, stopPropagation: false },
+			},
+			{
+				key: "Mod+G",
+				callback: () => {
+					if (editorOwnsActiveElement()) return;
+					openGoToLinePanel();
+				},
+				options: { ignoreInputs: false, stopPropagation: false },
+			},
+		]);
 	});
 </script>
 

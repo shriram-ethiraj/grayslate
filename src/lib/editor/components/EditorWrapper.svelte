@@ -26,9 +26,14 @@
     type CsvTableFlushResult,
   } from "./csv/csvTableProtocol";
   import {
+    closeEditorPopup,
     editorState,
-    updateEditorLoader,
+    openEditorPopup,
+    openGoToLinePanel,
+    registerEditorPopup,
+    syncEditorPopupOpenState,
     hideEditorLoader,
+    updateEditorLoader,
     startLoaderTicker,
     stopLoaderTicker,
     completeEditorLoader,
@@ -48,7 +53,6 @@
   import { requestFileOpenReclaim } from "$lib/editor/core/memory";
   import { clearSearchStatsCache } from "$lib/editor/core/actions";
   import { clearColorCache } from "$lib/editor/extensions/colorHints";
-  import { registerHotkey } from "$lib/hotkeys";
   import {
     librarySidebarState,
     clearPendingSidebarOpenFile,
@@ -374,12 +378,12 @@
     }
   }
 
-  function openGoToLineDialog(): void {
+  function requestGoToLineDialogOpen(): boolean {
     if (isCsvTableActive || !editorView) {
-      return;
+      return false;
     }
 
-    goToLineOpen = true;
+    return openEditorPopup({ id: "go-to-line" });
   }
 
   function handleCsvMirrorReset(baseText: string): void {
@@ -412,9 +416,10 @@
   }
 
   function clearRetainedEditorState(): void {
+    closeEditorPopup();
+    goToLineOpen = false;
     editorView = undefined;
     editorState.activeView = undefined;
-    editorState.findReplace.visible = false;
     editorState.findReplace.findText = "";
     editorState.findReplace.replaceText = "";
     editorState.findReplace.matchCount = 0;
@@ -486,7 +491,7 @@
 
     setPendingSidebarOpenFile({
       path: filePath,
-      source: preservesPendingMetadata ? existingPendingFile.source : "external",
+      source: preservesPendingMetadata ? existingPendingFile.source : "local",
       requestId: requestVersion,
       revealInRecentList: preservesPendingMetadata
         ? existingPendingFile.revealInRecentList
@@ -829,29 +834,28 @@
   }
 
   $effect(() => {
-    return registerHotkey(
-      "Mod+G",
-      (event) => {
-        if (isCsvTableActive || !editorView) {
-          return;
-        }
-
-        event.preventDefault();
-        event.stopPropagation();
-        openGoToLineDialog();
-      },
-      { ignoreInputs: false },
-    );
-  });
-
-  $effect(() => {
-    editorState.goToLine.requestOpen = openGoToLineDialog;
+    editorState.goToLine.requestOpen = requestGoToLineDialogOpen;
 
     return () => {
-      if (editorState.goToLine.requestOpen === openGoToLineDialog) {
+      if (editorState.goToLine.requestOpen === requestGoToLineDialogOpen) {
         editorState.goToLine.requestOpen = undefined;
       }
     };
+  });
+
+  $effect(() => {
+    syncEditorPopupOpenState("go-to-line", goToLineOpen);
+  });
+
+  $effect(() => {
+    return registerEditorPopup("go-to-line", {
+      open: () => {
+        goToLineOpen = true;
+      },
+      close: () => {
+        goToLineOpen = false;
+      },
+    });
   });
 
   $effect(() => {
@@ -866,7 +870,7 @@
       (activeDocument as Record<string, unknown>).lastSavedValue = "";
       value = "";
       disposeManagedEditorSession(editorSession);
-      if (editorState.goToLine.requestOpen === openGoToLineDialog) {
+      if (editorState.goToLine.requestOpen === requestGoToLineDialogOpen) {
         editorState.goToLine.requestOpen = undefined;
       }
       if (editorState.csv.requestShowTable === requestCsvTableMode) {
@@ -999,7 +1003,7 @@
     {activeLanguage}
     {isCsvTableActive}
     {csvInfo}
-    onGoToLine={openGoToLineDialog}
+    onGoToLine={openGoToLinePanel}
   />
 </div>
 

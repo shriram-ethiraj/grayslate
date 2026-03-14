@@ -2,6 +2,11 @@
     import * as Command from "$lib/components/ui/command/index.js";
     import * as Dialog from "$lib/components/ui/dialog/index.js";
     import { languages } from "$lib/editor/config/supportedLanguages";
+    import {
+        openLanguagePicker as openEditorLanguagePicker,
+        registerEditorPopup,
+        syncEditorPopupOpenState,
+    } from "$lib/state/editor.svelte";
     import Check from "~icons/lucide/check";
 
     let {
@@ -41,11 +46,27 @@
 
     // Language list: all except auto
     const languageItems = languages.filter((l) => l.value !== "auto");
+
+    $effect(() => {
+        syncEditorPopupOpenState("language-picker", open);
+    });
+
+    $effect(() => {
+        return registerEditorPopup("language-picker", {
+            open: (request) => {
+                if (request.id !== "language-picker") return;
+                open = true;
+            },
+            close: () => {
+                open = false;
+            },
+        });
+    });
 </script>
 
 <!-- Status bar trigger button -->
 <button
-    onclick={() => (open = true)}
+    onclick={openEditorLanguagePicker}
     class="flex items-center hover:bg-muted/50 hover:text-foreground h-full px-2 transition-colors cursor-pointer rounded-none bg-transparent text-[11px] gap-1.5"
     title="Select Language Mode"
 >
