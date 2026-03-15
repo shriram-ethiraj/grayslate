@@ -37,7 +37,11 @@ pub fn rank_candidate(
     }
 
     let freshness_score = score_freshness(candidate.last_modified_at);
-    let usage_score = score_usage(candidate.last_opened_at, candidate.last_saved_at, candidate.last_seen_at);
+    let usage_score = score_usage(
+        candidate.last_opened_at,
+        candidate.last_saved_at,
+        candidate.last_seen_at,
+    );
     let pinned_boost = if candidate.pinned { 0.35 } else { 0.0 };
     let final_score = filename_score * 1.6
         + content_score * 1.0
@@ -57,8 +61,16 @@ pub fn rank_candidate(
         last_seen_at: candidate.last_seen_at,
         last_modified_at: candidate.last_modified_at,
         pinned: candidate.pinned,
-        preview_line: candidate.content.preview.as_ref().map(|preview| preview.line_text.clone()),
-        preview_line_number: candidate.content.preview.as_ref().and_then(|preview| preview.line_number),
+        preview_line: candidate
+            .content
+            .preview
+            .as_ref()
+            .map(|preview| preview.line_text.clone()),
+        preview_line_number: candidate
+            .content
+            .preview
+            .as_ref()
+            .and_then(|preview| preview.line_number),
         match_count: candidate.content.total_hits,
         filename_score,
         content_score,
@@ -77,7 +89,11 @@ pub fn sort_search_results(results: &mut [SearchResultRecord]) {
             .final_score
             .partial_cmp(&left.final_score)
             .unwrap_or(Ordering::Equal)
-            .then_with(|| left.file_name.to_lowercase().cmp(&right.file_name.to_lowercase()))
+            .then_with(|| {
+                left.file_name
+                    .to_lowercase()
+                    .cmp(&right.file_name.to_lowercase())
+            })
             .then_with(|| left.path.to_lowercase().cmp(&right.path.to_lowercase()))
     });
 }
@@ -117,7 +133,11 @@ fn score_filename(candidate: &FileSearchCandidate, query: &ParsedSearchQuery) ->
         }
     }
 
-    if query.terms.iter().all(|term| normalized_name.contains(term)) {
+    if query
+        .terms
+        .iter()
+        .all(|term| normalized_name.contains(term))
+    {
         score += 1.5;
     }
 
@@ -139,10 +159,19 @@ fn score_content(candidate: &FileSearchCandidate, context: &RankContext<'_>) -> 
                 return 0.0;
             }
 
-            let df = candidate.content.document_frequencies.get(term).copied().unwrap_or(1) as f32;
+            let df = candidate
+                .content
+                .document_frequencies
+                .get(term)
+                .copied()
+                .unwrap_or(1) as f32;
             let idf = ((context.document_count as f32 - df + 0.5) / (df + 0.5) + 1.0).ln();
-            let normalization = tf + BM25_K1
-                * (1.0 - BM25_B + BM25_B * (candidate.document_length / context.average_document_length.max(1.0)));
+            let normalization = tf
+                + BM25_K1
+                    * (1.0 - BM25_B
+                        + BM25_B
+                            * (candidate.document_length
+                                / context.average_document_length.max(1.0)));
 
             idf * ((tf * (BM25_K1 + 1.0)) / normalization.max(1.0))
         })
@@ -159,7 +188,11 @@ fn score_freshness(last_modified_at: Option<i64>) -> f32 {
     1.0 / (1.0 + (age_days / 7.0))
 }
 
-fn score_usage(last_opened_at: Option<i64>, last_saved_at: Option<i64>, last_seen_at: Option<i64>) -> f32 {
+fn score_usage(
+    last_opened_at: Option<i64>,
+    last_saved_at: Option<i64>,
+    last_seen_at: Option<i64>,
+) -> f32 {
     let recency = [last_opened_at, last_saved_at, last_seen_at]
         .into_iter()
         .flatten()

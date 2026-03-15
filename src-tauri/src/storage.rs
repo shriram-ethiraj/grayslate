@@ -299,9 +299,8 @@ impl AppStorage {
 
         let mut recent_files = Vec::new();
         for row in rows {
-            recent_files.push(
-                row.map_err(|error| format!("Failed to parse recent file row: {}", error))?,
-            );
+            recent_files
+                .push(row.map_err(|error| format!("Failed to parse recent file row: {}", error))?);
         }
 
         Ok(recent_files)
@@ -393,9 +392,8 @@ impl AppStorage {
 
         let mut tracked_files = Vec::new();
         for row in rows {
-            tracked_files.push(
-                row.map_err(|error| format!("Failed to parse tracked file row: {}", error))?,
-            );
+            tracked_files
+                .push(row.map_err(|error| format!("Failed to parse tracked file row: {}", error))?);
         }
 
         Ok(tracked_files)

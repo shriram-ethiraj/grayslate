@@ -1,5 +1,6 @@
 <script lang="ts">
     import { tick } from "svelte";
+    import type { Component } from "svelte";
     import * as Command from "$lib/components/ui/command/index.js";
     import * as Dialog from "$lib/components/ui/dialog/index.js";
     import {
@@ -9,8 +10,17 @@
     } from "$lib/state/editor.svelte";
     import {
         transformationActions,
+        type TransformationActionDefinition,
         type TransformationActionId,
     } from "$lib/transformations/actions";
+    import { languages } from "$lib/editor/config/supportedLanguages";
+    import Zap from "~icons/lucide/zap";
+
+    const languageIconMap = new Map(languages.map((l) => [l.value, l.icon]));
+
+    function getActionIcon(action: TransformationActionDefinition): Component {
+        return languageIconMap.get(action.fileTypes[0]) ?? Zap;
+    }
 
     let {
         executeAction,
@@ -99,6 +109,7 @@
                     {#if suggestedActions.length > 0}
                         <Command.Group heading="Suggested">
                             {#each suggestedActions as action (action.id)}
+                                {@const Icon = getActionIcon(action)}
                                 <Command.Item
                                     value={action.title}
                                     keywords={action.keywords}
@@ -108,6 +119,7 @@
                                         void runAction(action.id);
                                     }}
                                 >
+                                    <Icon class="mt-0.5 shrink-0" />
                                     <div class="flex min-w-0 flex-1 flex-col gap-0.5">
                                         <span class="truncate">{action.title}</span>
                                         <span class="text-xs text-muted-foreground">
@@ -126,6 +138,7 @@
                     {#if otherActions.length > 0}
                         <Command.Group heading="All Transformations">
                             {#each otherActions as action (action.id)}
+                                {@const Icon = getActionIcon(action)}
                                 <Command.Item
                                     value={action.title}
                                     keywords={action.keywords}
@@ -135,6 +148,7 @@
                                         void runAction(action.id);
                                     }}
                                 >
+                                    <Icon class="mt-0.5 shrink-0" />
                                     <div class="flex min-w-0 flex-1 flex-col gap-0.5">
                                         <span class="truncate">{action.title}</span>
                                         <span class="text-xs text-muted-foreground">

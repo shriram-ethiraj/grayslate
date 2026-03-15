@@ -4,7 +4,7 @@ use tauri::AppHandle;
 
 use crate::{
     filesystem::resolve_notes_root_path,
-    storage::{AppStorage, RecentFileRecord, normalize_path_key},
+    storage::{normalize_path_key, AppStorage, RecentFileRecord},
 };
 
 pub struct SearchScope {
@@ -21,7 +21,12 @@ pub fn resolve_search_scope(
     let tracked_files = storage.list_tracked_files()?;
     let tracked_by_key = tracked_files
         .iter()
-        .map(|record| Ok((normalize_path_key(PathBuf::from(&record.path).as_path())?, record.clone())))
+        .map(|record| {
+            Ok((
+                normalize_path_key(PathBuf::from(&record.path).as_path())?,
+                record.clone(),
+            ))
+        })
         .collect::<Result<HashMap<_, _>, String>>()?;
 
     let include_slates = matches!(filter_mode, "unified" | "slates");

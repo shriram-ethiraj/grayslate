@@ -192,7 +192,8 @@
     const filename = await getPathLabel(path);
     const extLanguage = languageDetector.detect("", filename);
     if (extLanguage) {
-      language = extLanguage;
+      // Only seed the detected language — do not pin `language` away from
+      // "auto", so content-based re-detection keeps working after transforms.
       detectedLanguage = extLanguage;
     }
   }
@@ -288,6 +289,28 @@
     }
   }
 
+  // Monotonically incrementing ID for each transformation invocation.
+  // Used to correlate frontend cancellation requests with the Rust registry.
+  let transformationRequestCounter = 0;
+
+  // Cancel handler for the currently in-flight transformation, or null when idle.
+  // Passed to EditorLoader so the cancel button can abort the Rust task.
+  let transformationCancelFn = $state<(() => void) | null>(null);
+
+  function beginTransformationCancellation(
+    requestId: number,
+    markCancelled: () => void,
+  ): void {
+    transformationCancelFn = () => {
+      markCancelled();
+      void invoke("cancel_transformation", { requestId }).catch(() => undefined);
+    };
+  }
+
+  function endTransformationCancellation(): void {
+    transformationCancelFn = null;
+  }
+
   async function executeTransformation(actionId: TransformationActionId): Promise<boolean> {
     const action = getTransformationAction(actionId);
     if (!action) {
@@ -309,13 +332,23 @@
     const sourceText = useSelection
       ? editorSession.state.doc.sliceString(selection.from, selection.to)
       : editorSession.state.doc.toString();
+
+    const requestId = ++transformationRequestCounter;
     const request: ExecuteTransformationRequest = {
       actionId,
       text: sourceText,
+      requestId,
     };
+
+    // Track whether the user explicitly cancelled so we suppress the error toast.
+    let userCancelled = false;
 
     try {
       startLoaderTicker(action.title + "…");
+      beginTransformationCancellation(requestId, () => {
+        userCancelled = true;
+      });
+
       const result = await invoke<ExecuteTransformationResponse>(
           "execute_transformation",
           {
@@ -355,14 +388,17 @@
 
       return true;
     } catch (error) {
-      const message = error instanceof Error
-        ? error.message
-        : typeof error === "string"
-          ? error
-          : "Failed to run transformation.";
-      toast.error(message);
+      if (!userCancelled) {
+        const message = error instanceof Error
+          ? error.message
+          : typeof error === "string"
+            ? error
+            : "Failed to run transformation.";
+        toast.error(message);
+      }
       return false;
     } finally {
+      endTransformationCancellation();
       completeEditorLoader();
     }
   }
@@ -662,11 +698,13 @@
         return;
       }
 
-      // If the filename's extension alone resolves to a language,
-      // pin it directly — no need for "auto" mode, and the debounced
-      const extLang = languageDetector.detect("", filename);
-      const nextLanguage = extLang ?? "auto";
-      const nextDetectedLanguage = extLang ?? detected;
+      // Keep language as "auto" so content-based re-detection stays active
+      // after transformations (e.g. CSV → JSON). The extension is already
+      // factored into `detected` because languageDetector.detect() runs Phase
+      // 1 (extension match) before content heuristics, so `detected` already
+      // reflects the extension hint without permanently locking the mode.
+      const nextLanguage = "auto";
+      const nextDetectedLanguage = detected;
 
       resetEditorDocument(
         content,
@@ -995,6 +1033,7 @@
       message={editorState.loader.message}
       subMessage={editorState.loader.subMessage}
       progress={editorState.loader.progress}
+      onCancel={transformationCancelFn ?? undefined}
     />
 
     {#if activeLanguage === "csv"}

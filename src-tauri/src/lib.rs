@@ -15,9 +15,11 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         // Block the webview-native Find UI so Cmd/Ctrl+F always stays inside the app.
-        .plugin(tauri_plugin_prevent_default::Builder::new()
-            .with_flags(tauri_plugin_prevent_default::Flags::FIND)
-            .build());
+        .plugin(
+            tauri_plugin_prevent_default::Builder::new()
+                .with_flags(tauri_plugin_prevent_default::Flags::FIND)
+                .build(),
+        );
 
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     let builder = builder.plugin(tauri_plugin_window_state::Builder::default().build());
@@ -37,6 +39,7 @@ pub fn run() {
             app.manage(storage);
             app.manage(commands::file::FileReadCancellationRegistry::default());
             app.manage(commands::search::SearchRuntimeState::default());
+            app.manage(commands::transform::TransformationCancellationRegistry::default());
 
             #[cfg(not(any(target_os = "android", target_os = "ios")))]
             app.handle()
@@ -58,6 +61,7 @@ pub fn run() {
             commands::file::write_file_content,
             commands::memory::get_memory_info,
             commands::search::search_sidebar_files,
+            commands::transform::cancel_transformation,
             commands::transform::execute_transformation,
             commands::update::check_for_updates,
             commands::update::install_available_update,

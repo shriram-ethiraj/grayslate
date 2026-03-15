@@ -97,10 +97,7 @@ pub fn collect_content_matches(
 
 // ── Private helpers ──────────────────────────────────────────────────
 
-fn list_directory_files(
-    root: &Path,
-    cancelled: &AtomicBool,
-) -> Result<Vec<PathBuf>, String> {
+fn list_directory_files(root: &Path, cancelled: &AtomicBool) -> Result<Vec<PathBuf>, String> {
     ensure_not_cancelled(cancelled)?;
 
     let mut files = Vec::new();
@@ -137,20 +134,14 @@ fn search_file_for_term(
 
     // search_path gracefully handles binary files (skips them) and
     // unreadable files — both surface as errors we intentionally ignore.
-    if searcher
-        .search_path(matcher, path, &mut collector)
-        .is_err()
-    {
+    if searcher.search_path(matcher, path, &mut collector).is_err() {
         return Ok(false);
     }
 
     if collector.total_hits > 0 {
         let entry = by_path.entry(path_key).or_default();
         entry.total_hits += collector.total_hits;
-        *entry
-            .term_frequencies
-            .entry(term.to_string())
-            .or_insert(0) += collector.total_hits;
+        *entry.term_frequencies.entry(term.to_string()).or_insert(0) += collector.total_hits;
         if entry.preview.is_none() {
             entry.preview = collector.preview;
         }

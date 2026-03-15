@@ -94,7 +94,7 @@
             <div class="px-1 pt-1">
                 <button
                     onclick={() => selectLanguage("auto")}
-                    class="flex w-full items-center gap-2 rounded-sm px-2 py-2 text-sm cursor-default
+                    class="flex w-full items-center gap-2 rounded-sm px-2 py-2 text-sm cursor-pointer
                            hover:bg-accent hover:text-accent-foreground transition-colors
                            {language === 'auto'
                         ? 'bg-accent/50 text-accent-foreground'

@@ -15,15 +15,15 @@ use tauri::AppHandle;
 
 use crate::{
     commands::search::SearchRuntimeState,
-    storage::{AppStorage, RecentFileRecord, normalize_path_key},
+    storage::{normalize_path_key, AppStorage, RecentFileRecord},
 };
 
 use self::{
     grep::{collect_content_matches, list_scope_files},
     query::parse_query,
-    rank::{RankContext, sort_search_results},
-    scope::{resolve_search_scope},
-    types::{FileSearchCandidate, SearchResultRecord, system_time_to_unix_ms},
+    rank::{sort_search_results, RankContext},
+    scope::resolve_search_scope,
+    types::{system_time_to_unix_ms, FileSearchCandidate, SearchResultRecord},
 };
 
 pub fn run_sidebar_search(
@@ -62,7 +62,9 @@ pub fn run_sidebar_search(
 
     let average_document_length = rank::resolve_average_document_length(
         runtime.average_document_length(),
-        candidates.values().map(|candidate| candidate.document_length),
+        candidates
+            .values()
+            .map(|candidate| candidate.document_length),
     );
     runtime.update_average_document_length(Some(average_document_length));
 
@@ -82,8 +84,6 @@ pub fn run_sidebar_search(
     Ok(results)
 }
 
-
-
 fn build_candidates(
     indexed_paths: HashSet<String>,
     tracked_by_key: HashMap<String, RecentFileRecord>,
@@ -91,7 +91,10 @@ fn build_candidates(
 ) -> Result<HashMap<String, FileSearchCandidate>, String> {
     let mut candidates = HashMap::new();
 
-    for path_key in indexed_paths.into_iter().chain(content_matches.keys().cloned()) {
+    for path_key in indexed_paths
+        .into_iter()
+        .chain(content_matches.keys().cloned())
+    {
         if candidates.contains_key(&path_key) {
             continue;
         }

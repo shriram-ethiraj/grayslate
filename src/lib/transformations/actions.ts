@@ -3,7 +3,10 @@ import type { FileType } from "$lib/state/editor.svelte";
 export type JsonTransformationActionId =
     | "json.format"
     | "json.minify"
-    | "json.validate";
+    | "json.validate"
+    | "json.to-csv";
+
+export type CsvTransformationActionId = "csv.to-json";
 
 export type TextTransformationActionId =
     | "text.trim-trailing-whitespace"
@@ -11,6 +14,7 @@ export type TextTransformationActionId =
 
 export type TransformationActionId =
     | JsonTransformationActionId
+    | CsvTransformationActionId
     | TextTransformationActionId;
 
 export type TransformationMessageLevel = "success" | "error" | "info";
@@ -28,6 +32,8 @@ export type TransformationActionDefinition = {
 export type ExecuteTransformationRequest = {
     actionId: TransformationActionId;
     text: string;
+    /** Per-invocation ID used to cancel the request via `cancel_transformation`. */
+    requestId: number;
 };
 
 export type ExecuteTransformationResponse =
@@ -87,7 +93,25 @@ export const transformationActions: TransformationActionDefinition[] = [
         category: "Plain Text",
         keywords: ["text", "spacing", "blank", "lines", "cleanup"],
         fileTypes: ["text"],
-        supportsSelection: true,
+        supportsSelection: false,
+    },
+    {
+        id: "csv.to-json",
+        title: "CSV to JSON",
+        description: "Convert CSV to a JSON array of objects, using the first row as headers. Delimiter is auto-detected.",
+        category: "Convert",
+        keywords: ["csv", "json", "convert", "array", "objects", "table"],
+        fileTypes: ["csv"],
+        supportsSelection: false,
+    },
+    {
+        id: "json.to-csv",
+        title: "JSON to CSV",
+        description: "Convert a JSON array of objects to CSV, using object keys as headers.",
+        category: "Convert",
+        keywords: ["json", "csv", "convert", "table", "array", "objects"],
+        fileTypes: ["json"],
+        supportsSelection: false,
     },
 ];
 

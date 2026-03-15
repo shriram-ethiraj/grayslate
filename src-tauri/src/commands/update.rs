@@ -54,7 +54,10 @@ fn configured_endpoints() -> Result<Vec<Url>, String> {
         .split(';')
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .map(|value| Url::parse(value).map_err(|error| format!("Invalid updater endpoint '{}': {}", value, error)))
+        .map(|value| {
+            Url::parse(value)
+                .map_err(|error| format!("Invalid updater endpoint '{}': {}", value, error))
+        })
         .collect();
 
     let endpoints = endpoints?;

@@ -17,10 +17,7 @@ pub fn build_native_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::M
     use tauri::Manager;
 
     let app_menu = SubmenuBuilder::new(app, "Grayslate")
-        .item(
-            &MenuItemBuilder::with_id("check-for-updates", "Check for Updates...")
-                .build(app)?,
-        )
+        .item(&MenuItemBuilder::with_id("check-for-updates", "Check for Updates...").build(app)?)
         .separator()
         .item(&MenuItemBuilder::with_id("about", "About Grayslate").build(app)?)
         .build()?;

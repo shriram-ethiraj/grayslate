@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use tauri::path::BaseDirectory;
 use tauri::Manager;
 
-use crate::storage::{AppStorage, FileSource, SETTING_NOTES_ROOT, normalize_path_key};
+use crate::storage::{normalize_path_key, AppStorage, FileSource, SETTING_NOTES_ROOT};
 
 const MANAGED_NOTES_DIRECTORY: &str = "Grayslate";
 

@@ -1,16 +1,20 @@
 <script lang="ts">
     import Loader2 from "~icons/lucide/loader-2";
+    import X from "~icons/lucide/x";
+    import { Button } from "$lib/components/ui/button";
 
     let {
         message = "Loading…",
         subMessage = "",
         visible = true,
         progress = -1 as number | undefined,
+        onCancel = undefined as (() => void) | undefined,
     }: {
         message?: string;
         subMessage?: string;
         visible?: boolean;
         progress?: number;
+        onCancel?: () => void;
     } = $props();
 
     let showBar = $derived(progress !== undefined);
@@ -20,6 +24,21 @@
             ? Math.min(100, Math.max(0, progress))
             : 0,
     );
+
+    // Disable the button after the first click so the user gets immediate
+    // feedback that the cancellation request has been sent.
+    let cancelPending = $state(false);
+
+    function handleCancel(): void {
+        if (cancelPending || !onCancel) return;
+        cancelPending = true;
+        onCancel();
+    }
+
+    // Reset when the loader is hidden so re-used loaders start fresh.
+    $effect(() => {
+        if (!visible) cancelPending = false;
+    });
 </script>
 
 {#if visible}
@@ -76,6 +95,18 @@
                         >
                             {subMessage}
                         </p>
+                    {/if}
+                    {#if onCancel}
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            onclick={handleCancel}
+                            disabled={cancelPending}
+                            class="mt-1 gap-1.5 text-muted-foreground"
+                        >
+                            <X class="h-3.5 w-3.5" />
+                            {cancelPending ? "Cancelling…" : "Cancel"}
+                        </Button>
                     {/if}
                 </div>
             </div>

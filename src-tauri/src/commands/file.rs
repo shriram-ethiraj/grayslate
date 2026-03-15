@@ -4,15 +4,15 @@ use std::{
     io::{BufReader, Read},
     path::{Path, PathBuf},
     sync::{
-        Arc, Mutex,
         atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
     },
 };
 
-use crate::filesystem::{classify_file_source, resolve_default_notes_root_path, resolve_notes_root_path};
-use crate::storage::{
-    AppStorage, FileEventType, RecentFileRecord, SETTING_NOTES_ROOT,
+use crate::filesystem::{
+    classify_file_source, resolve_default_notes_root_path, resolve_notes_root_path,
 };
+use crate::storage::{AppStorage, FileEventType, RecentFileRecord, SETTING_NOTES_ROOT};
 
 /// Maximum file size allowed to be opened: 200 MB.
 const MAX_FILE_SIZE: u64 = 200 * 1024 * 1024;
@@ -33,7 +33,10 @@ pub struct FileReadCancellationRegistry {
 
 impl FileReadCancellationRegistry {
     fn begin_request(&self, window_label: &str, request_id: u64) -> Arc<AtomicBool> {
-        let mut active_reads = self.active_reads.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut active_reads = self
+            .active_reads
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let cancelled = Arc::new(AtomicBool::new(false));
 
         if let Some(previous) = active_reads.insert(
@@ -50,7 +53,10 @@ impl FileReadCancellationRegistry {
     }
 
     fn cancel_window_request(&self, window_label: &str) {
-        let mut active_reads = self.active_reads.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut active_reads = self
+            .active_reads
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
 
         if let Some(previous) = active_reads.remove(window_label) {
             previous.cancelled.store(true, Ordering::Relaxed);
@@ -58,7 +64,10 @@ impl FileReadCancellationRegistry {
     }
 
     fn finish_request(&self, window_label: &str, request_id: u64) {
-        let mut active_reads = self.active_reads.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut active_reads = self
+            .active_reads
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
 
         let should_remove = active_reads
             .get(window_label)
@@ -104,8 +113,7 @@ fn read_file_bytes_cancellable(path: &Path, cancelled: &AtomicBool) -> Result<Ve
     ensure_read_not_cancelled(cancelled)?;
 
     // Validate UTF-8 without converting to String — avoids an allocation.
-    std::str::from_utf8(&bytes)
-        .map_err(|error| format!("Failed to read file: {}", error))?;
+    std::str::from_utf8(&bytes).map_err(|error| format!("Failed to read file: {}", error))?;
 
     Ok(bytes)
 }
