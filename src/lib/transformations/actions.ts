@@ -1,4 +1,20 @@
+import type { Component } from "svelte";
 import type { FileType } from "$lib/state/editor.svelte";
+import CarbonUrl from '~icons/carbon/url';
+import CarbonSecurity from '~icons/carbon/security';
+import LucideCaseUpper from '~icons/lucide/case-upper';
+import LucideCaseLower from '~icons/lucide/case-lower';
+import LucideLabCaseCamel from '~icons/lucide-lab/case-camel';
+import LucideLabCaseSnake from '~icons/lucide-lab/case-snake';
+import LucideLabCaseKebab from '~icons/lucide-lab/case-kebab';
+import FluentTextWordCount20Filled from '~icons/fluent/text-word-count-20-filled';
+import FluentTextCaseTitle20Filled from '~icons/fluent/text-case-title-20-filled';
+import FluentCut20Filled from '~icons/fluent/cut-20-filled';
+import FluentArrowSort20Filled from '~icons/fluent/arrow-sort-20-filled';
+import FluentArrowSwap20Filled from '~icons/fluent/arrow-swap-20-filled';
+import LucideListCheck from '~icons/lucide/list-check';
+import FluentCodeText20Filled from '~icons/fluent/code-text-20-filled';
+import MaterialSymbolsCompressRounded from '~icons/material-symbols/compress-rounded';
 
 export type JsonTransformationActionId =
     | "json.format"
@@ -76,6 +92,8 @@ export type TransformationActionDefinition = {
     keywords: string[];
     fileTypes: FileType[];
     supportsSelection: boolean;
+    /** Optional override icon. Falls back to the file-type icon when unset. */
+    icon?: Component;
     /**
      * For format-converting transformations, the language mode to apply to the
      * editor immediately after a successful full-document transform. Undefined
@@ -113,6 +131,7 @@ export const transformationActions: TransformationActionDefinition[] = [
         keywords: ["json", "format", "pretty", "indent"],
         fileTypes: ["json"],
         supportsSelection: true,
+        icon: FluentCodeText20Filled
     },
     {
         id: "json.minify",
@@ -122,6 +141,7 @@ export const transformationActions: TransformationActionDefinition[] = [
         keywords: ["json", "minify", "compact", "compress"],
         fileTypes: ["json"],
         supportsSelection: true,
+        icon: MaterialSymbolsCompressRounded
     },
     {
         id: "json.validate",
@@ -131,6 +151,7 @@ export const transformationActions: TransformationActionDefinition[] = [
         keywords: ["json", "validate", "lint", "check"],
         fileTypes: ["json"],
         supportsSelection: true,
+        icon: LucideListCheck,
     },
     {
         id: "text.trim-trailing-whitespace",
@@ -140,6 +161,7 @@ export const transformationActions: TransformationActionDefinition[] = [
         keywords: ["text", "trim", "whitespace", "spaces", "tabs"],
         fileTypes: ["text"],
         supportsSelection: true,
+        icon: FluentCut20Filled
     },
     {
         id: "text.collapse-blank-lines",
@@ -199,6 +221,7 @@ export const transformationActions: TransformationActionDefinition[] = [
         keywords: ["text", "trim", "strip", "whitespace"],
         fileTypes: ["text"],
         supportsSelection: true,
+        icon: FluentCut20Filled
     },
     {
         id: "text.uppercase",
@@ -208,6 +231,7 @@ export const transformationActions: TransformationActionDefinition[] = [
         keywords: ["text", "uppercase", "caps", "upper"],
         fileTypes: ["text"],
         supportsSelection: true,
+        icon: LucideCaseUpper,
     },
     {
         id: "text.lowercase",
@@ -217,6 +241,7 @@ export const transformationActions: TransformationActionDefinition[] = [
         keywords: ["text", "lowercase", "lower"],
         fileTypes: ["text"],
         supportsSelection: true,
+        icon: LucideCaseLower,
     },
     {
         id: "text.reverse-lines",
@@ -226,6 +251,7 @@ export const transformationActions: TransformationActionDefinition[] = [
         keywords: ["text", "reverse", "lines", "order", "flip"],
         fileTypes: ["text"],
         supportsSelection: false,
+        icon: FluentArrowSort20Filled
     },
     {
         id: "text.reverse-string",
@@ -235,6 +261,7 @@ export const transformationActions: TransformationActionDefinition[] = [
         keywords: ["text", "reverse", "string", "characters", "unicode"],
         fileTypes: ["text"],
         supportsSelection: true,
+        icon: FluentArrowSwap20Filled
     },
     {
         id: "text.markdown-quote",
@@ -308,6 +335,7 @@ export const transformationActions: TransformationActionDefinition[] = [
         keywords: ["text", "case", "camel", "camelcase", "identifier"],
         fileTypes: ["text"],
         supportsSelection: true,
+        icon: LucideLabCaseCamel,
     },
     {
         id: "text.snake-case",
@@ -317,6 +345,7 @@ export const transformationActions: TransformationActionDefinition[] = [
         keywords: ["text", "case", "snake", "snake_case", "identifier"],
         fileTypes: ["text"],
         supportsSelection: true,
+        icon: LucideLabCaseSnake,
     },
     {
         id: "text.kebab-case",
@@ -326,6 +355,7 @@ export const transformationActions: TransformationActionDefinition[] = [
         keywords: ["text", "case", "kebab", "kebab-case", "identifier", "slug"],
         fileTypes: ["text"],
         supportsSelection: true,
+        icon: LucideLabCaseKebab,
     },
     {
         id: "text.title-case",
@@ -335,6 +365,7 @@ export const transformationActions: TransformationActionDefinition[] = [
         keywords: ["text", "case", "title", "capitalize", "words"],
         fileTypes: ["text"],
         supportsSelection: true,
+        icon: FluentTextCaseTitle20Filled,
     },
     {
         id: "text.sponge-case",
@@ -343,7 +374,7 @@ export const transformationActions: TransformationActionDefinition[] = [
         category: "Case Conversion",
         keywords: ["text", "case", "sponge", "mock", "mocking", "alternate"],
         fileTypes: ["text"],
-        supportsSelection: true,
+        supportsSelection: true
     },
     // ── URL ──────────────────────────────────────────────────────────────────
     {
@@ -354,6 +385,7 @@ export const transformationActions: TransformationActionDefinition[] = [
         keywords: ["url", "encode", "percent", "escape", "uri"],
         fileTypes: ["text"],
         supportsSelection: true,
+        icon: CarbonUrl,
     },
     {
         id: "url.decode",
@@ -363,6 +395,7 @@ export const transformationActions: TransformationActionDefinition[] = [
         keywords: ["url", "decode", "percent", "unescape", "uri"],
         fileTypes: ["text"],
         supportsSelection: true,
+        icon: CarbonUrl,
     },
     // ── Security ─────────────────────────────────────────────────────────────
     {
@@ -373,6 +406,7 @@ export const transformationActions: TransformationActionDefinition[] = [
         keywords: ["security", "defang", "url", "ioc", "threat", "safe"],
         fileTypes: ["text"],
         supportsSelection: true,
+        icon: CarbonSecurity,
     },
     {
         id: "security.url-refang",
@@ -382,6 +416,7 @@ export const transformationActions: TransformationActionDefinition[] = [
         keywords: ["security", "refang", "url", "ioc", "threat", "restore"],
         fileTypes: ["text"],
         supportsSelection: true,
+        icon: CarbonSecurity,
     },
     // ── Encoding ─────────────────────────────────────────────────────────────
     {
@@ -466,6 +501,7 @@ export const transformationActions: TransformationActionDefinition[] = [
         keywords: ["stats", "count", "characters", "length", "size"],
         fileTypes: ["text"],
         supportsSelection: true,
+        icon: FluentTextWordCount20Filled,
     },
     {
         id: "stats.count-lines",
@@ -475,6 +511,7 @@ export const transformationActions: TransformationActionDefinition[] = [
         keywords: ["stats", "count", "lines", "rows"],
         fileTypes: ["text"],
         supportsSelection: true,
+        icon: FluentTextWordCount20Filled,
     },
     {
         id: "stats.count-words",
@@ -484,6 +521,7 @@ export const transformationActions: TransformationActionDefinition[] = [
         keywords: ["stats", "count", "words", "tokens"],
         fileTypes: ["text"],
         supportsSelection: true,
+        icon: FluentTextWordCount20Filled,
     },
 ];
 

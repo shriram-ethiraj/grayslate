@@ -19,7 +19,7 @@
     const languageIconMap = new Map(languages.map((l) => [l.value, l.icon]));
 
     function getActionIcon(action: TransformationActionDefinition): Component {
-        return languageIconMap.get(action.fileTypes[0]) ?? Zap;
+        return action.icon ?? languageIconMap.get(action.fileTypes[0]) ?? Zap;
     }
 
     let {
