@@ -7,12 +7,15 @@
         editorState,
         registerEditorPopup,
         syncEditorPopupOpenState,
+        type FileType,
     } from "$lib/state/editor.svelte";
     import {
         transformationActions,
+        hasActionsForFileType,
         type TransformationActionDefinition,
         type TransformationActionId,
     } from "$lib/transformations/actions";
+    import { languageDetector } from "$lib/editor/core/languageDetector";
     import { languages } from "$lib/editor/config/supportedLanguages";
     import Zap from "~icons/lucide/zap";
 
@@ -32,12 +35,37 @@
     let query = $state("");
     let inputRef = $state<HTMLInputElement | null>(null);
 
+    // Snapshotted when the palette opens; null means no meaningful selection.
+    let selectionFileType = $state<FileType | null>(null);
+
+    /** Detect the file type of the selected text, falling back to "text". */
+    function detectSelectionFileType(): FileType | null {
+        const view = editorState.activeView;
+        if (!view) return null;
+
+        const sel = view.state.selection.main;
+        if (sel.empty) return null;
+
+        const text = view.state.doc.sliceString(sel.from, sel.to);
+        if (text.trim().length === 0) return null;
+
+        const detected = languageDetector.detect(text);
+        if (detected && hasActionsForFileType(detected as FileType)) {
+            return detected as FileType;
+        }
+        return "text";
+    }
+
+    // When something is selected, suggest actions for the selection's type.
+    // When nothing is selected, suggest actions for the document's file type.
     const suggestedActions = $derived.by(() => {
-        return transformationActions.filter((action) => action.fileTypes.includes(editorState.fileType));
+        const matchType = selectionFileType ?? editorState.fileType;
+        return transformationActions.filter((a) => a.fileTypes.includes(matchType));
     });
 
     const otherActions = $derived.by(() => {
-        return transformationActions.filter((action) => !action.fileTypes.includes(editorState.fileType));
+        const shown = new Set(suggestedActions.map((a) => a.id));
+        return transformationActions.filter((a) => !shown.has(a.id));
     });
 
     async function focusInput(): Promise<void> {
@@ -61,9 +89,11 @@
     $effect(() => {
         if (!open) {
             query = "";
+            selectionFileType = null;
             return;
         }
 
+        selectionFileType = detectSelectionFileType();
         query = "";
         void focusInput();
     });

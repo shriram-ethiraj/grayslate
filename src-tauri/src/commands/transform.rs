@@ -161,6 +161,19 @@ pub enum TransformationActionId {
     JsonMinify,
     #[serde(rename = "json.validate")]
     JsonValidate,
+
+    // ── JSON key case ────────────────────────────────────────────────────
+    #[serde(rename = "json.keys-camel-case")]
+    JsonKeysCamelCase,
+    #[serde(rename = "json.keys-snake-case")]
+    JsonKeysSnakeCase,
+    #[serde(rename = "json.keys-kebab-case")]
+    JsonKeysKebabCase,
+    #[serde(rename = "json.keys-title-case")]
+    JsonKeysTitleCase,
+    #[serde(rename = "json.keys-sponge-case")]
+    JsonKeysSpongeCase,
+
     #[serde(rename = "text.trim-trailing-whitespace")]
     TextTrimTrailingWhitespace,
     #[serde(rename = "text.collapse-blank-lines")]
@@ -1068,6 +1081,85 @@ fn text_sponge_case(text: &str, ctx: &TransformationContext<'_>) -> Result<Strin
 }
 
 // ════════════════════════════════════════════════════════════════════════════
+// JSON key-case transforms
+// ════════════════════════════════════════════════════════════════════════════
+
+/// Recursively rename every object key in a JSON value using `convert`.
+/// Array elements and scalar values are traversed / passed through unchanged.
+fn convert_json_keys_recursive<F>(value: serde_json::Value, convert: &F) -> serde_json::Value
+where
+    F: Fn(&str) -> String,
+{
+    match value {
+        serde_json::Value::Object(map) => {
+            let new_map: serde_json::Map<String, serde_json::Value> = map
+                .into_iter()
+                .map(|(k, v)| (convert(&k), convert_json_keys_recursive(v, convert)))
+                .collect();
+            serde_json::Value::Object(new_map)
+        }
+        serde_json::Value::Array(arr) => serde_json::Value::Array(
+            arr.into_iter()
+                .map(|v| convert_json_keys_recursive(v, convert))
+                .collect(),
+        ),
+        other => other,
+    }
+}
+
+/// Shared driver for JSON key-case transforms: parse → rename keys → pretty-print.
+fn json_convert_keys_case<F>(
+    text: &str,
+    ctx: &TransformationContext<'_>,
+    convert: F,
+) -> Result<String, String>
+where
+    F: Fn(&str) -> String,
+{
+    ctx.check_cancelled()?;
+    let value = parse_jsonc_to_serde_value(text)?;
+    let converted = convert_json_keys_recursive(value, &convert);
+    serde_json::to_string_pretty(&converted)
+        .map_err(|e| format!("Failed to serialize JSON: {}", e))
+}
+
+fn json_keys_camel_case(text: &str, ctx: &TransformationContext<'_>) -> Result<String, String> {
+    json_convert_keys_case(text, ctx, |s| AsLowerCamelCase(s).to_string())
+}
+
+fn json_keys_snake_case(text: &str, ctx: &TransformationContext<'_>) -> Result<String, String> {
+    json_convert_keys_case(text, ctx, |s| AsSnakeCase(s).to_string())
+}
+
+fn json_keys_kebab_case(text: &str, ctx: &TransformationContext<'_>) -> Result<String, String> {
+    json_convert_keys_case(text, ctx, |s| AsKebabCase(s).to_string())
+}
+
+fn json_keys_title_case(text: &str, ctx: &TransformationContext<'_>) -> Result<String, String> {
+    json_convert_keys_case(text, ctx, |s| AsTitleCase(s).to_string())
+}
+
+fn json_keys_sponge_case(text: &str, ctx: &TransformationContext<'_>) -> Result<String, String> {
+    json_convert_keys_case(text, ctx, |s| {
+        let mut result = String::with_capacity(s.len());
+        let mut uppercase = true;
+        for c in s.chars() {
+            if c.is_alphabetic() {
+                if uppercase {
+                    result.extend(c.to_uppercase());
+                } else {
+                    result.extend(c.to_lowercase());
+                }
+                uppercase = !uppercase;
+            } else {
+                result.push(c);
+            }
+        }
+        result
+    })
+}
+
+// ════════════════════════════════════════════════════════════════════════════
 // URL transforms
 // ════════════════════════════════════════════════════════════════════════════
 
@@ -1518,6 +1610,33 @@ fn execute_transformation_blocking(
             "Applied sponge case.",
             "Text is already in sponge case.",
             |ctx| text_sponge_case(ctx.text(), ctx),
+        ),
+
+        // ── JSON key case ──────────────────────────────────────────────────
+        TransformationActionId::JsonKeysCamelCase => ctx.run_replace_text(
+            "Converted JSON keys to camelCase.",
+            "JSON keys are already in camelCase.",
+            |ctx| json_keys_camel_case(ctx.text(), ctx),
+        ),
+        TransformationActionId::JsonKeysSnakeCase => ctx.run_replace_text(
+            "Converted JSON keys to snake_case.",
+            "JSON keys are already in snake_case.",
+            |ctx| json_keys_snake_case(ctx.text(), ctx),
+        ),
+        TransformationActionId::JsonKeysKebabCase => ctx.run_replace_text(
+            "Converted JSON keys to kebab-case.",
+            "JSON keys are already in kebab-case.",
+            |ctx| json_keys_kebab_case(ctx.text(), ctx),
+        ),
+        TransformationActionId::JsonKeysTitleCase => ctx.run_replace_text(
+            "Converted JSON keys to Title Case.",
+            "JSON keys are already in Title Case.",
+            |ctx| json_keys_title_case(ctx.text(), ctx),
+        ),
+        TransformationActionId::JsonKeysSpongeCase => ctx.run_replace_text(
+            "Applied sponge case to JSON keys.",
+            "JSON keys are already in sponge case.",
+            |ctx| json_keys_sponge_case(ctx.text(), ctx),
         ),
 
         // ── URL ───────────────────────────────────────────────────────────

@@ -28,7 +28,12 @@ export type JsonTransformationActionId =
     | "json.minify"
     | "json.validate"
     | "json.to-csv"
-    | "json.to-yaml";
+    | "json.to-yaml"
+    | "json.keys-camel-case"
+    | "json.keys-snake-case"
+    | "json.keys-kebab-case"
+    | "json.keys-title-case"
+    | "json.keys-sponge-case";
 
 export type CsvTransformationActionId = "csv.to-json";
 
@@ -159,6 +164,56 @@ export const transformationActions: TransformationActionDefinition[] = [
         fileTypes: ["json"],
         supportsSelection: true,
         icon: LucideListCheck,
+    },
+    // ── JSON Key Case Conversion ─────────────────────────────────────────────
+    {
+        id: "json.keys-camel-case",
+        title: "Keys to camelCase",
+        description: "Recursively convert all JSON object key names to camelCase.",
+        category: "Case Conversion",
+        keywords: ["json", "keys", "case", "camel", "camelcase", "rename"],
+        fileTypes: ["json"],
+        supportsSelection: true,
+        icon: LucideLabCaseCamel,
+    },
+    {
+        id: "json.keys-snake-case",
+        title: "Keys to snake_case",
+        description: "Recursively convert all JSON object key names to snake_case.",
+        category: "Case Conversion",
+        keywords: ["json", "keys", "case", "snake", "snake_case", "rename"],
+        fileTypes: ["json"],
+        supportsSelection: true,
+        icon: LucideLabCaseSnake,
+    },
+    {
+        id: "json.keys-kebab-case",
+        title: "Keys to kebab-case",
+        description: "Recursively convert all JSON object key names to kebab-case.",
+        category: "Case Conversion",
+        keywords: ["json", "keys", "case", "kebab", "kebab-case", "rename"],
+        fileTypes: ["json"],
+        supportsSelection: true,
+        icon: LucideLabCaseKebab,
+    },
+    {
+        id: "json.keys-title-case",
+        title: "Keys to Title Case",
+        description: "Recursively convert all JSON object key names to Title Case.",
+        category: "Case Conversion",
+        keywords: ["json", "keys", "case", "title", "capitalize", "rename"],
+        fileTypes: ["json"],
+        supportsSelection: true,
+        icon: FluentTextCaseTitle20Filled,
+    },
+    {
+        id: "json.keys-sponge-case",
+        title: "Keys to sPoNgE cAsE",
+        description: "Recursively convert all JSON object key names to sPoNgE cAsE.",
+        category: "Case Conversion",
+        keywords: ["json", "keys", "case", "sponge", "mock", "alternate", "rename"],
+        fileTypes: ["json"],
+        supportsSelection: true,
     },
     {
         id: "text.trim-trailing-whitespace",
@@ -549,6 +604,10 @@ export function getTransformationActionsForFileType(
     fileType: FileType,
 ): TransformationActionDefinition[] {
     return transformationActions.filter((action) => action.fileTypes.includes(fileType));
+}
+
+export function hasActionsForFileType(fileType: FileType): boolean {
+    return transformationActions.some((action) => action.fileTypes.includes(fileType));
 }
 
 export function getTransformationAction(
