@@ -222,4 +222,4 @@
 		</Sidebar.Provider>
 	</div>
 </div>
-<Toaster position="top-right" />
+<Toaster position="top-right" offset={{ top: "96px", right: "24px" }} mobileOffset={{ top: "96px", right: "16px", left: "16px" }} />

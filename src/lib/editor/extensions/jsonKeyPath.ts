@@ -2,7 +2,7 @@ import { hoverTooltip } from "@codemirror/view";
 import { syntaxTree } from "@codemirror/language";
 import type { EditorView } from "@codemirror/view";
 import type { SyntaxNode } from "@lezer/common";
-import { toast } from "svelte-sonner";
+import { toast } from "$lib/components/ui/sonner";
 
 /**
  * Extracts the unquoted key string from a `Property` node by reading its

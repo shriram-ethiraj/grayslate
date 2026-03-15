@@ -14,6 +14,7 @@
     increaseEditorFontSize,
     openFindReplacePanel as openEditorFindReplacePanel,
     openGoToLinePanel,
+    openTransformationsPalette,
     resetEditorFontSize,
   } from "$lib/state/editor.svelte";
   import AboutDialog from "$lib/components/AboutDialog.svelte";
@@ -316,6 +317,22 @@
         callback: (e) => {
           e.preventDefault();
           handleView("resetFontSize");
+        },
+        options: { ignoreInputs: false },
+      },
+      {
+        key: "Mod+K",
+        callback: (e) => {
+          e.preventDefault();
+          openTransformationsPalette();
+        },
+        options: { ignoreInputs: false },
+      },
+      {
+        key: "Mod+Shift+P",
+        callback: (e) => {
+          e.preventDefault();
+          openTransformationsPalette();
         },
         options: { ignoreInputs: false },
       },

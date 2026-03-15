@@ -1,12 +1,16 @@
 <script lang="ts">
     import { onDestroy } from "svelte";
-    import { editorState } from "$lib/state/editor.svelte";
+    import {
+        editorState,
+        openTransformationsPalette,
+    } from "$lib/state/editor.svelte";
     import { Button } from "$lib/components/ui/button/index.js";
     import Table2 from "~icons/lucide/table-2";
     import FileText from "~icons/lucide/file-text";
     import Eye from "~icons/lucide/eye";
     import Copy from "~icons/lucide/copy";
     import Check from "~icons/lucide/check";
+    import Zap from "~icons/lucide/zap";
     import { editorCopySelectionOrAll } from "$lib/editor/core/actions";
     import { copyMarkdownPreviewSelectionOrAll } from "$lib/editor/components/markdown/previewActions";
 
@@ -172,4 +176,17 @@
     {:else}
         <Copy class="h-[1.2rem] w-[1.2rem] transition-all" />
     {/if}
+</Button>
+
+<Button
+    variant="ghost"
+    size="icon"
+    aria-label="Transformations"
+    title="Open transformations"
+    disabled={editorState.loader.visible}
+    onclick={() => {
+        openTransformationsPalette();
+    }}
+>
+    <Zap class="h-[1.2rem] w-[1.2rem] transition-all" />
 </Button>

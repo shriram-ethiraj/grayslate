@@ -79,7 +79,7 @@ fn ensure_read_not_cancelled(cancelled: &AtomicBool) -> Result<(), String> {
     Ok(())
 }
 
-fn read_text_file_cancellable(path: &Path, cancelled: &AtomicBool) -> Result<String, String> {
+fn read_file_bytes_cancellable(path: &Path, cancelled: &AtomicBool) -> Result<Vec<u8>, String> {
     ensure_read_not_cancelled(cancelled)?;
 
     let file = File::open(path).map_err(|error| format!("Failed to read file: {}", error))?;
@@ -103,7 +103,11 @@ fn read_text_file_cancellable(path: &Path, cancelled: &AtomicBool) -> Result<Str
 
     ensure_read_not_cancelled(cancelled)?;
 
-    String::from_utf8(bytes).map_err(|error| format!("Failed to read file: {}", error))
+    // Validate UTF-8 without converting to String — avoids an allocation.
+    std::str::from_utf8(&bytes)
+        .map_err(|error| format!("Failed to read file: {}", error))?;
+
+    Ok(bytes)
 }
 
 fn validate_write_path(path: &Path) -> Result<(), String> {
@@ -126,18 +130,23 @@ fn clamp_recent_files_limit(limit: Option<usize>) -> usize {
     limit.unwrap_or(50).clamp(1, MAX_RECENT_FILES_LIMIT)
 }
 
-/// Read a file from disk and return its text content.
+/// Read a file from disk and return its content as raw bytes.
+///
+/// Returns a `tauri::ipc::Response` with the raw UTF-8 bytes, bypassing JSON
+/// serialization. The frontend receives an `ArrayBuffer` and decodes it with
+/// `TextDecoder`, avoiding the overhead of JSON-escaping up to 200 MB of text.
 ///
 /// Returns an error string (forwarded to the frontend) when:
-/// - the path cannot be stat-ed or read, or
-/// - the file exceeds the 200 MB limit.
+/// - the path cannot be stat-ed or read,
+/// - the file exceeds the 200 MB limit, or
+/// - the file is not valid UTF-8.
 #[tauri::command]
 pub async fn read_file_content(
     cancellations: tauri::State<'_, FileReadCancellationRegistry>,
     window: tauri::Window,
     path: String,
     request_id: u64,
-) -> Result<String, String> {
+) -> Result<tauri::ipc::Response, String> {
     let window_label = window.label().to_string();
     let cancellation_flag = cancellations.begin_request(&window_label, request_id);
     let path_buf = PathBuf::from(&path);
@@ -158,15 +167,15 @@ pub async fn read_file_content(
 
         let read_path = path_buf.clone();
         let read_cancelled = Arc::clone(&cancellation_flag);
-        let content = tauri::async_runtime::spawn_blocking(move || {
-            read_text_file_cancellable(&read_path, read_cancelled.as_ref())
+        let bytes = tauri::async_runtime::spawn_blocking(move || {
+            read_file_bytes_cancellable(&read_path, read_cancelled.as_ref())
         })
         .await
         .map_err(|error| format!("Failed to join file read task: {}", error))??;
 
         ensure_read_not_cancelled(cancellation_flag.as_ref())?;
 
-        Ok(content)
+        Ok(tauri::ipc::Response::new(bytes))
     }
     .await;
 

@@ -1,6 +1,6 @@
 import { getName, getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
-import { toast } from "svelte-sonner";
+import { toast } from "$lib/components/ui/sonner";
 
 export type UpdateStatus =
     | "idle"

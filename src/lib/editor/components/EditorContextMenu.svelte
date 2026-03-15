@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { EditorView } from "codemirror";
-  import { toast } from "svelte-sonner";
+  import { toast } from "$lib/components/ui/sonner";
   import { tick } from "svelte";
   import CopyIcon from "~icons/lucide/copy";
   import Scissors from "~icons/lucide/scissors";

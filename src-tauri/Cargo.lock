@@ -6,10 +6,12 @@ version = 4
 name = "Grayslate"
 version = "0.1.0"
 dependencies = [
+ "dprint-plugin-jsonc",
  "grep-matcher",
  "grep-regex",
  "grep-searcher",
  "ignore",
+ "jsonc-parser 0.29.0",
  "objc2 0.6.3",
  "objc2-app-kit",
  "objc2-quartz-core 0.3.1",
@@ -895,6 +897,28 @@ version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d8b14ccef22fc6f5a8f4d7d768562a182c04ce9a3b3157b91390b52ddfdf1a76"
 dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "dprint-core"
+version = "0.35.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "93bd44f40b1881477837edc7112695d4b174f058c36c1cbc4c50f8d0482e2ac8"
+dependencies = [
+ "bumpalo",
+ "fnv",
+ "serde",
+]
+
+[[package]]
+name = "dprint-plugin-jsonc"
+version = "0.7.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "feade211d9ea19f53040bfd8ebdd25e445b54439c14695eda494167764d7a2a9"
+dependencies = [
+ "dprint-core",
+ "jsonc-parser 0.15.1",
  "serde",
 ]
 
@@ -2166,6 +2190,18 @@ dependencies = [
  "serde_json",
  "thiserror 1.0.69",
 ]
+
+[[package]]
+name = "jsonc-parser"
+version = "0.15.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "da59eeab742770775c0f85b0b7b847f247b540a5389b806301d71c697d62bd8b"
+
+[[package]]
+name = "jsonc-parser"
+version = "0.29.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9eb0774546269185d38da823d8583e94448ba0e158e3f50759d9c79aba946ca5"
 
 [[package]]
 name = "jsonptr"

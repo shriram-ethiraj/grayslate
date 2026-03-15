@@ -1,5 +1,5 @@
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
-import { toast } from "svelte-sonner";
+import { toast } from "$lib/components/ui/sonner";
 import { editorState } from "$lib/state/editor.svelte";
 
 let previewElement: HTMLElement | undefined;

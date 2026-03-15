@@ -58,6 +58,7 @@ pub fn run() {
             commands::file::write_file_content,
             commands::memory::get_memory_info,
             commands::search::search_sidebar_files,
+            commands::transform::execute_transformation,
             commands::update::check_for_updates,
             commands::update::install_available_update,
             menu::set_menu_word_wrap,

@@ -5,6 +5,7 @@
   import StatusBar from "$lib/editor/components/StatusBar.svelte";
   import EditorLoader from "$lib/editor/components/EditorLoader.svelte";
   import GoToLineDialog from "$lib/editor/components/GoToLineDialog.svelte";
+  import TransformationsPalette from "$lib/editor/components/TransformationsPalette.svelte";
   import {
     ResizablePaneGroup,
     ResizablePane,
@@ -15,6 +16,7 @@
   import type { EditorView } from "codemirror";
   import {
     createManagedEditorSession,
+    dispatchManagedEditorChange,
     dispatchManagedEditorTextChange,
     disposeManagedEditorSession,
     ensureManagedEditorState,
@@ -48,8 +50,8 @@
     open as openFilePicker,
     save as saveFilePicker,
   } from "@tauri-apps/plugin-dialog";
-  import { invoke } from "@tauri-apps/api/core";
-  import { toast } from "svelte-sonner";
+  import { invoke, invokeText } from "$lib/ipc";
+  import { toast } from "$lib/components/ui/sonner";
   import { requestFileOpenReclaim } from "$lib/editor/core/memory";
   import { clearSearchStatsCache } from "$lib/editor/core/actions";
   import { clearColorCache } from "$lib/editor/extensions/colorHints";
@@ -64,6 +66,13 @@
     RECENT_FILES_UPDATED_EVENT,
     type OpenFilePathPayload,
   } from "$lib/files/recentFiles";
+  import {
+    type ExecuteTransformationRequest,
+    getTransformationAction,
+    type ExecuteTransformationResponse,
+    type TransformationActionId,
+    type TransformationMessageLevel,
+  } from "$lib/transformations/actions";
 
   type SavedDocumentSource = "file";
 
@@ -260,6 +269,102 @@
   function beginFileOpenRequest(): number {
     fileOpenRequestVersion += 1;
     return fileOpenRequestVersion;
+  }
+
+  function showTransformationToast(
+    level: TransformationMessageLevel,
+    message: string,
+  ): void {
+    switch (level) {
+      case "error":
+        toast.error(message);
+        return;
+      case "info":
+        toast.info(message);
+        return;
+      case "success":
+        toast.success(message);
+        return;
+    }
+  }
+
+  async function executeTransformation(actionId: TransformationActionId): Promise<boolean> {
+    const action = getTransformationAction(actionId);
+    if (!action) {
+      toast.error("Unknown transformation.");
+      return false;
+    }
+
+    if (editorState.loader.visible) {
+      return false;
+    }
+
+    if (!editorSession.state) {
+      toast.error("No editor document is ready for transformations.");
+      return false;
+    }
+
+    const selection = editorSession.state.selection.main;
+    const useSelection = action.supportsSelection && !selection.empty;
+    const sourceText = useSelection
+      ? editorSession.state.doc.sliceString(selection.from, selection.to)
+      : editorSession.state.doc.toString();
+    const request: ExecuteTransformationRequest = {
+      actionId,
+      text: sourceText,
+    };
+
+    try {
+      startLoaderTicker(action.title + "…");
+      const result = await invoke<ExecuteTransformationResponse>(
+          "execute_transformation",
+          {
+            request,
+          },
+        );
+
+      if (result.kind === "show-message") {
+        showTransformationToast(result.level, result.message);
+        editorView?.focus();
+        return true;
+      }
+
+      if (useSelection) {
+        dispatchManagedEditorChange(
+          editorSession,
+          {
+            from: selection.from,
+            to: selection.to,
+            insert: result.text,
+          },
+          {
+            userEvent: `input.transform.${actionId}`,
+            separateUndoStep: true,
+          },
+        );
+      } else {
+        dispatchManagedEditorTextChange(editorSession, result.text, {
+          userEvent: `input.transform.${actionId}`,
+          separateUndoStep: true,
+        });
+      }
+
+      if (result.message) {
+        showTransformationToast(result.level ?? "success", result.message);
+      }
+
+      return true;
+    } catch (error) {
+      const message = error instanceof Error
+        ? error.message
+        : typeof error === "string"
+          ? error
+          : "Failed to run transformation.";
+      toast.error(message);
+      return false;
+    } finally {
+      completeEditorLoader();
+    }
   }
 
   function invalidatePendingFileOpen(): void {
@@ -532,7 +637,7 @@
       const previousSession = editorSession;
       const previousDocLength =
         previousSession.state?.doc.length ?? value.length;
-      const content = await invoke<string>("read_file_content", {
+      const content = await invokeText("read_file_content", {
         path: filePath,
         requestId: requestVersion,
       });
@@ -882,6 +987,7 @@
 
 <div class="flex flex-1 flex-col min-h-0 min-w-0">
   <GoToLineDialog bind:open={goToLineOpen} {editorView} {line} {lineCount} />
+  <TransformationsPalette executeAction={executeTransformation} />
 
   <div class="flex flex-1 min-h-0 min-w-0 relative">
     <EditorLoader

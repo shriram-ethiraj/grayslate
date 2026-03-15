@@ -25,6 +25,8 @@ tauri-plugin-clipboard-manager = "2"
 tauri-plugin-prevent-default = "4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+dprint-plugin-jsonc = "0.7.4"
+jsonc-parser = "0.29.0"
 tauri-plugin-os = "2"
 sysinfo = "0.38.3"
 rusqlite = { version = "0.32", features = ["bundled"] }

@@ -29,7 +29,11 @@ export type FileType =
     | "auto";
 
 export type EditorSurface = "editor" | "markdown-preview";
-export type EditorPopupId = "find-replace" | "go-to-line" | "language-picker";
+export type EditorPopupId =
+    | "find-replace"
+    | "go-to-line"
+    | "language-picker"
+    | "transformations";
 
 export type EditorPopupOpenRequest =
     | {
@@ -41,6 +45,9 @@ export type EditorPopupOpenRequest =
     }
     | {
         id: "language-picker";
+    }
+    | {
+        id: "transformations";
     };
 
 type EditorPopupController = {
@@ -237,6 +244,14 @@ export function openGoToLinePanel(): boolean {
 
 export function openLanguagePicker(): boolean {
     return openEditorPopup({ id: "language-picker" });
+}
+
+export function openTransformationsPalette(): boolean {
+    if (editorState.csv.showTable) {
+        return false;
+    }
+
+    return openEditorPopup({ id: "transformations" });
 }
 
 export function setEditorFontSize(fontSize: number): void {

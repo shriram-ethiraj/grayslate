@@ -2,7 +2,7 @@
     import { tick } from "svelte";
     import { writeText } from "@tauri-apps/plugin-clipboard-manager";
     import { revealItemInDir } from "@tauri-apps/plugin-opener";
-    import { toast } from "svelte-sonner";
+    import { toast } from "$lib/components/ui/sonner";
     import { registerHotkey } from "$lib/hotkeys";
     import type { LanguageIcon } from "$lib/editor/config/supportedLanguages";
     import { languages } from "$lib/editor/config/supportedLanguages";

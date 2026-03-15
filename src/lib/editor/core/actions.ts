@@ -1,7 +1,7 @@
 import type { EditorView } from "codemirror";
 import { undo, redo, selectAll } from "@codemirror/commands";
 import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
-import { toast } from "svelte-sonner";
+import { toast } from "$lib/components/ui/sonner";
 import { findNext, findPrevious, replaceNext, replaceAll, SearchQuery, setSearchQuery, getSearchQuery } from "@codemirror/search";
 import { editorState } from "$lib/state/editor.svelte";
 import type {
