@@ -185,15 +185,12 @@
   }
 
   async function syncLanguageFromPath(path: string): Promise<void> {
-    if (language !== "auto") {
-      return;
-    }
-
     const filename = await getPathLabel(path);
     const extLanguage = languageDetector.detect("", filename);
     if (extLanguage) {
-      // Only seed the detected language — do not pin `language` away from
-      // "auto", so content-based re-detection keeps working after transforms.
+      // Pin language to the extension of the saved file so the status bar
+      // always reflects the actual file type after a save or save-as.
+      language = extLanguage;
       detectedLanguage = extLanguage;
     }
   }
@@ -376,6 +373,12 @@
           },
         );
       } else {
+        // If the action declares an output language, pin the editor to it
+        // directly — we know exactly what the transform produced.
+        if (action.outputLanguage) {
+          language = action.outputLanguage;
+          detectedLanguage = action.outputLanguage;
+        }
         dispatchManagedEditorTextChange(editorSession, result.text, {
           userEvent: `input.transform.${actionId}`,
           separateUndoStep: true,
@@ -682,28 +685,21 @@
       }
 
       stopLoaderTicker();
-      updateEditorLoader("Detecting language…", filename, 72);
+      updateEditorLoader("Loading into editor…", filename, 80);
 
-      // Yield to let the UI repaint before running language detection
+      // Yield to let the UI repaint before loading into the editor.
       await new Promise<void>((r) => setTimeout(r, 0));
       if (!isActiveFileOpenRequest(requestVersion)) {
         return;
       }
 
-      const detected = languageDetector.detect(content, filename) ?? "text";
+      // Use extension/filename-only detection — no content scan needed on open.
+      // The file extension is the authoritative source of language type on first
+      // load. Content-based detection runs later only when a full-document
+      // transformation resets the mode to "auto".
+      const detected = languageDetector.detect("", filename) ?? "text";
 
-      updateEditorLoader("Loading into editor…", filename, 88);
-      await new Promise<void>((r) => setTimeout(r, 0));
-      if (!isActiveFileOpenRequest(requestVersion)) {
-        return;
-      }
-
-      // Keep language as "auto" so content-based re-detection stays active
-      // after transformations (e.g. CSV → JSON). The extension is already
-      // factored into `detected` because languageDetector.detect() runs Phase
-      // 1 (extension match) before content heuristics, so `detected` already
-      // reflects the extension hint without permanently locking the mode.
-      const nextLanguage = "auto";
+      const nextLanguage = detected;
       const nextDetectedLanguage = detected;
 
       resetEditorDocument(
