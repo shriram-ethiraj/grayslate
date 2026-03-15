@@ -101,6 +101,12 @@ importers:
       '@iconify-json/material-symbols':
         specifier: ^1.2.62
         version: 1.2.62
+      '@iconify-json/mdi':
+        specifier: ^1.2.3
+        version: 1.2.3
+      '@iconify-json/pepicons-pop':
+        specifier: ^1.2.3
+        version: 1.2.3
       '@iconify-json/ri':
         specifier: ^1.2.10
         version: 1.2.10
@@ -656,6 +662,12 @@ packages:
 
   '@iconify-json/material-symbols@1.2.62':
     resolution: {integrity: sha512-FmAzV8UT7pcH6bv8vJxxFKrf3/ebt/CzpUxljjbWgWw0PjbjUHlkwxmtHTiRNS+MGD7t6ii2JdiDWHdBkvPSpQ==}
+
+  '@iconify-json/mdi@1.2.3':
+    resolution: {integrity: sha512-O3cLwbDOK7NNDf2ihaQOH5F9JglnulNDFV7WprU2dSoZu3h3cWH//h74uQAB87brHmvFVxIOkuBX2sZSzYhScg==}
+
+  '@iconify-json/pepicons-pop@1.2.3':
+    resolution: {integrity: sha512-keopIpR7DYXpwbSHNF/IPdeyRL5JaPk4ZVMpzZT25XtgK6qPz7ne24W8FA7ZKPYZw4l8wZw3Ho/zi859pN+fxg==}
 
   '@iconify-json/ri@1.2.10':
     resolution: {integrity: sha512-WWMhoncVVM+Xmu9T5fgu2lhYRrKTEWhKk3Com0KiM111EeEsRLiASjpsFKnC/SrB6covhUp95r2mH8tGxhgd5Q==}
@@ -2088,6 +2100,14 @@ snapshots:
       '@iconify/types': 2.0.0
 
   '@iconify-json/material-symbols@1.2.62':
+    dependencies:
+      '@iconify/types': 2.0.0
+
+  '@iconify-json/mdi@1.2.3':
+    dependencies:
+      '@iconify/types': 2.0.0
+
+  '@iconify-json/pepicons-pop@1.2.3':
     dependencies:
       '@iconify/types': 2.0.0
 

@@ -15,6 +15,13 @@ import FluentArrowSwap20Filled from '~icons/fluent/arrow-swap-20-filled';
 import LucideListCheck from '~icons/lucide/list-check';
 import FluentCodeText20Filled from '~icons/fluent/code-text-20-filled';
 import MaterialSymbolsCompressRounded from '~icons/material-symbols/compress-rounded';
+import LucideSortDesc from '~icons/lucide/sort-desc';
+import PepiconsPopDuplicateOff from '~icons/pepicons-pop/duplicate-off';
+import LucideBinary from '~icons/lucide/binary';
+import MdiHexadecimal from '~icons/mdi/hexadecimal';
+import MdiDecimal from '~icons/mdi/decimal';
+import MaterialSymbolsTransformRounded from '~icons/material-symbols/transform-rounded';
+import FluentTextCollapse20Filled from '~icons/fluent/text-collapse-20-filled';
 
 export type JsonTransformationActionId =
     | "json.format"
@@ -171,6 +178,7 @@ export const transformationActions: TransformationActionDefinition[] = [
         keywords: ["text", "spacing", "blank", "lines", "cleanup"],
         fileTypes: ["text"],
         supportsSelection: false,
+        icon: FluentTextCollapse20Filled
     },
     {
         id: "csv.to-json",
@@ -181,6 +189,7 @@ export const transformationActions: TransformationActionDefinition[] = [
         fileTypes: ["csv"],
         supportsSelection: false,
         outputLanguage: "json",
+        icon: MaterialSymbolsTransformRounded,
     },
     {
         id: "json.to-csv",
@@ -191,6 +200,7 @@ export const transformationActions: TransformationActionDefinition[] = [
         fileTypes: ["json"],
         supportsSelection: false,
         outputLanguage: "csv",
+        icon: MaterialSymbolsTransformRounded,
     },
     {
         id: "json.to-yaml",
@@ -201,6 +211,7 @@ export const transformationActions: TransformationActionDefinition[] = [
         fileTypes: ["json"],
         supportsSelection: false,
         outputLanguage: "yaml",
+        icon: MaterialSymbolsTransformRounded,
     },
     {
         id: "yaml.to-json",
@@ -211,6 +222,7 @@ export const transformationActions: TransformationActionDefinition[] = [
         fileTypes: ["yaml"],
         supportsSelection: false,
         outputLanguage: "json",
+        icon: MaterialSymbolsTransformRounded,
     },
     // ── Plain Text ──────────────────────────────────────────────────────────
     {
@@ -307,6 +319,7 @@ export const transformationActions: TransformationActionDefinition[] = [
         keywords: ["text", "sort", "lines", "alphabetical", "order"],
         fileTypes: ["text"],
         supportsSelection: false,
+        icon: LucideSortDesc,
     },
     {
         id: "text.remove-duplicate-lines",
@@ -316,6 +329,7 @@ export const transformationActions: TransformationActionDefinition[] = [
         keywords: ["text", "deduplicate", "unique", "lines", "duplicates"],
         fileTypes: ["text"],
         supportsSelection: false,
+        icon: PepiconsPopDuplicateOff,
     },
     {
         id: "text.collapse-lines",
@@ -325,6 +339,7 @@ export const transformationActions: TransformationActionDefinition[] = [
         keywords: ["text", "collapse", "join", "lines", "single"],
         fileTypes: ["text"],
         supportsSelection: false,
+        icon: FluentTextCollapse20Filled
     },
     // ── Case Conversion ──────────────────────────────────────────────────────
     {
@@ -446,6 +461,7 @@ export const transformationActions: TransformationActionDefinition[] = [
         keywords: ["convert", "ascii", "hex", "hexadecimal", "encode"],
         fileTypes: ["text"],
         supportsSelection: true,
+        icon: MdiHexadecimal,
     },
     {
         id: "convert.hex-to-ascii",
@@ -464,6 +480,7 @@ export const transformationActions: TransformationActionDefinition[] = [
         keywords: ["convert", "decimal", "binary", "number", "radix"],
         fileTypes: ["text"],
         supportsSelection: true,
+        icon: LucideBinary
     },
     {
         id: "convert.binary-to-decimal",
@@ -473,6 +490,7 @@ export const transformationActions: TransformationActionDefinition[] = [
         keywords: ["convert", "binary", "decimal", "number", "radix"],
         fileTypes: ["text"],
         supportsSelection: true,
+        icon: MdiDecimal
     },
     {
         id: "convert.decimal-to-hex",
@@ -482,6 +500,7 @@ export const transformationActions: TransformationActionDefinition[] = [
         keywords: ["convert", "decimal", "hex", "hexadecimal", "number", "radix"],
         fileTypes: ["text"],
         supportsSelection: true,
+        icon: MdiHexadecimal,
     },
     {
         id: "convert.hex-to-decimal",
@@ -491,6 +510,7 @@ export const transformationActions: TransformationActionDefinition[] = [
         keywords: ["convert", "hex", "hexadecimal", "decimal", "number", "radix"],
         fileTypes: ["text"],
         supportsSelection: true,
+        icon: MdiDecimal
     },
     // ── Stats ────────────────────────────────────────────────────────────────
     {
