@@ -20,6 +20,7 @@
 	bind:value
 	bind:ref
 	data-slot="command"
+	disablePointerSelection
 	class={cn(
 		"bg-popover text-popover-foreground flex h-full w-full flex-col overflow-hidden rounded-md",
 		className
