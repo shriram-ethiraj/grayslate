@@ -17,66 +17,68 @@ export interface AutocompleteConfig {
     items: AutocompleteItem[];
 }
 
-export function createAutocompleteRenderer(iconData?: string, detailText?: string) {
-    if (!iconData && !detailText) return undefined;
-
-    return (completion: Completion) => {
-        const wrap = document.createElement("div");
-        wrap.className = "flex items-center gap-2 w-full";
-
-        if (iconData) {
-            const iconContainer = document.createElement("div");
-            // Remove hardcoded text colors here; let them inherit from the parent <li> which handles hover colors
-            iconContainer.className = "flex items-center justify-center w-5 h-5 opacity-70";
-
-            if (iconData.startsWith("<")) {
-                // Render as raw HTML directly
-                iconContainer.innerHTML = iconData;
-
-                // Enforce consistent sizing internally
-                const svgNode = iconContainer.querySelector('svg');
-                if (svgNode) {
-                    svgNode.setAttribute("width", "18");
-                    svgNode.setAttribute("height", "18");
-                }
-            } else {
-                // Must be an iconify icon name!
-                if (iconExists(iconData)) {
-                    const svgEl = renderSVG(iconData, { width: "18", height: "18" });
-                    if (svgEl) iconContainer.appendChild(svgEl);
-                } else {
-                    // Start loading, render as empty for now, then dynamically inject!
-                    loadIcon(iconData).then(() => {
-                        const svgEl = renderSVG(iconData, { width: "18", height: "18" });
-                        if (svgEl && iconContainer.isConnected) {
-                            iconContainer.appendChild(svgEl);
-                        }
-                    });
-                }
-            }
-
-            wrap.appendChild(iconContainer);
-        }
-
-        if (detailText) {
-            const detailSpan = document.createElement("span");
-            // Remove hardcoded text colors here; let them inherit from the parent <li>
-            detailSpan.className = "text-sm font-medium opacity-80";
-            detailSpan.textContent = detailText;
-            wrap.appendChild(detailSpan);
-        }
-
-        return wrap;
-    };
+interface AutocompleteCompletion extends Completion {
+    iconData?: string;
 }
 
+function sizeAutocompleteSvg(svgNode: SVGElement | null) {
+    if (!svgNode) return;
+    svgNode.setAttribute("width", "18");
+    svgNode.setAttribute("height", "18");
+}
+
+function createAutocompleteIcon(iconData?: string) {
+    if (!iconData) return null;
+
+    const iconContainer = document.createElement("div");
+    iconContainer.className = "cm-autocomplete-option-icon";
+
+    if (iconData.startsWith("<")) {
+        iconContainer.innerHTML = iconData;
+        sizeAutocompleteSvg(iconContainer.querySelector("svg"));
+        return iconContainer;
+    }
+
+    if (iconExists(iconData)) {
+        const svgEl = renderSVG(iconData, { width: "18", height: "18" });
+        if (svgEl) iconContainer.appendChild(svgEl);
+        return iconContainer;
+    }
+
+    void loadIcon(iconData).then(() => {
+        const svgEl = renderSVG(iconData, { width: "18", height: "18" });
+        if (svgEl && iconContainer.isConnected) {
+            iconContainer.appendChild(svgEl);
+        }
+    });
+
+    return iconContainer;
+}
+
+export const autocompleteDisplayConfig = {
+    icons: false,
+    addToOptions: [
+        {
+            position: 20,
+            render(completion: Completion) {
+                return createAutocompleteIcon((completion as AutocompleteCompletion).iconData);
+            },
+        },
+    ],
+};
+
 export function createAutocompleteProvider(config: AutocompleteConfig) {
-    const completions: Completion[] = config.items.map(item => {
-        return snippetCompletion(item.snippet, {
+    const completions: AutocompleteCompletion[] = config.items.map(item => {
+        const completion = snippetCompletion(item.snippet, {
             label: item.label,
+            detail: item.detailText,
             type: item.type || "text",
-            info: createAutocompleteRenderer(item.iconData, item.detailText)
         });
+
+        return {
+            ...completion,
+            iconData: item.iconData,
+        };
     });
 
     return function provider(context: CompletionContext): CompletionResult | null {

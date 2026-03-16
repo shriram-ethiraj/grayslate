@@ -106,20 +106,27 @@
     @apply !bg-accent !text-accent-foreground;
   }
 
-  /* Since we replaced the label/detail with our own renderer, hide the default ones */
-  /* Keep the custom rendered DOM element (`.cm-completionInfo` acts as our wrapper now due to the custom renderer using info) */
-  .cm-tooltip-autocomplete .cm-completionLabel,
-  .cm-tooltip-autocomplete .cm-completionDetail,
-  .cm-tooltip-autocomplete .cm-completionMatchedText {
-    display: none !important;
-  }
-  
-  .cm-completionInfo {
-    @apply w-full;
+  .cm-tooltip-autocomplete .cm-autocomplete-option-icon {
+    @apply !flex !h-5 !w-5 !shrink-0 !items-center !justify-center;
+    opacity: 0.7;
   }
 
-  .cm-tooltip-autocomplete .cm-completionIcon {
-    @apply !hidden; /* Hide default icon to keep it clean like Shadcn Command/Select items */
+  .cm-tooltip-autocomplete .cm-autocomplete-option-icon svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .cm-tooltip-autocomplete .cm-completionLabel {
+    @apply !min-w-0 !flex-1;
+  }
+
+  .cm-tooltip-autocomplete .cm-completionDetail {
+    @apply !text-sm;
+    opacity: 0.8;
+  }
+
+  .cm-tooltip-autocomplete .cm-completionMatchedText {
+    @apply !font-medium;
   }
 
   /* JSON Fold Placeholder - styled to match cm-json-array-index inlay hints */

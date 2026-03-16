@@ -33,6 +33,7 @@ import { vue } from "@codemirror/lang-vue";
 
 import { markdownAutocompleteProvider } from "$lib/editor/components/markdown/markdownAutocomplete";
 import { autocompletion } from "@codemirror/autocomplete";
+import { autocompleteDisplayConfig } from "$lib/editor/extensions/autocompleteFactory";
 import { csvRainbowHighlight } from "$lib/editor/extensions/csvRainbowHighlight";
 import type { Extension } from "@codemirror/state";
 import { StreamLanguage } from "@codemirror/language";
@@ -109,6 +110,7 @@ export function getLanguageExtension(langId: string): Extension | Extension[] {
             return [
                 markdown(),
                 autocompletion({
+                    ...autocompleteDisplayConfig,
                     override: [markdownAutocompleteProvider],
                 }),
             ];
