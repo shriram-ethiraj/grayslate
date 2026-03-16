@@ -214,6 +214,7 @@ export function createScrollSync(
     let refreshTimerId: ReturnType<typeof setTimeout> | null = null;
     let refreshRafId: number | null = null;
     let pendingImages = new Set<HTMLImageElement>();
+    let refreshNeedsAnchorRebuild = false;
 
     function startPreviewAnimation() {
         if (previewLerpRafId == null) {
@@ -233,15 +234,18 @@ export function createScrollSync(
         );
     }
 
-    function applyAnchorRefresh() {
+    function applyAnchorRefresh(rebuildAnchors: boolean) {
         const maxPreviewScrollBefore = previewEl.scrollHeight - previewEl.clientHeight;
-        const editorLinePercent = getEditorLinePercent(editorView);
+        const editorLinePercent =
+            activePane === 'editor' ? getEditorLinePercent(editorView) : 0;
         const previewLinePercent =
-            maxPreviewScrollBefore > 0
+            activePane === 'preview' && maxPreviewScrollBefore > 0
                 ? previewToLinePercent(anchors, previewEl.scrollTop / maxPreviewScrollBefore)
                 : 0;
 
-        anchors = buildAnchorMap(editorView, previewEl);
+        if (rebuildAnchors) {
+            anchors = buildAnchorMap(editorView, previewEl);
+        }
 
         if (activePane === 'editor') {
             const maxPreviewScrollAfter = previewEl.scrollHeight - previewEl.clientHeight;
@@ -268,10 +272,16 @@ export function createScrollSync(
             cancelAnimationFrame(refreshRafId);
             refreshRafId = null;
         }
+        refreshNeedsAnchorRebuild = false;
     }
 
-    function scheduleAnchorRefresh(delay = MUTATION_REFRESH_DELAY) {
+    function scheduleAnchorRefresh(
+        delay = MUTATION_REFRESH_DELAY,
+        options?: { rebuildAnchors?: boolean }
+    ) {
         if (destroyed) return;
+        refreshNeedsAnchorRebuild =
+            refreshNeedsAnchorRebuild || Boolean(options?.rebuildAnchors);
 
         // Cancel both the pending timer and any in-flight RAF so that a rapid
         // sequence of calls never causes a double applyAnchorRefresh().
@@ -284,33 +294,44 @@ export function createScrollSync(
         refreshTimerId = setTimeout(() => {
             refreshTimerId = null;
             refreshRafId = requestAnimationFrame(() => {
+                const rebuildAnchors = refreshNeedsAnchorRebuild;
+                refreshNeedsAnchorRebuild = false;
                 refreshRafId = null;
-                applyAnchorRefresh();
+                applyAnchorRefresh(rebuildAnchors);
             });
         }, delay);
     }
 
     collectPendingImages();
-    applyAnchorRefresh();
+    anchors = buildAnchorMap(editorView, previewEl);
 
     const observer = new MutationObserver(() => {
         collectPendingImages();
-        scheduleAnchorRefresh(MUTATION_REFRESH_DELAY);
+        scheduleAnchorRefresh(MUTATION_REFRESH_DELAY, { rebuildAnchors: true });
     });
     observer.observe(previewEl, { childList: true, subtree: true });
 
-    const resizeObserver = new ResizeObserver(() => {
-        scheduleAnchorRefresh(RESIZE_REFRESH_DELAY);
+    const resizeObserver = new ResizeObserver((entries) => {
+        const previewResized = entries.some(({ target }) => target === previewEl);
+        const editorResized = entries.some(({ target }) => target === editorScrollEl);
+        if (!previewResized && !editorResized) return;
+
+        scheduleAnchorRefresh(RESIZE_REFRESH_DELAY, {
+            rebuildAnchors: previewResized,
+        });
     });
     resizeObserver.observe(previewEl);
     resizeObserver.observe(editorScrollEl);
 
     function onPreviewResourceLoad(event: Event) {
-        if (event.target instanceof HTMLImageElement) {
-            pendingImages.delete(event.target);
-        }
+        if (!(event.target instanceof HTMLImageElement)) return;
 
-        scheduleAnchorRefresh(pendingImages.size === 0 ? IMAGE_SETTLE_DELAY : IMAGE_REFRESH_DELAY);
+        pendingImages.delete(event.target);
+
+        scheduleAnchorRefresh(
+            pendingImages.size === 0 ? IMAGE_SETTLE_DELAY : IMAGE_REFRESH_DELAY,
+            { rebuildAnchors: true }
+        );
     }
     previewEl.addEventListener('load', onPreviewResourceLoad, true);
     previewEl.addEventListener('error', onPreviewResourceLoad, true);
