@@ -1,5 +1,6 @@
 import type { Component } from "svelte";
 import type { FileType } from "$lib/state/editor.svelte";
+import type { ChunkedTextEvent } from "$lib/ipc";
 import CarbonUrl from '~icons/carbon/url';
 import CarbonSecurity from '~icons/carbon/security';
 import LucideCaseUpper from '~icons/lucide/case-upper';
@@ -121,10 +122,27 @@ export type ExecuteTransformationRequest = {
     requestId: number;
 };
 
+/** Progress update sent by Rust during long-running transformations via the IPC channel. */
+export type TransformationProgressEvent = {
+    type: "progress";
+    /** Items processed so far (bytes or rows depending on the operation). */
+    current: number;
+    /** Total items to process (same unit as `current`). */
+    total: number;
+};
+
+/** One slice of the result text. Accumulate all chunks in order before use. */
+export type TransformationChunkEvent = ChunkedTextEvent;
+
+/** Union of all events sent via the transformation IPC channel. */
+export type TransformationChannelEvent =
+    | TransformationProgressEvent
+    | TransformationChunkEvent;
+
 export type ExecuteTransformationResponse =
     | {
         kind: "replace-text";
-        text: string;
+        chunkCount: number;
         message?: string;
         level?: TransformationMessageLevel;
     }

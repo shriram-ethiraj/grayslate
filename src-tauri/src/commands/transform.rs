@@ -6,6 +6,7 @@ use heck::{AsKebabCase, AsLowerCamelCase, AsSnakeCase, AsTitleCase};
 use jsonc_parser::{parse_to_serde_value, parse_to_value, ParseOptions};
 use serde::{Deserialize, Serialize};
 use unicode_segmentation::UnicodeSegmentation;
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::sync::LazyLock;
 use std::sync::{
@@ -61,6 +62,7 @@ fn minify_jsonc_preserving_comments(
     ctx.check_cancelled()?;
     let bytes = text.as_bytes();
     let len = bytes.len();
+    let total_bytes = len as u32;
     let mut out = Vec::with_capacity(len);
     let mut i = 0;
     let mut in_string = false;
@@ -69,7 +71,10 @@ fn minify_jsonc_preserving_comments(
     let mut in_block_comment = false;
 
     while i < len {
-        ctx.checkpoint(i, BYTE_CANCEL_CHECK_INTERVAL)?;
+        if i % BYTE_CANCEL_CHECK_INTERVAL == 0 {
+            ctx.check_cancelled()?;
+            ctx.report_progress(i as u32, total_bytes.max(1));
+        }
         let b = bytes[i];
 
         if in_string {
@@ -150,6 +155,76 @@ pub enum TransformationMessageLevel {
     Success,
     Error,
     Info,
+}
+
+/// Events sent through the IPC channel during transformation execution.
+/// The channel is the data plane for large text delivery: progress events keep
+/// the loader current, and `Chunk` events carry slices of the result text.
+///
+/// The terminal metadata stays on the command's small JSON response so the
+/// frontend never has to race `invoke()` completion against channel delivery.
+#[derive(Clone, Serialize)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum TransformationChannelEvent {
+    /// Incremental progress update. `current` and `total` are in the same unit
+    /// (bytes or rows); the frontend computes `(current / total) * 100`.
+    Progress {
+        current: u32,
+        total: u32,
+    },
+    /// One slice of the result text. The frontend accumulates all chunks in
+    /// order and joins them once `ReplaceText` is received.
+    Chunk {
+        /// Zero-based index of this chunk.
+        index: u32,
+        /// UTF-8 text slice. Each chunk targets `CHUNK_SIZE` bytes and may
+        /// grow by a few bytes to preserve a valid UTF-8 boundary.
+        text: String,
+    },
+}
+
+/// Maximum bytes per channel chunk. 4 MB keeps each IPC message well below
+/// WebView2's practical limits while still streaming large results quickly.
+const CHUNK_SIZE: usize = 4 * 1024 * 1024;
+
+fn build_text_chunk_ranges(text: &str) -> Vec<(usize, usize)> {
+    let mut ranges = Vec::new();
+    let mut start = 0usize;
+
+    while start < text.len() {
+        let mut end = (start + CHUNK_SIZE).min(text.len());
+        while end < text.len() && !text.is_char_boundary(end) {
+            end += 1;
+        }
+        ranges.push((start, end));
+        start = end;
+    }
+
+    ranges
+}
+
+fn send_text_chunks(
+    channel: &tauri::ipc::Channel<TransformationChannelEvent>,
+    text: &str,
+) -> Result<u32, String> {
+    let ranges = build_text_chunk_ranges(text);
+
+    for (index, (start, end)) in ranges.iter().copied().enumerate() {
+        channel
+            .send(TransformationChannelEvent::Chunk {
+                index: index as u32,
+                text: text[start..end].to_string(),
+            })
+            .map_err(|error| {
+                format!(
+                    "Failed to deliver transformation result chunk {} to the UI: {}",
+                    index + 1,
+                    error
+                )
+            })?;
+    }
+
+    Ok(ranges.len() as u32)
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
@@ -306,6 +381,21 @@ pub struct ExecuteTransformationRequest {
 
 #[derive(Debug, Serialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum ExecuteTransformationTransportResponse {
+    #[serde(rename_all = "camelCase")]
+    ReplaceText {
+        chunk_count: u32,
+        message: Option<String>,
+        level: Option<TransformationMessageLevel>,
+    },
+    ShowMessage {
+        message: String,
+        level: TransformationMessageLevel,
+    },
+}
+
+#[derive(Debug, Serialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum ExecuteTransformationResponse {
     ReplaceText {
         text: String,
@@ -327,6 +417,15 @@ const LINE_CANCEL_CHECK_INTERVAL: usize = 512;
 struct TransformationContext<'a> {
     original: &'a str,
     cancelled: &'a AtomicBool,
+    /// Called with `(current, total)` at natural progress checkpoints.
+    /// Both values use the same unit (bytes or rows) for the active operation.
+    /// Defaults to a no-op so callers that don't need progress (e.g. tests)
+    /// require no changes.
+    progress_fn: Box<dyn Fn(u32, u32) + Send + Sync + 'static>,
+    /// Tracks the last `current` value that was actually sent through `progress_fn`,
+    /// allowing `report_progress` to throttle emissions to ~100 per transform
+    /// regardless of how often call-sites invoke it.
+    last_emitted: Cell<u32>,
 }
 
 impl<'a> TransformationContext<'a> {
@@ -334,6 +433,27 @@ impl<'a> TransformationContext<'a> {
         Self {
             original,
             cancelled,
+            progress_fn: Box::new(|_, _| {}),
+            last_emitted: Cell::new(0),
+        }
+    }
+
+    /// Attach a progress reporter to this context (builder-style).
+    fn with_progress<F: Fn(u32, u32) + Send + Sync + 'static>(mut self, f: F) -> Self {
+        self.progress_fn = Box::new(f);
+        self
+    }
+
+    /// Emit a progress update if the progress has advanced by at least 1% of
+    /// `total` since the last emission. This caps IPC channel traffic to ~100
+    /// messages per transform regardless of how frequently call-sites report.
+    #[inline]
+    fn report_progress(&self, current: u32, total: u32) {
+        let step = (total / 100).max(1);
+        let last = self.last_emitted.get();
+        if current == 0 || current.wrapping_sub(last) >= step {
+            self.last_emitted.set(current);
+            (self.progress_fn)(current, total);
         }
     }
 
@@ -567,15 +687,20 @@ fn csv_to_json(text: &str, ctx: &TransformationContext<'_>) -> Result<String, St
         .map(|h| serde_json::to_string(h).unwrap_or_else(|_| format!("\"{}\"", h)))
         .collect();
 
+    // Track progress via the reader's byte position (zero extra passes).
+    let total_bytes = trimmed.len() as u32;
+
     // Stream JSON directly. Estimate output at ~3× input size.
     let mut out = String::with_capacity(trimmed.len().saturating_mul(3));
     out.push('[');
 
+    let mut record = csv::StringRecord::new();
     let mut record_count: usize = 0;
-    for result in rdr.records() {
+    while rdr.read_record(&mut record).map_err(|e| format!("CSV parse error: {}", e))? {
         ctx.check_cancelled()?;
-
-        let record = result.map_err(|e| format!("CSV parse error: {}", e))?;
+        if record_count % 500 == 0 {
+            ctx.report_progress(rdr.position().byte() as u32, total_bytes.max(1));
+        }
 
         if record_count > 0 {
             out.push(',');
@@ -684,6 +809,7 @@ fn json_to_csv(text: &str, ctx: &TransformationContext<'_>) -> Result<String, St
     }
 
     // Pre-allocate output buffer: estimate ~50 bytes per cell as a rough heuristic.
+    let total_rows = array.len() as u32;
     let estimated_size = (array.len() + 1) * headers.len() * 50;
     let mut wtr = csv::WriterBuilder::new()
         .terminator(csv::Terminator::Any(b'\n')) // LF-only, matching app CSV serialization
@@ -695,9 +821,12 @@ fn json_to_csv(text: &str, ctx: &TransformationContext<'_>) -> Result<String, St
     // Reuse a single row buffer across all records to avoid per-row Vec allocations.
     let mut row: Vec<String> = Vec::with_capacity(headers.len());
 
-    for item in array {
+    for (row_index, item) in array.iter().enumerate() {
         if let serde_json::Value::Object(obj) = item {
             ctx.check_cancelled()?;
+            if row_index % 500 == 0 {
+                ctx.report_progress(row_index as u32, total_rows.max(1));
+            }
 
             row.clear();
             for h in &headers {
@@ -1453,13 +1582,35 @@ fn convert_hex_to_decimal(text: &str, ctx: &TransformationContext<'_>) -> Result
     })
 }
 
+/// Thin wrapper used by unit tests — executes without any progress reporting.
+#[cfg(test)]
 fn execute_transformation_blocking(
     request: ExecuteTransformationRequest,
     cancelled: &AtomicBool,
 ) -> Result<ExecuteTransformationResponse, String> {
+    let action_id = request.action_id;
     let ctx = TransformationContext::new(&request.text, cancelled);
+    dispatch_transformation(&ctx, action_id)
+}
 
-    match request.action_id {
+/// Like `execute_transformation_blocking` but wires a progress reporter into
+/// the context so heavy transforms can stream real progress to the frontend.
+fn execute_transformation_blocking_with_progress(
+    request: ExecuteTransformationRequest,
+    cancelled: &AtomicBool,
+    progress_fn: Box<dyn Fn(u32, u32) + Send + Sync + 'static>,
+) -> Result<ExecuteTransformationResponse, String> {
+    let action_id = request.action_id;
+    let ctx = TransformationContext::new(&request.text, cancelled).with_progress(progress_fn);
+    dispatch_transformation(&ctx, action_id)
+}
+
+/// Route a transformation action to its implementation using the provided context.
+fn dispatch_transformation(
+    ctx: &TransformationContext<'_>,
+    action_id: TransformationActionId,
+) -> Result<ExecuteTransformationResponse, String> {
+    match action_id {
         TransformationActionId::JsonFormat => {
             ctx.run_replace_text("Formatted JSON.", "JSON is already formatted.", |ctx| {
                 let formatted = format_jsonc_text(ctx.text(), &JSONC_FORMAT_CONFIG)
@@ -1734,15 +1885,53 @@ fn execute_transformation_blocking(
 pub async fn execute_transformation(
     request: ExecuteTransformationRequest,
     registry: tauri::State<'_, TransformationCancellationRegistry>,
-) -> Result<ExecuteTransformationResponse, String> {
+    on_event: tauri::ipc::Channel<TransformationChannelEvent>,
+) -> Result<ExecuteTransformationTransportResponse, String> {
     let request_id = request.request_id;
     let cancelled = registry.register(request_id);
+
+    // Clone the channel handle for progress reporting inside the blocking closure.
+    let progress_channel = on_event.clone();
     let joined = tauri::async_runtime::spawn_blocking(move || {
-        execute_transformation_blocking(request, &cancelled)
+        execute_transformation_blocking_with_progress(
+            request,
+            &cancelled,
+            Box::new(move |current, total| {
+                let _ = progress_channel.send(TransformationChannelEvent::Progress {
+                    current,
+                    total,
+                });
+            }),
+        )
     })
     .await;
     registry.finish(request_id);
-    joined.map_err(|error| format!("Failed to join transformation task: {}", error))?
+
+    let response =
+        joined.map_err(|error| format!("Failed to join transformation task: {}", error))??;
+
+    // Stream the result text in CHUNK_SIZE slices so each channel message
+    // stays well below WebView2's IPC size limit. The command response itself
+    // stays tiny and only carries terminal metadata (kind/message/level and
+    // the chunk count), which makes the transport robust even when the channel
+    // drains slightly after `invoke()` resolves on the frontend.
+    match response {
+        ExecuteTransformationResponse::ReplaceText {
+            text,
+            message,
+            level,
+        } => {
+            let chunk_count = send_text_chunks(&on_event, &text)?;
+            Ok(ExecuteTransformationTransportResponse::ReplaceText {
+                chunk_count,
+                message,
+                level,
+            })
+        }
+        ExecuteTransformationResponse::ShowMessage { message, level } => {
+            Ok(ExecuteTransformationTransportResponse::ShowMessage { message, level })
+        }
+    }
 }
 
 #[tauri::command]
@@ -1780,6 +1969,35 @@ mod tests {
         );
         assert_eq!(request.text, "hello  \n");
         assert_eq!(request.request_id, 0, "requestId should default to 0");
+    }
+
+    #[test]
+    fn build_text_chunk_ranges_preserves_utf8_boundaries() {
+        let text = format!(
+            "{}🙂{}",
+            "a".repeat(CHUNK_SIZE - 1),
+            "b".repeat(CHUNK_SIZE + 3)
+        );
+
+        let ranges = build_text_chunk_ranges(&text);
+        assert!(ranges.len() >= 2, "expected multiple chunk ranges");
+
+        let rebuilt = ranges
+            .iter()
+            .map(|(start, end)| &text[*start..*end])
+            .collect::<String>();
+        assert_eq!(rebuilt, text);
+
+        for (start, end) in ranges {
+            assert!(text.is_char_boundary(start));
+            assert!(text.is_char_boundary(end));
+            assert!(end > start);
+        }
+    }
+
+    #[test]
+    fn build_text_chunk_ranges_handles_empty_text() {
+        assert!(build_text_chunk_ranges("").is_empty());
     }
 
     #[test]

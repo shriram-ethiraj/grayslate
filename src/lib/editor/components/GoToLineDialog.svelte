@@ -61,7 +61,7 @@
   function submit(): void {
     const v = parsedLine;
     if (v === undefined || v < 1 || v > maxLine) {
-      errorMessage = `Enter a whole number from 1 to ${maxLine}.`;
+      errorMessage = `Enter a valid number from 1 to ${maxLine}.`;
       void focusInput();
       return;
     }

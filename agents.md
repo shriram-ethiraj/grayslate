@@ -27,6 +27,7 @@ Keep this file compact. Detailed implementation notes belong in the skill files.
 - CodeMirror session model: `.agents/codemirror-core/SKILL.md`
 - Editor extension patterns: `.agents/editor-extensions/SKILL.md`
 - CSV table architecture: `.agents/csv-architecture/SKILL.md`
+- Transformation architecture: `.agents/transformations/SKILL.md`
 - Sidebar search architecture: `.agents/search-architecture/SKILL.md`
 - Hotkeys: `.agents/tanstack-hotkeys/SKILL.md`
 - Memory reclamation: `.agents/memory-management/SKILL.md`
@@ -38,6 +39,7 @@ Keep this file compact. Detailed implementation notes belong in the skill files.
 - File open flows through `EditorWrapper.svelte` into Rust `read_file_content`, with a current 200 MB backend-enforced limit.
 - CodeMirror document state is preserved in a managed session even when the live editor view is destroyed.
 - Find/replace uses a custom Svelte panel; CodeMirror still owns highlights and navigation on the main thread, while match-count/current-match stats now run in a dedicated worker to keep large-document typing responsive.
+- Built-in transformations use a shared Rust progress/cancellation context plus a chunked large-text transport; the frontend assembles chunked results into a CodeMirror `Text` rope and applies them as one undoable transaction.
 - CSV table mode is worker-driven and mounted on demand.
 - CSV table edits mirror live into the preserved CodeMirror session only for sessions that start at or below 100,000 data rows; larger sessions skip live mirroring and return to text mode as a single undo step back to the pre-table state.
 - Markdown preview uses `marked` plus `dompurify` with scroll-sync hooks.
@@ -88,6 +90,7 @@ Keep this file compact. Detailed implementation notes belong in the skill files.
 ### 5. Application Features & Core Libraries
 
 **> To know more about the CSV architecture and virtualizer, YOU MUST READ the `.agents/csv-architecture/SKILL.md` file.**
+**> To know more about built-in transformations and large-text transport, YOU MUST READ the `.agents/transformations/SKILL.md` file.**
 **> To know more about keyboard shortcut management (hotkeys), YOU MUST READ the `.agents/tanstack-hotkeys/SKILL.md` file.**
 **> To know more about memory management and GC pressure, YOU MUST READ the `.agents/memory-management/SKILL.md` file.**
 
@@ -95,6 +98,7 @@ Keep this file compact. Detailed implementation notes belong in the skill files.
 - **Memory Management:** Uses a Rust `sysinfo` integration and a frontend "GC Pressure" trick to reclaim heap after expensive editor teardown, especially after file switches.
 - **CSV Table View:** Uses a custom scroll virtualizer with hard safety caps; see the CSV skill for the current details.
 - **CSV Mode Architecture:** CSV table mode mounts on demand, performs parsing and mutations in a worker, and only live-mirrors text undo history for sessions that start at or below 100,000 data rows.
+- **Transformations:** Built-in transformations share a Rust-side progress/cancellation layer and use chunked text delivery plus CodeMirror rope assembly for large results.
 - **Find / Replace:** Uses a custom popup wired to CodeMirror search state; heavy match counting is worker-backed, but live query/highlight/navigation stays on the main thread.
 - **Markdown Preview:** Parsed via `marked` and sanitized via `dompurify`, with custom bi-directional scroll synchronization.
 - **Hotkeys:** Use `@tanstack/hotkeys` through the shared helpers in `src/lib/hotkeys.ts`; table-specific shortcuts should remain element-scoped.

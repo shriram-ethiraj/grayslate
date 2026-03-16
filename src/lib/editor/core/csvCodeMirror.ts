@@ -1,9 +1,10 @@
+import type { Text } from "@codemirror/state";
 import type { EditorView } from "codemirror";
 
 export type TextChangeSpec = {
     from: number;
     to: number;
-    insert: string;
+    insert: string | Text;
 };
 
 export function getMinimalTextChange(

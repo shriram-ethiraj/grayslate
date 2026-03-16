@@ -14,6 +14,7 @@
   import { languageDetector } from "$lib/editor/core/languageDetector";
   import { debounce } from "lodash-es";
   import type { EditorView } from "codemirror";
+  import { Text } from "@codemirror/state";
   import {
     createManagedEditorSession,
     dispatchManagedEditorChange,
@@ -50,7 +51,8 @@
     open as openFilePicker,
     save as saveFilePicker,
   } from "@tauri-apps/plugin-dialog";
-  import { invoke, invokeText } from "$lib/ipc";
+  import { createChunkedTextAccumulator, invoke, invokeText } from "$lib/ipc";
+  import { Channel } from "@tauri-apps/api/core";
   import { toast } from "$lib/components/ui/sonner";
   import { requestFileOpenReclaim } from "$lib/editor/core/memory";
   import { clearSearchStatsCache } from "$lib/editor/core/actions";
@@ -67,11 +69,12 @@
     type OpenFilePathPayload,
   } from "$lib/files/recentFiles";
   import {
+    type ExecuteTransformationResponse,
     type ExecuteTransformationRequest,
     getTransformationAction,
-    type ExecuteTransformationResponse,
     type TransformationActionId,
     type TransformationMessageLevel,
+    type TransformationChannelEvent,
   } from "$lib/transformations/actions";
 
   type SavedDocumentSource = "file";
@@ -114,6 +117,26 @@
     }
 
     return count;
+  }
+
+  function buildCodeMirrorTextFromChunks(chunks: string[]): Text {
+    let doc = Text.empty;
+    let previousChunkEndedWithCR = false;
+
+    for (let index = 0; index < chunks.length; index += 1) {
+      let chunk = chunks[index] ?? "";
+      chunks[index] = "";
+
+      if (previousChunkEndedWithCR && chunk.startsWith("\n")) {
+        chunk = chunk.slice(1);
+      }
+
+      previousChunkEndedWithCR = chunk.endsWith("\r");
+      doc = doc.append(Text.of(chunk.split(/\r\n?|\n/)));
+    }
+
+    chunks.length = 0;
+    return doc;
   }
 
   function createUntitledDocument(now = Date.now()): ActiveDocument {
@@ -340,18 +363,40 @@
     // Track whether the user explicitly cancelled so we suppress the error toast.
     let userCancelled = false;
 
+    // Large transformation results travel on the channel in chunked form.
+    // The command response itself is just a small envelope that tells us what
+    // happened and how many chunks to wait for before touching CodeMirror.
+    const chunkAccumulator = createChunkedTextAccumulator();
+
+    const onEvent = new Channel<TransformationChannelEvent>();
+    onEvent.onmessage = (event) => {
+      if (event.type === "progress") {
+        editorState.loader.progress = Math.round(
+          (event.current / Math.max(event.total, 1)) * 100,
+        );
+      } else {
+        chunkAccumulator.handleChunk(event);
+      }
+    };
+
+    // Grace-period loader: prepare state at 0 % but only show the overlay
+    // after 150 ms.  Fast transforms finish before the overlay appears.
+    editorState.loader.message = action.title + "…";
+    editorState.loader.subMessage = "";
+    editorState.loader.progress = 0;
+    const graceTimeout = setTimeout(() => {
+      editorState.loader.visible = true;
+    }, 150);
+
     try {
-      startLoaderTicker(action.title + "…");
       beginTransformationCancellation(requestId, () => {
         userCancelled = true;
       });
 
       const result = await invoke<ExecuteTransformationResponse>(
-          "execute_transformation",
-          {
-            request,
-          },
-        );
+        "execute_transformation",
+        { request, onEvent },
+      );
 
       if (result.kind === "show-message") {
         showTransformationToast(result.level, result.message);
@@ -359,13 +404,18 @@
         return true;
       }
 
+      const resultChunks = await chunkAccumulator.waitForChunks(result.chunkCount);
+      // Build a CodeMirror rope from the chunks instead of creating one giant
+      // JS string, which would throw "Invalid string length" for ~400 MB results.
+      const resultDoc = buildCodeMirrorTextFromChunks(resultChunks);
+
       if (useSelection) {
         dispatchManagedEditorChange(
           editorSession,
           {
             from: selection.from,
             to: selection.to,
-            insert: result.text,
+            insert: resultDoc,
           },
           {
             userEvent: `input.transform.${actionId}`,
@@ -379,10 +429,18 @@
           language = action.outputLanguage;
           detectedLanguage = action.outputLanguage;
         }
-        dispatchManagedEditorTextChange(editorSession, result.text, {
-          userEvent: `input.transform.${actionId}`,
-          separateUndoStep: true,
-        });
+        // Replace the full document as one transaction — bypass getMinimalTextChange
+        // (which would call doc.toString() on the old doc, needlessly allocating the
+        // entire pre-transform text in memory alongside the new result).
+        const oldDocLength = editorSession.state?.doc.length ?? 0;
+        dispatchManagedEditorChange(
+          editorSession,
+          { from: 0, to: oldDocLength, insert: resultDoc },
+          {
+            userEvent: `input.transform.${actionId}`,
+            separateUndoStep: true,
+          },
+        );
       }
 
       if (result.message) {
@@ -401,6 +459,8 @@
       }
       return false;
     } finally {
+      chunkAccumulator.reset();
+      clearTimeout(graceTimeout);
       endTransformationCancellation();
       completeEditorLoader();
     }
