@@ -3,9 +3,12 @@ use dprint_plugin_jsonc::{
     configuration::Configuration as JsoncFormatConfiguration, format_text as format_jsonc_text,
 };
 use heck::{AsKebabCase, AsLowerCamelCase, AsSnakeCase, AsTitleCase};
-use jsonc_parser::{parse_to_serde_value, parse_to_value, ParseOptions};
+use jsonc_parser::{
+    ast::{ObjectPropName, Value as JsonAstValue},
+    common::Range as JsonRange,
+    parse_to_ast, parse_to_serde_value, parse_to_value, CollectOptions, ParseOptions,
+};
 use serde::{Deserialize, Serialize};
-use unicode_segmentation::UnicodeSegmentation;
 use std::cell::Cell;
 use std::collections::HashMap;
 use std::sync::LazyLock;
@@ -13,6 +16,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex,
 };
+use unicode_segmentation::UnicodeSegmentation;
 
 static JSONC_PARSE_OPTIONS: LazyLock<ParseOptions> = LazyLock::new(|| ParseOptions {
     allow_comments: true,
@@ -168,10 +172,7 @@ pub enum TransformationMessageLevel {
 pub enum TransformationChannelEvent {
     /// Incremental progress update. `current` and `total` are in the same unit
     /// (bytes or rows); the frontend computes `(current / total) * 100`.
-    Progress {
-        current: u32,
-        total: u32,
-    },
+    Progress { current: u32, total: u32 },
     /// One slice of the result text. The frontend accumulates all chunks in
     /// order and joins them once `ReplaceText` is received.
     Chunk {
@@ -696,7 +697,10 @@ fn csv_to_json(text: &str, ctx: &TransformationContext<'_>) -> Result<String, St
 
     let mut record = csv::StringRecord::new();
     let mut record_count: usize = 0;
-    while rdr.read_record(&mut record).map_err(|e| format!("CSV parse error: {}", e))? {
+    while rdr
+        .read_record(&mut record)
+        .map_err(|e| format!("CSV parse error: {}", e))?
+    {
         ctx.check_cancelled()?;
         if record_count % 500 == 0 {
             ctx.report_progress(rdr.position().byte() as u32, total_bytes.max(1));
@@ -869,8 +873,8 @@ fn json_to_yaml(text: &str, ctx: &TransformationContext<'_>) -> Result<String, S
     let value = parse_jsonc_to_serde_value(text)?;
     ctx.check_cancelled()?;
 
-    let mut yaml =
-        serde_yaml::to_string(&value).map_err(|error| format!("YAML serialization error: {}", error))?;
+    let mut yaml = serde_yaml::to_string(&value)
+        .map_err(|error| format!("YAML serialization error: {}", error))?;
     if yaml.starts_with("---\r\n") {
         yaml.drain(..5);
     } else if yaml.starts_with("---\n") {
@@ -1215,28 +1219,111 @@ fn text_sponge_case(text: &str, ctx: &TransformationContext<'_>) -> Result<Strin
 
 /// Recursively rename every object key in a JSON value using `convert`.
 /// Array elements and scalar values are traversed / passed through unchanged.
-fn convert_json_keys_recursive<F>(value: serde_json::Value, convert: &F) -> serde_json::Value
+#[derive(Debug)]
+struct JsonKeyReplacement {
+    range: JsonRange,
+    text: String,
+}
+
+fn collect_json_key_replacements<'a, F>(
+    value: &'a JsonAstValue<'a>,
+    convert: &F,
+    replacements: &mut Vec<JsonKeyReplacement>,
+    ctx: &TransformationContext<'_>,
+    visited_nodes: &mut usize,
+) -> Result<(), String>
 where
     F: Fn(&str) -> String,
 {
     match value {
-        serde_json::Value::Object(map) => {
-            let new_map: serde_json::Map<String, serde_json::Value> = map
-                .into_iter()
-                .map(|(k, v)| (convert(&k), convert_json_keys_recursive(v, convert)))
-                .collect();
-            serde_json::Value::Object(new_map)
+        JsonAstValue::Object(object) => {
+            for (index, property) in object.properties.iter().enumerate() {
+                *visited_nodes += 1;
+                ctx.checkpoint(*visited_nodes, LINE_CANCEL_CHECK_INTERVAL)?;
+
+                match &property.name {
+                    ObjectPropName::String(name) => {
+                        let converted = convert(name.value.as_ref());
+                        if converted != name.value.as_ref() {
+                            replacements.push(JsonKeyReplacement {
+                                range: name.range,
+                                text: serde_json::to_string(&converted).map_err(|error| {
+                                    format!("Failed to serialize JSON key: {}", error)
+                                })?,
+                            });
+                        }
+                    }
+                    ObjectPropName::Word(name) => {
+                        let converted = convert(name.value);
+                        if converted != name.value {
+                            replacements.push(JsonKeyReplacement {
+                                range: name.range,
+                                text: converted,
+                            });
+                        }
+                    }
+                }
+
+                ctx.checkpoint(index, LINE_CANCEL_CHECK_INTERVAL)?;
+                collect_json_key_replacements(
+                    &property.value,
+                    convert,
+                    replacements,
+                    ctx,
+                    visited_nodes,
+                )?;
+            }
         }
-        serde_json::Value::Array(arr) => serde_json::Value::Array(
-            arr.into_iter()
-                .map(|v| convert_json_keys_recursive(v, convert))
-                .collect(),
-        ),
-        other => other,
+        JsonAstValue::Array(array) => {
+            for element in &array.elements {
+                *visited_nodes += 1;
+                ctx.checkpoint(*visited_nodes, LINE_CANCEL_CHECK_INTERVAL)?;
+                collect_json_key_replacements(element, convert, replacements, ctx, visited_nodes)?;
+            }
+        }
+        JsonAstValue::StringLit(_)
+        | JsonAstValue::NumberLit(_)
+        | JsonAstValue::BooleanLit(_)
+        | JsonAstValue::NullKeyword(_) => {}
     }
+
+    Ok(())
 }
 
-/// Shared driver for JSON key-case transforms: parse → rename keys → pretty-print.
+fn apply_json_key_replacements(
+    text: &str,
+    mut replacements: Vec<JsonKeyReplacement>,
+    ctx: &TransformationContext<'_>,
+) -> Result<String, String> {
+    if replacements.is_empty() {
+        return Ok(text.to_string());
+    }
+
+    replacements.sort_by_key(|replacement| replacement.range.start);
+
+    let mut result = String::with_capacity(text.len());
+    let mut cursor = 0usize;
+
+    for (index, replacement) in replacements.iter().enumerate() {
+        ctx.checkpoint(index, LINE_CANCEL_CHECK_INTERVAL)?;
+
+        if replacement.range.start < cursor
+            || replacement.range.end > text.len()
+            || replacement.range.start > replacement.range.end
+        {
+            return Err("Invalid JSON: encountered overlapping key ranges.".to_string());
+        }
+
+        result.push_str(&text[cursor..replacement.range.start]);
+        result.push_str(&replacement.text);
+        cursor = replacement.range.end;
+    }
+
+    result.push_str(&text[cursor..]);
+    Ok(result)
+}
+
+/// Shared driver for JSON key-case transforms: parse → rewrite key tokens in place.
 fn json_convert_keys_case<F>(
     text: &str,
     ctx: &TransformationContext<'_>,
@@ -1246,10 +1333,16 @@ where
     F: Fn(&str) -> String,
 {
     ctx.check_cancelled()?;
-    let value = parse_jsonc_to_serde_value(text)?;
-    let converted = convert_json_keys_recursive(value, &convert);
-    serde_json::to_string_pretty(&converted)
-        .map_err(|e| format!("Failed to serialize JSON: {}", e))
+    let parsed = parse_to_ast(text, &CollectOptions::default(), &JSONC_PARSE_OPTIONS)
+        .map_err(|error| format!("Invalid JSON: {}", error))?;
+    let value = parsed
+        .value
+        .ok_or_else(|| "Invalid JSON: document is empty.".to_string())?;
+
+    let mut replacements = Vec::new();
+    let mut visited_nodes = 0usize;
+    collect_json_key_replacements(&value, &convert, &mut replacements, ctx, &mut visited_nodes)?;
+    apply_json_key_replacements(text, replacements, ctx)
 }
 
 fn json_keys_camel_case(text: &str, ctx: &TransformationContext<'_>) -> Result<String, String> {
@@ -1448,8 +1541,16 @@ fn convert_ascii_to_hex(text: &str, ctx: &TransformationContext<'_>) -> Result<S
         ctx.checkpoint(i, BYTE_CANCEL_CHECK_INTERVAL)?;
         let hi = b >> 4;
         let lo = b & 0x0F;
-        out.push(if hi < 10 { (b'0' + hi) as char } else { (b'A' + hi - 10) as char });
-        out.push(if lo < 10 { (b'0' + lo) as char } else { (b'A' + lo - 10) as char });
+        out.push(if hi < 10 {
+            (b'0' + hi) as char
+        } else {
+            (b'A' + hi - 10) as char
+        });
+        out.push(if lo < 10 {
+            (b'0' + lo) as char
+        } else {
+            (b'A' + lo - 10) as char
+        });
     }
     Ok(out)
 }
@@ -1665,31 +1766,31 @@ fn dispatch_transformation(
         ),
 
         // ── Text ──────────────────────────────────────────────────────────
-        TransformationActionId::TextTrim => {
-            ctx.run_replace_text("Trimmed whitespace.", "No leading or trailing whitespace found.", |ctx| {
-                text_trim(ctx.text(), ctx)
-            })
-        }
-        TransformationActionId::TextUppercase => {
-            ctx.run_replace_text("Converted to uppercase.", "Text is already uppercase.", |ctx| {
-                text_uppercase(ctx.text(), ctx)
-            })
-        }
-        TransformationActionId::TextLowercase => {
-            ctx.run_replace_text("Converted to lowercase.", "Text is already lowercase.", |ctx| {
-                text_lowercase(ctx.text(), ctx)
-            })
-        }
-        TransformationActionId::TextReverseLines => ctx.run_replace_text(
-            "Reversed line order.",
-            "Text is already reversed.",
-            |ctx| text_reverse_lines(ctx.text(), ctx),
+        TransformationActionId::TextTrim => ctx.run_replace_text(
+            "Trimmed whitespace.",
+            "No leading or trailing whitespace found.",
+            |ctx| text_trim(ctx.text(), ctx),
         ),
-        TransformationActionId::TextReverseString => ctx.run_replace_text(
-            "Reversed string.",
-            "Text is already reversed.",
-            |ctx| text_reverse_string(ctx.text(), ctx),
+        TransformationActionId::TextUppercase => ctx.run_replace_text(
+            "Converted to uppercase.",
+            "Text is already uppercase.",
+            |ctx| text_uppercase(ctx.text(), ctx),
         ),
+        TransformationActionId::TextLowercase => ctx.run_replace_text(
+            "Converted to lowercase.",
+            "Text is already lowercase.",
+            |ctx| text_lowercase(ctx.text(), ctx),
+        ),
+        TransformationActionId::TextReverseLines => {
+            ctx.run_replace_text("Reversed line order.", "Text is already reversed.", |ctx| {
+                text_reverse_lines(ctx.text(), ctx)
+            })
+        }
+        TransformationActionId::TextReverseString => {
+            ctx.run_replace_text("Reversed string.", "Text is already reversed.", |ctx| {
+                text_reverse_string(ctx.text(), ctx)
+            })
+        }
         TransformationActionId::TextMarkdownQuote => ctx.run_replace_text(
             "Added Markdown block-quote prefix.",
             "Lines already start with \">\".",
@@ -1700,21 +1801,21 @@ fn dispatch_transformation(
             "Text contains no ASCII letters.",
             |ctx| text_rot13(ctx.text(), ctx),
         ),
-        TransformationActionId::TextAddSlashes => ctx.run_replace_text(
-            "Added slashes.",
-            "No characters needed escaping.",
-            |ctx| text_add_slashes(ctx.text(), ctx),
-        ),
-        TransformationActionId::TextRemoveSlashes => ctx.run_replace_text(
-            "Removed slashes.",
-            "No escape sequences found.",
-            |ctx| text_remove_slashes(ctx.text(), ctx),
-        ),
-        TransformationActionId::TextSortLines => ctx.run_replace_text(
-            "Sorted lines.",
-            "Lines are already sorted.",
-            |ctx| text_sort_lines(ctx.text(), ctx),
-        ),
+        TransformationActionId::TextAddSlashes => {
+            ctx.run_replace_text("Added slashes.", "No characters needed escaping.", |ctx| {
+                text_add_slashes(ctx.text(), ctx)
+            })
+        }
+        TransformationActionId::TextRemoveSlashes => {
+            ctx.run_replace_text("Removed slashes.", "No escape sequences found.", |ctx| {
+                text_remove_slashes(ctx.text(), ctx)
+            })
+        }
+        TransformationActionId::TextSortLines => {
+            ctx.run_replace_text("Sorted lines.", "Lines are already sorted.", |ctx| {
+                text_sort_lines(ctx.text(), ctx)
+            })
+        }
         TransformationActionId::TextRemoveDuplicateLines => {
             ctx.check_cancelled()?;
             let (next, removed) = text_remove_duplicate_lines(ctx.text(), &ctx)?;
@@ -1791,26 +1892,26 @@ fn dispatch_transformation(
         ),
 
         // ── URL ───────────────────────────────────────────────────────────
-        TransformationActionId::UrlEncode => ctx.run_replace_text(
-            "URL-encoded.",
-            "Text is already URL-encoded.",
-            |ctx| url_encode(ctx.text(), ctx),
-        ),
-        TransformationActionId::UrlDecode => ctx.run_replace_text(
-            "URL-decoded.",
-            "Text is already URL-decoded.",
-            |ctx| url_decode(ctx.text(), ctx),
-        ),
-        TransformationActionId::SecurityUrlDefang => ctx.run_replace_text(
-            "Defanged URLs.",
-            "No URLs to defang.",
-            |ctx| url_defang(ctx.text(), ctx),
-        ),
-        TransformationActionId::SecurityUrlRefang => ctx.run_replace_text(
-            "Refanged URLs.",
-            "No defanged URLs found.",
-            |ctx| url_refang(ctx.text(), ctx),
-        ),
+        TransformationActionId::UrlEncode => {
+            ctx.run_replace_text("URL-encoded.", "Text is already URL-encoded.", |ctx| {
+                url_encode(ctx.text(), ctx)
+            })
+        }
+        TransformationActionId::UrlDecode => {
+            ctx.run_replace_text("URL-decoded.", "Text is already URL-decoded.", |ctx| {
+                url_decode(ctx.text(), ctx)
+            })
+        }
+        TransformationActionId::SecurityUrlDefang => {
+            ctx.run_replace_text("Defanged URLs.", "No URLs to defang.", |ctx| {
+                url_defang(ctx.text(), ctx)
+            })
+        }
+        TransformationActionId::SecurityUrlRefang => {
+            ctx.run_replace_text("Refanged URLs.", "No defanged URLs found.", |ctx| {
+                url_refang(ctx.text(), ctx)
+            })
+        }
 
         // ── Encoding ──────────────────────────────────────────────────────
         TransformationActionId::EncodingBase64Encode => ctx.run_replace_text(
@@ -1818,23 +1919,23 @@ fn dispatch_transformation(
             "Text is already valid Base64.",
             |ctx| encoding_base64_encode(ctx.text(), ctx),
         ),
-        TransformationActionId::EncodingBase64Decode => ctx.run_replace_text(
-            "Decoded from Base64.",
-            "Text is already decoded.",
-            |ctx| encoding_base64_decode(ctx.text(), ctx),
-        ),
+        TransformationActionId::EncodingBase64Decode => {
+            ctx.run_replace_text("Decoded from Base64.", "Text is already decoded.", |ctx| {
+                encoding_base64_decode(ctx.text(), ctx)
+            })
+        }
 
         // ── Numeric conversions ───────────────────────────────────────────
-        TransformationActionId::ConvertAsciiToHex => ctx.run_replace_text(
-            "Converted to hex.",
-            "Text is already hex.",
-            |ctx| convert_ascii_to_hex(ctx.text(), ctx),
-        ),
-        TransformationActionId::ConvertHexToAscii => ctx.run_replace_text(
-            "Decoded hex to text.",
-            "Text is already decoded.",
-            |ctx| convert_hex_to_ascii(ctx.text(), ctx),
-        ),
+        TransformationActionId::ConvertAsciiToHex => {
+            ctx.run_replace_text("Converted to hex.", "Text is already hex.", |ctx| {
+                convert_ascii_to_hex(ctx.text(), ctx)
+            })
+        }
+        TransformationActionId::ConvertHexToAscii => {
+            ctx.run_replace_text("Decoded hex to text.", "Text is already decoded.", |ctx| {
+                convert_hex_to_ascii(ctx.text(), ctx)
+            })
+        }
         TransformationActionId::ConvertDecimalToBinary => ctx.run_replace_text(
             "Converted decimal to binary.",
             "Lines are already in binary.",
@@ -1897,10 +1998,8 @@ pub async fn execute_transformation(
             request,
             &cancelled,
             Box::new(move |current, total| {
-                let _ = progress_channel.send(TransformationChannelEvent::Progress {
-                    current,
-                    total,
-                });
+                let _ =
+                    progress_channel.send(TransformationChannelEvent::Progress { current, total });
             }),
         )
     })
@@ -2063,6 +2162,63 @@ mod tests {
         .expect_err("invalid JSON should fail");
 
         assert!(error.starts_with("Invalid JSON:"));
+    }
+
+    #[test]
+    fn json_key_case_preserves_layout_comments_and_trailing_commas() {
+        let json = "{\n\t// keep comment\n\t\"First Name\"  :  \"Alice\",\n\t\"Nested Value\": { \"Inner Key\" : true, },\n\t\"Items\": [\n\t\t{ \"Another Key\" : 1 },\n\t],\n}";
+        let nc = not_cancelled();
+        let response = execute_transformation_blocking(
+            ExecuteTransformationRequest {
+                action_id: TransformationActionId::JsonKeysCamelCase,
+                text: json.to_string(),
+                request_id: 0,
+            },
+            &nc,
+        )
+        .expect("json key case should succeed");
+
+        match response {
+            ExecuteTransformationResponse::ReplaceText { text, level, .. } => {
+                assert_eq!(
+                    text,
+                    "{\n\t// keep comment\n\t\"firstName\"  :  \"Alice\",\n\t\"nestedValue\": { \"innerKey\" : true, },\n\t\"items\": [\n\t\t{ \"anotherKey\" : 1 },\n\t],\n}"
+                );
+                assert_eq!(level, Some(TransformationMessageLevel::Success));
+            }
+            other => panic!("expected ReplaceText response, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn json_key_case_noop_preserves_original_escaped_key_text() {
+        let json = "{\n  \"alreadyCamel\": 1,\n  \"escaped\\u0041Key\": 2\n}";
+        let nc = not_cancelled();
+        let response = execute_transformation_blocking(
+            ExecuteTransformationRequest {
+                action_id: TransformationActionId::JsonKeysCamelCase,
+                text: json.to_string(),
+                request_id: 0,
+            },
+            &nc,
+        )
+        .expect("json key case should succeed");
+
+        match response {
+            ExecuteTransformationResponse::ReplaceText {
+                text,
+                message,
+                level,
+            } => {
+                assert_eq!(text, json);
+                assert_eq!(
+                    message.as_deref(),
+                    Some("JSON keys are already in camelCase.")
+                );
+                assert_eq!(level, Some(TransformationMessageLevel::Info));
+            }
+            other => panic!("expected ReplaceText response, got {:?}", other),
+        }
     }
 
     #[test]
@@ -2733,7 +2889,10 @@ mod tests {
     fn text_collapse_lines_joins_with_spaces() {
         let nc = not_cancelled();
         let ctx = test_ctx("hello\nworld\n", &nc);
-        assert_eq!(text_collapse_lines("hello\nworld\n", &ctx).unwrap(), "hello world ");
+        assert_eq!(
+            text_collapse_lines("hello\nworld\n", &ctx).unwrap(),
+            "hello world "
+        );
     }
 
     #[test]
@@ -2757,21 +2916,30 @@ mod tests {
     fn text_snake_case_converts_per_line() {
         let nc = not_cancelled();
         let ctx = test_ctx("Hello World\n", &nc);
-        assert_eq!(text_snake_case("Hello World\n", &ctx).unwrap(), "hello_world\n");
+        assert_eq!(
+            text_snake_case("Hello World\n", &ctx).unwrap(),
+            "hello_world\n"
+        );
     }
 
     #[test]
     fn text_kebab_case_converts_per_line() {
         let nc = not_cancelled();
         let ctx = test_ctx("Hello World\n", &nc);
-        assert_eq!(text_kebab_case("Hello World\n", &ctx).unwrap(), "hello-world\n");
+        assert_eq!(
+            text_kebab_case("Hello World\n", &ctx).unwrap(),
+            "hello-world\n"
+        );
     }
 
     #[test]
     fn text_title_case_converts_per_line() {
         let nc = not_cancelled();
         let ctx = test_ctx("hello world\n", &nc);
-        assert_eq!(text_title_case("hello world\n", &ctx).unwrap(), "Hello World\n");
+        assert_eq!(
+            text_title_case("hello world\n", &ctx).unwrap(),
+            "Hello World\n"
+        );
     }
 
     #[test]
@@ -2906,7 +3074,10 @@ mod tests {
     fn base64_decode_strips_surrounding_whitespace() {
         let nc = not_cancelled();
         let ctx = test_ctx("  SGVsbG8=  ", &nc);
-        assert_eq!(encoding_base64_decode("  SGVsbG8=  ", &ctx).unwrap(), "Hello");
+        assert_eq!(
+            encoding_base64_decode("  SGVsbG8=  ", &ctx).unwrap(),
+            "Hello"
+        );
     }
 
     #[test]
@@ -2937,7 +3108,10 @@ mod tests {
     fn hex_to_ascii_tolerates_spaces_between_pairs() {
         let nc = not_cancelled();
         let ctx = test_ctx("48 65 6C 6C 6F", &nc);
-        assert_eq!(convert_hex_to_ascii("48 65 6C 6C 6F", &ctx).unwrap(), "Hello");
+        assert_eq!(
+            convert_hex_to_ascii("48 65 6C 6C 6F", &ctx).unwrap(),
+            "Hello"
+        );
     }
 
     #[test]
