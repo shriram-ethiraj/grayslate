@@ -34,10 +34,10 @@
   // Debounce constant — how long to wait after the last keystroke before
   // dispatching the CM search query and running the full-document stats scan.
   const SEARCH_DEBOUNCE_MS = 150;
-  const SEARCH_TEXTAREA_MIN_HEIGHT_PX = 36;
+  const SEARCH_TEXTAREA_MIN_HEIGHT_PX = 32;
   const SEARCH_TEXTAREA_DEFAULT_WIDTH_PX = 240;
   const searchTextareaClass =
-    "border-input bg-background selection:bg-primary dark:bg-input/30 selection:text-primary-foreground ring-offset-background placeholder:text-muted-foreground resize rounded-md border px-3 py-2 text-base shadow-xs transition-[color,box-shadow] outline-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring overflow-auto min-h-[36px] max-h-[200px] min-w-[220px] max-w-[420px]";
+    "border-input bg-background selection:bg-primary dark:bg-input/30 selection:text-primary-foreground ring-offset-background placeholder:text-muted-foreground resize rounded-md border px-2.5 py-1.5 text-sm shadow-xs transition-[color,box-shadow] outline-none disabled:cursor-not-allowed disabled:opacity-50 focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring overflow-auto min-h-[32px] max-h-[200px] min-w-[220px] max-w-[420px]";
   let searchDebounceTimer: ReturnType<typeof setTimeout> | undefined;
   let pendingSearchView: EditorView | undefined;
   let pendingFindText = "";
@@ -270,17 +270,17 @@
 {#if editorState.findReplace.visible}
   <!-- Floating Find & Replace Panel -->
   <div
-    class="absolute top-4 right-8 z-50 flex w-fit max-w-[80vw] max-h-[80vh] flex-col gap-2 rounded-md border border-border bg-popover p-3 shadow-md"
+    class="absolute top-4 right-8 z-50 flex w-fit max-w-[80vw] max-h-[80vh] flex-col gap-2 rounded-md border border-border bg-popover p-2 shadow-md"
     role="dialog"
     aria-label="Find and Replace"
   >
-    <div class="flex flex-col gap-2 w-full h-full">
+    <div class="flex flex-col gap-1.5 w-full h-full">
       <!-- Find Row -->
-      <div class="flex items-start gap-2">
+      <div class="flex items-start gap-1.5">
         <Button
           variant="ghost"
           size="icon"
-          class="shrink-0"
+          class="shrink-0 h-7 w-7"
           onclick={toggleReplaceMode}
           title="Toggle Replace"
         >
@@ -320,10 +320,10 @@
           ></textarea>
           {@render resizeGrip()}
         </div>
-        <div class="ml-1 flex items-center gap-1 self-stretch border-l pl-2">
+        <div class="flex items-center gap-0.5 self-stretch border-l pl-1.5">
           {#if findText.length > 0}
             <span
-              class="text-sm text-muted-foreground pointer-events-none inline-flex shrink-0 items-center justify-center whitespace-nowrap px-1.5 min-w-[5.5rem]"
+              class="text-xs text-muted-foreground pointer-events-none inline-flex shrink-0 items-center justify-center whitespace-nowrap px-1 min-w-[4.5rem]"
             >
               {#if fr.matchCount > 0}
                 {#if fr.currentMatch === 0}
@@ -339,36 +339,38 @@
           <Button
             variant="ghost"
             size="icon"
+            class="h-7 w-7"
             onclick={findPreviousNow}
             title="Previous match ({formatForDisplay('Shift+Enter')})"
             disabled={!canNavigate}
           >
-            <ArrowUp class="h-4 w-4" />
+            <ArrowUp class="h-3.5 w-3.5" />
           </Button>
           <Button
             variant="ghost"
             size="icon"
+            class="h-7 w-7"
             onclick={findNextNow}
             title="Next match ({formatForDisplay('Enter')})"
             disabled={!canNavigate}
           >
-            <ArrowDown class="h-4 w-4" />
+            <ArrowDown class="h-3.5 w-3.5" />
           </Button>
           <Button
             variant="ghost"
             size="icon"
-            class="ml-1"
+            class="h-7 w-7"
             onclick={close}
             title="Close ({formatForDisplay('Escape')})"
           >
-            <X class="h-4 w-4" />
+            <X class="h-3.5 w-3.5" />
           </Button>
         </div>
       </div>
 
       <!-- Replace Row -->
       {#if fr.replaceMode}
-        <div class="flex items-start gap-2 pl-11">
+        <div class="flex items-start gap-1.5 pl-[34px]">
           <div class="relative flex">
             <textarea
               bind:this={replaceTextareaRef}
@@ -394,27 +396,29 @@
             ></textarea>
             {@render resizeGrip()}
           </div>
-          <div class="ml-1 flex items-center gap-1 self-stretch border-l pl-2">
+          <div class="flex items-center gap-0.5 self-stretch border-l pl-1.5">
             <Button
               variant="ghost"
               size="icon"
+              class="h-7 w-7"
               onclick={replaceNextNow}
               title="Replace currently selected match"
               disabled={!canReplace}
             >
-              <CodIconReplace class="h-4 w-4" />
+              <CodIconReplace class="h-3.5 w-3.5" />
             </Button>
             <Button
               variant="ghost"
               size="icon"
+              class="h-7 w-7"
               onclick={replaceAllNow}
               title="Replace All matches"
               disabled={!canReplaceAll}
             >
-              <CodIconReplaceAll class="h-4 w-4" />
+              <CodIconReplaceAll class="h-3.5 w-3.5" />
             </Button>
             <!-- Invisible placeholder to match the Find row's Close button width for perfect horizontal alignment -->
-            <div class="ml-1 size-9 shrink-0"></div>
+            <div class="size-7 shrink-0"></div>
           </div>
         </div>
       {/if}
