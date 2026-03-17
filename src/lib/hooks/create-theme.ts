@@ -70,45 +70,98 @@ export interface ThemeConfig {
     styles: TagStyle[];
 }
 
+// ---------------------------------------------------------------------------
+// Why `&.cm-editor` instead of bare `.cm-foo`?
+//
+// EditorView.theme() scopes every selector with a unique class prefix, e.g.
+//   `.cm-activeLine`  →  `.<prefix> .cm-activeLine`   specificity (0,2,0)
+//
+// CM6 base themes (search, active-line, gutters …) use `&dark` / `&light`
+// which expand to a *different* single class:
+//   `&dark .cm-activeLine`  →  `.<darkID> .cm-activeLine`  specificity (0,2,0)
+//
+// Equal specificity means the winner depends on CSS insertion order, which is
+// fragile across bundlers and WebView runtimes.  By using `&.cm-editor` we
+// create a compound selector on the wrapper element (which always carries
+// both the theme class and `.cm-editor`):
+//   `&.cm-editor .cm-activeLine`  →  `.<prefix>.cm-editor .cm-activeLine`
+//                                      specificity (0,3,0)  — always wins.
+//
+// Comma-separated selectors are split into individual entries because
+// style-mod's finish() only replaces the first `&` occurrence.
+// ---------------------------------------------------------------------------
+
 export const createTheme = (config: ThemeConfig): Extension => {
+    // Propagate the search-match color to a CSS variable so non-editor UI
+    // (e.g. sidebar search highlights) stays in sync with the active theme.
+    // The guard makes this SSR-safe for the SvelteKit static adapter.
+    if (typeof document !== 'undefined') {
+        document.documentElement.style.setProperty('--search-match-bg', config.settings.searchMatch);
+    }
+
     const theme = EditorView.theme(
         {
+            // Editor wrapper — background & foreground
             // eslint-disable-next-line @typescript-eslint/naming-convention
             '&': {
                 backgroundColor: config.settings.background,
                 color: config.settings.foreground,
             },
-            '.cm-content': {
+
+            // Caret
+            '&.cm-editor .cm-content': {
                 caretColor: config.settings.caret,
             },
-            '.cm-cursor, .cm-dropCursor': {
+            '&.cm-editor .cm-cursor': {
                 borderLeftColor: config.settings.caret,
             },
-            '&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, &.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection':
-            {
-                backgroundColor: config.settings.selection + ' !important',
+            '&.cm-editor .cm-dropCursor': {
+                borderLeftColor: config.settings.caret,
             },
-            '.cm-activeLine': {
+
+            // Selection — focused state (custom draw-selection layer)
+            '&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground': {
+                backgroundColor: config.settings.selection,
+            },
+            // Selection — focused state catch-all
+            '&.cm-focused .cm-selectionBackground': {
+                backgroundColor: config.settings.selection,
+            },
+            // Selection — unfocused state
+            '&.cm-editor .cm-selectionBackground': {
+                backgroundColor: config.settings.selection,
+            },
+            // Native browser selection highlight
+            '&.cm-editor .cm-content ::selection': {
+                backgroundColor: config.settings.selection,
+            },
+
+            // Active line highlight
+            '&.cm-editor .cm-activeLine': {
                 backgroundColor: config.settings.lineHighlight,
             },
-            // Find/search matches
-            '.cm-searchMatch': {
-                backgroundColor: config.settings.searchMatch + ' !important',
+
+            // Find / search matches
+            '&.cm-editor .cm-searchMatch': {
+                backgroundColor: config.settings.searchMatch,
                 outline: '1px solid ' + config.settings.searchMatch,
             },
-            '.cm-searchMatch.cm-searchMatch-selected': {
-                backgroundColor: config.settings.searchMatchSelected + ' !important',
+            '&.cm-editor .cm-searchMatch.cm-searchMatch-selected': {
+                backgroundColor: config.settings.searchMatchSelected,
                 outline: '1px solid ' + config.settings.searchMatchSelected,
             },
+
             // Other occurrences of the currently selected word
-            '.cm-selectionMatch': {
-                backgroundColor: config.settings.selectionMatch + ' !important',
+            '&.cm-editor .cm-selectionMatch': {
+                backgroundColor: config.settings.selectionMatch,
             },
-            '.cm-gutters': {
+
+            // Gutters
+            '&.cm-editor .cm-gutters': {
                 backgroundColor: config.settings.gutterBackground,
                 color: config.settings.gutterForeground,
             },
-            '.cm-activeLineGutter': {
+            '&.cm-editor .cm-activeLineGutter': {
                 backgroundColor: config.settings.lineHighlight,
             },
         },
