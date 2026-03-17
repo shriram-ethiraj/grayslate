@@ -79,8 +79,8 @@
   --cm-hint-bg-hover: rgba(155, 170, 210, 0.28);
   /* Sidebar search match highlight — fallback before JS runs; overridden at runtime by createTheme() */
   --search-match-bg: #ffdd8055;
-  --selection-match-bg: #a78bfa18;
-  --selection-match-border: #a78bfa65;
+  --selection-match-bg: #7dd3fc20;
+  --selection-match-border: #7dd3fc70;
 }
 
 @theme inline {

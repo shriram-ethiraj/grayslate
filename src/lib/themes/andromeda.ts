@@ -8,8 +8,8 @@ export const andromedaConfig = createThemeConfig('dark', {
     lineHighlight: '#ffffff12', // neutral white ~7% — reduced 35% from #ffffff1c; softer but still perceptible
     searchMatch: '#ffdd8055',         // golden yellow tint — all search matches
     searchMatchSelected: '#ffdd80cc', // bright gold — currently focused search match
-    selectionMatch: '#a78bfa18',      // violet-400 ~10% — harmonizes with warm purple lineHighlight; clearly different hue from blue-violet keywords (#d667ff is 29° warmer)
-    selectionMatchBorder: '#a78bfa65',// violet-400 ~40% — box treatment distinguishes it from flat keyword tokens
+    selectionMatch: '#7dd3fc20',      // sky-300 ~13% fill — 1.33:1; hue 199° sits in the free gap between teal-variable (170°) and selection-blue (206°)
+    selectionMatchBorder: '#7dd3fc70',// sky-300 ~44% border — 3.00:1 (meets WCAG non-text); reads as cool sky, not purple, not green
     gutterBackground: '#1e212b', // darkBackground
     gutterForeground: '#748099',
 
