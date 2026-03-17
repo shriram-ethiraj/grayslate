@@ -5,6 +5,7 @@ export interface PendingSidebarFileOpen {
     source: RecentFileSource;
     requestId: number;
     revealInRecentList: boolean;
+    lineNumber?: number;
 }
 
 export const librarySidebarState = $state<{

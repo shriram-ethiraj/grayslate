@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 
 use super::{
     query::ParsedSearchQuery,
-    types::{FileSearchCandidate, SearchResultRecord},
+    types::{FileSearchCandidate, MatchedLine, SearchResultRecord},
 };
 
 const BM25_K1: f32 = 1.2;
@@ -61,16 +61,17 @@ pub fn rank_candidate(
         last_seen_at: candidate.last_seen_at,
         last_modified_at: candidate.last_modified_at,
         pinned: candidate.pinned,
-        preview_line: candidate
+        matched_lines: candidate
             .content
-            .preview
-            .as_ref()
-            .map(|preview| preview.line_text.clone()),
-        preview_line_number: candidate
-            .content
-            .preview
-            .as_ref()
-            .and_then(|preview| preview.line_number),
+            .previews
+            .iter()
+            .filter_map(|preview| {
+                preview.line_number.map(|ln| MatchedLine {
+                    line_number: ln,
+                    line_text: preview.line_text.clone(),
+                })
+            })
+            .collect(),
         match_count: candidate.content.total_hits,
         filename_score,
         content_score,

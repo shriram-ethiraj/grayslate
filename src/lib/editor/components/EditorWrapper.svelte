@@ -55,7 +55,7 @@
   import { Channel } from "@tauri-apps/api/core";
   import { toast } from "$lib/components/ui/sonner";
   import { requestFileOpenReclaim } from "$lib/editor/core/memory";
-  import { clearSearchStatsCache } from "$lib/editor/core/actions";
+  import { clearSearchStatsCache, editorGoToLine } from "$lib/editor/core/actions";
   import { clearColorCache } from "$lib/editor/extensions/colorHints";
   import {
     librarySidebarState,
@@ -687,7 +687,16 @@
   // picker, then invoke read_file_content on the Rust side which enforces
   // the current 200 MB size limit before returning the text.
   // -----------------------------------------------------------------------
-  async function openFileAtPath(filePath: string): Promise<void> {
+  async function openFileAtPath(filePath: string, lineNumber?: number): Promise<void> {
+    // Fast path: the file is already loaded — avoid a full reload and just
+    // navigate to the requested line directly.
+    if (editorState.currentFilePath === filePath && editorView) {
+      if (lineNumber !== undefined) {
+        editorGoToLine(editorView, lineNumber);
+      }
+      return;
+    }
+
     const requestVersion = beginFileOpenRequest();
     const filename = filePath.replace(/\\/g, "/").split("/").pop() ?? "";
     const existingPendingFile = librarySidebarState.pendingOpenFile;
@@ -700,6 +709,7 @@
       revealInRecentList: preservesPendingMetadata
         ? existingPendingFile.revealInRecentList
         : true,
+      lineNumber,
     });
 
     try {
@@ -715,6 +725,7 @@
         revealInRecentList: preservesPendingMetadata
           ? existingPendingFile.revealInRecentList
           : true,
+        lineNumber,
       });
 
       const { emit } = await import("@tauri-apps/api/event");
@@ -776,6 +787,11 @@
 
       // Yield to let Svelte update the DOM and dispose old CodeMirror instance
       await new Promise<void>((r) => setTimeout(r, 10));
+
+      // Navigate to the requested line after the editor view is initialized.
+      if (lineNumber !== undefined && editorView) {
+        editorGoToLine(editorView, lineNumber);
+      }
 
       disposeManagedEditorSession(previousSession);
 
@@ -928,7 +944,7 @@
         });
         const unlistenOpenFilePath = await listen<OpenFilePathPayload>(OPEN_FILE_PATH_EVENT, (event) => {
           if (event.payload?.path) {
-            void openFileAtPath(event.payload.path);
+            void openFileAtPath(event.payload.path, event.payload.lineNumber);
           }
         });
         const unlistenSaveFile = await listen("menu://save-file", () => {

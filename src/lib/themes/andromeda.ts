@@ -4,11 +4,12 @@ export const andromedaConfig = createThemeConfig('dark', {
     background: '#1b1e26', // base00
     foreground: '#e4dff0', // base01
     caret: '#ffffff', // base04
-    selection: '#2e5b72', // cool blue-teal selection
-    lineHighlight: '#2d264040', // warm purple-tinted line highlight — semi-transparent so selection layer shows through
+    selection: '#2a5f88',              // pure blue — clearly "primary selection"; less teal than before
+    lineHighlight: '#ffffff12', // neutral white ~7% — reduced 35% from #ffffff1c; softer but still perceptible
     searchMatch: '#ffdd8055',         // golden yellow tint — all search matches
     searchMatchSelected: '#ffdd80cc', // bright gold — currently focused search match
-    selectionMatch: '#24e3c340',      // teal — other occurrences of selected word
+    selectionMatch: '#a78bfa18',      // violet-400 ~10% — harmonizes with warm purple lineHighlight; clearly different hue from blue-violet keywords (#d667ff is 29° warmer)
+    selectionMatchBorder: '#a78bfa65',// violet-400 ~40% — box treatment distinguishes it from flat keyword tokens
     gutterBackground: '#1e212b', // darkBackground
     gutterForeground: '#748099',
 

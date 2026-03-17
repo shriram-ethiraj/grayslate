@@ -278,3 +278,114 @@ export function compareSearchResults(
     if (byScore !== 0) return byScore;
     return compareRecentFiles(left, right, sortOrder);
 }
+
+// ---------------------------------------------------------------------------
+// Search highlight helpers
+// ---------------------------------------------------------------------------
+
+export interface HighlightFragment {
+    text: string;
+    isMatch: boolean;
+}
+
+/**
+ * Splits `text` into alternating matched/unmatched fragments based on the
+ * given search `terms`. Matching is case-insensitive. Longer terms are
+ * matched first to avoid partial-overlap ambiguity.
+ *
+ * This mirrors the backend tokenization behavior: whitespace-split,
+ * lowercased terms matched as literal substrings.
+ */
+export function splitTextByTerms(
+    text: string,
+    terms: string[],
+): HighlightFragment[] {
+    if (!text || terms.length === 0) {
+        return [{ text, isMatch: false }];
+    }
+
+    const escaped = terms
+        .filter((t) => t.length > 0)
+        .map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+        .sort((a, b) => b.length - a.length);
+
+    if (escaped.length === 0) {
+        return [{ text, isMatch: false }];
+    }
+
+    const pattern = new RegExp(`(${escaped.join("|")})`, "gi");
+    const parts: HighlightFragment[] = [];
+    let lastIndex = 0;
+    let match: RegExpExecArray | null;
+
+    while ((match = pattern.exec(text)) !== null) {
+        if (match.index > lastIndex) {
+            parts.push({ text: text.slice(lastIndex, match.index), isMatch: false });
+        }
+        parts.push({ text: match[0], isMatch: true });
+        lastIndex = match.index + match[0].length;
+    }
+
+    if (lastIndex < text.length) {
+        parts.push({ text: text.slice(lastIndex), isMatch: false });
+    }
+
+    return parts.length > 0 ? parts : [{ text, isMatch: false }];
+}
+
+/** Returns true when the record is a `SidebarSearchResult` (search mode). */
+export function isSearchResult(record: LibraryFileRecord): record is SidebarSearchResult {
+    return "match_count" in record;
+}
+
+/**
+ * Returns a short excerpt of `lineText` centred around the first query match.
+ *
+ * If the match is near the start the excerpt begins there; if it is deep into
+ * a long line we skip ahead so the highlighted text appears near the left edge
+ * rather than being hidden off-screen. Leading/trailing truncation is indicated
+ * with a `…` character.
+ *
+ * @param lineText      Full line text delivered by the backend.
+ * @param terms         Active search terms used to locate the earliest match.
+ * @param contextBefore Characters to preserve before the match start (default 20).
+ * @param maxLength     Maximum excerpt length before truncation (default 80).
+ */
+export function getLineExcerpt(
+    lineText: string,
+    terms: string[],
+    contextBefore = 20,
+    maxLength = 80,
+): string {
+    const trimmed = lineText.trim();
+
+    if (trimmed.length <= maxLength || terms.length === 0) {
+        return trimmed.length > maxLength ? trimmed.slice(0, maxLength) + "…" : trimmed;
+    }
+
+    // Find the earliest match position across all terms.
+    const lower = trimmed.toLowerCase();
+    let matchStart = -1;
+    for (const term of terms) {
+        if (!term) continue;
+        const idx = lower.indexOf(term.toLowerCase());
+        if (idx !== -1 && (matchStart === -1 || idx < matchStart)) {
+            matchStart = idx;
+        }
+    }
+
+    // No term found in the line — show from the beginning.
+    if (matchStart === -1) {
+        return trimmed.slice(0, maxLength) + "…";
+    }
+
+    // Anchor the window so the match is `contextBefore` chars from the left edge.
+    const start = Math.max(0, matchStart - contextBefore);
+    const end = Math.min(trimmed.length, start + maxLength);
+
+    let excerpt = trimmed.slice(start, end);
+    if (start > 0) excerpt = "…" + excerpt;
+    if (end < trimmed.length) excerpt += "…";
+
+    return excerpt;
+}

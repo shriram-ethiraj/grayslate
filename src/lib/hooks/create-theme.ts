@@ -40,9 +40,17 @@ export interface ThemeSettings {
     searchMatchSelected: string;
 
     /**
-     * Background for other occurrences of the selected word.
+     * Background fill for other occurrences of the selected word.
+     * Should be a faint tint — the border provides the primary visual signal.
      */
     selectionMatch: string;
+
+    /**
+     * Outline/border color for other occurrences of the selected word.
+     * Should be clearly visible and a different hue from `selection` so the
+     * two states are instantly distinguishable without relying on opacity alone.
+     */
+    selectionMatchBorder: string;
 
     /**
      * Gutter background.
@@ -97,6 +105,10 @@ export const createTheme = (config: ThemeConfig): Extension => {
     // The guard makes this SSR-safe for the SvelteKit static adapter.
     if (typeof document !== 'undefined') {
         document.documentElement.style.setProperty('--search-match-bg', config.settings.searchMatch);
+        // Propagate selectionMatch colors so non-editor UI (sidebar text matches)
+        // stays visually consistent with the editor's word-occurrence style.
+        document.documentElement.style.setProperty('--selection-match-bg', config.settings.selectionMatch);
+        document.documentElement.style.setProperty('--selection-match-border', config.settings.selectionMatchBorder);
     }
 
     const theme = EditorView.theme(
@@ -151,9 +163,13 @@ export const createTheme = (config: ThemeConfig): Extension => {
                 outline: '1px solid ' + config.settings.searchMatchSelected,
             },
 
-            // Other occurrences of the currently selected word
+            // Other occurrences of the currently selected word.
+            // A faint fill + visible outline in a different hue from `selection`
+            // creates the classic "word occurrence box" found in VS Code / JetBrains.
             '&.cm-editor .cm-selectionMatch': {
                 backgroundColor: config.settings.selectionMatch,
+                outline: '1px solid ' + config.settings.selectionMatchBorder,
+                borderRadius: '2px',
             },
 
             // Gutters

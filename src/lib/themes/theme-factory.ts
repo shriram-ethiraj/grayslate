@@ -11,6 +11,7 @@ export interface ThemePalette {
     searchMatch: string;
     searchMatchSelected: string;
     selectionMatch: string;
+    selectionMatchBorder: string;
     gutterBackground: string;
     gutterForeground: string;
 
@@ -52,6 +53,7 @@ export function createThemeConfig(
             searchMatch: palette.searchMatch,
             searchMatchSelected: palette.searchMatchSelected,
             selectionMatch: palette.selectionMatch,
+            selectionMatchBorder: palette.selectionMatchBorder,
             gutterBackground: palette.gutterBackground,
             gutterForeground: palette.gutterForeground,
         },

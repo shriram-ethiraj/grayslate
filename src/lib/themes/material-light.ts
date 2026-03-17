@@ -4,11 +4,12 @@ export const materialLightConfig = createThemeConfig('light', {
     background: '#ffffff', // base00
     foreground: '#212121', // base02
     caret: '#9e9e9e', // base04
-    selection: '#DDEEFF',
-    lineHighlight: '#00000008',
+    selection: '#c5ddff',              // saturated cornflower blue — clearly "primary selection"
+    lineHighlight: '#00000013', // neutral black ~7.5% — reduced 35% from #0000001e; softer but still perceptible
     searchMatch: '#ff980055',         // orange tint — all search matches
     searchMatchSelected: '#ff9800cc', // bright orange — currently focused search match
-    selectionMatch: '#00acc120',      // subtle cyan — other occurrences of selected word
+    selectionMatch: '#4a90d918',      // cornflower blue ~10% — same family as selection, VS Code-style "related occurrence" pattern
+    selectionMatchBorder: '#4a90d960',// cornflower blue ~38% — crisp medium-blue border; pale selection bg + blue border box = immediately distinct
     gutterBackground: '#fafafa', // base07
     gutterForeground: '#757575', // base03
 

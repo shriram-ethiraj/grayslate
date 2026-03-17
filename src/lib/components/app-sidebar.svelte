@@ -39,8 +39,11 @@
         formatTimestamp,
         getDirectoryLabel,
         getRecencyTimestamp,
+        getLineExcerpt,
+        isSearchResult,
         RECENT_FILES_LIMIT,
         recencySectionOrder,
+        splitTextByTerms,
         type FilterMode,
         type LibraryFileRecord,
         type RecencyBucket,
@@ -124,6 +127,13 @@
 
     const normalizedQuery = $derived(query.trim().toLowerCase());
     const pendingOpenFile = $derived(librarySidebarState.pendingOpenFile);
+
+    /** Whitespace-split search terms for frontend highlight rendering. */
+    const searchTerms = $derived(
+        normalizedQuery.length > 0
+            ? normalizedQuery.split(/\s+/).filter((t: string) => t.length > 0)
+            : [],
+    );
 
     const visibleRecentFiles = $derived.by(() => {
         const filteredRecentFiles = recentFiles.filter((recentFile) =>
@@ -349,7 +359,7 @@
     // UI actions
     // ---------------------------------------------------------------------------
 
-    async function openRecentFile(path: string, source: RecentFileSource): Promise<void> {
+    async function openRecentFile(path: string, source: RecentFileSource, lineNumber?: number): Promise<void> {
         // Freeze the list order so opening a file doesn't immediately re-sort
         // the sidebar, which would be jarring for sequential file navigation.
         suppressReorder = true;
@@ -361,10 +371,11 @@
             source,
             requestId,
             revealInRecentList: false,
+            lineNumber,
         });
 
         const { emit } = await import("@tauri-apps/api/event");
-        await emit(OPEN_FILE_PATH_EVENT, { path } satisfies OpenFilePathPayload);
+        await emit(OPEN_FILE_PATH_EVENT, { path, lineNumber } satisfies OpenFilePathPayload);
     }
 
     function getRevealInFileManagerLabel(): string {
@@ -716,6 +727,7 @@
                                     {@const isActiveFile = pendingOpenFile
                                         ? isPendingFile
                                         : (!!editorState.currentFilePath && editorState.currentFilePath === recentFile.path)}
+                                    {@const searchResult = isSearchResult(recentFile) ? recentFile : null}
                                     <ContextMenu.Root>
                                         <Item.Root
                                             variant="outline"
@@ -749,7 +761,13 @@
                                                                 <div class="flex items-start justify-between gap-3">
                                                                     <div class="min-w-0 flex-1">
                                                                         <Item.Title class="truncate text-sm leading-tight {isActiveFile ? 'text-black dark:text-white' : 'text-sidebar-foreground group-hover:text-sidebar-accent-foreground group-data-[state=open]:text-sidebar-accent-foreground'}">
-                                                                            {recentFile.file_name}
+                                                                            {#if searchTerms.length > 0}
+                                                                                {#each splitTextByTerms(recentFile.file_name, searchTerms) as fragment}
+                                                                                    {#if fragment.isMatch}<mark class="bg-[var(--selection-match-bg)] text-inherit rounded-sm px-0.5 ring-1 ring-[var(--selection-match-border)]">{fragment.text}</mark>{:else}{fragment.text}{/if}
+                                                                                {/each}
+                                                                            {:else}
+                                                                                {recentFile.file_name}
+                                                                            {/if}
                                                                         </Item.Title>
 
                                                                         <Item.Description class="mt-1 truncate text-xs {isActiveFile ? 'text-black/65 dark:text-white/72' : 'text-sidebar-foreground/62 group-hover:text-sidebar-accent-foreground/74 group-data-[state=open]:text-sidebar-accent-foreground/74'}">
@@ -762,6 +780,12 @@
                                                                             <span class="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-amber-500/25 bg-amber-500/10 px-2 py-1 text-xs font-medium uppercase tracking-[0.12em] text-amber-600 dark:text-amber-300">
                                                                                 <FileWarning class="size-3.5" />
                                                                                 Missing
+                                                                            </span>
+                                                                        </Item.Actions>
+                                                                    {:else if searchResult && searchResult.match_count > 0}
+                                                                        <Item.Actions class="pt-0.5">
+                                                                            <span class="shrink-0 whitespace-nowrap text-xs tabular-nums {isActiveFile ? 'text-black/60 dark:text-white/65' : 'text-sidebar-foreground/50'}">
+                                                                                {searchResult.match_count} {searchResult.match_count === 1 ? "hit" : "hits"}
                                                                             </span>
                                                                         </Item.Actions>
                                                                     {/if}
@@ -782,6 +806,28 @@
                                                         </button>
                                                     {/snippet}
                                                 </ContextMenu.Trigger>
+
+                                                {#if searchResult && searchResult.matched_lines.length > 0}
+                                                    <div class="border-t border-sidebar-border/40 px-3 py-1.5">
+                                                        {#each searchResult.matched_lines as hit (hit.line_number)}
+                                                            <button
+                                                                type="button"
+                                                                class="flex w-full min-w-0 items-baseline gap-2.5 rounded px-1.5 py-1 text-left transition-colors hover:bg-sidebar-accent/50"
+                                                                title="Go to line {hit.line_number}"
+                                                                onclick={() => {
+                                                                    void openRecentFile(recentFile.path, recentFile.source, hit.line_number);
+                                                                }}
+                                                            >
+                                                                <span class="shrink-0 select-none tabular-nums text-xs text-sidebar-foreground/40">{hit.line_number}</span>
+                                                                <span class="min-w-0 truncate font-mono text-xs leading-relaxed {isActiveFile ? 'text-black/70 dark:text-white/70' : 'text-sidebar-foreground/65'}">
+                                                                    {#each splitTextByTerms(getLineExcerpt(hit.line_text, searchTerms), searchTerms) as fragment}
+                                                                        {#if fragment.isMatch}<mark class="bg-[var(--selection-match-bg)] text-inherit rounded-sm px-0.5 ring-1 ring-[var(--selection-match-border)]">{fragment.text}</mark>{:else}{fragment.text}{/if}
+                                                                    {/each}
+                                                                </span>
+                                                            </button>
+                                                        {/each}
+                                                    </div>
+                                                {/if}
                                             </div>
                                         </Item.Root>
 

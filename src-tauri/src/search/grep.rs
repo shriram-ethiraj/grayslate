@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
     sync::atomic::{AtomicBool, Ordering},
 };
@@ -13,7 +13,7 @@ use crate::storage::normalize_path_key;
 use super::{
     query::ParsedSearchQuery,
     scope::SearchScope,
-    types::{ContentMatchSummary, SearchPreview},
+    types::{truncate_preview_line, ContentMatchSummary, SearchPreview, MAX_PREVIEWS_PER_FILE},
 };
 
 const SEARCH_CANCELLED_MESSAGE: &str = "Search cancelled.";
@@ -127,7 +127,9 @@ fn search_file_for_term(
     let mut collector = MatchCollector {
         term_lower: term.to_lowercase(),
         total_hits: 0,
-        preview: None,
+        previews: Vec::new(),
+        seen_lines: HashSet::new(),
+        max_previews: MAX_PREVIEWS_PER_FILE,
     };
 
     let mut searcher = SearcherBuilder::new().line_number(true).build();
@@ -142,9 +144,25 @@ fn search_file_for_term(
         let entry = by_path.entry(path_key).or_default();
         entry.total_hits += collector.total_hits;
         *entry.term_frequencies.entry(term.to_string()).or_insert(0) += collector.total_hits;
-        if entry.preview.is_none() {
-            entry.preview = collector.preview;
+
+        // Merge previews, deduplicating by line number across terms.
+        let existing_lines: HashSet<u64> = entry
+            .previews
+            .iter()
+            .filter_map(|p| p.line_number)
+            .collect();
+        for preview in collector.previews {
+            if entry.previews.len() >= MAX_PREVIEWS_PER_FILE {
+                break;
+            }
+            if let Some(ln) = preview.line_number {
+                if existing_lines.contains(&ln) {
+                    continue;
+                }
+            }
+            entry.previews.push(preview);
         }
+
         return Ok(true);
     }
 
@@ -156,7 +174,9 @@ fn search_file_for_term(
 struct MatchCollector {
     term_lower: String,
     total_hits: usize,
-    preview: Option<SearchPreview>,
+    previews: Vec<SearchPreview>,
+    seen_lines: HashSet<u64>,
+    max_previews: usize,
 }
 
 impl Sink for MatchCollector {
@@ -175,11 +195,14 @@ impl Sink for MatchCollector {
         let count = line_lower.matches(&self.term_lower).count().max(1);
         self.total_hits += count;
 
-        if self.preview.is_none() {
-            self.preview = Some(SearchPreview {
-                line_number: mat.line_number(),
-                line_text: line_text.trim_end().to_string(),
-            });
+        if self.previews.len() < self.max_previews {
+            let line_number = mat.line_number().unwrap_or(0);
+            if self.seen_lines.insert(line_number) {
+                self.previews.push(SearchPreview {
+                    line_number: mat.line_number(),
+                    line_text: truncate_preview_line(&line_text),
+                });
+            }
         }
 
         Ok(true)

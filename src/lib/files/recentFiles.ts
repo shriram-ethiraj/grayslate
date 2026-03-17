@@ -19,9 +19,13 @@ export interface RecentFileRecord {
   pinned: boolean;
 }
 
+export interface MatchedLine {
+  line_number: number;
+  line_text: string;
+}
+
 export interface SidebarSearchResult extends RecentFileRecord {
-  preview_line: string | null;
-  preview_line_number: number | null;
+  matched_lines: MatchedLine[];
   match_count: number;
   filename_score: number;
   content_score: number;
@@ -32,6 +36,7 @@ export interface SidebarSearchResult extends RecentFileRecord {
 
 export interface OpenFilePathPayload {
   path: string;
+  lineNumber?: number;
 }
 
 export async function getRecentFiles(limit = 50): Promise<RecentFileRecord[]> {

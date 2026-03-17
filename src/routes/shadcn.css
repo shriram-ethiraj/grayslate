@@ -35,6 +35,10 @@
   --cm-hint-color: #888888;
   --cm-hint-bg: rgba(128, 128, 128, 0.1);
   --cm-hint-bg-hover: rgba(128, 128, 128, 0.2);
+  /* Sidebar search match highlight — fallback before JS runs; overridden at runtime by createTheme() */
+  --search-match-bg: #ff980055;
+  --selection-match-bg: #4a90d918;
+  --selection-match-border: #4a90d960;
 }
 
 .dark {
@@ -73,6 +77,10 @@
   --cm-hint-color: #a8b2c8;
   --cm-hint-bg: rgba(155, 170, 210, 0.15);
   --cm-hint-bg-hover: rgba(155, 170, 210, 0.28);
+  /* Sidebar search match highlight — fallback before JS runs; overridden at runtime by createTheme() */
+  --search-match-bg: #ffdd8055;
+  --selection-match-bg: #a78bfa18;
+  --selection-match-border: #a78bfa65;
 }
 
 @theme inline {
