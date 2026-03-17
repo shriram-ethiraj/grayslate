@@ -149,7 +149,7 @@
                                         void runAction(action.id);
                                     }}
                                 >
-                                    <Icon class="mt-0.5 shrink-0" />
+                                    <Icon class="mt-0.5 size-4 shrink-0" />
                                     <div class="flex min-w-0 flex-1 flex-col gap-0.5">
                                         <span class="truncate">{action.title}</span>
                                         <span class="text-xs text-muted-foreground">
@@ -178,7 +178,7 @@
                                         void runAction(action.id);
                                     }}
                                 >
-                                    <Icon class="mt-0.5 shrink-0" />
+                                    <Icon class="mt-0.5 size-4 shrink-0" />
                                     <div class="flex min-w-0 flex-1 flex-col gap-0.5">
                                         <span class="truncate">{action.title}</span>
                                         <span class="text-xs text-muted-foreground">

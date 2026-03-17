@@ -76,10 +76,6 @@
 }
 
 @theme inline {
-  /* UI micro type — status bar and dense info strips (11px / 16px) */
-  --font-size-micro: 0.6875rem;
-  --font-size-micro--line-height: 1rem;
-
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);

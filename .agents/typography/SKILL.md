@@ -8,21 +8,23 @@
 
 ## Typography Scale
 
-| Token       | Size  | Tailwind        | Line-height | Usage                                             |
-|-------------|-------|-----------------|-------------|----------------------------------------------------|
-| **Micro**   | 11 px | `text-micro` ⭐ | 16 px       | Status bar, sidebar metadata, dense-info badges    |
-| **Caption** | 12 px | `text-xs`       | 16 px       | Badges, keyboard shortcuts, group labels, descriptions |
-| **Body**    | 14 px | `text-sm`       | 20 px       | Menu items, inputs, labels, sidebar file names     |
-| **Subhead** | 16 px | `text-base`     | 24 px       | Dialog titles (rare)                               |
-| **Heading** | 18 px+| `text-lg`+      | 28 px       | Major headings (About dialog app name)             |
+| Token       | Size  | Tailwind  | Usage                                                      |
+|-------------|-------|-----------|------------------------------------------------------------|
+| **Caption** | 12 px | `text-xs` | Status bar, sidebar metadata, badges, shortcuts, descriptions |
+| **Body**    | 14 px | `text-sm` | Menu items, inputs, labels, sidebar file names, buttons    |
+| **Subhead** | 16 px | `text-base` | Dialog titles (rare)                                     |
+| **Heading** | 18 px+| `text-lg`+ | Major headings (About dialog app name)                   |
 
-⭐ `text-micro` is a custom Tailwind utility defined in `src/routes/shadcn.css`
-via `@theme inline`:
+All sizes are standard Tailwind defaults — no custom overrides needed.
 
-```css
---font-size-micro: 0.6875rem;        /* 11px */
---font-size-micro--line-height: 1rem; /* 16px */
-```
+### When to use each
+
+- **`text-xs`**: Any "chrome" or secondary content — status bar, sidebar metadata,
+  group labels, badge counts, keyboard shortcut hints, descriptions.
+- **`text-sm`**: The default for anything the user reads or interacts with —
+  menu items, inputs, labels, sidebar file titles, buttons.
+- **`text-base` / `text-lg`+**: Reserved for dialog titles and brand headings.
+  Very rare; one or two per dialog at most.
 
 ### When to use each
 
