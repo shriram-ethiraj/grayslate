@@ -37,7 +37,7 @@
   const SEARCH_TEXTAREA_MIN_HEIGHT_PX = 40;
   const SEARCH_TEXTAREA_DEFAULT_WIDTH_PX = 240;
   const searchTextareaClass =
-    "border-input bg-background selection:bg-primary dark:bg-input/30 selection:text-primary-foreground ring-offset-background placeholder:text-muted-foreground resize rounded-md border px-2.5 py-2.5 text-sm shadow-xs transition-[color,box-shadow] outline-none disabled:cursor-not-allowed disabled:opacity-50 focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring overflow-auto min-h-[40px] max-h-[200px] min-w-[220px] max-w-[420px]";
+    "border-input bg-background ring-offset-background placeholder:text-muted-foreground resize rounded-md border px-2.5 py-2.5 text-sm shadow-xs transition-[color,box-shadow] outline-none disabled:cursor-not-allowed disabled:opacity-50 focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring overflow-auto min-h-[40px] max-h-[200px] min-w-[220px] max-w-[420px]";
   let searchDebounceTimer: ReturnType<typeof setTimeout> | undefined;
   let pendingSearchView: EditorView | undefined;
   let pendingFindText = "";

@@ -109,6 +109,11 @@ export const createTheme = (config: ThemeConfig): Extension => {
         // stays visually consistent with the editor's word-occurrence style.
         document.documentElement.style.setProperty('--selection-match-bg', config.settings.selectionMatch);
         document.documentElement.style.setProperty('--selection-match-border', config.settings.selectionMatchBorder);
+        // Drive UI text input selection color (sidebar search, find/replace, go-to-line) from the
+        // active theme. @property registration in layout.css makes these resolve inside ::selection
+        // in Chrome 131+ via typed property + inherits:true instead of requiring hardcoded values.
+        document.documentElement.style.setProperty('--ui-selection-bg', config.settings.selection);
+        document.documentElement.style.setProperty('--ui-selection-fg', config.settings.foreground);
     }
 
     const theme = EditorView.theme(

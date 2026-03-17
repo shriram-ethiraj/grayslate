@@ -39,6 +39,9 @@
   --search-match-bg: #ff980055;
   --selection-match-bg: #4a90d918;
   --selection-match-border: #4a90d960;
+  /* UI text selection — fallback; overridden at runtime by createTheme() */
+  --ui-selection-bg: #c5ddff;
+  --ui-selection-fg: #212121;
 }
 
 .dark {
@@ -81,6 +84,9 @@
   --search-match-bg: #ffdd8055;
   --selection-match-bg: #7dd3fc20;
   --selection-match-border: #7dd3fc70;
+  /* UI text selection — fallback; overridden at runtime by createTheme() */
+  --ui-selection-bg: #2a5f88;
+  --ui-selection-fg: #e4dff0;
 }
 
 @theme inline {

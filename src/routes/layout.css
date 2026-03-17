@@ -7,6 +7,25 @@
 
 @import "./shadcn.css";
 
+/*
+  Register UI selection color vars as typed CSS properties.
+  Chrome 131+ changed highlight inheritance so that unregistered custom properties
+  (syntax: "*") no longer resolve inside ::selection. Registering with
+  syntax: '<color>' and inherits: true restores the expected behavior.
+  initial-value matches the light-mode fallback in shadcn.css.
+*/
+@property --ui-selection-bg {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #c5ddff;
+}
+
+@property --ui-selection-fg {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #212121;
+}
+
 /* Indeterminate progress bar shuttle */
 @keyframes indeterminate {
     0%   { transform: translateX(-100%); }
@@ -42,6 +61,17 @@
     -webkit-user-select: text;
     user-select: text;
     cursor: text;
+  }
+
+  /* Match editor selection color across all UI text inputs.
+     Uses @property-registered vars (defined above @layer) so Chrome 131+
+     resolves them correctly inside ::selection highlight pseudo-elements. */
+  input::selection,
+  textarea::selection,
+  [contenteditable="true"]::selection,
+  .selectable::selection {
+    background-color: var(--ui-selection-bg);
+    color: var(--ui-selection-fg);
   }
 
   a, button, label, [role="button"] {
