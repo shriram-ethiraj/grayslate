@@ -34,10 +34,10 @@
   // Debounce constant — how long to wait after the last keystroke before
   // dispatching the CM search query and running the full-document stats scan.
   const SEARCH_DEBOUNCE_MS = 150;
-  const SEARCH_TEXTAREA_MIN_HEIGHT_PX = 32;
+  const SEARCH_TEXTAREA_MIN_HEIGHT_PX = 40;
   const SEARCH_TEXTAREA_DEFAULT_WIDTH_PX = 240;
   const searchTextareaClass =
-    "border-input bg-background selection:bg-primary dark:bg-input/30 selection:text-primary-foreground ring-offset-background placeholder:text-muted-foreground resize rounded-md border px-2.5 py-1.5 text-sm shadow-xs transition-[color,box-shadow] outline-none disabled:cursor-not-allowed disabled:opacity-50 focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring overflow-auto min-h-[32px] max-h-[200px] min-w-[220px] max-w-[420px]";
+    "border-input bg-background selection:bg-primary dark:bg-input/30 selection:text-primary-foreground ring-offset-background placeholder:text-muted-foreground resize rounded-md border px-2.5 py-2.5 text-sm shadow-xs transition-[color,box-shadow] outline-none disabled:cursor-not-allowed disabled:opacity-50 focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring overflow-auto min-h-[40px] max-h-[200px] min-w-[220px] max-w-[420px]";
   let searchDebounceTimer: ReturnType<typeof setTimeout> | undefined;
   let pendingSearchView: EditorView | undefined;
   let pendingFindText = "";
@@ -270,17 +270,17 @@
 {#if editorState.findReplace.visible}
   <!-- Floating Find & Replace Panel -->
   <div
-    class="absolute top-4 right-8 z-50 flex w-fit max-w-[80vw] max-h-[80vh] flex-col gap-2 rounded-md border border-border bg-popover p-2 shadow-md"
+    class="absolute top-4 right-8 z-50 flex w-fit max-w-[80vw] max-h-[80vh] flex-col gap-2 rounded-md border border-border bg-popover px-2 py-3 shadow-md"
     role="dialog"
     aria-label="Find and Replace"
   >
-    <div class="flex flex-col gap-1.5 w-full h-full">
+    <div class="flex flex-col gap-3 w-full h-full">
       <!-- Find Row -->
       <div class="flex items-start gap-1.5">
         <Button
           variant="ghost"
           size="icon-xs"
-          class="shrink-0"
+          class="shrink-0 self-center"
           onclick={toggleReplaceMode}
           title="Toggle Replace"
         >
