@@ -17,7 +17,7 @@
 </script>
 
 <div
-  class="flex h-6 w-full shrink-0 items-center justify-end px-3 text-[11px] bg-sidebar border-t border-border/40 text-muted-foreground select-none font-medium"
+  class="flex h-6 w-full shrink-0 items-center justify-end px-3 text-micro bg-sidebar border-t border-border/40 text-muted-foreground select-none font-medium"
 >
   <div class="flex items-center h-full">
     {#if isCsvTableActive}

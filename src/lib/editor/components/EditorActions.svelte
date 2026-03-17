@@ -116,7 +116,7 @@
                 }
             }}
         >
-            <FileText class="h-[1.2rem] w-[1.2rem] transition-all" />
+            <FileText class="size-4 transition-all" />
         </Button>
     {:else}
         <!-- In Text Mode: Show button to switch to Table -->
@@ -134,7 +134,7 @@
                 }
             }}
         >
-            <Table2 class="h-[1.2rem] w-[1.2rem] transition-all" />
+            <Table2 class="size-4 transition-all" />
         </Button>
     {/if}
 {/if}
@@ -157,7 +157,7 @@
                 !editorState.markdown.showPreview;
         }}
     >
-        <Eye class="h-[1.2rem] w-[1.2rem] transition-all" />
+        <Eye class="size-4 transition-all" />
     </Button>
 {/if}
 
@@ -172,9 +172,9 @@
     }}
 >
     {#if showCopySuccess}
-        <Check class="h-[1.2rem] w-[1.2rem] transition-all" />
+        <Check class="size-4 transition-all" />
     {:else}
-        <Copy class="h-[1.2rem] w-[1.2rem] transition-all" />
+        <Copy class="size-4 transition-all" />
     {/if}
 </Button>
 
@@ -188,5 +188,5 @@
         openTransformationsPalette();
     }}
 >
-    <Zap class="h-[1.2rem] w-[1.2rem] transition-all" />
+    <Zap class="size-4 transition-all" />
 </Button>

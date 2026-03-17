@@ -698,11 +698,11 @@
                         <section class="space-y-2">
                             {#if section.label}
                                 <div class="flex items-center gap-3 px-2 pt-1">
-                                    <span class="truncate whitespace-nowrap text-[11px] font-semibold uppercase tracking-[0.12em] text-sidebar-foreground/70">
+                                    <span class="truncate whitespace-nowrap text-micro font-semibold uppercase tracking-[0.12em] text-sidebar-foreground/70">
                                         {section.label}
                                     </span>
                                     <div class="h-px flex-1 bg-sidebar-border/70"></div>
-                                    <span class="shrink-0 whitespace-nowrap text-[10px] text-sidebar-foreground/60">
+                                    <span class="shrink-0 whitespace-nowrap text-micro text-sidebar-foreground/60">
                                         {section.items.length}
                                     </span>
                                 </div>
@@ -748,18 +748,18 @@
                                                             <Item.Content class="min-w-0 gap-2.5">
                                                                 <div class="flex items-start justify-between gap-3">
                                                                     <div class="min-w-0 flex-1">
-                                                                        <Item.Title class="truncate text-[15px] leading-tight {isActiveFile ? 'text-black dark:text-white' : 'text-sidebar-foreground group-hover:text-sidebar-accent-foreground group-data-[state=open]:text-sidebar-accent-foreground'}">
+                                                                        <Item.Title class="truncate text-sm leading-tight {isActiveFile ? 'text-black dark:text-white' : 'text-sidebar-foreground group-hover:text-sidebar-accent-foreground group-data-[state=open]:text-sidebar-accent-foreground'}">
                                                                             {recentFile.file_name}
                                                                         </Item.Title>
 
-                                                                        <Item.Description class="mt-1 truncate text-[11.5px] {isActiveFile ? 'text-black/65 dark:text-white/72' : 'text-sidebar-foreground/62 group-hover:text-sidebar-accent-foreground/74 group-data-[state=open]:text-sidebar-accent-foreground/74'}">
+                                                                        <Item.Description class="mt-1 truncate text-micro {isActiveFile ? 'text-black/65 dark:text-white/72' : 'text-sidebar-foreground/62 group-hover:text-sidebar-accent-foreground/74 group-data-[state=open]:text-sidebar-accent-foreground/74'}">
                                                                             {getDirectoryLabel(recentFile.path)}
                                                                         </Item.Description>
                                                                     </div>
 
                                                                     {#if !recentFile.exists_on_disk}
                                                                         <Item.Actions class="pt-0.5">
-                                                                            <span class="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-amber-500/25 bg-amber-500/10 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.12em] text-amber-600 dark:text-amber-300">
+                                                                            <span class="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-amber-500/25 bg-amber-500/10 px-2 py-1 text-micro font-medium uppercase tracking-[0.12em] text-amber-600 dark:text-amber-300">
                                                                                 <FileWarning class="size-3.5" />
                                                                                 Missing
                                                                             </span>
@@ -767,7 +767,7 @@
                                                                     {/if}
                                                                 </div>
 
-                                                                <div class="flex min-w-0 flex-nowrap items-center gap-2 overflow-hidden text-[11px] {isActiveFile ? 'text-black/70 dark:text-white/74' : 'text-sidebar-foreground/55 group-hover:text-sidebar-accent-foreground/72 group-data-[state=open]:text-sidebar-accent-foreground/72'}">
+                                                                <div class="flex min-w-0 flex-nowrap items-center gap-2 overflow-hidden text-micro {isActiveFile ? 'text-black/70 dark:text-white/74' : 'text-sidebar-foreground/55 group-hover:text-sidebar-accent-foreground/72 group-data-[state=open]:text-sidebar-accent-foreground/72'}">
                                                                     <span class="truncate whitespace-nowrap font-medium uppercase tracking-[0.12em] {isActiveFile ? 'text-black/80 dark:text-white/88' : 'text-sidebar-foreground/72 group-hover:text-sidebar-accent-foreground/88 group-data-[state=open]:text-sidebar-accent-foreground/88'}">
                                                                         {getRecentFileTypeToken(recentFile)}
                                                                     </span>

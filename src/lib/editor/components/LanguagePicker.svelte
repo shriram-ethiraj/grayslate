@@ -67,7 +67,7 @@
 <!-- Status bar trigger button -->
 <button
     onclick={openEditorLanguagePicker}
-    class="flex items-center hover:bg-muted/50 hover:text-foreground h-full px-2 transition-colors cursor-pointer rounded-none bg-transparent text-[11px] gap-1.5"
+    class="flex items-center hover:bg-muted/50 hover:text-foreground h-full px-2 transition-colors cursor-pointer rounded-none bg-transparent text-micro gap-1.5"
     title="Select Language Mode"
 >
     {#if selectedLabel.icon}
@@ -132,7 +132,7 @@
                             value={lang.value}
                             keywords={[lang.label, lang.value]}
                             onSelect={() => selectLanguage(lang.value)}
-                            class="flex w-full items-center gap-2 text-[13px]"
+                            class="flex w-full items-center gap-2 text-sm"
                         >
                             <span
                                 class="w-4 shrink-0 flex items-center justify-center"

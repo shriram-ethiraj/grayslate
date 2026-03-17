@@ -196,7 +196,7 @@
 										void handleNewFile();
 									}}
 								>
-									<LucideFilePlusCorner class="h-[1.2rem] w-[1.2rem] transition-all" />
+									<LucideFilePlusCorner class="size-4 transition-all" />
 								</Button>
 							</div>
 							<!-- Centered file name -->

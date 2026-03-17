@@ -279,8 +279,8 @@
       <div class="flex items-start gap-1.5">
         <Button
           variant="ghost"
-          size="icon"
-          class="shrink-0 h-7 w-7"
+          size="icon-xs"
+          class="shrink-0"
           onclick={toggleReplaceMode}
           title="Toggle Replace"
         >
@@ -338,8 +338,7 @@
           {/if}
           <Button
             variant="ghost"
-            size="icon"
-            class="h-7 w-7"
+            size="icon-xs"
             onclick={findPreviousNow}
             title="Previous match ({formatForDisplay('Shift+Enter')})"
             disabled={!canNavigate}
@@ -348,8 +347,7 @@
           </Button>
           <Button
             variant="ghost"
-            size="icon"
-            class="h-7 w-7"
+            size="icon-xs"
             onclick={findNextNow}
             title="Next match ({formatForDisplay('Enter')})"
             disabled={!canNavigate}
@@ -358,8 +356,7 @@
           </Button>
           <Button
             variant="ghost"
-            size="icon"
-            class="h-7 w-7"
+            size="icon-xs"
             onclick={close}
             title="Close ({formatForDisplay('Escape')})"
           >
@@ -399,8 +396,7 @@
           <div class="flex items-center gap-0.5 self-stretch border-l pl-1.5">
             <Button
               variant="ghost"
-              size="icon"
-              class="h-7 w-7"
+              size="icon-xs"
               onclick={replaceNextNow}
               title="Replace currently selected match"
               disabled={!canReplace}
@@ -409,8 +405,7 @@
             </Button>
             <Button
               variant="ghost"
-              size="icon"
-              class="h-7 w-7"
+              size="icon-xs"
               onclick={replaceAllNow}
               title="Replace All matches"
               disabled={!canReplaceAll}

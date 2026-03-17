@@ -40,8 +40,8 @@
     onclick={toggleTheme}
 >
     {#if isDark}
-        <Sun class="h-[1.2rem] w-[1.2rem] transition-all" />
+        <Sun class="size-4 transition-all" />
     {:else}
-        <Moon class="h-[1.2rem] w-[1.2rem] transition-all" />
+        <Moon class="size-4 transition-all" />
     {/if}
 </Button>

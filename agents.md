@@ -33,6 +33,7 @@ Keep this file compact. Detailed implementation notes belong in the skill files.
 - Memory reclamation: `.agents/memory-management/SKILL.md`
 - Tauri backend: `.agents/tauri-backend/SKILL.md`
 - Layout safety rules: `.agents/layout-chain/SKILL.md`
+- Typography & spacing: `.agents/typography/SKILL.md`
 
 ## 🔎 Current High-Level Reality
 
