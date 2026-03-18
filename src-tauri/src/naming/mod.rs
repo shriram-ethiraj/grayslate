@@ -45,7 +45,7 @@ pub fn suggest_stem(content: &str, language_hint: &str) -> Option<String> {
         },
         ExtractorGroup::Code(style) => code::extract_code(bounded, style),
         ExtractorGroup::Sql => sql::extract_sql(bounded),
-        ExtractorGroup::Prose => prose::extract_yake(bounded),
+        ExtractorGroup::Prose => prose::extract_prose(bounded),
     };
 
     raw.and_then(|stem| slugify(&stem))
@@ -283,7 +283,7 @@ mod tests {
         let toml = "[package]\nname = \"grayslate\"\nversion = \"0.1.0\"\n";
         let stem = suggest_stem(toml, "toml").unwrap();
         assert!(
-            stem.contains("package") || stem.contains("name"),
+            stem.contains("package") || stem.contains("name") || stem.contains("grayslate"),
             "got: {stem}"
         );
     }

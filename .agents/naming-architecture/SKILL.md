@@ -1,11 +1,11 @@
 ---
 name: naming-architecture
-description: Untitled slate naming architecture, language-profile dispatch, and SQL-specific naming heuristics.
+description: Untitled slate naming architecture, language-profile dispatch, SQL naming, tree-sitter code extraction, email/prompt detection, and structured data semantic naming.
 ---
 
 # Naming Architecture
 
-Use this skill when changing untitled-slate filenames, adding support for a new language or extension, or modifying SQL filename heuristics.
+Use this skill when changing untitled-slate filenames, adding support for a new language or extension, or modifying naming heuristics for any content type.
 
 ## Primary Files
 
@@ -65,7 +65,8 @@ Examples:
 
 - new JSON-adjacent structured format → likely `structured.rs`
 - new XML/HTML-like template language → likely `markup.rs`
-- new programming language sharing regex extraction behavior → likely `code.rs`
+- new programming language with a tree-sitter grammar → add grammar crate + `CodeStyle` variant in `code.rs`
+- new programming language without a tree-sitter grammar → add regex patterns in the fallback path of `code.rs`
 - SQL dialect-specific naming work → `sql.rs`
 
 ## Extractor Responsibilities
@@ -82,12 +83,10 @@ This file should stay generic and free of language-specific heuristics.
 
 For delimiter/key-oriented formats:
 
-- CSV
-- JSON
-- YAML
-- TOML
-
-These extractors should stay lightweight and operate on the bounded content sample.
+- **CSV**: noise column filtering (skips IDs, timestamps, coordinates, generic names), then takes up to MAX_TOKENS semantic headers
+- **JSON**: known-pattern detection (package.json, OpenAPI, tsconfig, GeoJSON, JSON Schema) → value extraction for `name`/`title`/`error` keys → noise key filtering → first N keys; falls back to regex for partial JSON
+- **YAML**: regex-based `key:` extraction
+- **TOML**: taplo AST parsing → known-pattern detection (Cargo.toml, pyproject.toml, Poetry, Hugo) → name-value extraction from `[section]` tables → noise section filtering; falls back to regex when taplo fails
 
 ### `markup.rs`
 
@@ -98,13 +97,39 @@ For tree/document formats:
 
 ### `code.rs`
 
-For programming languages that can share regex-based symbol extraction through `CodeStyle`.
+For programming languages. Uses **tree-sitter** AST parsing for languages with grammar crates, with **regex fallback** for languages without grammars.
 
-If multiple extensions want the same symbol-capture behavior, add or reuse a `CodeStyle` variant instead of duplicating regex logic in `mod.rs`.
+#### tree-sitter covered languages
+
+- Python, JavaScript, TypeScript, Rust, Java, Go, C, C++
+
+#### Code signal priority
+
+- 10: Module/package/namespace declaration
+- 9: Public/exported class, struct, trait, interface
+- 8: Other public type declarations, exported functions
+- 7: Public functions
+- 5-6: Private/unexported declarations
+
+#### Noise names filtered
+
+`main`, `init`, `setup`, `run`, `start`, `new`, `default`, `handle`, `index`, `app`, `mod`, `test`, `self`, `this`, `cls`
+
+#### Regex fallback languages
+
+CSharp, Swift, Ruby, PHP, Dart, Shell — these don't have tree-sitter grammar crates in the project.
+
+To add tree-sitter support for a new language: add the grammar crate to Cargo.toml (must be compatible with `tree-sitter = "0.24"`), add a mapping in `try_tree_sitter()`, and add a `collect_<lang>()` function.
 
 ### `prose.rs`
 
-Fallback keyword extraction using YAKE for unknown or prose-like content.
+Cascade extractor for unknown/prose-like content:
+
+1. **Email detection** → extract Subject line (strips Re:/Fwd:/[bracket] prefixes, preserves ticket IDs)
+2. **Prompt detection** → extract role ("You are a ...") or task ("Write/Create/Generate a ...")
+3. **YAKE keyword extraction** → statistical keyphrase fallback
+
+Email and prompt content stays with `.txt` extension — the naming captures what the content is about.
 
 ### `sql.rs`
 
@@ -165,7 +190,8 @@ That means backend naming should trust the provided hint as the routing input, b
 - Keep new heuristics inside the right extractor module
 - Keep the command layer free of language-specific naming rules
 - Preserve `suggest_stem` fallback behavior
-- Add tests close to the module being changed, especially in `sql.rs` for SQL heuristics
+- When adding tree-sitter support: ensure grammar crate version is compatible with `tree-sitter = "0.24"`
+- Add tests close to the module being changed
 - Re-run:
   - `cargo test --manifest-path src-tauri/Cargo.toml`
   - `pnpm run check`
