@@ -349,6 +349,18 @@ impl AppStorage {
             .map_err(|error| format!("Failed to read tracked file: {}", error))
     }
 
+    pub fn delete_tracked_file(&self, path: &Path) -> Result<(), String> {
+        let path_key = normalize_path_key(path)?;
+        let connection = self.open_connection()?;
+        connection
+            .execute(
+                "DELETE FROM tracked_files WHERE path_key = ?1",
+                params![path_key],
+            )
+            .map_err(|error| format!("Failed to delete tracked file: {}", error))?;
+        Ok(())
+    }
+
     pub fn list_tracked_files(&self) -> Result<Vec<RecentFileRecord>, String> {
         let connection = self.open_connection()?;
         let mut statement = connection

@@ -260,7 +260,18 @@ pub fn get_recent_files(
         storage.refresh_tracked_file(&path, source)?;
     }
 
-    storage.list_recent_files(limit)
+    // Prune entries that no longer exist on disk so the sidebar stays clean.
+    let refreshed = storage.list_recent_files(limit)?;
+    let mut result = Vec::new();
+    for file in refreshed {
+        if file.exists_on_disk {
+            result.push(file);
+        } else {
+            let path = PathBuf::from(&file.path);
+            let _ = storage.delete_tracked_file(&path);
+        }
+    }
+    Ok(result)
 }
 
 #[tauri::command]
