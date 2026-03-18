@@ -85,12 +85,6 @@
 		editorState.isUntitledDocument && editorState.currentDocumentLength === 0,
 	);
 
-	const currentFileName = $derived.by(() => {
-		if (!editorState.currentFilePath) return "Untitled";
-		const parts = editorState.currentFilePath.split(/[\\/]/);
-		return parts[parts.length - 1] || "Untitled";
-	});
-
 	function editorOwnsActiveElement(): boolean {
 		const activeView = editorState.activeView;
 		const activeElement = document.activeElement;
@@ -198,13 +192,6 @@
 								>
 									<LucideFilePlusCorner class="size-4 transition-all" />
 								</Button>
-							</div>
-							<!-- Centered file name -->
-							<div class="pointer-events-none absolute inset-0 flex items-center justify-center">
-								<span
-									class="pointer-events-auto max-w-[40%] truncate text-sm font-semibold text-foreground text-opacity-90"
-									title={editorState.currentFilePath ?? currentFileName}
-								>{currentFileName}</span>
 							</div>
 							<div class="relative z-10 flex items-center gap-2">
 								<EditorActions />

@@ -49,6 +49,12 @@
 
   const isMac = $derived(platformState.osType === "macos");
   const isLinux = $derived(platformState.osType === "linux");
+
+  const currentFileName = $derived.by(() => {
+    if (!editorState.currentFilePath) return "New Slate";
+    const parts = editorState.currentFilePath.split(/[\\/]/);
+    return parts[parts.length - 1] || "New Slate";
+  });
   /** Redo shortcut differs between platforms */
   const redoShortcut = $derived(
     isMac ? formatForDisplay("Mod+Shift+Z") : formatForDisplay("Mod+Y"),
@@ -472,6 +478,14 @@
   class="relative flex h-10 w-full select-none items-center justify-between border-b bg-background shadow-sm"
 >
   <div data-tauri-drag-region class="absolute inset-0 z-0"></div>
+
+  <!-- Centered file name: pointer-events-none so drag-region below remains active -->
+  <div class="pointer-events-none absolute inset-0 z-5 flex items-center justify-center">
+    <span
+      class="max-w-[40%] truncate text-xs font-medium text-foreground/80"
+      title={editorState.currentFilePath ?? currentFileName}
+    >{currentFileName}</span>
+  </div>
 
   {#if isMac}
     <!-- Mac Traffic Lights Space -->
