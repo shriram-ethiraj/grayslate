@@ -152,53 +152,6 @@
     return document.kind === "untitled" ? document.key : document.path;
   }
 
-  function getPreferredExtension(fileType: string): string {
-    switch (fileType) {
-      case "csv":
-        return "csv";
-      case "markdown":
-        return "md";
-      case "json":
-        return "json";
-      case "javascript":
-        return "js";
-      case "typescript":
-        return "ts";
-      case "python":
-        return "py";
-      case "html":
-        return "html";
-      case "css":
-        return "css";
-      case "yaml":
-        return "yaml";
-      case "c":
-        return "c";
-      case "cpp":
-        return "cpp";
-      case "java":
-        return "java";
-      case "go":
-        return "go";
-      case "xml":
-        return "xml";
-      case "shell":
-        return "sh";
-      default:
-        return "txt";
-    }
-  }
-
-  function buildUntitledFilename(document: ActiveDocument): string {
-    const createdAt =
-      document.kind === "untitled" ? document.createdAt : Date.now();
-    const stamp = new Date(createdAt)
-      .toISOString()
-      .replace(/:/g, "-")
-      .replace(/\.\d{3}Z$/, "Z");
-    return `note-${stamp}.${getPreferredExtension(activeLanguage)}`;
-  }
-
   async function getPathLabel(path: string): Promise<string> {
     try {
       return await basename(path);
@@ -882,9 +835,31 @@
     }
   }
 
-  async function buildManagedSavePath(): Promise<string> {
-    const notesRoot = await resolveNotesRoot();
-    return join(notesRoot, buildUntitledFilename(activeDocument));
+  /**
+   * First save of an untitled document: Rust picks a smart content-based
+   * filename, writes the file, and returns the final absolute path.
+   *
+   * Before handing off to the backend we run a synchronous language detection
+   * pass if the editor is still in "auto" mode. The debounced `checkLanguage`
+   * may not have fired yet when the user pastes content and saves immediately,
+   * so we detect on demand here to guarantee the correct languageHint reaches
+   * `suggest_stem` / `language_to_extension`.
+   */
+  async function saveUntitledSlate(content: string): Promise<string> {
+    let effectiveLanguage = activeLanguage;
+    if (language === "auto") {
+      const freshDetection = languageDetector.detect(content);
+      if (freshDetection) {
+        // Update detectedLanguage so the status bar reflects the result.
+        detectedLanguage = freshDetection;
+        effectiveLanguage = freshDetection;
+      }
+    }
+
+    return invoke<string>("save_untitled_slate", {
+      content,
+      languageHint: effectiveLanguage,
+    });
   }
 
   async function saveFile(): Promise<void> {
@@ -900,8 +875,31 @@
         return;
       }
 
-      const savePath = await buildManagedSavePath();
-      await writeDocumentToPath(savePath, content);
+      const savePath = await saveUntitledSlate(content);
+      // Transition the document state — writeDocumentToPath would overwrite
+      // with write_file_content again, so apply state directly here.
+      startLoaderTicker("Saving file…", "New Slate", {
+        ceiling: 88,
+        factor: 0.08,
+        minStep: 0.4,
+        interval: 70,
+        startAt: 8,
+      });
+      try {
+        await syncLanguageFromPath(savePath);
+        activeDocument = {
+          kind: "saved",
+          path: savePath,
+          source: "file",
+          lastSavedValue: content,
+        };
+        flushPendingValueSync(editorSession);
+        const { emit } = await import("@tauri-apps/api/event");
+        await emit(RECENT_FILES_UPDATED_EVENT);
+      } finally {
+        stopLoaderTicker();
+        hideEditorLoader();
+      }
     } catch (err: unknown) {
       const msg = typeof err === "string" ? err : "Failed to save file.";
       toast.error(msg);
@@ -911,10 +909,19 @@
   async function saveFileAs(): Promise<void> {
     try {
       const content = await getContentForSave();
-      const defaultPath =
-        activeDocument.kind === "saved"
-          ? activeDocument.path
-          : await buildManagedSavePath();
+
+      let defaultPath: string;
+      if (activeDocument.kind === "saved") {
+        defaultPath = activeDocument.path;
+      } else {
+        // Ask Rust for a smart suggested filename (no collision check, no write).
+        const suggestedName = await invoke<string>("suggest_slate_name", {
+          content,
+          languageHint: activeLanguage,
+        });
+        const notesRoot = await resolveNotesRoot();
+        defaultPath = await join(notesRoot, suggestedName);
+      }
 
       const selectedPath = await saveFilePicker({
         title: "Save As",

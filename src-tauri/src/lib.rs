@@ -3,6 +3,7 @@ use tauri::Manager;
 pub mod commands;
 pub mod filesystem;
 pub mod menu;
+pub mod naming;
 pub mod search;
 pub mod storage;
 pub mod window;
@@ -60,6 +61,8 @@ pub fn run() {
             commands::file::set_app_setting,
             commands::file::write_file_content,
             commands::memory::get_memory_info,
+            commands::naming::save_untitled_slate,
+            commands::naming::suggest_slate_name,
             commands::search::search_sidebar_files,
             commands::transform::cancel_transformation,
             commands::transform::execute_transformation,

@@ -27,6 +27,7 @@ Keep this file compact. Detailed implementation notes belong in the skill files.
 - CodeMirror session model: `.agents/codemirror-core/SKILL.md`
 - Editor extension patterns: `.agents/editor-extensions/SKILL.md`
 - CSV table architecture: `.agents/csv-architecture/SKILL.md`
+- Naming and SQL naming architecture: `.agents/naming-architecture/SKILL.md`
 - Transformation architecture: `.agents/transformations/SKILL.md`
 - Sidebar search architecture: `.agents/search-architecture/SKILL.md`
 - Hotkeys: `.agents/tanstack-hotkeys/SKILL.md`
