@@ -412,9 +412,12 @@
 
     async function handleDuplicateRecentFile(file: RecentFileRecord): Promise<void> {
         try {
-            const { emit } = await import("@tauri-apps/api/event");
             const newPath = await duplicateFile(file.path);
-            await emit(RECENT_FILES_UPDATED_EVENT);
+            // Clear reorder suppression and refresh directly so the new file
+            // is always visible immediately, even if suppressReorder is active
+            // from a prior sidebar-initiated file open.
+            clearReorderSuppression();
+            void refreshRecentFiles();
             const newName = newPath.replace(/\\/g, "/").split("/").pop() ?? "copy";
             toast.success(`Duplicated as "${newName}"`);
         } catch (err) {
