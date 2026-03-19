@@ -496,6 +496,63 @@ pub async fn rename_file(
     Ok(new_path_str)
 }
 
+/// Duplicate a local file into the Grayslate slates directory.
+///
+/// The file content is copied verbatim; the destination filename keeps the
+/// same stem-and-extension but is placed in the managed notes root and given
+/// a `-copy` suffix.  The new file is recorded in storage as a slate so it
+/// appears in the sidebar immediately.  Returns the absolute path of the new
+/// copy.
+#[tauri::command]
+pub async fn duplicate_local_file_as_slate(
+    app: tauri::AppHandle,
+    storage: tauri::State<'_, AppStorage>,
+    path: String,
+) -> Result<String, String> {
+    let src = PathBuf::from(&path);
+    if !src.is_absolute() {
+        return Err("File path must be absolute.".to_string());
+    }
+    if !src.exists() {
+        return Err("Source file does not exist.".to_string());
+    }
+
+    let src_name = src
+        .file_name()
+        .ok_or_else(|| "File has no name.".to_string())?
+        .to_string_lossy()
+        .to_string();
+
+    let notes_root =
+        crate::filesystem::resolve_notes_root_path(&app, storage.inner())?;
+    if !notes_root.exists() {
+        std::fs::create_dir_all(&notes_root)
+            .map_err(|e| format!("Failed to create slates directory: {}", e))?;
+    }
+
+    let copy_name = make_copy_name(&src_name);
+    let dest = next_copy_path_in_dir(&notes_root, &copy_name);
+    let dest_str = dest.to_string_lossy().to_string();
+
+    let src_clone = src.clone();
+    let dest_clone = dest.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        std::fs::copy(&src_clone, &dest_clone)
+            .map(|_| ())
+            .map_err(|e| format!("Failed to copy file: {}", e))
+    })
+    .await
+    .map_err(|e| format!("Duplicate task failed: {}", e))??;
+
+    storage.record_file_event(
+        &dest,
+        crate::storage::FileSource::Slates,
+        FileEventType::Open,
+    )?;
+
+    Ok(dest_str)
+}
+
 /// Duplicate a file, placing the copy in the same directory with a `(copy)`
 /// suffix in its name.  The duplicate is recorded in storage so it appears in
 /// the sidebar immediately.  Works on any file (slates and local), as the copy

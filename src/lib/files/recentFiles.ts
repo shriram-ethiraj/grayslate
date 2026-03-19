@@ -82,3 +82,11 @@ export async function renameFile(path: string, newName: string): Promise<string>
 export async function duplicateFile(path: string): Promise<string> {
   return invoke<string>("duplicate_file", { path });
 }
+
+/**
+ * Duplicate a local file into the Grayslate slates directory as a slate file.
+ * Returns the absolute path of the new copy.
+ */
+export async function duplicateLocalFileAsSlate(path: string): Promise<string> {
+  return invoke<string>("duplicate_local_file_as_slate", { path });
+}

@@ -69,7 +69,7 @@
     import FileWarning from "~icons/lucide/file-warning";
     import { getPlatformOsType } from "$lib/state/platform.svelte";
     import { openDeleteFileDialog, openRenameFileDialog } from "$lib/state/appDialogs.svelte";
-    import { duplicateFile } from "$lib/files/recentFiles";
+    import { duplicateFile, duplicateLocalFileAsSlate } from "$lib/files/recentFiles";
 
     // ---------------------------------------------------------------------------
     // Module-level constants (rendering only — types/sort/format live in sidebarUtils.ts)
@@ -423,6 +423,19 @@
         } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
             toast.error(`Failed to duplicate: ${msg}`);
+        }
+    }
+
+    async function handleDuplicateLocalFileAsSlate(file: RecentFileRecord): Promise<void> {
+        try {
+            const newPath = await duplicateLocalFileAsSlate(file.path);
+            clearReorderSuppression();
+            void refreshRecentFiles();
+            const newName = newPath.replace(/\\/g, "/").split("/").pop() ?? "copy";
+            toast.success(`Duplicated as slate "${newName}"`);
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            toast.error(`Failed to duplicate as slate: ${msg}`);
         }
     }
 
@@ -877,6 +890,17 @@
                                                 <Copy class="size-4" />
                                                 <span>Copy Path</span>
                                             </ContextMenu.Item>
+                                            {#if recentFile.source === "local"}
+                                                <ContextMenu.Separator />
+                                                <ContextMenu.Item
+                                                    onclick={() => {
+                                                        void handleDuplicateLocalFileAsSlate(recentFile);
+                                                    }}
+                                                >
+                                                    <CopyPlus class="size-4" />
+                                                    <span>Duplicate as Slate</span>
+                                                </ContextMenu.Item>
+                                            {/if}
                                             {#if recentFile.source === "slates"}
                                                 <ContextMenu.Separator />
                                                 <ContextMenu.Item
