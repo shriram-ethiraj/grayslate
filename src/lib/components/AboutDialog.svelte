@@ -14,6 +14,7 @@
         checkForAppUpdates,
         installAvailableUpdate,
     } from "$lib/state/appMenu.svelte";
+    import { appDialogsState, closeAppDialog } from "$lib/state/appDialogs.svelte";
 
     const REPOSITORY_URL = "https://github.com/shriram-ethiraj/grayslate";
     const RELEASES_URL = "https://github.com/shriram-ethiraj/grayslate/releases";
@@ -53,7 +54,12 @@
     }
 </script>
 
-<Dialog.Root bind:open={appMenuState.aboutOpen}>
+<Dialog.Root
+    open={appDialogsState.active.type === "about"}
+    onOpenChange={(isOpen) => {
+        if (!isOpen) closeAppDialog();
+    }}
+>
     <Dialog.Content
         class="p-0 sm:max-w-[44rem]"
         onOpenAutoFocus={(event) => {

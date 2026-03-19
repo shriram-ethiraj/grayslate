@@ -361,6 +361,95 @@ impl AppStorage {
         Ok(())
     }
 
+    /// Rename a tracked file in the database, preserving its id so that all
+    /// `file_access_events` foreign-key references remain intact.  The
+    /// `last_opened_at`, `last_saved_at`, `pinned`, `source`, and `created_at`
+    /// columns are carried over from the old row.
+    pub fn rename_tracked_file(&self, old_path: &Path, new_path: &Path) -> Result<(), String> {
+        let old_key = normalize_path_key(old_path)?;
+        let new_snapshot = build_file_snapshot(new_path)?;
+        let now = current_time_ms();
+
+        let mut connection = self.open_connection()?;
+        let transaction = connection
+            .transaction()
+            .map_err(|e| format!("Failed to start rename transaction: {}", e))?;
+
+        // Look up the existing row id so we can update in-place, preserving all
+        // foreign-key references from file_access_events.
+        let old_id: Option<i64> = transaction
+            .query_row(
+                "SELECT id FROM tracked_files WHERE path_key = ?1",
+                params![old_key],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|e| format!("Failed to look up old tracked file: {}", e))?;
+
+        if let Some(id) = old_id {
+            // Update the existing row in-place — keeps the id, timestamps, pinned,
+            // and source columns untouched.
+            transaction
+                .execute(
+                    "
+                    UPDATE tracked_files SET
+                        path_key = ?2,
+                        path     = ?3,
+                        file_name = ?4,
+                        extension = ?5,
+                        exists_on_disk = ?6,
+                        size_bytes = ?7,
+                        last_seen_at = ?8,
+                        last_modified_at = ?9,
+                        updated_at = ?10
+                    WHERE id = ?1
+                    ",
+                    params![
+                        id,
+                        new_snapshot.path_key,
+                        new_snapshot.path,
+                        new_snapshot.file_name,
+                        new_snapshot.extension,
+                        new_snapshot.exists_on_disk as i64,
+                        new_snapshot.size_bytes.map(|v| v as i64),
+                        new_snapshot.last_seen_at,
+                        new_snapshot.last_modified_at,
+                        now,
+                    ],
+                )
+                .map_err(|e| format!("Failed to update renamed file row: {}", e))?;
+        } else {
+            // No prior tracking record — insert a fresh one.
+            transaction
+                .execute(
+                    "
+                    INSERT INTO tracked_files (
+                        path_key, path, file_name, extension, source,
+                        exists_on_disk, size_bytes, last_seen_at, last_modified_at,
+                        created_at, updated_at
+                    )
+                    VALUES (?1, ?2, ?3, ?4, 'slates', ?5, ?6, ?7, ?8, ?9, ?9)
+                    ",
+                    params![
+                        new_snapshot.path_key,
+                        new_snapshot.path,
+                        new_snapshot.file_name,
+                        new_snapshot.extension,
+                        new_snapshot.exists_on_disk as i64,
+                        new_snapshot.size_bytes.map(|v| v as i64),
+                        new_snapshot.last_seen_at,
+                        new_snapshot.last_modified_at,
+                        now,
+                    ],
+                )
+                .map_err(|e| format!("Failed to insert renamed file row: {}", e))?;
+        }
+
+        transaction
+            .commit()
+            .map_err(|e| format!("Failed to commit rename transaction: {}", e))
+    }
+
     pub fn list_tracked_files(&self) -> Result<Vec<RecentFileRecord>, String> {
         let connection = self.open_connection()?;
         let mut statement = connection

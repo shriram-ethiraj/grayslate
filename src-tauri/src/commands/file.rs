@@ -11,8 +11,9 @@ use std::{
 
 use crate::filesystem::{
     classify_file_source, resolve_default_notes_root_path, resolve_notes_root_path,
+    sanitize_filename, unique_path_in_dir,
 };
-use crate::storage::{AppStorage, FileEventType, RecentFileRecord, SETTING_NOTES_ROOT};
+use crate::storage::{AppStorage, FileEventType, FileSource, RecentFileRecord, SETTING_NOTES_ROOT};
 
 /// Maximum file size allowed to be opened: 200 MB.
 const MAX_FILE_SIZE: u64 = 200 * 1024 * 1024;
@@ -315,4 +316,232 @@ pub async fn write_file_content(
 
     let source = classify_file_source(&app, storage.inner(), &target_path)?;
     storage.record_file_event(&target_path, source, FileEventType::Save)
+}
+
+// ---------------------------------------------------------------------------
+// File management helpers (rename / delete / duplicate)
+// ---------------------------------------------------------------------------
+
+/// Validates a proposed filename: must be non-empty, contain no path
+/// separators, and have no ASCII control characters.
+fn validate_new_filename(name: &str) -> Result<(), String> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return Err("File name cannot be empty.".to_string());
+    }
+    if trimmed.contains('/') || trimmed.contains('\\') {
+        return Err("File name cannot contain path separators.".to_string());
+    }
+    if trimmed.chars().any(|c| (c as u32) < 32 || c == '\x7f') {
+        return Err("File name contains invalid characters.".to_string());
+    }
+    Ok(())
+}
+
+/// Strips any trailing `-copy` or `-copy-<N>` suffix from a stem and returns
+/// the root part.  For example:
+///   `"file-copy"`   → `"file"`
+///   `"file-copy-3"` → `"file"`
+///   `"file"`        → `"file"` (unchanged)
+fn strip_copy_suffix(stem: &str) -> &str {
+    // "-copy-<digits>" (numbered copy)
+    if let Some((before, suffix)) = stem.rsplit_once("-copy-") {
+        if !suffix.is_empty() && suffix.chars().all(|c| c.is_ascii_digit()) {
+            return before;
+        }
+    }
+    // bare "-copy"
+    if let Some(before) = stem.strip_suffix("-copy") {
+        return before;
+    }
+    stem
+}
+
+/// Generates a base name for a duplicate copy.
+///
+/// Always strips any existing `-copy` / `-copy-N` suffix back to the root
+/// stem, then appends `-copy`.  The caller is responsible for finding the
+/// next available slot with `next_copy_path_in_dir`.
+///
+/// - `"file.md"`        → `"file-copy.md"`
+/// - `"file-copy.md"`   → `"file-copy.md"`
+/// - `"file-copy-3.md"` → `"file-copy.md"`
+fn make_copy_name(src_name: &str) -> String {
+    let (stem, ext) = if let Some(pos) = src_name.rfind('.') {
+        (&src_name[..pos], &src_name[pos..])
+    } else {
+        (src_name, "")
+    };
+    let base = strip_copy_suffix(stem);
+    format!("{}-copy{}", base, ext)
+}
+
+/// Finds the next available copy path in `dir`.
+///
+/// Slot 0 (no number): `<base>-copy.<ext>`
+/// Slot 1:             `<base>-copy-1.<ext>`
+/// Slot 2:             `<base>-copy-2.<ext>`
+/// …
+///
+/// `copy_name` must already be of the form `"<base>-copy.<ext>"` as produced
+/// by `make_copy_name`.
+fn next_copy_path_in_dir(dir: &Path, copy_name: &str) -> PathBuf {
+    let candidate = dir.join(copy_name);
+    if !candidate.exists() {
+        return candidate;
+    }
+
+    let (stem, ext) = if let Some(pos) = copy_name.rfind('.') {
+        (&copy_name[..pos], &copy_name[pos..])
+    } else {
+        (copy_name, "")
+    };
+
+    // Numbered slots start at 1: file-copy-1, file-copy-2, …
+    let mut counter = 1u32;
+    loop {
+        let name = format!("{}-{}{}", stem, counter, ext);
+        let path = dir.join(&name);
+        if !path.exists() {
+            return path;
+        }
+        counter += 1;
+    }
+}
+
+/// Returns `Ok(())` when `path` is absolute and belongs to the Grayslate
+/// notes root (source == Slates).  Returns a user-visible error otherwise.
+/// Rename and delete are restricted to slate files managed by the app.
+fn require_slate_file(
+    app: &tauri::AppHandle,
+    storage: &AppStorage,
+    path: &Path,
+) -> Result<(), String> {
+    if !path.is_absolute() {
+        return Err("File path must be absolute.".to_string());
+    }
+    let source = classify_file_source(app, storage, path)?;
+    if source != FileSource::Slates {
+        return Err(
+            "Rename and delete are only available for Grayslate slate files.".to_string(),
+        );
+    }
+    Ok(())
+}
+
+/// Permanently delete a slate file from disk and remove it from tracking.
+/// Returns an error if `path` is not a managed slate file.
+#[tauri::command]
+pub async fn delete_file(
+    app: tauri::AppHandle,
+    storage: tauri::State<'_, AppStorage>,
+    path: String,
+) -> Result<(), String> {
+    let target = PathBuf::from(&path);
+    require_slate_file(&app, storage.inner(), &target)?;
+
+    let target_clone = target.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        std::fs::remove_file(&target_clone)
+            .map_err(|e| format!("Failed to delete file: {}", e))
+    })
+    .await
+    .map_err(|e| format!("Delete task failed: {}", e))??;
+
+    // Best-effort removal from tracking; ignore errors if the row was never
+    // stored.
+    let _ = storage.delete_tracked_file(&target);
+
+    Ok(())
+}
+
+/// Rename a slate file.  `new_name` is the bare filename (no path separators).
+/// The name is sanitized and slugified before use: unsafe characters and
+/// whitespace runs are collapsed into hyphens.  If a file with the resulting
+/// name already exists in the same directory, a numeric suffix is automatically
+/// appended (`name-2.ext`, `name-3.ext`, …) so the operation always
+/// succeeds.  Returns the absolute path of the renamed file.
+#[tauri::command]
+pub async fn rename_file(
+    app: tauri::AppHandle,
+    storage: tauri::State<'_, AppStorage>,
+    path: String,
+    new_name: String,
+) -> Result<String, String> {
+    let old_path = PathBuf::from(&path);
+    require_slate_file(&app, storage.inner(), &old_path)?;
+
+    let sanitized_name = sanitize_filename(&new_name);
+    validate_new_filename(&sanitized_name)?;
+
+    let parent = old_path
+        .parent()
+        .ok_or_else(|| "File has no parent directory.".to_string())?
+        .to_path_buf();
+
+    let new_path = unique_path_in_dir(&parent, &sanitized_name);
+    let new_path_str = new_path.to_string_lossy().to_string();
+
+    let old_clone = old_path.clone();
+    let new_clone = new_path.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        std::fs::rename(&old_clone, &new_clone)
+            .map_err(|e| format!("Failed to rename file: {}", e))
+    })
+    .await
+    .map_err(|e| format!("Rename task failed: {}", e))??;
+
+    storage.rename_tracked_file(&old_path, &new_path)?;
+
+    Ok(new_path_str)
+}
+
+/// Duplicate a file, placing the copy in the same directory with a `(copy)`
+/// suffix in its name.  The duplicate is recorded in storage so it appears in
+/// the sidebar immediately.  Works on any file (slates and local), as the copy
+/// is always created alongside the original.  Returns the absolute path of the
+/// new copy.
+#[tauri::command]
+pub async fn duplicate_file(
+    app: tauri::AppHandle,
+    storage: tauri::State<'_, AppStorage>,
+    path: String,
+) -> Result<String, String> {
+    let src = PathBuf::from(&path);
+    if !src.is_absolute() {
+        return Err("File path must be absolute.".to_string());
+    }
+    if !src.exists() {
+        return Err("Source file does not exist.".to_string());
+    }
+
+    let parent = src
+        .parent()
+        .ok_or_else(|| "File has no parent directory.".to_string())?
+        .to_path_buf();
+
+    let src_name = src
+        .file_name()
+        .ok_or_else(|| "File has no name.".to_string())?
+        .to_string_lossy()
+        .to_string();
+
+    let copy_name = make_copy_name(&src_name);
+    let dest = next_copy_path_in_dir(&parent, &copy_name);
+    let dest_str = dest.to_string_lossy().to_string();
+
+    let src_clone = src.clone();
+    let dest_clone = dest.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        std::fs::copy(&src_clone, &dest_clone)
+            .map(|_| ())
+            .map_err(|e| format!("Failed to copy file: {}", e))
+    })
+    .await
+    .map_err(|e| format!("Duplicate task failed: {}", e))??;
+
+    let source = classify_file_source(&app, storage.inner(), &dest)?;
+    storage.record_file_event(&dest, source, FileEventType::Open)?;
+
+    Ok(dest_str)
 }

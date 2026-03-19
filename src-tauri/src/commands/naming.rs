@@ -13,17 +13,11 @@
  *   5. Records the file event in storage (same as write_file_content).
  *   6. Returns the final absolute path to the frontend.
  */
-use std::path::PathBuf;
-
 use crate::{
-    filesystem::{classify_file_source, resolve_notes_root_path},
+    filesystem::{classify_file_source, resolve_notes_root_path, sanitize_filename, unique_path_in_dir},
     naming::{fallback_stem, language_to_extension, suggest_stem},
     storage::{AppStorage, FileEventType},
 };
-
-/// Maximum attempts when resolving filename collisions (`name.ext`,
-/// `name-2.ext`, …, `name-100.ext`).
-const MAX_COLLISION_ATTEMPTS: u32 = 100;
 
 // ---------------------------------------------------------------------------
 // save_untitled_slate
@@ -49,7 +43,13 @@ pub async fn save_untitled_slate(
     let extension = language_to_extension(&language_hint);
 
     // Build a collision-free path inside notes_root.
-    let target_path = resolve_available_path(&notes_root, &stem, extension)?;
+    let base_name = if extension.is_empty() {
+        stem
+    } else {
+        format!("{}.{}", stem, extension)
+    };
+    let base_name = sanitize_filename(&base_name);
+    let target_path = unique_path_in_dir(&notes_root, &base_name);
 
     // Write the file (create parent dirs just in case).
     let path_for_write = target_path.clone();
@@ -73,46 +73,6 @@ pub async fn save_untitled_slate(
         .into_os_string()
         .into_string()
         .map_err(|_| "Saved path contains invalid UTF-8.".to_string())
-}
-
-// ---------------------------------------------------------------------------
-// Collision resolution helper
-// ---------------------------------------------------------------------------
-
-/// Returns the first available path of the form:
-///   `<dir>/<stem>.<ext>`
-///   `<dir>/<stem>-2.<ext>`
-///   `<dir>/<stem>-3.<ext>`
-///   …
-fn resolve_available_path(dir: &PathBuf, stem: &str, ext: &str) -> Result<PathBuf, String> {
-    // Build the base filename; for extensionless formats (dockerfile) omit the dot.
-    let base = if ext.is_empty() {
-        stem.to_string()
-    } else {
-        format!("{}.{}", stem, ext)
-    };
-
-    let candidate = dir.join(&base);
-    if !candidate.exists() {
-        return Ok(candidate);
-    }
-
-    for n in 2..=MAX_COLLISION_ATTEMPTS {
-        let name = if ext.is_empty() {
-            format!("{}-{}", stem, n)
-        } else {
-            format!("{}-{}.{}", stem, n, ext)
-        };
-        let candidate = dir.join(&name);
-        if !candidate.exists() {
-            return Ok(candidate);
-        }
-    }
-
-    Err(format!(
-        "Could not find an available filename for '{}' after {} attempts.",
-        base, MAX_COLLISION_ATTEMPTS
-    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -158,7 +118,7 @@ mod tests {
     #[test]
     fn resolve_available_path_first_slot() {
         let dir = tmp_dir();
-        let path = resolve_available_path(&dir, "my-file", "json").unwrap();
+        let path = unique_path_in_dir(&dir, "my-file.json");
         assert_eq!(path.file_name().unwrap(), "my-file.json");
         fs::remove_dir_all(&dir).ok();
     }
@@ -168,7 +128,7 @@ mod tests {
         let dir = tmp_dir();
         // Occupy the first slot.
         fs::write(dir.join("my-file.json"), "{}").unwrap();
-        let path = resolve_available_path(&dir, "my-file", "json").unwrap();
+        let path = unique_path_in_dir(&dir, "my-file.json");
         assert_eq!(path.file_name().unwrap(), "my-file-2.json");
         fs::remove_dir_all(&dir).ok();
     }
@@ -179,7 +139,7 @@ mod tests {
         fs::write(dir.join("report.sql"), "").unwrap();
         fs::write(dir.join("report-2.sql"), "").unwrap();
         fs::write(dir.join("report-3.sql"), "").unwrap();
-        let path = resolve_available_path(&dir, "report", "sql").unwrap();
+        let path = unique_path_in_dir(&dir, "report.sql");
         assert_eq!(path.file_name().unwrap(), "report-4.sql");
         fs::remove_dir_all(&dir).ok();
     }

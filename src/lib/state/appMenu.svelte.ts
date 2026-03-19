@@ -1,6 +1,7 @@
 import { getName, getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "$lib/components/ui/sonner";
+import { appDialogsState, openAboutAppDialog, closeAppDialog } from "$lib/state/appDialogs.svelte";
 
 export type UpdateStatus =
     | "idle"
@@ -37,7 +38,6 @@ type UpdateInstallResponse = {
 };
 
 export const appMenuState = $state({
-    aboutOpen: false,
     appName: "Grayslate",
     appVersion: "",
     updateStatus: "idle" as UpdateStatus,
@@ -68,7 +68,7 @@ export async function ensureAppInfoLoaded(): Promise<void> {
 
 export async function openAboutDialog(): Promise<void> {
     await ensureAppInfoLoaded();
-    appMenuState.aboutOpen = true;
+    openAboutAppDialog();
     void checkForAppUpdates({ openDialog: false, notify: false });
 }
 
@@ -88,7 +88,7 @@ export async function checkForAppUpdates(options?: {
     }
 
     if (options?.openDialog ?? true) {
-        appMenuState.aboutOpen = true;
+        openAboutAppDialog();
     }
 
     appMenuState.updateStatus = "checking";

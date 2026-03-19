@@ -62,9 +62,14 @@
     import RiCodeBoxLine from '~icons/ri/code-box-line';
     import FolderOpen from "~icons/lucide/folder-open";
     import Copy from "~icons/lucide/copy";
+    import CopyPlus from "~icons/lucide/copy-plus";
+    import Pencil from "~icons/lucide/pencil";
+    import Trash2 from "~icons/lucide/trash-2";
     import LucideHardDrive from '~icons/lucide/hard-drive';
     import FileWarning from "~icons/lucide/file-warning";
     import { getPlatformOsType } from "$lib/state/platform.svelte";
+    import { openDeleteFileDialog, openRenameFileDialog } from "$lib/state/appDialogs.svelte";
+    import { duplicateFile } from "$lib/files/recentFiles";
 
     // ---------------------------------------------------------------------------
     // Module-level constants (rendering only — types/sort/format live in sidebarUtils.ts)
@@ -402,6 +407,19 @@
             await revealItemInDir(path);
         } catch {
             toast.error("Failed to open containing folder");
+        }
+    }
+
+    async function handleDuplicateRecentFile(file: RecentFileRecord): Promise<void> {
+        try {
+            const { emit } = await import("@tauri-apps/api/event");
+            const newPath = await duplicateFile(file.path);
+            await emit(RECENT_FILES_UPDATED_EVENT);
+            const newName = newPath.replace(/\\/g, "/").split("/").pop() ?? "copy";
+            toast.success(`Duplicated as "${newName}"`);
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            toast.error(`Failed to duplicate: ${msg}`);
         }
     }
 
@@ -856,6 +874,34 @@
                                                 <Copy class="size-4" />
                                                 <span>Copy Path</span>
                                             </ContextMenu.Item>
+                                            {#if recentFile.source === "slates"}
+                                                <ContextMenu.Separator />
+                                                <ContextMenu.Item
+                                                    onclick={() => {
+                                                        void handleDuplicateRecentFile(recentFile);
+                                                    }}
+                                                >
+                                                    <CopyPlus class="size-4" />
+                                                    <span>Duplicate</span>
+                                                </ContextMenu.Item>
+                                                <ContextMenu.Item
+                                                    onclick={() => {
+                                                        openRenameFileDialog(recentFile);
+                                                    }}
+                                                >
+                                                    <Pencil class="size-4" />
+                                                    <span>Rename</span>
+                                                </ContextMenu.Item>
+                                                <ContextMenu.Item
+                                                    class="text-destructive focus:text-destructive"
+                                                    onclick={() => {
+                                                        openDeleteFileDialog(recentFile);
+                                                    }}
+                                                >
+                                                    <Trash2 class="size-4" />
+                                                    <span>Delete</span>
+                                                </ContextMenu.Item>
+                                            {/if}
                                         </ContextMenu.Content>
                                     </ContextMenu.Root>
                                 {/each}

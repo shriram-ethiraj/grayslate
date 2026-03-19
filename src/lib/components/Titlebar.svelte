@@ -18,6 +18,8 @@
     resetEditorFontSize,
   } from "$lib/state/editor.svelte";
   import AboutDialog from "$lib/components/AboutDialog.svelte";
+  import DeleteFileDialog from "$lib/components/DeleteFileDialog.svelte";
+  import RenameFileDialog from "$lib/components/RenameFileDialog.svelte";
   import {
     checkForAppUpdates,
     openAboutDialog,
@@ -580,3 +582,5 @@
 </div>
 
 <AboutDialog />
+<DeleteFileDialog />
+<RenameFileDialog />

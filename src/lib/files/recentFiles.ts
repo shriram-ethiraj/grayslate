@@ -60,3 +60,25 @@ export async function searchSidebarFiles(
     limit,
   });
 }
+
+/** Permanently delete a slate file from disk and remove it from tracking. */
+export async function deleteFile(path: string): Promise<void> {
+  return invoke<void>("delete_file", { path });
+}
+
+/**
+ * Rename a slate file.  `newName` is the bare filename (no path separators).
+ * The backend auto-appends a numeric suffix on collision.
+ * Returns the absolute path of the renamed file.
+ */
+export async function renameFile(path: string, newName: string): Promise<string> {
+  return invoke<string>("rename_file", { path, newName });
+}
+
+/**
+ * Duplicate a file, placing a copy in the same directory with a `(copy)` suffix.
+ * Returns the absolute path of the new copy.
+ */
+export async function duplicateFile(path: string): Promise<string> {
+  return invoke<string>("duplicate_file", { path });
+}

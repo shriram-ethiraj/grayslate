@@ -52,10 +52,13 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::file::cancel_file_read,
+            commands::file::delete_file,
+            commands::file::duplicate_file,
             commands::file::get_app_setting,
             commands::file::get_recent_files,
             commands::file::prepare_file_open,
             commands::file::read_file_content,
+            commands::file::rename_file,
             commands::file::resolve_notes_root,
             commands::file::resolve_default_notes_root,
             commands::file::set_app_setting,

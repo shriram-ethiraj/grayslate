@@ -48,3 +48,74 @@ pub fn classify_file_source(
         FileSource::Local
     })
 }
+
+/// Returns a path in `dir` based on `base_name` that does not already exist on
+/// disk.  If `base_name` is taken, `-2`, `-3`, … are appended before the
+/// last extension: `"note.md"` → `"note-2.md"`.
+pub fn unique_path_in_dir(dir: &Path, base_name: &str) -> PathBuf {
+    let candidate = dir.join(base_name);
+    if !candidate.exists() {
+        return candidate;
+    }
+
+    let (stem, ext) = if let Some(pos) = base_name.rfind('.') {
+        (&base_name[..pos], &base_name[pos..])
+    } else {
+        (base_name, "")
+    };
+
+    let mut counter = 2u32;
+    loop {
+        let name = format!("{}-{}{}", stem, counter, ext);
+        let path = dir.join(&name);
+        if !path.exists() {
+            return path;
+        }
+        counter += 1;
+    }
+}
+
+/// Sanitize and slugify a user-supplied filename for cross-platform safety.
+///
+/// - Strips leading/trailing whitespace.
+/// - Preserves the file extension verbatim (from the last `.` onward).
+/// - Replaces any run of whitespace, ASCII control characters, or Windows-
+///   forbidden characters (`\ / : * ? " < > |`) with a single `-`.
+/// - Never produces a leading or trailing hyphen.
+/// - Returns an empty string when no safe characters remain.
+pub fn sanitize_filename(name: &str) -> String {
+    let trimmed = name.trim();
+
+    // A leading dot (e.g. ".gitignore") is treated as stem-only — no extension.
+    let (stem, ext) = match trimmed.rfind('.') {
+        Some(pos) if pos > 0 => (&trimmed[..pos], &trimmed[pos..]),
+        _ => (trimmed, ""),
+    };
+
+    let mut result = String::with_capacity(stem.len());
+    let mut pending_sep = false;
+
+    for ch in stem.chars() {
+        // Windows is the most restrictive common OS: forbidden chars are \ / : * ? " < > |
+        let is_unsafe = ch.is_control()
+            || ch.is_whitespace()
+            || matches!(ch, '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|');
+
+        if is_unsafe {
+            // Collapse any run of unsafe chars into a single pending hyphen.
+            pending_sep = true;
+        } else {
+            if pending_sep && !result.is_empty() {
+                result.push('-');
+            }
+            pending_sep = false;
+            result.push(ch);
+        }
+    }
+
+    if result.is_empty() {
+        return String::new();
+    }
+
+    format!("{}{}", result, ext)
+}
