@@ -37,7 +37,7 @@
         DEFAULT_SORT_MODE,
         formatSize,
         formatTimestamp,
-        getDirectoryLabel,
+        formatTimestampFull,
         getRecencyTimestamp,
         getLineExcerpt,
         isSearchResult,
@@ -67,15 +67,21 @@
     import Trash2 from "~icons/lucide/trash-2";
     import LucideHardDrive from '~icons/lucide/hard-drive';
     import FileWarning from "~icons/lucide/file-warning";
+    import { DropdownMenu as DropdownMenuPrimitive } from "bits-ui";
     import { getPlatformOsType } from "$lib/state/platform.svelte";
     import { openDeleteFileDialog, openRenameFileDialog } from "$lib/state/appDialogs.svelte";
     import { duplicateFile, duplicateLocalFileAsSlate } from "$lib/files/recentFiles";
+    import Ellipsis from "~icons/lucide/ellipsis";
 
     // ---------------------------------------------------------------------------
     // Module-level constants (rendering only — types/sort/format live in sidebarUtils.ts)
     // ---------------------------------------------------------------------------
 
     const languageMetaByValue = new Map(languages.map((language) => [language.value, language] as const));
+
+    /** Shared CSS class for dropdown menu items (mirrors context-menu-item.svelte styles). */
+    const ddItemClass = "data-highlighted:bg-accent data-highlighted:text-accent-foreground relative flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden select-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4";
+    const ddSepClass = "bg-border -mx-1 my-1 h-px";
 
     // ---------------------------------------------------------------------------
     // Component state
@@ -756,6 +762,7 @@
                             <Item.Group class="gap-2">
                                 {#each section.items as recentFile (recentFile.path)}
                                     {@const FileIcon = getRecentFileIcon(recentFile)}
+                                    {@const fileTypeToken = getRecentFileTypeToken(recentFile)}
                                     {@const fileSize = formatSize(recentFile.size_bytes)}
                                     {@const isPendingFile = pendingOpenFile?.path === recentFile.path}
                                     {@const isActiveFile = pendingOpenFile
@@ -771,73 +778,149 @@
                                             <div class="w-full overflow-hidden rounded-[inherit]">
                                                 <ContextMenu.Trigger>
                                                     {#snippet child({ props })}
-                                                        <button
+                                                        <div
                                                             {...props}
-                                                            type="button"
-                                                            class="group flex w-full min-w-0 items-start gap-3 px-3.5 py-3 text-left outline-none transition-colors {isActiveFile ? 'bg-sidebar-foreground/[0.04] text-sidebar-foreground' : 'hover:bg-sidebar-accent/70 hover:text-sidebar-accent-foreground data-[state=open]:bg-sidebar-accent/70 data-[state=open]:text-sidebar-accent-foreground'}"
-                                                            title={recentFile.path}
-                                                            onclick={() => {
-                                                                void openRecentFile(recentFile.path, recentFile.source);
-                                                            }}
+                                                            class="group relative transition-colors {isActiveFile ? 'bg-sidebar-foreground/[0.04] text-sidebar-foreground' : 'hover:bg-sidebar-accent/70 hover:text-sidebar-accent-foreground data-[state=open]:bg-sidebar-accent/70 data-[state=open]:text-sidebar-accent-foreground'}"
                                                         >
-                                                            <Item.Media
-                                                                variant="icon"
-                                                                class="mt-0.5 {isActiveFile ? 'border-sidebar-ring/40 bg-sidebar-foreground/[0.04] text-sidebar-foreground' : 'border-sidebar-border/70 bg-sidebar-accent/45 text-sidebar-foreground/80 group-hover:border-sidebar-background/60 group-hover:bg-sidebar/80 group-hover:text-sidebar-accent-foreground group-data-[state=open]:border-sidebar-background/60 group-data-[state=open]:bg-sidebar/80 group-data-[state=open]:text-sidebar-accent-foreground'}"
+                                                            <button
+                                                                type="button"
+                                                                class="flex w-full min-w-0 items-start gap-3 px-3.5 py-3 pr-9 text-left outline-none"
+                                                                title={recentFile.path}
+                                                                onclick={() => {
+                                                                    void openRecentFile(recentFile.path, recentFile.source);
+                                                                }}
                                                             >
-                                                                {#if FileIcon}
-                                                                    <FileIcon class="size-4.5" />
-                                                                {:else}
-                                                                    <Files class="size-4.5" />
-                                                                {/if}
-                                                            </Item.Media>
+                                                                <Item.Media
+                                                                    variant="icon"
+                                                                    class="mt-0.5 {isActiveFile ? 'border-sidebar-ring/40 bg-sidebar-foreground/[0.04] text-sidebar-foreground' : 'border-sidebar-border/70 bg-sidebar-accent/45 text-sidebar-foreground/80 group-hover:border-sidebar-background/60 group-hover:bg-sidebar/80 group-hover:text-sidebar-accent-foreground group-data-[state=open]:border-sidebar-background/60 group-data-[state=open]:bg-sidebar/80 group-data-[state=open]:text-sidebar-accent-foreground'}"
+                                                                >
+                                                                    <span title={fileTypeToken} aria-label={fileTypeToken} class="inline-flex">
+                                                                        {#if FileIcon}
+                                                                            <FileIcon class="size-4.5" />
+                                                                        {:else}
+                                                                            <Files class="size-4.5" />
+                                                                        {/if}
+                                                                    </span>
+                                                                </Item.Media>
 
-                                                            <Item.Content class="min-w-0 gap-2.5">
-                                                                <div class="flex items-start justify-between gap-3">
-                                                                    <div class="min-w-0 flex-1">
-                                                                        <Item.Title class="truncate text-sm leading-tight {isActiveFile ? 'text-black dark:text-white' : 'text-sidebar-foreground group-hover:text-sidebar-accent-foreground group-data-[state=open]:text-sidebar-accent-foreground'}">
-                                                                            {#if searchTerms.length > 0}
-                                                                                {#each splitTextByTerms(recentFile.file_name, searchTerms) as fragment}
-                                                                                    {#if fragment.isMatch}<mark class="bg-[var(--selection-match-bg)] text-inherit rounded-sm px-0.5 ring-1 ring-[var(--selection-match-border)]">{fragment.text}</mark>{:else}{fragment.text}{/if}
-                                                                                {/each}
-                                                                            {:else}
-                                                                                {recentFile.file_name}
-                                                                            {/if}
-                                                                        </Item.Title>
+                                                                <Item.Content class="min-w-0 gap-2.5">
+                                                                    <div class="flex items-start justify-between gap-3">
+                                                                        <div class="min-w-0 flex-1">
+                                                                            <Item.Title class="truncate text-sm leading-tight {isActiveFile ? 'text-black dark:text-white' : 'text-sidebar-foreground group-hover:text-sidebar-accent-foreground group-data-[state=open]:text-sidebar-accent-foreground'}">
+                                                                                {#if searchTerms.length > 0}
+                                                                                    {#each splitTextByTerms(recentFile.file_name, searchTerms) as fragment}
+                                                                                        {#if fragment.isMatch}<mark class="bg-[var(--selection-match-bg)] text-inherit rounded-sm px-0.5 ring-1 ring-[var(--selection-match-border)]">{fragment.text}</mark>{:else}{fragment.text}{/if}
+                                                                                    {/each}
+                                                                                {:else}
+                                                                                    {recentFile.file_name}
+                                                                                {/if}
+                                                                            </Item.Title>
+                                                                        </div>
 
-                                                                        <Item.Description class="mt-1 truncate text-xs {isActiveFile ? 'text-black/65 dark:text-white/72' : 'text-sidebar-foreground/62 group-hover:text-sidebar-accent-foreground/74 group-data-[state=open]:text-sidebar-accent-foreground/74'}">
-                                                                            {getDirectoryLabel(recentFile.path)}
-                                                                        </Item.Description>
+                                                                        {#if !recentFile.exists_on_disk}
+                                                                            <Item.Actions class="pt-0.5">
+                                                                                <span class="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-amber-500/25 bg-amber-500/10 px-2 py-1 text-xs font-medium uppercase tracking-[0.12em] text-amber-600 dark:text-amber-300">
+                                                                                    <FileWarning class="size-3.5" />
+                                                                                    Missing
+                                                                                </span>
+                                                                            </Item.Actions>
+                                                                        {:else if searchResult && searchResult.match_count > 0}
+                                                                            <Item.Actions class="pt-0.5">
+                                                                                <span class="shrink-0 whitespace-nowrap text-xs tabular-nums {isActiveFile ? 'text-black/60 dark:text-white/65' : 'text-sidebar-foreground/50'}">
+                                                                                    {searchResult.match_count} {searchResult.match_count === 1 ? "hit" : "hits"}
+                                                                                </span>
+                                                                            </Item.Actions>
+                                                                        {/if}
                                                                     </div>
 
-                                                                    {#if !recentFile.exists_on_disk}
-                                                                        <Item.Actions class="pt-0.5">
-                                                                            <span class="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-amber-500/25 bg-amber-500/10 px-2 py-1 text-xs font-medium uppercase tracking-[0.12em] text-amber-600 dark:text-amber-300">
-                                                                                <FileWarning class="size-3.5" />
-                                                                                Missing
-                                                                            </span>
-                                                                        </Item.Actions>
-                                                                    {:else if searchResult && searchResult.match_count > 0}
-                                                                        <Item.Actions class="pt-0.5">
-                                                                            <span class="shrink-0 whitespace-nowrap text-xs tabular-nums {isActiveFile ? 'text-black/60 dark:text-white/65' : 'text-sidebar-foreground/50'}">
-                                                                                {searchResult.match_count} {searchResult.match_count === 1 ? "hit" : "hits"}
-                                                                            </span>
-                                                                        </Item.Actions>
-                                                                    {/if}
-                                                                </div>
+                                                                    <div class="flex min-w-0 flex-nowrap items-center gap-2 overflow-hidden text-xs {isActiveFile ? 'text-black/70 dark:text-white/74' : 'text-sidebar-foreground/55 group-hover:text-sidebar-accent-foreground/72 group-data-[state=open]:text-sidebar-accent-foreground/72'}">
+                                                                        {#if fileSize}
+                                                                            <span class="truncate whitespace-nowrap">{fileSize}</span>
+                                                                            <span aria-hidden="true" class="shrink-0">•</span>
+                                                                        {/if}
+                                                                        <span class="truncate whitespace-nowrap" title={formatTimestampFull(getRecencyTimestamp(recentFile))}>{formatTimestamp(getRecencyTimestamp(recentFile))}</span>
+                                                                    </div>
+                                                                </Item.Content>
+                                                            </button>
 
-                                                                <div class="flex min-w-0 flex-nowrap items-center gap-2 overflow-hidden text-xs {isActiveFile ? 'text-black/70 dark:text-white/74' : 'text-sidebar-foreground/55 group-hover:text-sidebar-accent-foreground/72 group-data-[state=open]:text-sidebar-accent-foreground/72'}">
-                                                                    <span class="truncate whitespace-nowrap font-medium uppercase tracking-[0.12em] {isActiveFile ? 'text-black/80 dark:text-white/88' : 'text-sidebar-foreground/72 group-hover:text-sidebar-accent-foreground/88 group-data-[state=open]:text-sidebar-accent-foreground/88'}">
-                                                                        {getRecentFileTypeToken(recentFile)}
-                                                                    </span>
-                                                                    {#if fileSize}
-                                                                        <span aria-hidden="true" class="shrink-0">•</span>
-                                                                        <span class="truncate whitespace-nowrap">{fileSize}</span>
-                                                                    {/if}
-                                                                    <span aria-hidden="true" class="shrink-0">•</span>
-                                                                    <span class="truncate whitespace-nowrap">{formatTimestamp(getRecencyTimestamp(recentFile))}</span>
-                                                                </div>
-                                                            </Item.Content>
-                                                        </button>
+                                                            <!-- Three-dot options button (visible on hover) -->
+                                                            <DropdownMenuPrimitive.Root>
+                                                                <DropdownMenuPrimitive.Trigger>
+                                                                    {#snippet child({ props: dotProps })}
+                                                                        <button
+                                                                            {...dotProps}
+                                                                            type="button"
+                                                                            title="File options"
+                                                                            class="absolute right-1.5 top-1/2 -translate-y-1/2 flex size-6 items-center justify-center rounded transition-opacity data-[state=open]:opacity-100 hover:bg-sidebar-foreground/10 text-sidebar-foreground/50 hover:text-sidebar-foreground {isActiveFile ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}"
+                                                                        >
+                                                                            <Ellipsis class="size-3.5" />
+                                                                        </button>
+                                                                    {/snippet}
+                                                                </DropdownMenuPrimitive.Trigger>
+                                                                <DropdownMenuPrimitive.Portal>
+                                                                    <DropdownMenuPrimitive.Content
+                                                                        align="end"
+                                                                        class="z-50 min-w-[8rem] overflow-hidden rounded-md border border-sidebar-border bg-sidebar p-1 text-sidebar-foreground shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95"
+                                                                    >
+                                                                        <DropdownMenuPrimitive.Item
+                                                                            class={ddItemClass}
+                                                                            onclick={() => { void openRecentFile(recentFile.path, recentFile.source); }}
+                                                                        >
+                                                                            <Files class="size-4" />
+                                                                            <span>Open</span>
+                                                                        </DropdownMenuPrimitive.Item>
+                                                                        <DropdownMenuPrimitive.Item
+                                                                            class={ddItemClass}
+                                                                            onclick={() => { void handleRevealRecentFile(recentFile.path); }}
+                                                                        >
+                                                                            <FolderOpen class="size-4" />
+                                                                            <span>{getRevealInFileManagerLabel()}</span>
+                                                                        </DropdownMenuPrimitive.Item>
+                                                                        <DropdownMenuPrimitive.Item
+                                                                            class={ddItemClass}
+                                                                            onclick={() => { void handleCopyRecentFilePath(recentFile.path); }}
+                                                                        >
+                                                                            <Copy class="size-4" />
+                                                                            <span>Copy Path</span>
+                                                                        </DropdownMenuPrimitive.Item>
+                                                                        {#if recentFile.source === "local"}
+                                                                            <DropdownMenuPrimitive.Separator class={ddSepClass} />
+                                                                            <DropdownMenuPrimitive.Item
+                                                                                class={ddItemClass}
+                                                                                onclick={() => { void handleDuplicateLocalFileAsSlate(recentFile); }}
+                                                                            >
+                                                                                <CopyPlus class="size-4" />
+                                                                                <span>Duplicate as Slate</span>
+                                                                            </DropdownMenuPrimitive.Item>
+                                                                        {/if}
+                                                                        {#if recentFile.source === "slates"}
+                                                                            <DropdownMenuPrimitive.Separator class={ddSepClass} />
+                                                                            <DropdownMenuPrimitive.Item
+                                                                                class={ddItemClass}
+                                                                                onclick={() => { void handleDuplicateRecentFile(recentFile); }}
+                                                                            >
+                                                                                <CopyPlus class="size-4" />
+                                                                                <span>Duplicate</span>
+                                                                            </DropdownMenuPrimitive.Item>
+                                                                            <DropdownMenuPrimitive.Item
+                                                                                class={ddItemClass}
+                                                                                onclick={() => { openRenameFileDialog(recentFile); }}
+                                                                            >
+                                                                                <Pencil class="size-4" />
+                                                                                <span>Rename</span>
+                                                                            </DropdownMenuPrimitive.Item>
+                                                                            <DropdownMenuPrimitive.Item
+                                                                                class="{ddItemClass} text-destructive data-highlighted:bg-destructive/10 dark:data-highlighted:bg-destructive/20 data-highlighted:text-destructive"
+                                                                                onclick={() => { openDeleteFileDialog(recentFile); }}
+                                                                            >
+                                                                                <Trash2 class="size-4" />
+                                                                                <span>Delete</span>
+                                                                            </DropdownMenuPrimitive.Item>
+                                                                        {/if}
+                                                                    </DropdownMenuPrimitive.Content>
+                                                                </DropdownMenuPrimitive.Portal>
+                                                            </DropdownMenuPrimitive.Root>
+                                                        </div>
                                                     {/snippet}
                                                 </ContextMenu.Trigger>
 

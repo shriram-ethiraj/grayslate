@@ -57,40 +57,71 @@ export const recencySectionLabels: Record<RecencyBucket, string> = {
 // Formatting
 // ---------------------------------------------------------------------------
 
-const relativeTimeFormatter = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+const shortDayFormatter = new Intl.DateTimeFormat(undefined, { weekday: "short" });
+const shortDateFormatter = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" });
+const fullDateFormatter = new Intl.DateTimeFormat(undefined, { day: "numeric", month: "short", year: "numeric" });
+const fullTimestampFormatter = new Intl.DateTimeFormat(undefined, {
+    weekday: "long", day: "numeric", month: "long", year: "numeric",
+    hour: "numeric", minute: "2-digit",
+});
 
 /**
- * Formats a Unix-ms timestamp as a human-readable relative string, e.g. "3 hours ago".
+ * Formats a Unix-ms timestamp as a compact, human-readable string (Gmail/Notion style).
  * Returns "Unknown" when the value is null/zero.
+ *
+ * < 1 min  → "Just now"
+ * < 1 hr   → "5 min ago"
+ * < 24 hrs → "3h ago"
+ * < 48 hrs → "Yesterday"
+ * < 7 days → "Mon" / "Tue" (short day name)
+ * same yr  → "Mar 14"
+ * older    → "14 Mar 2024"
  */
 export function formatTimestamp(value: number | null): string {
     if (!value) {
         return "Unknown";
     }
 
-    const deltaMs = value - Date.now();
-    const deltaMinutes = Math.round(deltaMs / 60_000);
+    const now = Date.now();
+    const diffSec = Math.floor((now - value) / 1_000);
 
-    if (Math.abs(deltaMinutes) < 60) {
-        return relativeTimeFormatter.format(deltaMinutes, "minute");
+    if (diffSec < 60) {
+        return "Just now";
     }
 
-    const deltaHours = Math.round(deltaMinutes / 60);
-    if (Math.abs(deltaHours) < 48) {
-        return relativeTimeFormatter.format(deltaHours, "hour");
+    if (diffSec < 3_600) {
+        return `${Math.floor(diffSec / 60)} min ago`;
     }
 
-    const deltaDays = Math.round(deltaHours / 24);
-    if (Math.abs(deltaDays) < 30) {
-        return relativeTimeFormatter.format(deltaDays, "day");
+    if (diffSec < 86_400) {
+        return `${Math.floor(diffSec / 3_600)}h ago`;
     }
 
-    const deltaMonths = Math.round(deltaDays / 30);
-    if (Math.abs(deltaMonths) < 12) {
-        return relativeTimeFormatter.format(deltaMonths, "month");
+    if (diffSec < 172_800) {
+        return "Yesterday";
     }
 
-    return relativeTimeFormatter.format(Math.round(deltaMonths / 12), "year");
+    const date = new Date(value);
+    const nowDate = new Date(now);
+
+    if (diffSec < 604_800) {
+        return shortDayFormatter.format(date);
+    }
+
+    if (date.getFullYear() === nowDate.getFullYear()) {
+        return shortDateFormatter.format(date);
+    }
+
+    return fullDateFormatter.format(date);
+}
+
+/**
+ * Returns the full absolute timestamp string suitable for use as a tooltip,
+ * e.g. "Friday, 14 March 2026, 11:42 AM".
+ */
+export function formatTimestampFull(value: number | null): string {
+    if (!value) return "";
+    return fullTimestampFormatter.format(new Date(value));
 }
 
 /**
@@ -113,18 +144,6 @@ export function formatSize(value: number | null): string {
 
     const rounded = size >= 10 || unitIndex === 0 ? Math.round(size) : Number(size.toFixed(1));
     return `${rounded} ${units[unitIndex]}`;
-}
-
-/** Returns the parent directory portion of a cross-platform file path. */
-export function getParentDirectory(path: string): string | null {
-    const normalized = path.replace(/\\/g, "/");
-    const lastSlash = normalized.lastIndexOf("/");
-    return lastSlash === -1 ? null : normalized.slice(0, lastSlash);
-}
-
-/** Returns a directory label for display, falling back to the original path. */
-export function getDirectoryLabel(path: string): string {
-    return getParentDirectory(path) ?? path;
 }
 
 // ---------------------------------------------------------------------------
