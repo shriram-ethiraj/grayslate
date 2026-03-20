@@ -15,6 +15,7 @@
     import { languageDetector } from "$lib/editor/core/languageDetector";
     import * as ContextMenu from "$lib/components/ui/context-menu/index.js";
     import * as Item from "$lib/components/ui/item/index.js";
+    import { DropdownMenu as DropdownMenuPrimitive } from "bits-ui";
     import { getPlatformOsType } from "$lib/state/platform.svelte";
     import { openDeleteFileDialog, openRenameFileDialog } from "$lib/state/appDialogs.svelte";
     import {
@@ -23,7 +24,7 @@
         splitTextByTerms,
         formatSize,
         formatTimestamp,
-        getDirectoryLabel,
+        formatTimestampFull,
         getRecencyTimestamp,
         type LibraryFileRecord,
     } from "$lib/files/sidebarUtils";
@@ -35,6 +36,7 @@
     import Pencil from "~icons/lucide/pencil";
     import Trash2 from "~icons/lucide/trash-2";
     import FileWarning from "~icons/lucide/file-warning";
+    import Ellipsis from "~icons/lucide/ellipsis";
 
     interface Props {
         recentFile: LibraryFileRecord;
@@ -69,18 +71,14 @@
         );
     }
 
-    function getTypeToken(): string {
-        const ext = recentFile.extension?.replace(/^\./, "").trim().toUpperCase();
-        if (ext) return ext;
-        const meta = languageMetaByValue.get(getLanguage());
-        return meta?.token ?? meta?.label.toUpperCase() ?? "FILE";
-    }
-
     // Pre-computed display values (avoid calling helpers more than once per render).
     const FileIcon = $derived(getFileIcon());
     const fileSize = $derived(formatSize(recentFile.size_bytes));
-    const typeToken = $derived(getTypeToken());
     const searchResult = $derived(isSearchResult(recentFile) ? recentFile : null);
+
+    /** Shared CSS class for dropdown menu items. */
+    const ddItemClass = "data-highlighted:bg-accent data-highlighted:text-accent-foreground relative flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden select-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4";
+    const ddSepClass = "bg-border -mx-1 my-1 h-px";
 
     // ---------------------------------------------------------------------------
     // Context menu actions (self-contained — no parent state needed)
@@ -120,13 +118,16 @@
         <div class="w-full overflow-hidden rounded-[inherit]">
             <ContextMenu.Trigger>
                 {#snippet child({ props })}
-                    <button
+                    <div
                         {...props}
-                        type="button"
-                        class="group flex w-full min-w-0 items-start gap-3 px-3.5 py-3 text-left outline-none transition-colors {isActive ? 'bg-sidebar-foreground/[0.04] text-sidebar-foreground' : 'hover:bg-sidebar-accent/70 hover:text-sidebar-accent-foreground data-[state=open]:bg-sidebar-accent/70 data-[state=open]:text-sidebar-accent-foreground'}"
-                        title={recentFile.path}
-                        onclick={() => onOpen(recentFile.path, recentFile.source)}
+                        class="group relative transition-colors {isActive ? 'bg-sidebar-foreground/[0.04] text-sidebar-foreground' : 'hover:bg-sidebar-accent/70 hover:text-sidebar-accent-foreground data-[state=open]:bg-sidebar-accent/70 data-[state=open]:text-sidebar-accent-foreground'}"
                     >
+                        <button
+                            type="button"
+                            class="flex w-full min-w-0 items-start gap-3 px-3.5 py-3 pr-9 text-left outline-none"
+                            title={recentFile.path}
+                            onclick={() => onOpen(recentFile.path, recentFile.source)}
+                        >
                         <Item.Media
                             variant="icon"
                             class="mt-0.5 {isActive ? 'border-sidebar-ring/40 bg-sidebar-foreground/[0.04] text-sidebar-foreground' : 'border-sidebar-border/70 bg-sidebar-accent/45 text-sidebar-foreground/80 group-hover:border-sidebar-background/60 group-hover:bg-sidebar/80 group-hover:text-sidebar-accent-foreground group-data-[state=open]:border-sidebar-background/60 group-data-[state=open]:bg-sidebar/80 group-data-[state=open]:text-sidebar-accent-foreground'}"
@@ -150,10 +151,6 @@
                                             {recentFile.file_name}
                                         {/if}
                                     </Item.Title>
-
-                                    <Item.Description class="mt-1 truncate text-xs {isActive ? 'text-black/65 dark:text-white/72' : 'text-sidebar-foreground/62 group-hover:text-sidebar-accent-foreground/74 group-data-[state=open]:text-sidebar-accent-foreground/74'}">
-                                        {getDirectoryLabel(recentFile.path)}
-                                    </Item.Description>
                                 </div>
 
                                 {#if !recentFile.exists_on_disk}
@@ -173,18 +170,95 @@
                             </div>
 
                             <div class="flex min-w-0 flex-nowrap items-center gap-2 overflow-hidden text-xs {isActive ? 'text-black/70 dark:text-white/74' : 'text-sidebar-foreground/55 group-hover:text-sidebar-accent-foreground/72 group-data-[state=open]:text-sidebar-accent-foreground/72'}">
-                                <span class="truncate whitespace-nowrap font-medium uppercase tracking-[0.12em] {isActive ? 'text-black/80 dark:text-white/88' : 'text-sidebar-foreground/72 group-hover:text-sidebar-accent-foreground/88 group-data-[state=open]:text-sidebar-accent-foreground/88'}">
-                                    {typeToken}
-                                </span>
                                 {#if fileSize}
-                                    <span aria-hidden="true" class="shrink-0">•</span>
                                     <span class="truncate whitespace-nowrap">{fileSize}</span>
+                                    <span aria-hidden="true" class="shrink-0">•</span>
                                 {/if}
-                                <span aria-hidden="true" class="shrink-0">•</span>
-                                <span class="truncate whitespace-nowrap">{formatTimestamp(getRecencyTimestamp(recentFile))}</span>
+                                <span class="truncate whitespace-nowrap" title={formatTimestampFull(getRecencyTimestamp(recentFile))}>
+                                    {formatTimestamp(getRecencyTimestamp(recentFile))}
+                                </span>
                             </div>
                         </Item.Content>
-                    </button>
+                        </button>
+
+                        <!-- Three-dot options button (visible on hover / when active) -->
+                        <DropdownMenuPrimitive.Root>
+                            <DropdownMenuPrimitive.Trigger>
+                                {#snippet child({ props: dotProps })}
+                                    <button
+                                        {...dotProps}
+                                        type="button"
+                                        title="File options"
+                                        class="absolute right-1.5 top-1/2 -translate-y-1/2 flex size-6 items-center justify-center rounded transition-opacity data-[state=open]:opacity-100 hover:bg-sidebar-foreground/10 text-sidebar-foreground/50 hover:text-sidebar-foreground {isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}"
+                                    >
+                                        <Ellipsis class="size-3.5" />
+                                    </button>
+                                {/snippet}
+                            </DropdownMenuPrimitive.Trigger>
+                            <DropdownMenuPrimitive.Portal>
+                                <DropdownMenuPrimitive.Content
+                                    align="end"
+                                    class="z-50 min-w-[8rem] overflow-hidden rounded-md border border-sidebar-border bg-sidebar p-1 text-sidebar-foreground shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95"
+                                >
+                                    <DropdownMenuPrimitive.Item
+                                        class={ddItemClass}
+                                        onclick={() => { onOpen(recentFile.path, recentFile.source); }}
+                                    >
+                                        <Files class="size-4" />
+                                        <span>Open</span>
+                                    </DropdownMenuPrimitive.Item>
+                                    <DropdownMenuPrimitive.Item
+                                        class={ddItemClass}
+                                        onclick={handleReveal}
+                                    >
+                                        <FolderOpen class="size-4" />
+                                        <span>{getRevealLabel()}</span>
+                                    </DropdownMenuPrimitive.Item>
+                                    <DropdownMenuPrimitive.Item
+                                        class={ddItemClass}
+                                        onclick={handleCopyPath}
+                                    >
+                                        <Copy class="size-4" />
+                                        <span>Copy Path</span>
+                                    </DropdownMenuPrimitive.Item>
+                                    {#if recentFile.source === "local" && onDuplicateAsSlate}
+                                        <DropdownMenuPrimitive.Separator class={ddSepClass} />
+                                        <DropdownMenuPrimitive.Item
+                                            class={ddItemClass}
+                                            onclick={() => { onDuplicateAsSlate(recentFile as RecentFileRecord); }}
+                                        >
+                                            <CopyPlus class="size-4" />
+                                            <span>Duplicate as Slate</span>
+                                        </DropdownMenuPrimitive.Item>
+                                    {/if}
+                                    {#if recentFile.source === "slates" && onDuplicate}
+                                        <DropdownMenuPrimitive.Separator class={ddSepClass} />
+                                        <DropdownMenuPrimitive.Item
+                                            class={ddItemClass}
+                                            onclick={() => { onDuplicate(recentFile as RecentFileRecord); }}
+                                        >
+                                            <CopyPlus class="size-4" />
+                                            <span>Duplicate</span>
+                                        </DropdownMenuPrimitive.Item>
+                                        <DropdownMenuPrimitive.Item
+                                            class={ddItemClass}
+                                            onclick={() => { openRenameFileDialog(recentFile as RecentFileRecord); }}
+                                        >
+                                            <Pencil class="size-4" />
+                                            <span>Rename</span>
+                                        </DropdownMenuPrimitive.Item>
+                                        <DropdownMenuPrimitive.Item
+                                            class="{ddItemClass} text-destructive data-highlighted:bg-destructive/10 dark:data-highlighted:bg-destructive/20 data-highlighted:text-destructive"
+                                            onclick={() => { openDeleteFileDialog(recentFile as RecentFileRecord); }}
+                                        >
+                                            <Trash2 class="size-4" />
+                                            <span>Delete</span>
+                                        </DropdownMenuPrimitive.Item>
+                                    {/if}
+                                </DropdownMenuPrimitive.Content>
+                            </DropdownMenuPrimitive.Portal>
+                        </DropdownMenuPrimitive.Root>
+                    </div>
                 {/snippet}
             </ContextMenu.Trigger>
 

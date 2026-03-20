@@ -24,6 +24,7 @@
         compareSearchResults,
         DEFAULT_FILTER_MODE,
         DEFAULT_SORT_MODE,
+        RECENT_FILES_LIMIT,
         type FilterMode,
         type LibraryFileRecord,
         type RecentFileSection,
@@ -160,7 +161,7 @@
         }
 
         try {
-            const result = await getRecentFiles(120);
+            const result = await getRecentFiles(RECENT_FILES_LIMIT);
             if (currentVersion !== recentFilesRequestVersion) {
                 return;
             }
@@ -279,8 +280,6 @@
         try {
             const newPath = await duplicateLocalFileAsSlate(file.path);
             clearReorderSuppression();
-            // Switch to the Slates tab so the new file is immediately visible.
-            filterMode = "slates";
             void refreshRecentFiles();
             const newName = newPath.replace(/\\/g, "/").split("/").pop() ?? "copy";
             toast.success(`Duplicated as slate "${newName}"`);
