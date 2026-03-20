@@ -1,22 +1,33 @@
 <script lang="ts">
     import { tick } from "svelte";
+    import { invoke } from "@tauri-apps/api/core";
     import { emit } from "@tauri-apps/api/event";
     import { toast } from "$lib/components/ui/sonner";
     import * as Dialog from "$lib/components/ui/dialog/index.js";
     import { Button } from "$lib/components/ui/button/index.js";
     import Input from "$lib/components/ui/input/input.svelte";
-    import { appDialogsState, closeAppDialog } from "$lib/state/appDialogs.svelte";
+    import MdiLightbulbAutomaticOutline from "~icons/mdi/lightbulb-automatic-outline";
+    import {
+        appDialogsState,
+        closeAppDialog,
+    } from "$lib/state/appDialogs.svelte";
     import { editorState } from "$lib/state/editor.svelte";
-    import { renameFile, RECENT_FILES_UPDATED_EVENT } from "$lib/files/recentFiles";
+    import {
+        renameFile,
+        RECENT_FILES_UPDATED_EVENT,
+    } from "$lib/files/recentFiles";
 
     const isOpen = $derived(appDialogsState.active.type === "rename");
     const file = $derived(
-        appDialogsState.active.type === "rename" ? appDialogsState.active.file : null,
+        appDialogsState.active.type === "rename"
+            ? appDialogsState.active.file
+            : null,
     );
 
     let inputValue = $state("");
     let errorMessage = $state("");
     let isRenaming = $state(false);
+    let isGenerating = $state(false);
     let inputRef = $state<HTMLInputElement | null>(null);
 
     // Pre-fill with the current filename whenever the dialog opens.
@@ -35,6 +46,23 @@
         // the extension by accident.
         const dotPos = inputValue.lastIndexOf(".");
         inputRef.setSelectionRange(0, dotPos > 0 ? dotPos : inputValue.length);
+    }
+
+    async function handleGenerateName(): Promise<void> {
+        if (!file) return;
+        isGenerating = true;
+        try {
+            const suggested = await invoke<string>("suggest_name_for_file", {
+                path: file.path,
+            });
+            inputValue = suggested;
+            errorMessage = "";
+            await focusAndSelectStem();
+        } catch (err) {
+            toast.error("Failed to generate name.");
+        } finally {
+            isGenerating = false;
+        }
     }
 
     async function handleSubmit(): Promise<void> {
@@ -64,7 +92,8 @@
                 editorState.currentFilePath = newPath;
             }
 
-            const newName = newPath.replace(/\\/g, "/").split("/").pop() ?? trimmed;
+            const newName =
+                newPath.replace(/\\/g, "/").split("/").pop() ?? trimmed;
             toast.success(`Renamed to "${newName}"`);
         } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
@@ -96,7 +125,10 @@
             }}
         >
             <div class="grid gap-2">
-                <label class="text-sm font-medium text-foreground" for="rename-file-input">
+                <label
+                    class="text-sm font-medium text-foreground"
+                    for="rename-file-input"
+                >
                     Rename file
                 </label>
                 <Input
@@ -120,16 +152,26 @@
                 {/if}
             </div>
 
-            <Dialog.Footer>
+            <Dialog.Footer class="flex-col gap-2 sm:flex-row sm:items-center">
+                <Button
+                    type="button"
+                    variant="outline"
+                    class="w-full gap-1.5 sm:mr-auto sm:w-auto"
+                    disabled={isRenaming || isGenerating}
+                    onclick={() => void handleGenerateName()}
+                >
+                    <MdiLightbulbAutomaticOutline class="size-3.5" />
+                    Generate name
+                </Button>
                 <Button
                     type="button"
                     variant="outline"
                     onclick={closeAppDialog}
-                    disabled={isRenaming}
+                    disabled={isRenaming || isGenerating}
                 >
                     Cancel
                 </Button>
-                <Button type="submit" disabled={isRenaming}>
+                <Button type="submit" disabled={isRenaming || isGenerating}>
                     {isRenaming ? "Renaming…" : "Rename"}
                 </Button>
             </Dialog.Footer>

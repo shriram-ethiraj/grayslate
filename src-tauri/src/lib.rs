@@ -16,9 +16,15 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         // Block the webview-native Find UI so Cmd/Ctrl+F always stays inside the app.
+        // Also block the default browser context menu in production builds.
         .plugin(
             tauri_plugin_prevent_default::Builder::new()
-                .with_flags(tauri_plugin_prevent_default::Flags::FIND)
+                .with_flags(if cfg!(not(debug_assertions)) {
+                    tauri_plugin_prevent_default::Flags::FIND
+                        | tauri_plugin_prevent_default::Flags::CONTEXT_MENU
+                } else {
+                    tauri_plugin_prevent_default::Flags::FIND
+                })
                 .build(),
         );
 
@@ -67,6 +73,7 @@ pub fn run() {
             commands::memory::get_memory_info,
             commands::naming::save_untitled_slate,
             commands::naming::suggest_slate_name,
+            commands::naming::suggest_name_for_file,
             commands::search::search_sidebar_files,
             commands::transform::cancel_transformation,
             commands::transform::execute_transformation,

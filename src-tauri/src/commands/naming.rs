@@ -76,20 +76,64 @@ pub async fn save_untitled_slate(
 }
 
 // ---------------------------------------------------------------------------
-// suggest_slate_name  (lightweight helper for Save As default path)
+// Shared naming helper
 // ---------------------------------------------------------------------------
 
-/// Returns a suggested full filename (stem + extension) without writing
-/// anything to disk.  Used by the frontend to pre-populate the Save As picker.
-#[tauri::command]
-pub fn suggest_slate_name(content: String, language_hint: String) -> String {
-    let stem = suggest_stem(&content, &language_hint).unwrap_or_else(fallback_stem);
-    let extension = language_to_extension(&language_hint);
+/// Derives a suggested full filename (`stem.extension`) from pre-loaded content
+/// and a language hint.  Both `suggest_slate_name` and `suggest_name_for_file`
+/// delegate here so the core logic is never duplicated.
+fn build_suggested_name(content: &str, language_hint: &str) -> String {
+    let stem = suggest_stem(content, language_hint).unwrap_or_else(fallback_stem);
+    let extension = language_to_extension(language_hint);
     if extension.is_empty() {
         stem
     } else {
         format!("{}.{}", stem, extension)
     }
+}
+
+// ---------------------------------------------------------------------------
+// suggest_slate_name  (Save As — frontend already has the content)
+// ---------------------------------------------------------------------------
+
+/// Returns a suggested full filename without writing anything to disk.
+/// Used by the frontend to pre-populate the Save As picker.
+#[tauri::command]
+pub fn suggest_slate_name(content: String, language_hint: String) -> String {
+    build_suggested_name(&content, &language_hint)
+}
+
+// ---------------------------------------------------------------------------
+// suggest_name_for_file  (Rename dialog — backend reads file from disk)
+// ---------------------------------------------------------------------------
+
+/// Reads a bounded sample of an existing file, detects its language from the
+/// path extension, runs the naming pipeline, and returns a suggested filename.
+///
+/// The frontend passes only the file path; the backend does all the I/O so no
+/// large content needs to cross the IPC boundary.
+#[tauri::command]
+pub fn suggest_name_for_file(path: String) -> Result<String, String> {
+    use std::io::Read;
+
+    let file_path = std::path::Path::new(&path);
+
+    // Derive language hint from the file's extension (e.g. "json", "ts", "py").
+    let language_hint = file_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+
+    // Read only what the naming pipeline can use (5 KB) to keep this fast.
+    // Gracefully fall back to an empty string for binary or unreadable files.
+    const READ_LIMIT: u64 = 8_192;
+    let mut raw_bytes = Vec::with_capacity(READ_LIMIT as usize);
+    let _ = std::fs::File::open(file_path)
+        .and_then(|mut f| f.by_ref().take(READ_LIMIT).read_to_end(&mut raw_bytes));
+    let content = String::from_utf8_lossy(&raw_bytes);
+
+    Ok(build_suggested_name(&content, &language_hint))
 }
 
 // ---------------------------------------------------------------------------
