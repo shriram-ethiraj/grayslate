@@ -54,7 +54,7 @@
     // Language / display helpers
     // ---------------------------------------------------------------------------
 
-    const FileIcon = $derived(languageMetaByValue.get(recentFile.language ?? "")?.icon ?? null);
+    const FileIcon = $derived(languageMetaByValue.get(recentFile.language ?? "text")?.icon ?? null);
     const fileSize = $derived(formatSize(recentFile.size_bytes));
     const searchResult = $derived(isSearchResult(recentFile) ? recentFile : null);
 

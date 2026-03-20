@@ -52,7 +52,7 @@ pub struct RecentFileRecord {
     pub path: String,
     pub file_name: String,
     pub extension: Option<String>,
-    pub language: Option<String>,
+    pub language: String,
     pub source: String,
     pub exists_on_disk: bool,
     pub size_bytes: Option<u64>,
@@ -778,7 +778,11 @@ fn system_time_to_ms(time: SystemTime) -> Option<i64> {
 }
 
 /// Detect language for a file path using extension-based heuristics.
-fn detect_file_language(path: &Path) -> Option<String> {
-    let file_name = path.file_name()?.to_str()?;
-    crate::detection::extension::detect_by_filename(file_name).map(|s| s.to_string())
+/// Falls back to `"text"` for unrecognised files so the DB never stores NULL.
+fn detect_file_language(path: &Path) -> String {
+    let lang = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .and_then(|n| crate::detection::extension::detect_by_filename(n));
+    lang.unwrap_or("text").to_string()
 }
