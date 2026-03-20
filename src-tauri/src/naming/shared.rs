@@ -81,24 +81,19 @@ pub fn slugify(raw: &str) -> Option<String> {
     }
 }
 
-/// Compact local-time fallback: `slate-20260318152230`.
+/// Human-readable fallback: `slate-19-mar-2026-0530`.
 pub fn fallback_stem() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
-    // Use SystemTime; chrono is not a dependency, so we do it manually.
     let secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
-    // Convert UTC seconds to a simple YYYYMMDDHHmmss string (UTC, not local,
-    // but compact and collision-resistant).
-    let ts = format_compact_timestamp(secs);
-    format!("slate-{}", ts)
+    format_readable_timestamp(secs)
 }
 
-fn format_compact_timestamp(unix_secs: u64) -> String {
+fn format_readable_timestamp(unix_secs: u64) -> String {
     // Simple manual UTC decomposition — no external crate needed.
     let mut s = unix_secs;
-    let secs = s % 60;
     s /= 60;
     let mins = s % 60;
     s /= 60;
@@ -107,10 +102,15 @@ fn format_compact_timestamp(unix_secs: u64) -> String {
 
     // Days since Unix epoch → year/month/day.
     let (year, month, day) = days_to_ymd(s as u32);
-    format!(
-        "{:04}{:02}{:02}{:02}{:02}{:02}",
-        year, month, day, hours, mins, secs
-    )
+
+    const MONTHS: [&str; 12] = [
+        "jan", "feb", "mar", "apr", "may", "jun",
+        "jul", "aug", "sep", "oct", "nov", "dec",
+    ];
+    let mon = MONTHS[(month as usize).saturating_sub(1).min(11)];
+
+    // Format: slate-DD-mon-YYYY-HHMM  e.g. slate-19-mar-2026-0530
+    format!("slate-{:02}-{}-{:04}-{:02}{:02}", day, mon, year, hours, mins)
 }
 
 fn days_to_ymd(mut days: u32) -> (u32, u32, u32) {

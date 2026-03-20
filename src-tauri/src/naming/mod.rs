@@ -8,7 +8,7 @@
  *   2. Dispatch to a format-specific extractor group.
  *   3. Sanitize + slugify the raw stem.
  *   4. If nothing useful was found, return None (caller falls back to
- *      slate-<YYYYMMDDHHmmss>).
+ *      slate-<DD-mon-YYYY-HHMM>).
  *
  * All extractors operate on at most the first MAX_CONTENT_BYTES bytes of the
  * document to keep naming fast even for very large files.
@@ -394,7 +394,7 @@ mod tests {
     fn fallback_stem_format() {
         let fb = fallback_stem();
         assert!(fb.starts_with("slate-"), "got: {fb}");
-        // Should be slate-YYYYMMDDHHmmss → 6 + 14 = 20 chars
-        assert_eq!(fb.len(), 20, "got: {fb}");
+        // Format: slate-DD-mon-YYYY-HHMM  e.g. slate-19-mar-2026-0530 → 22 chars
+        assert_eq!(fb.len(), 22, "got: {fb}");
     }
 }
