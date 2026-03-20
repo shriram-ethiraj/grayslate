@@ -185,4 +185,17 @@ export async function invokeText(
     return textDecoder.decode(buffer);
 }
 
+/**
+ * Detect language from a filename or path using extension/filename only
+ * (Rust Phase 1 — no content scan). Returns a language ID or `null` when
+ * no mapping exists.
+ *
+ * Use this for sync-equivalent scenarios such as sidebar file cards and
+ * editor language pinning on file open, where no document content is
+ * available yet.
+ */
+export function detectByFilename(filename: string): Promise<string | null> {
+    return invoke<string | null>("detect_by_filename", { filename });
+}
+
 export { invoke };

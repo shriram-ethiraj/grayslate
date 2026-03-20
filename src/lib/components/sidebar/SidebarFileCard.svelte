@@ -1,9 +1,9 @@
 <script module lang="ts">
     /**
      * Shared lookup — built once at module load, not per card instance.
-     * Maps language value → full language metadata (icon, label, token, etc.).
+     * Maps language value → metadata (icon, label, token).
      */
-    import { languages } from "$lib/editor/config/supportedLanguages";
+    import { languages } from "$lib/editor/config/languageIconMap";
     const languageMetaByValue = new Map(languages.map((l) => [l.value, l] as const));
 </script>
 
@@ -11,8 +11,7 @@
     import { writeText } from "@tauri-apps/plugin-clipboard-manager";
     import { revealItemInDir } from "@tauri-apps/plugin-opener";
     import { toast } from "$lib/components/ui/sonner";
-    import type { LanguageIcon } from "$lib/editor/config/supportedLanguages";
-    import { languageDetector } from "$lib/editor/core/languageDetector";
+    import type { LanguageIcon } from "$lib/editor/config/languageIconMap";
     import * as ContextMenu from "$lib/components/ui/context-menu/index.js";
     import * as Item from "$lib/components/ui/item/index.js";
     import { DropdownMenu as DropdownMenuPrimitive } from "bits-ui";
@@ -55,24 +54,7 @@
     // Language / display helpers
     // ---------------------------------------------------------------------------
 
-    function getLanguage(): string {
-        return (
-            languageDetector.detect("", recentFile.file_name) ??
-            languageDetector.detect("", recentFile.path) ??
-            "text"
-        );
-    }
-
-    function getFileIcon(): LanguageIcon | null {
-        return (
-            languageMetaByValue.get(getLanguage())?.icon ??
-            languageMetaByValue.get("text")?.icon ??
-            null
-        );
-    }
-
-    // Pre-computed display values (avoid calling helpers more than once per render).
-    const FileIcon = $derived(getFileIcon());
+    const FileIcon = $derived(languageMetaByValue.get(recentFile.language ?? "")?.icon ?? null);
     const fileSize = $derived(formatSize(recentFile.size_bytes));
     const searchResult = $derived(isSearchResult(recentFile) ? recentFile : null);
 

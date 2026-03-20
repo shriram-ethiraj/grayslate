@@ -1,9 +1,8 @@
 # Logs
-logs
 *.log
 pnpm-debug.log*
 
-# Node/JavaScript
+# Node / JavaScript
 node_modules/
 
 # SvelteKit
@@ -21,7 +20,7 @@ src-tauri/target/
 !.vscode/settings.json
 .idea/
 
-# OS Generated Files
+# OS generated files
 .DS_Store
 .DS_Store?
 ._*
@@ -32,5 +31,8 @@ Thumbs.db
 
 # Python
 .venv
-crop_icon.py
 .python-version
+
+# Naming audit — generated output and cached repo clones
+tools/naming-audit/output/*.csv
+tools/naming-audit/repos/*/

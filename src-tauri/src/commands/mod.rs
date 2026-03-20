@@ -1,3 +1,4 @@
+pub mod detection;
 pub mod file;
 pub mod memory;
 pub mod naming;

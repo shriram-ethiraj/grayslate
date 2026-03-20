@@ -11,7 +11,7 @@
     ResizablePane,
     ResizableHandle,
   } from "$lib/components/ui/resizable";
-  import { languageDetector } from "$lib/editor/core/languageDetector";
+  import { detectByFilename } from "$lib/ipc";
   import { debounce } from "lodash-es";
   import type { EditorView } from "codemirror";
   import { Text } from "@codemirror/state";
@@ -162,7 +162,7 @@
 
   async function syncLanguageFromPath(path: string): Promise<void> {
     const filename = await getPathLabel(path);
-    const extLanguage = languageDetector.detect("", filename);
+    const extLanguage = await detectByFilename(filename);
     if (extLanguage) {
       // Pin language to the extension of the saved file so the status bar
       // always reflects the actual file type after a save or save-as.
@@ -208,9 +208,12 @@
     editorState.currentSelectionSize = selectionSize;
   });
 
-  const checkLanguage = debounce((content: string) => {
+  const checkLanguage = debounce(async (content: string) => {
     if (language === "auto" && content) {
-      const result = languageDetector.detect(content);
+      const result = await invoke<string | null>("detect_language", {
+        content,
+        filename: null,
+      });
       if (result) {
         detectedLanguage = result;
       }
@@ -721,7 +724,7 @@
       // The file extension is the authoritative source of language type on first
       // load. Content-based detection runs later only when a full-document
       // transformation resets the mode to "auto".
-      const detected = languageDetector.detect("", filename) ?? "text";
+      const detected = (await detectByFilename(filename)) ?? "text";
 
       const nextLanguage = detected;
       const nextDetectedLanguage = detected;
@@ -839,27 +842,24 @@
    * First save of an untitled document: Rust picks a smart content-based
    * filename, writes the file, and returns the final absolute path.
    *
-   * Before handing off to the backend we run a synchronous language detection
-   * pass if the editor is still in "auto" mode. The debounced `checkLanguage`
-   * may not have fired yet when the user pastes content and saves immediately,
-   * so we detect on demand here to guarantee the correct languageHint reaches
-   * `suggest_stem` / `language_to_extension`.
+   * When the editor is in "auto" mode, the backend auto-detects the
+   * language from content (no separate frontend detection needed).
    */
   async function saveUntitledSlate(content: string): Promise<string> {
-    let effectiveLanguage = activeLanguage;
-    if (language === "auto") {
-      const freshDetection = languageDetector.detect(content);
-      if (freshDetection) {
-        // Update detectedLanguage so the status bar reflects the result.
-        detectedLanguage = freshDetection;
-        effectiveLanguage = freshDetection;
-      }
+    const result = await invoke<{ path: string; detectedLanguage: string }>(
+      "save_untitled_slate",
+      {
+        content,
+        languageHint: activeLanguage,
+      },
+    );
+
+    // Update detectedLanguage so the status bar reflects the result.
+    if (language === "auto" && result.detectedLanguage) {
+      detectedLanguage = result.detectedLanguage;
     }
 
-    return invoke<string>("save_untitled_slate", {
-      content,
-      languageHint: effectiveLanguage,
-    });
+    return result.path;
   }
 
   async function saveFile(): Promise<void> {
@@ -915,12 +915,15 @@
         defaultPath = activeDocument.path;
       } else {
         // Ask Rust for a smart suggested filename (no collision check, no write).
-        const suggestedName = await invoke<string>("suggest_slate_name", {
-          content,
-          languageHint: activeLanguage,
-        });
+        const suggestion = await invoke<{ filename: string; detectedLanguage: string }>(
+          "suggest_slate_name",
+          {
+            content,
+            languageHint: activeLanguage,
+          },
+        );
         const notesRoot = await resolveNotesRoot();
-        defaultPath = await join(notesRoot, suggestedName);
+        defaultPath = await join(notesRoot, suggestion.filename);
       }
 
       const selectedPath = await saveFilePicker({

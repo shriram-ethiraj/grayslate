@@ -20,6 +20,10 @@ Commands currently exposed to the frontend:
 - `read_file_content`
 - `get_memory_info`
 - `set_menu_word_wrap`
+- `detect_language` — content-based language detection (4-phase pipeline)
+- `save_untitled_slate` — auto-detects + names + saves untitled documents
+- `suggest_slate_name` — returns filename + detected language without writing
+- `suggest_name_for_file` — reads file from disk and suggests a rename
 
 Current implementation notes:
 

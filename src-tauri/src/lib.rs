@@ -1,6 +1,7 @@
 use tauri::Manager;
 
 pub mod commands;
+pub mod detection;
 pub mod filesystem;
 pub mod menu;
 pub mod naming;
@@ -71,6 +72,8 @@ pub fn run() {
             commands::file::set_app_setting,
             commands::file::write_file_content,
             commands::memory::get_memory_info,
+            commands::detection::detect_language,
+            commands::detection::detect_by_filename,
             commands::naming::save_untitled_slate,
             commands::naming::suggest_slate_name,
             commands::naming::suggest_name_for_file,

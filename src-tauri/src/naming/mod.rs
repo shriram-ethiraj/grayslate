@@ -27,6 +27,27 @@ use self::model::{
 
 pub use self::shared::{fallback_stem, slugify};
 
+/// Auto-detecting variant of `suggest_stem`.
+///
+/// When `language_hint` is empty or `"auto"`, runs the detection pipeline
+/// to identify the language from content (using `filename` as a hint for
+/// extension-based Phase 1 detection). Returns the stem alongside the
+/// effective language that was used (so the caller can propagate it).
+pub fn suggest_stem_auto(
+    content: &str,
+    language_hint: &str,
+    filename: Option<&str>,
+) -> (Option<String>, String) {
+    let effective = if language_hint.is_empty() || language_hint == "auto" {
+        crate::detection::detect_language(content, filename)
+            .unwrap_or("text")
+            .to_string()
+    } else {
+        language_hint.to_string()
+    };
+    (suggest_stem(content, &effective), effective)
+}
+
 /// Returns a sanitized filename stem (no extension, no path separators) or
 /// `None` when no useful name can be derived.
 pub fn suggest_stem(content: &str, language_hint: &str) -> Option<String> {
@@ -330,6 +351,62 @@ mod tests {
     }
 
     #[test]
+    fn ts_exported_function_found() {
+        // Regression: file with many imports followed by a large switch body —
+        // the export function must still be found within the 5 KB bound.
+        let imports = (0..25)
+            .map(|i| format!("import {{ mod{i} }} from \"@pkg/mod{i}\";\n"))
+            .collect::<String>();
+        let switch_cases = (0..60)
+            .map(|i| format!("        case \"lang{i}\":\n            return [];\n"))
+            .collect::<String>();
+        let body = format!(
+            "{imports}\nexport function getLanguageExtension(langId: string): string[] {{\n    switch (langId) {{\n{switch_cases}        default: return [];\n    }}\n}}\n"
+        );
+        let stem = suggest_stem(&body, "typescript");
+        assert!(
+            stem.as_deref() == Some("get-language-extension"),
+            "got: {stem:?}"
+        );
+    }
+
+    #[test]
+    fn ts_lang_extensions_real_file() {
+        // Regression: languageExtensions.ts previously produced FALLBACK because
+        // a specific import triggered a tree-sitter parse path that returned empty
+        // symbols. The JsTs regex fallback now covers this case.
+        let content = include_str!(
+            "../../../src/lib/editor/config/languageExtensions.ts"
+        );
+        let stem = suggest_stem(content, "typescript");
+        assert_eq!(stem.as_deref(), Some("get-language-extension"), "got: {stem:?}");
+    }
+
+    #[test]
+    fn ts_barrel_reexport() {
+        // export { Root as Badge, badgeVariants } → "badge" from the alias.
+        let src = "import Root, { badgeVariants } from \"./badge.svelte\";\nexport { Root as Badge, badgeVariants };\n";
+        let stem = suggest_stem(src, "typescript").unwrap();
+        assert!(stem.contains("badge"), "got: {stem}");
+    }
+
+    #[test]
+    fn ts_exported_camel_const() {
+        // export const markdownAutocompleteConfig = {...} → camelCase should be captured.
+        let src = "export const markdownAutocompleteConfig = { items: [] };\n";
+        let stem = suggest_stem(src, "typescript").unwrap();
+        assert!(stem.contains("markdown-autocomplete-config"), "got: {stem}");
+    }
+
+    #[test]
+    fn js_export_default_call() {
+        // export default defineConfig({...}) → callee name extracted.
+        let src = "import { defineConfig } from \"vite\";\nexport default defineConfig({ plugins: [] });\n";
+        let stem = suggest_stem(src, "javascript").unwrap();
+        assert!(stem.contains("define-config"), "got: {stem}");
+    }
+
+    #[test]
     fn python_class_def() {
         let py = "class DataProcessor:\n    def process(self, data): pass\n";
         let stem = suggest_stem(py, "python").unwrap();
@@ -396,5 +473,172 @@ mod tests {
         assert!(fb.starts_with("slate-"), "got: {fb}");
         // Format: slate-DD-mon-YYYY-HHMM  e.g. slate-19-mar-2026-0530 → 22 chars
         assert_eq!(fb.len(), 22, "got: {fb}");
+    }
+
+    // ── Naming audit: real project files ─────────────────────────────────────
+    //
+    // Run manually with:
+    //   cargo test --manifest-path src-tauri/Cargo.toml naming::tests::naming_audit -- --nocapture --ignored
+    //
+    // Walks the repo tree, feeds each file's content through suggest_stem(), and
+    // prints a comparison table so we can spot where the naming falls short.
+
+    #[test]
+    #[ignore = "manual audit — run with --ignored --nocapture"]
+    fn naming_audit() {
+        use ignore::WalkBuilder;
+        use std::path::Path;
+
+        /// Map a file extension to the language hint used by suggest_stem().
+        fn ext_to_lang(ext: &str) -> Option<&'static str> {
+            match ext {
+                "rs"                          => Some("rust"),
+                "ts" | "tsx" | "mts"          => Some("typescript"),
+                "js" | "mjs" | "cjs"          => Some("javascript"),
+                "py"                          => Some("python"),
+                "go"                          => Some("go"),
+                "java"                        => Some("java"),
+                "kt" | "kts"                  => Some("kotlin"),
+                "c"                           => Some("c"),
+                "cpp" | "cxx" | "cc"          => Some("cpp"),
+                "cs"                          => Some("csharp"),
+                "rb"                          => Some("ruby"),
+                "php"                         => Some("php"),
+                "swift"                       => Some("swift"),
+                "scala"                       => Some("scala"),
+                "dart"                        => Some("dart"),
+                "sh" | "bash" | "zsh"         => Some("shell"),
+                "ps1"                         => Some("powershell"),
+                "json"                        => Some("json"),
+                "yaml" | "yml"                => Some("yaml"),
+                "toml"                        => Some("toml"),
+                "xml" | "svg"                 => Some("xml"),
+                "html" | "htm"                => Some("html"),
+                "svelte"                      => Some("svelte"),
+                "vue"                         => Some("vue"),
+                "md" | "mdx"                  => Some("markdown"),
+                "sql"                         => Some("sql"),
+                "csv"                         => Some("csv"),
+                "css"                         => Some("css"),
+                "scss" | "sass"               => Some("scss"),
+                _                             => None,
+            }
+        }
+
+        /// Files that are auto-generated noise (no useful naming signal).
+        fn is_skip_file(name: &str) -> bool {
+            matches!(
+                name,
+                "pnpm-lock.yaml" | "package-lock.json" | "yarn.lock"
+                    | "pnpm-workspace.yaml" | "Cargo.lock"
+            )
+        }
+
+        // Project root is one directory above CARGO_MANIFEST_DIR (src-tauri/).
+        let manifest_dir = env!("CARGO_MANIFEST_DIR");
+        let project_root = Path::new(manifest_dir).parent().unwrap();
+
+        struct Row {
+            rel_path: String,
+            lang: String,
+            our_name: Option<String>,
+        }
+
+        let mut rows: Vec<Row> = Vec::new();
+
+        let walker = WalkBuilder::new(project_root)
+            .hidden(true)           // skip hidden files/dirs
+            .git_ignore(true)       // respect .gitignore
+            .git_global(false)
+            .build();
+
+        for entry in walker.flatten() {
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            if is_skip_file(name) {
+                continue;
+            }
+
+            let ext = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("")
+                .to_lowercase();
+
+            let Some(lang) = ext_to_lang(&ext) else {
+                continue;
+            };
+
+            let Ok(content) = std::fs::read_to_string(path) else {
+                continue; // binary file
+            };
+            if content.len() < 30 {
+                continue; // trivially small
+            }
+
+            let rel = path
+                .strip_prefix(project_root)
+                .unwrap_or(path)
+                .to_string_lossy()
+                .replace('\\', "/");
+
+            let our_name = suggest_stem(&content, lang);
+            rows.push(Row { rel_path: rel, lang: lang.to_string(), our_name });
+        }
+
+        // Sort: fallbacks first so gaps are immediately visible.
+        rows.sort_by_key(|r| (r.our_name.is_some(), r.lang.clone(), r.rel_path.clone()));
+
+        let named   = rows.iter().filter(|r| r.our_name.is_some()).count();
+        let fallback = rows.iter().filter(|r| r.our_name.is_none()).count();
+        let total   = rows.len();
+
+        // ── Print table ──────────────────────────────────────────────────────
+        println!("\n{}", "═".repeat(90));
+        println!("  NAMING AUDIT — {} files scanned", total);
+        println!("{}", "═".repeat(90));
+        println!(
+            "{:<52}  {:<12}  {}",
+            "File", "Language", "Suggested Name"
+        );
+        println!("{}", "─".repeat(90));
+
+        for row in &rows {
+            let status = match &row.our_name {
+                Some(name) => format!("✓  {}", name),
+                None       => "✗  FALLBACK (no name derived)".to_string(),
+            };
+            println!("{:<52}  {:<12}  {}", row.rel_path, row.lang, status);
+        }
+
+        println!("{}", "─".repeat(90));
+        println!(
+            "  NAMED: {} / {}  ({:.0}%)    FALLBACK: {}",
+            named,
+            total,
+            named as f64 / total as f64 * 100.0,
+            fallback
+        );
+        println!("{}", "═".repeat(90));
+
+        // Print grouped fallback summary for easy triage.
+        if fallback > 0 {
+            println!("\n── Files that fell back to timestamp (needs improvement) ──");
+            let mut by_lang: std::collections::BTreeMap<&str, Vec<&str>> =
+                std::collections::BTreeMap::new();
+            for row in rows.iter().filter(|r| r.our_name.is_none()) {
+                by_lang.entry(&row.lang).or_default().push(&row.rel_path);
+            }
+            for (lang, paths) in &by_lang {
+                println!("  [{lang}]");
+                for p in paths {
+                    println!("    {p}");
+                }
+            }
+        }
     }
 }

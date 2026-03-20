@@ -15,8 +15,8 @@
         type TransformationActionDefinition,
         type TransformationActionId,
     } from "$lib/transformations/actions";
-    import { languageDetector } from "$lib/editor/core/languageDetector";
-    import { languages } from "$lib/editor/config/supportedLanguages";
+    import { invoke } from "$lib/ipc";
+    import { languages } from "$lib/editor/config/languageIconMap";
     import Zap from "~icons/lucide/zap";
 
     const languageIconMap = new Map(languages.map((l) => [l.value, l.icon]));
@@ -39,7 +39,7 @@
     let selectionFileType = $state<FileType | null>(null);
 
     /** Detect the file type of the selected text, falling back to "text". */
-    function detectSelectionFileType(): FileType | null {
+    async function detectSelectionFileType(): Promise<FileType | null> {
         const view = editorState.activeView;
         if (!view) return null;
 
@@ -49,7 +49,10 @@
         const text = view.state.doc.sliceString(sel.from, sel.to);
         if (text.trim().length === 0) return null;
 
-        const detected = languageDetector.detect(text);
+        const detected = await invoke<string | null>("detect_language", {
+            content: text,
+            filename: null,
+        });
         if (detected && hasActionsForFileType(detected as FileType)) {
             return detected as FileType;
         }
@@ -93,7 +96,9 @@
             return;
         }
 
-        selectionFileType = detectSelectionFileType();
+        detectSelectionFileType().then((ft) => {
+            selectionFileType = ft;
+        });
         query = "";
         void focusInput();
     });

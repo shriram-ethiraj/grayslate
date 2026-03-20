@@ -52,6 +52,7 @@ pub struct RecentFileRecord {
     pub path: String,
     pub file_name: String,
     pub extension: Option<String>,
+    pub language: Option<String>,
     pub source: String,
     pub exists_on_disk: bool,
     pub size_bytes: Option<u64>,
@@ -134,6 +135,7 @@ impl AppStorage {
         event_type: FileEventType,
     ) -> Result<(), String> {
         let snapshot = build_file_snapshot(path)?;
+        let language = detect_file_language(path);
         let now = current_time_ms();
         let last_opened_at = matches!(event_type, FileEventType::Open).then_some(now);
         let last_saved_at = matches!(event_type, FileEventType::Save).then_some(now);
@@ -158,10 +160,11 @@ impl AppStorage {
                     last_modified_at,
                     last_opened_at,
                     last_saved_at,
+                    language,
                     created_at,
                     updated_at
                 )
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?12)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?13)
                 ON CONFLICT(path_key) DO UPDATE SET
                     path = excluded.path,
                     file_name = excluded.file_name,
@@ -173,6 +176,7 @@ impl AppStorage {
                     last_modified_at = excluded.last_modified_at,
                     last_opened_at = COALESCE(excluded.last_opened_at, tracked_files.last_opened_at),
                     last_saved_at = COALESCE(excluded.last_saved_at, tracked_files.last_saved_at),
+                    language = COALESCE(excluded.language, tracked_files.language),
                     updated_at = excluded.updated_at
                 ",
                 params![
@@ -187,6 +191,7 @@ impl AppStorage {
                     snapshot.last_modified_at,
                     last_opened_at,
                     last_saved_at,
+                    language,
                     now,
                 ],
             )
@@ -217,6 +222,7 @@ impl AppStorage {
 
     pub fn refresh_tracked_file(&self, path: &Path, source: FileSource) -> Result<(), String> {
         let snapshot = build_file_snapshot(path)?;
+        let language = detect_file_language(path);
         let connection = self.open_connection()?;
 
         connection
@@ -232,6 +238,7 @@ impl AppStorage {
                     size_bytes = ?7,
                     last_seen_at = ?8,
                     last_modified_at = ?9,
+                    language = COALESCE(?10, language),
                     updated_at = ?8
                 WHERE path_key = ?1
                 ",
@@ -245,6 +252,7 @@ impl AppStorage {
                     snapshot.size_bytes.map(|value| value as i64),
                     snapshot.last_seen_at,
                     snapshot.last_modified_at,
+                    language,
                 ],
             )
             .map_err(|error| format!("Failed to refresh tracked file: {}", error))?;
@@ -261,6 +269,7 @@ impl AppStorage {
                     path,
                     file_name,
                     extension,
+                    language,
                     source,
                     exists_on_disk,
                     size_bytes,
@@ -285,14 +294,15 @@ impl AppStorage {
                     path: row.get(0)?,
                     file_name: row.get(1)?,
                     extension: row.get(2)?,
-                    source: row.get(3)?,
-                    exists_on_disk: row.get::<_, i64>(4)? != 0,
-                    size_bytes: row.get::<_, Option<i64>>(5)?.map(|value| value as u64),
-                    last_opened_at: row.get(6)?,
-                    last_saved_at: row.get(7)?,
-                    last_seen_at: row.get(8)?,
-                    last_modified_at: row.get(9)?,
-                    pinned: row.get::<_, i64>(10)? != 0,
+                    language: row.get(3)?,
+                    source: row.get(4)?,
+                    exists_on_disk: row.get::<_, i64>(5)? != 0,
+                    size_bytes: row.get::<_, Option<i64>>(6)?.map(|value| value as u64),
+                    last_opened_at: row.get(7)?,
+                    last_saved_at: row.get(8)?,
+                    last_seen_at: row.get(9)?,
+                    last_modified_at: row.get(10)?,
+                    pinned: row.get::<_, i64>(11)? != 0,
                 })
             })
             .map_err(|error| format!("Failed to execute recent files query: {}", error))?;
@@ -317,6 +327,7 @@ impl AppStorage {
                     path,
                     file_name,
                     extension,
+                    language,
                     source,
                     exists_on_disk,
                     size_bytes,
@@ -334,14 +345,15 @@ impl AppStorage {
                         path: row.get(0)?,
                         file_name: row.get(1)?,
                         extension: row.get(2)?,
-                        source: row.get(3)?,
-                        exists_on_disk: row.get::<_, i64>(4)? != 0,
-                        size_bytes: row.get::<_, Option<i64>>(5)?.map(|value| value as u64),
-                        last_opened_at: row.get(6)?,
-                        last_saved_at: row.get(7)?,
-                        last_seen_at: row.get(8)?,
-                        last_modified_at: row.get(9)?,
-                        pinned: row.get::<_, i64>(10)? != 0,
+                        language: row.get(3)?,
+                        source: row.get(4)?,
+                        exists_on_disk: row.get::<_, i64>(5)? != 0,
+                        size_bytes: row.get::<_, Option<i64>>(6)?.map(|value| value as u64),
+                        last_opened_at: row.get(7)?,
+                        last_saved_at: row.get(8)?,
+                        last_seen_at: row.get(9)?,
+                        last_modified_at: row.get(10)?,
+                        pinned: row.get::<_, i64>(11)? != 0,
                     })
                 },
             )
@@ -368,6 +380,7 @@ impl AppStorage {
     pub fn rename_tracked_file(&self, old_path: &Path, new_path: &Path) -> Result<(), String> {
         let old_key = normalize_path_key(old_path)?;
         let new_snapshot = build_file_snapshot(new_path)?;
+        let language = detect_file_language(new_path);
         let now = current_time_ms();
 
         let mut connection = self.open_connection()?;
@@ -401,7 +414,8 @@ impl AppStorage {
                         size_bytes = ?7,
                         last_seen_at = ?8,
                         last_modified_at = ?9,
-                        updated_at = ?10
+                        language = ?10,
+                        updated_at = ?11
                     WHERE id = ?1
                     ",
                     params![
@@ -414,6 +428,7 @@ impl AppStorage {
                         new_snapshot.size_bytes.map(|v| v as i64),
                         new_snapshot.last_seen_at,
                         new_snapshot.last_modified_at,
+                        language,
                         now,
                     ],
                 )
@@ -426,9 +441,9 @@ impl AppStorage {
                     INSERT INTO tracked_files (
                         path_key, path, file_name, extension, source,
                         exists_on_disk, size_bytes, last_seen_at, last_modified_at,
-                        created_at, updated_at
+                        language, created_at, updated_at
                     )
-                    VALUES (?1, ?2, ?3, ?4, 'slates', ?5, ?6, ?7, ?8, ?9, ?9)
+                    VALUES (?1, ?2, ?3, ?4, 'slates', ?5, ?6, ?7, ?8, ?9, ?10, ?10)
                     ",
                     params![
                         new_snapshot.path_key,
@@ -439,6 +454,7 @@ impl AppStorage {
                         new_snapshot.size_bytes.map(|v| v as i64),
                         new_snapshot.last_seen_at,
                         new_snapshot.last_modified_at,
+                        language,
                         now,
                     ],
                 )
@@ -459,6 +475,7 @@ impl AppStorage {
                     path,
                     file_name,
                     extension,
+                    language,
                     source,
                     exists_on_disk,
                     size_bytes,
@@ -479,14 +496,15 @@ impl AppStorage {
                     path: row.get(0)?,
                     file_name: row.get(1)?,
                     extension: row.get(2)?,
-                    source: row.get(3)?,
-                    exists_on_disk: row.get::<_, i64>(4)? != 0,
-                    size_bytes: row.get::<_, Option<i64>>(5)?.map(|value| value as u64),
-                    last_opened_at: row.get(6)?,
-                    last_saved_at: row.get(7)?,
-                    last_seen_at: row.get(8)?,
-                    last_modified_at: row.get(9)?,
-                    pinned: row.get::<_, i64>(10)? != 0,
+                    language: row.get(3)?,
+                    source: row.get(4)?,
+                    exists_on_disk: row.get::<_, i64>(5)? != 0,
+                    size_bytes: row.get::<_, Option<i64>>(6)?.map(|value| value as u64),
+                    last_opened_at: row.get(7)?,
+                    last_saved_at: row.get(8)?,
+                    last_seen_at: row.get(9)?,
+                    last_modified_at: row.get(10)?,
+                    pinned: row.get::<_, i64>(11)? != 0,
                 })
             })
             .map_err(|error| format!("Failed to execute tracked files query: {}", error))?;
@@ -534,6 +552,7 @@ impl AppStorage {
                     path TEXT NOT NULL,
                     file_name TEXT NOT NULL,
                     extension TEXT,
+                    language TEXT,
                     source TEXT NOT NULL CHECK (source IN ('slates', 'local')),
                     exists_on_disk INTEGER NOT NULL DEFAULT 1,
                     size_bytes INTEGER,
@@ -756,4 +775,10 @@ fn system_time_to_ms(time: SystemTime) -> Option<i64> {
     time.duration_since(UNIX_EPOCH)
         .ok()
         .map(|duration| duration.as_millis() as i64)
+}
+
+/// Detect language for a file path using extension-based heuristics.
+fn detect_file_language(path: &Path) -> Option<String> {
+    let file_name = path.file_name()?.to_str()?;
+    crate::detection::extension::detect_by_filename(file_name).map(|s| s.to_string())
 }

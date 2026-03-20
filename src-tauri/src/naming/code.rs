@@ -272,14 +272,43 @@ fn collect_js_nodes(
                             }
                         }
                         "lexical_declaration" => {
-                            collect_lexical_decl(&inner, src, symbols, 8);
+                            // Exported consts: accept any name (not just uppercase).
+                            collect_lexical_decl(&inner, src, symbols, 8, false);
+                        }
+                        // export { Foo, Bar as Baz } — named re-exports.
+                        "export_clause" => {
+                            let mut spec_cursor = inner.walk();
+                            for spec in inner.children(&mut spec_cursor) {
+                                if spec.kind() == "export_specifier" {
+                                    // Prefer the public alias over the original name.
+                                    let name = field_text(&spec, "alias", src)
+                                        .or_else(|| field_text(&spec, "name", src));
+                                    if let Some(n) = name {
+                                        if !is_noise_name(&n.to_lowercase()) {
+                                            symbols.push(Symbol {
+                                                name: n.to_string(),
+                                                priority: 7,
+                                            });
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        // export default someCall(...) — extract callee name.
+                        "call_expression" => {
+                            if let Some(func) = field_text(&inner, "function", src) {
+                                if !is_noise_name(&func.to_lowercase()) {
+                                    symbols.push(Symbol { name: func.to_string(), priority: 5 });
+                                }
+                            }
                         }
                         _ => {}
                     }
                 }
             }
             "lexical_declaration" => {
-                collect_lexical_decl(&child, src, symbols, 6);
+                // Top-level non-exported: only grab PascalCase (likely components/ctors).
+                collect_lexical_decl(&child, src, symbols, 6, true);
             }
             _ => {}
         }
@@ -287,18 +316,27 @@ fn collect_js_nodes(
 }
 
 /// Extract variable names from const/let/var declarations.
-/// Only includes names starting with uppercase (likely constructors/components).
+/// When `require_uppercase` is true, only names starting with an uppercase
+/// letter are included (component/constructor heuristic for non-exported consts).
+/// For exported declarations pass `false` to capture any meaningful name.
 fn collect_lexical_decl(
     node: &tree_sitter::Node,
     src: &[u8],
     symbols: &mut Vec<Symbol>,
     priority: u8,
+    require_uppercase: bool,
 ) {
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         if child.kind() == "variable_declarator" {
             if let Some(name) = field_text(&child, "name", src) {
-                if name.starts_with(|c: char| c.is_uppercase()) {
+                let significant = if require_uppercase {
+                    name.starts_with(|c: char| c.is_uppercase())
+                } else {
+                    // Any name that starts with a letter/underscore is valid.
+                    name.starts_with(|c: char| c.is_alphabetic() || c == '_')
+                };
+                if significant {
                     symbols.push(Symbol { name: name.to_string(), priority });
                 }
             }
@@ -547,7 +585,21 @@ fn extract_code_regex(content: &str, style: CodeStyle) -> Option<String> {
             r"(?m)^([a-zA-Z_][a-zA-Z0-9_]*)\s*\(\s*\)",
             r"(?m)^function\s+([a-zA-Z_][a-zA-Z0-9_]*)",
         ],
-        // tree-sitter-covered styles should never reach here, but just in case:
+        // tree-sitter-covered styles should never reach here, but just in case
+        // the tree-sitter parse produces an empty result, provide regex patterns
+        // so the caller still gets a useful name.
+        CodeStyle::JsTs => vec![
+            // exported class / interface (any name)
+            r"(?m)^export\s+(?:default\s+)?(?:abstract\s+)?(?:class|interface)\s+([A-Za-z_][a-zA-Z0-9_]*)",
+            // exported function (async or generator, any name)
+            r"(?m)^export\s+(?:async\s+)?function\s*\*?\s*([a-zA-Z_][a-zA-Z0-9_]+)",
+            // exported const / let with a non-trivial name
+            r"(?m)^export\s+(?:const|let)\s+([a-zA-Z_][a-zA-Z0-9_]+)",
+            // re-export alias: export { Foo as Bar } — use the public name
+            r"(?m)\bexport\s*\{[^}]*\bas\s+([A-Za-z_][a-zA-Z0-9_]*)\s*[,}]",
+        ],
+        // Other tree-sitter-covered styles (Python, Rust, Java, Go, C/C++) have
+        // reliable parsers; if they return nothing, a regex fallback adds little.
         _ => return None,
     };
 

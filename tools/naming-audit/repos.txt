@@ -1,0 +1,41 @@
+# repos.txt — Input file for audit_repos.py
+#
+# Add one entry per line:
+#   • GitHub URL:   https://github.com/owner/repo
+#   • Local path:   /absolute/path/to/repo   (or relative from this file's dir)
+#
+# Lines starting with # are ignored. Blank lines are ignored.
+#
+# Usage:
+#   python audit_repos.py --build     # build the Rust binary + run audit
+#   python audit_repos.py             # run audit (binary already built)
+#
+# The script clones remote repos to a temp directory (requires git),
+# then walks all source files and runs them through the Grayslate naming
+# system, producing one CSV per repo in the output/ directory.
+#
+# ── Grayslate (this repo — use your local path) ──────────────────────────────
+# Uncomment and adjust the path below, or use the GitHub URL if it's public:
+#
+# ../../   (relative path — 2 levels up from tools/naming-audit/)
+# /absolute/path/to/grayslate
+# https://github.com/your-username/grayslate
+#
+# ── Public repos for comparison ──────────────────────────────────────────────
+# Add any public GitHub repos below. Examples:
+#
+# https://github.com/sveltejs/kit
+# https://github.com/tauri-apps/tauri
+# https://github.com/microsoft/vscode
+# https://github.com/rust-lang/rust
+
+
+https://github.com/nicehash/NiceHashQuickMiner
+https://github.com/practical-tutorials/project-based-learning
+https://github.com/kamranahmedse/developer-roadmap
+https://github.com/fastapi/fastapi
+https://github.com/f/prompts.chat
+https://github.com/dair-ai/Prompt-Engineering-Guide
+https://github.com/gin-gonic/gin
+https://github.com/shadcn-ui/ui
+https://github.com/vercel/next.js/

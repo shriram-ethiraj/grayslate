@@ -15,9 +15,27 @@
  */
 use crate::{
     filesystem::{classify_file_source, resolve_notes_root_path, sanitize_filename, unique_path_in_dir},
-    naming::{fallback_stem, language_to_extension, suggest_stem},
+    naming::{fallback_stem, language_to_extension, suggest_stem_auto},
     storage::{AppStorage, FileEventType},
 };
+
+/// Result of saving an untitled slate — includes both the path and the
+/// detected language so the frontend can update its state in one IPC call.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveResult {
+    pub path: String,
+    pub detected_language: String,
+}
+
+/// Result of suggesting a name — includes both the filename and the
+/// detected language.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SuggestResult {
+    pub filename: String,
+    pub detected_language: String,
+}
 
 // ---------------------------------------------------------------------------
 // save_untitled_slate
@@ -26,21 +44,25 @@ use crate::{
 /// Saves an untitled document to the notes root with a smart filename derived
 /// from its content.
 ///
-/// Returns the final absolute path that was written.
+/// When `language_hint` is `"auto"` or empty, the backend auto-detects the
+/// language from the content first.
+///
+/// Returns both the final path and the effective language.
 #[tauri::command]
 pub async fn save_untitled_slate(
     app: tauri::AppHandle,
     storage: tauri::State<'_, AppStorage>,
     content: String,
     language_hint: String,
-) -> Result<String, String> {
+) -> Result<SaveResult, String> {
     // Resolve the configured notes root (same logic as the existing save flow).
     let notes_root = resolve_notes_root_path(&app, storage.inner())?;
 
-    // Derive a smart stem from the content.
-    let stem = suggest_stem(&content, &language_hint).unwrap_or_else(fallback_stem);
+    // Derive a smart stem from the content, auto-detecting language if needed.
+    let (stem, effective_language) = suggest_stem_auto(&content, &language_hint, None);
+    let stem = stem.unwrap_or_else(fallback_stem);
 
-    let extension = language_to_extension(&language_hint);
+    let extension = language_to_extension(&effective_language);
 
     // Build a collision-free path inside notes_root.
     let base_name = if extension.is_empty() {
@@ -72,6 +94,10 @@ pub async fn save_untitled_slate(
     target_path
         .into_os_string()
         .into_string()
+        .map(|path| SaveResult {
+            path,
+            detected_language: effective_language,
+        })
         .map_err(|_| "Saved path contains invalid UTF-8.".to_string())
 }
 
@@ -80,16 +106,18 @@ pub async fn save_untitled_slate(
 // ---------------------------------------------------------------------------
 
 /// Derives a suggested full filename (`stem.extension`) from pre-loaded content
-/// and a language hint.  Both `suggest_slate_name` and `suggest_name_for_file`
-/// delegate here so the core logic is never duplicated.
-fn build_suggested_name(content: &str, language_hint: &str) -> String {
-    let stem = suggest_stem(content, language_hint).unwrap_or_else(fallback_stem);
-    let extension = language_to_extension(language_hint);
-    if extension.is_empty() {
+/// and a language hint.  Auto-detects language when hint is "auto" or empty.
+/// Returns both the filename and the effective language.
+fn build_suggested_name(content: &str, language_hint: &str) -> (String, String) {
+    let (stem, effective_language) = suggest_stem_auto(content, language_hint, None);
+    let stem = stem.unwrap_or_else(fallback_stem);
+    let extension = language_to_extension(&effective_language);
+    let filename = if extension.is_empty() {
         stem
     } else {
         format!("{}.{}", stem, extension)
-    }
+    };
+    (filename, effective_language)
 }
 
 // ---------------------------------------------------------------------------
@@ -98,9 +126,14 @@ fn build_suggested_name(content: &str, language_hint: &str) -> String {
 
 /// Returns a suggested full filename without writing anything to disk.
 /// Used by the frontend to pre-populate the Save As picker.
+/// Also returns the detected language when hint is "auto".
 #[tauri::command]
-pub fn suggest_slate_name(content: String, language_hint: String) -> String {
-    build_suggested_name(&content, &language_hint)
+pub fn suggest_slate_name(content: String, language_hint: String) -> SuggestResult {
+    let (filename, detected_language) = build_suggested_name(&content, &language_hint);
+    SuggestResult {
+        filename,
+        detected_language,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -133,7 +166,7 @@ pub fn suggest_name_for_file(path: String) -> Result<String, String> {
         .and_then(|mut f| f.by_ref().take(READ_LIMIT).read_to_end(&mut raw_bytes));
     let content = String::from_utf8_lossy(&raw_bytes);
 
-    Ok(build_suggested_name(&content, &language_hint))
+    Ok(build_suggested_name(&content, &language_hint).0)
 }
 
 // ---------------------------------------------------------------------------
@@ -190,10 +223,10 @@ mod tests {
 
     #[test]
     fn suggest_slate_name_returns_filename() {
-        let name = suggest_slate_name(
+        let result = suggest_slate_name(
             r#"{"userId":1,"name":"Alice"}"#.to_string(),
             "json".to_string(),
         );
-        assert!(name.ends_with(".json"), "got: {name}");
+        assert!(result.filename.ends_with(".json"), "got: {}", result.filename);
     }
 }

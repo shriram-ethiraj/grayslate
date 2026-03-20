@@ -9,6 +9,7 @@ export interface RecentFileRecord {
   path: string;
   file_name: string;
   extension: string | null;
+  language: string | null;
   source: RecentFileSource;
   exists_on_disk: boolean;
   size_bytes: number | null;

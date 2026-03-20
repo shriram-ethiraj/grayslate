@@ -96,7 +96,7 @@ Keep this file compact. Detailed implementation notes belong in the skill files.
 **> To know more about keyboard shortcut management (hotkeys), YOU MUST READ the `.agents/tanstack-hotkeys/SKILL.md` file.**
 **> To know more about memory management and GC pressure, YOU MUST READ the `.agents/memory-management/SKILL.md` file.**
 
-- **Language Detection:** Uses a fast, heuristic synchronous pipeline.
+- **Language Detection:** Uses a Rust-side 4-phase pipeline (extension → shebang → structural → heuristic+tree-sitter) in `src-tauri/src/detection/`. The FE retains only a thin sync extension map (`detectByExtension.ts`) for sidebar icon rendering; all content-based detection goes through IPC.
 - **Memory Management:** Uses a Rust `sysinfo` integration and a frontend "GC Pressure" trick to reclaim heap after expensive editor teardown, especially after file switches.
 - **CSV Table View:** Uses a custom scroll virtualizer with hard safety caps; see the CSV skill for the current details.
 - **CSV Mode Architecture:** CSV table mode mounts on demand, performs parsing and mutations in a worker, and only live-mirrors text undo history for sessions that start at or below 100,000 data rows.
