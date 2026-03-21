@@ -1,15 +1,21 @@
-# Naming Audit Tool
+# Naming & Detection Audit Tool
 
-Runs every source file in a set of repos through the Grayslate naming pipeline and records the results in a CSV. Use it to measure how well the naming system performs across real-world codebases.
+Runs every source file in a set of repos through the Grayslate **content-only** detection and naming pipelines, and records the results in a CSV. Use it to measure how well both systems perform on raw content — the primary path for paste and untitled documents.
+
+## Use Case
+
+Grayslate is a scratchpad. Users paste content without a filename. This tool answers: *"Given only the file content, does the system correctly identify the language and produce a useful name?"*
+
+The actual file extension is recorded as ground truth — we never feed it to the pipeline.
 
 ## How it works
 
 1. `audit_repos.py` reads `repos.txt` for a list of GitHub URLs and/or local paths.
 2. Remote repos are cloned with `--depth=1` and cached in `repos/` so re-runs are instant.
-3. Each text file is piped through the `name_file` Rust binary, which auto-detects the language from the file extension and content, then runs the Grayslate naming pipeline.
+3. Each text file's content is piped through the `name_file` Rust binary **without any filename hint**. Files are processed in parallel across all CPU cores (override with `--workers N`).
 4. Results are written as one CSV per repo to `output/`.
 
-The `name_file` binary is a thin CLI wrapper around `grayslate_lib::naming`. It is the same naming logic the app uses — no approximations.
+The `name_file` binary is a thin CLI wrapper around `grayslate_lib::detection` and `grayslate_lib::naming`. It is the same detection and naming logic the app uses — no approximations.
 
 ## Requirements
 
@@ -67,42 +73,94 @@ python audit_repos.py --repos my-repos.txt
 
 # Write CSVs to a custom directory
 python audit_repos.py --output-dir /tmp/audit-out
+
+# Limit parallelism (default: all logical CPU cores)
+python audit_repos.py --workers 4
 ```
 
 ## Output
 
-Each repo produces a CSV in `output/` with three columns:
+Each repo produces a CSV in `output/` with the following columns:
 
 | Column | Description |
 |---|---|
-| `file` | Relative path of the source file within the repo |
-| `suggested_name` | Stem suggested by the Grayslate naming pipeline, or empty if it fell back |
-| `is_fallback` | `yes` if the pipeline produced no useful name, `no` otherwise |
+| `file` | Relative path of the source file (ground truth reference only) |
+| `actual_ext` | File extension derived from the filename (e.g. `py`, `ts`) |
+| `content_detected_lang` | Language detected from **content alone** — no filename hint |
+| `content_suggested_ext` | Extension the system maps to `content_detected_lang` |
+| `content_ext_match` | `yes` if `content_suggested_ext == actual_ext` — **primary detection metric** |
+| `suggested_name` | Stem suggested by the naming pipeline, or `""` on fallback |
+| `is_name_fallback` | `yes` if naming produced no useful name |
 
-The fallback rate (`is_fallback = yes`) is the primary metric. Lower is better.
+### How to use the CSV for fine-tuning
+
+**Detection failures** — rows where the system misidentified the language:
+```
+content_ext_match = no   AND   actual_ext != ""
+```
+
+**Naming gaps** — rows where naming fell back:
+```
+is_name_fallback = yes
+```
+
+**Per-language naming quality** — group by `content_detected_lang`, count `is_name_fallback = yes`.
+
+**Console summary** (printed per repo):
+```
+  fastapi: 500 files  |  content-detection: 94% (30 mismatches)  |  naming: 88% named (60 fallbacks)  → fastapi.csv
+```
 
 ## Directory layout
 
 ```
 tools/naming-audit/
-├── audit_repos.py      # Main audit script
-├── repos.txt           # List of repos to audit (edit this)
-├── repos/              # Cached git clones (gitignored, auto-created)
-│   └── <repo-name>/    # One subdirectory per cloned repo
-├── output/             # Generated CSVs (gitignored)
+├── audit_repos.py          # Main audit script — produces per-repo CSVs
+├── metrics.py              # Aggregate per-language accuracy summary
+├── filter_failures.py      # Extract failure rows into analysis subdirs
+├── repos.txt               # List of repos to audit (edit this)
+├── repos/                  # Cached git clones (gitignored, auto-created)
+│   └── <repo-name>/
+├── output/                 # Raw per-repo CSVs (gitignored)
 │   └── <repo-name>.csv
-└── README.md
+└── analysis/               # Generated analysis outputs (gitignored)
+    ├── metrics/
+    │   └── metrics.csv             # Per-language accuracy summary
+    ├── content_match_negatives/    # Rows where content_ext_match = no
+    │   └── <repo-name>.csv
+    └── name_fallback_positives/    # Rows where is_name_fallback = yes
+        └── <repo-name>.csv
 ```
 
 Cloned repos in `repos/` are gitignored. Delete a subdirectory to force a fresh clone on the next run.
 
-## How language detection works
+## Analysis workflow
 
-The audit tool passes `"auto"` as the language hint to the `name_file` binary along with the relative file path. The Rust detection pipeline resolves the language in four phases:
+After running `audit_repos.py`, generate all analysis outputs:
 
-1. **Extension / filename** — fast, deterministic map (`.rs` → rust, `Dockerfile` → dockerfile, etc.)
-2. **Shebang** — parses `#!/usr/bin/env python3` style lines
-3. **Structural** — recognises JSON, YAML, TOML, HTML, CSV, Markdown, and similar formats from content shape
-4. **Heuristic + tree-sitter** — weighted regex scoring across 20 language signatures; tree-sitter validates ambiguous results
+```sh
+# 1. Aggregate per-language accuracy metrics
+python metrics.py
+# → analysis/metrics/metrics.csv
 
-No language map is maintained in Python — detection is entirely handled by Rust.
+# 2. Extract failure records for targeted investigation
+python filter_failures.py
+# → analysis/content_match_negatives/<repo>.csv  (detection mismatches)
+# → analysis/name_fallback_positives/<repo>.csv  (naming fallbacks)
+```
+
+The `content_match_negatives/` files are the primary input for improving detection accuracy — each row shows exactly what the system guessed vs. what the actual extension was.
+
+## How detection and naming work
+
+The `name_file` binary receives content on stdin with **no filename argument**. It runs two steps:
+
+1. **Content-only detection** — the full 4-phase pipeline without any extension hint:
+   - Phase 2: Shebang line (`#!/usr/bin/env python3`)
+   - Phase 3: Structural signals (JSON, YAML, TOML, HTML, CSV, Markdown)
+   - Phase 4: Heuristic scoring across 20+ language signatures
+   - Phase 4a: Tree-sitter tiebreak for ambiguous results
+
+2. **Naming** — runs the language-appropriate extractor (code symbols, headings, keys, etc.) on the detected language.
+
+This is the exact code path triggered when a user pastes content into an untitled Grayslate slate.

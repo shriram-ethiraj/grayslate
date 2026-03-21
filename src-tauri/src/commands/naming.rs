@@ -141,24 +141,23 @@ pub fn suggest_slate_name(content: String, language_hint: String) -> SuggestResu
 // ---------------------------------------------------------------------------
 
 /// Reads a bounded sample of an existing file, detects its language from the
-/// path extension, runs the naming pipeline, and returns a suggested filename.
+/// file content, runs the naming pipeline, and returns a suggested filename
+/// (stem + extension).
 ///
 /// The frontend passes only the file path; the backend does all the I/O so no
 /// large content needs to cross the IPC boundary.
+///
+/// Language detection uses the same "auto" content-driven cascade as the
+/// untitled-save flow — the file extension is intentionally NOT used as a hint
+/// so that mis-named files (e.g. notes.txt containing Perl) still get the
+/// correct extension in the suggestion.
 #[tauri::command]
 pub fn suggest_name_for_file(path: String) -> Result<String, String> {
     use std::io::Read;
 
     let file_path = std::path::Path::new(&path);
 
-    // Derive language hint from the file's extension (e.g. "json", "ts", "py").
-    let language_hint = file_path
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("")
-        .to_lowercase();
-
-    // Read only what the naming pipeline can use (5 KB) to keep this fast.
+    // Read only what the naming pipeline can use to keep this fast.
     // Gracefully fall back to an empty string for binary or unreadable files.
     const READ_LIMIT: u64 = 8_192;
     let mut raw_bytes = Vec::with_capacity(READ_LIMIT as usize);
@@ -166,7 +165,9 @@ pub fn suggest_name_for_file(path: String) -> Result<String, String> {
         .and_then(|mut f| f.by_ref().take(READ_LIMIT).read_to_end(&mut raw_bytes));
     let content = String::from_utf8_lossy(&raw_bytes);
 
-    Ok(build_suggested_name(&content, &language_hint).0)
+    // "auto" triggers the same content-detection cascade as the untitled save:
+    // shebang → structural → heuristic scoring → correct language & extension.
+    Ok(build_suggested_name(&content, "auto").0)
 }
 
 // ---------------------------------------------------------------------------

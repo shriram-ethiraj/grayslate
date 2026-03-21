@@ -52,9 +52,27 @@
         if (!file) return;
         isGenerating = true;
         try {
-            const suggested = await invoke<string>("suggest_name_for_file", {
-                path: file.path,
-            });
+            let suggested: string;
+
+            // For the currently open file, use live editor content so that
+            // unsaved changes are reflected in the suggestion — same as untitled save.
+            const isCurrentFile = file.path === editorState.currentFilePath;
+            const view = editorState.activeView;
+
+            if (isCurrentFile && view) {
+                const content = view.state.doc.sliceString(0, 8192);
+                const result = await invoke<{
+                    filename: string;
+                    detectedLanguage: string;
+                }>("suggest_slate_name", { content, languageHint: "auto" });
+                suggested = result.filename;
+            } else {
+                // Non-current files: backend reads from disk and detects from content.
+                suggested = await invoke<string>("suggest_name_for_file", {
+                    path: file.path,
+                });
+            }
+
             inputValue = suggested;
             errorMessage = "";
             await focusAndSelectStem();

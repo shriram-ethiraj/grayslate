@@ -2,146 +2,11 @@
 ///
 /// Maps file extensions and known filenames to language IDs.
 /// This is the fastest and most deterministic phase.
+///
+/// All data is auto-derived from per-language definitions in `languages/`.
 use std::path::Path;
 
-use super::SUPPORTED_LANGUAGES;
-
-/// Extension → language ID (lowercase, no dot prefix in storage; lookup trims dot).
-static EXTENSION_MAP: &[(&str, &str)] = &[
-    // ── Data formats ─────────────────────────────────────────
-    (".json", "json"),
-    (".jsonc", "json"),
-    (".json5", "json"),
-    (".geojson", "json"),
-    (".webmanifest", "json"),
-    (".har", "json"),
-    (".csv", "csv"),
-    (".tsv", "csv"),
-    (".xml", "xml"),
-    (".svg", "xml"),
-    (".plist", "xml"),
-    (".xsl", "xml"),
-    (".xslt", "xml"),
-    (".xsd", "xml"),
-    (".wsdl", "xml"),
-    (".rss", "xml"),
-    (".atom", "xml"),
-    (".xaml", "xml"),
-    (".csproj", "xml"),
-    (".fsproj", "xml"),
-    (".vcxproj", "xml"),
-    // ── Config ───────────────────────────────────────────────
-    (".yaml", "yaml"),
-    (".yml", "yaml"),
-    (".toml", "toml"),
-    (".ini", "text"),
-    (".cfg", "text"),
-    (".env", "text"),
-    // ── Markup ───────────────────────────────────────────────
-    (".html", "html"),
-    (".htm", "html"),
-    (".xhtml", "html"),
-    (".svelte", "svelte"),
-    (".vue", "vue"),
-    (".md", "markdown"),
-    (".markdown", "markdown"),
-    (".mdx", "markdown"),
-    // ── Web languages ────────────────────────────────────────
-    (".js", "javascript"),
-    (".mjs", "javascript"),
-    (".cjs", "javascript"),
-    (".jsx", "javascript"),
-    (".ts", "typescript"),
-    (".tsx", "typescript"),
-    (".mts", "typescript"),
-    (".cts", "typescript"),
-    (".css", "css"),
-    (".less", "css"),
-    (".scss", "scss"),
-    (".sass", "sass"),
-    // ── Systems / compiled ───────────────────────────────────
-    (".py", "python"),
-    (".pyi", "python"),
-    (".pyw", "python"),
-    (".c", "c"),
-    (".h", "c"),
-    (".cpp", "cpp"),
-    (".cxx", "cpp"),
-    (".cc", "cpp"),
-    (".hpp", "cpp"),
-    (".hxx", "cpp"),
-    (".hh", "cpp"),
-    (".java", "java"),
-    (".go", "go"),
-    (".rs", "rust"),
-    (".rb", "ruby"),
-    (".php", "php"),
-    (".php3", "php"),
-    (".php4", "php"),
-    (".php5", "php"),
-    (".php7", "php"),
-    (".phtml", "php"),
-    (".swift", "swift"),
-    (".kt", "kotlin"),
-    (".kts", "kotlin"),
-    (".cs", "csharp"),
-    (".scala", "scala"),
-    (".dart", "dart"),
-    (".m", "objectivec"),
-    (".mm", "objectivecpp"),
-    (".lua", "text"),
-    (".pl", "text"),
-    (".pm", "text"),
-    // ── Functional ───────────────────────────────────────────
-    (".clj", "clojure"),
-    (".cljs", "clojure"),
-    (".cljc", "clojure"),
-    (".edn", "clojure"),
-    // ── Shell ────────────────────────────────────────────────
-    (".sh", "shell"),
-    (".bash", "shell"),
-    (".zsh", "shell"),
-    (".fish", "shell"),
-    (".ksh", "shell"),
-    (".ps1", "powershell"),
-    (".psd1", "powershell"),
-    (".psm1", "powershell"),
-    (".bat", "text"),
-    (".cmd", "text"),
-    // ── Dockerfile (explicit extension) ──────────────────────
-    (".dockerfile", "dockerfile"),
-    // ── SQL ──────────────────────────────────────────────────
-    (".sql", "sql"),
-    // ── Template languages ──────────────────────────────────
-    (".j2", "jinja"),
-    (".jinja", "jinja"),
-    (".jinja2", "jinja"),
-];
-
-/// Full filenames (lowercased) → language ID.
-static FILENAME_MAP: &[(&str, &str)] = &[
-    ("dockerfile", "dockerfile"),
-    ("makefile", "shell"),
-    ("gnumakefile", "shell"),
-    (".bashrc", "shell"),
-    (".bash_profile", "shell"),
-    (".bash_aliases", "shell"),
-    (".zshrc", "shell"),
-    (".zprofile", "shell"),
-    (".profile", "shell"),
-    (".editorconfig", "yaml"),
-    (".gitignore", "text"),
-    (".gitattributes", "text"),
-    (".env", "text"),
-    (".env.local", "text"),
-    ("jenkinsfile", "text"),
-    ("vagrantfile", "text"),
-    ("cargo.toml", "toml"),
-    ("cargo.lock", "toml"),
-    ("deps.edn", "clojure"),
-    ("gemfile", "ruby"),
-    ("rakefile", "ruby"),
-];
+use super::languages::{EXTENSION_MAP, FILENAME_MAP, FILENAME_PATTERNS, SUPPORTED_LANGUAGES};
 
 /// Detect language from a filename or path.
 ///
@@ -159,32 +24,30 @@ pub fn detect_by_filename(filename: &str) -> Option<&'static str> {
         .unwrap_or(&lower);
 
     // Full-filename match
-    for &(name, lang) in FILENAME_MAP {
+    for &(name, lang) in FILENAME_MAP.iter() {
         if base == name {
             return Some(ensure_supported(lang));
         }
     }
 
-    // Regex filename patterns: nginx*.conf
-    if is_nginx_conf(base) {
-        return Some(ensure_supported("nginx"));
+    // Regex filename patterns
+    for (re, lang) in FILENAME_PATTERNS.iter() {
+        if re.is_match(base) {
+            return Some(ensure_supported(lang));
+        }
     }
 
     // Extension match
     let path = Path::new(base);
     let ext_str = path.extension().and_then(|e| e.to_str())?;
-    let dot_ext = format!(".{}", ext_str);
-    for &(ext, lang) in EXTENSION_MAP {
-        if dot_ext == ext {
+    // Skip the leading '.' in each map entry rather than allocating a new String.
+    for &(ext, lang) in EXTENSION_MAP.iter() {
+        if &ext[1..] == ext_str {
             return Some(ensure_supported(lang));
         }
     }
 
     None
-}
-
-fn is_nginx_conf(base: &str) -> bool {
-    base.starts_with("nginx") && base.ends_with(".conf")
 }
 
 fn ensure_supported(lang: &str) -> &str {

@@ -1,15 +1,31 @@
 #!/usr/bin/env python3
 """
-audit_repos.py — Naming Audit Tool for Grayslate
+audit_repos.py — Naming & Detection Audit Tool for Grayslate
 
 Reads a list of GitHub URLs and/or local paths from repos.txt, fetches each
-repo's source files, runs them through the Grayslate naming system, and writes
-one CSV per repo to the output/ directory.
+repo's source files, runs them through the Grayslate content-only detection
+and naming pipelines, and writes one CSV per repo to the output/ directory.
 
 Cloned repos are cached in the repos/ directory so repeat runs are fast.
 Use --update to pull the latest commits for already-cached repos.
 
-CSV columns:  file, language, suggested_name, is_fallback
+Use case: evaluating how well the system handles raw content with no filename
+context — the primary path for paste and untitled documents in Grayslate.
+The actual file extension is recorded as ground truth for accuracy measurement.
+
+CSV columns:
+  file                  Relative path within the repo (ground truth reference)
+  actual_ext            Ground-truth file extension derived from the filename
+  content_detected_lang Language detected from content alone (no filename hint)
+  content_suggested_ext Extension the system maps to content_detected_lang
+  content_ext_match     "yes" if content_suggested_ext == actual_ext  ← primary metric
+  suggested_name        Stem suggested by the naming pipeline, or "" on fallback
+  is_name_fallback      "yes" if naming fell back (no useful name found)
+
+Key metrics for fine-tuning:
+  - Filter content_ext_match=no  → detection failures to fix
+  - Filter is_name_fallback=yes  → naming gaps
+  - Group by content_detected_lang → per-language naming fallback rates
 
 Usage:
     # Build the Rust binary first, then run the audit:
@@ -27,6 +43,9 @@ Usage:
     # Custom repos file:
     python audit_repos.py --repos repos.txt
 
+    # Limit parallelism to 4 workers (default: all logical CPU cores):
+    python audit_repos.py --workers 4
+
 Requirements:
     - Python 3.10+
     - git (for cloning remote repos)
@@ -34,7 +53,9 @@ Requirements:
 """
 
 import argparse
+import concurrent.futures
 import csv
+import json
 import os
 import re
 import subprocess
@@ -73,6 +94,7 @@ SKIP_EXTENSIONS: set[str] = {
     ".class",
     ".wasm",
     ".patch", ".diff",
+    ".npmrc",         # INI-like config; trivial to detect as text, adds noise
 }
 
 # Directory names to prune during traversal
@@ -147,85 +169,211 @@ def walk_repo(repo_dir: Path):
             rel_path = abs_path.relative_to(repo_dir).as_posix()
             if should_skip_path(rel_path):
                 continue
-            if abs_path.stat().st_size > MAX_FILE_BYTES:
-                continue
+            try:
+                st = abs_path.stat()
+                if st.st_size == 0 or st.st_size > MAX_FILE_BYTES:
+                    continue
+            except OSError:
+                continue  # path too long or inaccessible on Windows
             yield rel_path, abs_path
 
 
-# ── Naming via the Rust binary ────────────────────────────────────────────────
+# ── Naming + detection via the Rust binary ───────────────────────────────────
 
-def suggest_name(binary: Path, content: str, rel_path: str) -> tuple[str, bool]:
+# Fallback result when the binary fails or produces no output.
+_EMPTY_RESULT = {
+    "content_detected_lang": "",
+    "content_suggested_ext": "",
+    "suggested_name": "",
+}
+
+
+def query_binary(binary: Path, content: str) -> dict:
     """
-    Call the name_file binary with auto-detection.
+    Call the name_file binary with content from stdin only — no filename hint.
 
-    Passes "auto" as the language hint and the relative file path so the Rust
-    detection pipeline can use the file extension as a Phase 1 hint.
+    The binary performs content-only detection and naming, mirroring the
+    paste/untitled document flow in Grayslate.
 
-    Returns (suggested_name, is_fallback).
-    is_fallback is True when the binary prints nothing (naming failed).
+    Returns a dict with keys:
+      content_detected_lang, content_suggested_ext, suggested_name
+    On any failure, returns _EMPTY_RESULT (all empty strings).
     """
     try:
         result = subprocess.run(
-            [str(binary), "auto", rel_path],
-            input=content[:5000],   # mirror naming::bound() 5 000-byte cap
+            [str(binary)],
+            input=content[:50000],  # mirror detection::MAX_DETECTION_BYTES (50 KB)
             capture_output=True,
             text=True,
             timeout=10,
             encoding="utf-8",
             errors="replace",
         )
-        name = result.stdout.strip()
-        return (name, name == "")
-    except subprocess.TimeoutExpired:
-        return ("", True)
-    except Exception:
-        return ("", True)
+        raw = result.stdout.strip()
+        if not raw:
+            return dict(_EMPTY_RESULT)
+        return json.loads(raw)
+    except (subprocess.TimeoutExpired, json.JSONDecodeError, Exception):
+        return dict(_EMPTY_RESULT)
+
+
+def actual_ext(rel_path: str) -> str:
+    """
+    Return the lowercased file extension from a relative path (e.g. "py"),
+    or "" for files with no extension (e.g. "Dockerfile", "Makefile").
+    """
+    name = Path(rel_path).name.lower()
+    if "." in name:
+        return name.rsplit(".", 1)[-1]
+    return ""
 
 
 # ── Per-repo audit ────────────────────────────────────────────────────────────
+
+# CSV column order — update README.md if this changes.
+_FIELDNAMES = [
+    "file",
+    "actual_ext",
+    "content_detected_lang",
+    "content_suggested_ext",
+    "content_ext_match",
+    "suggested_name",
+    "is_name_fallback",
+]
+
+
+def _process_file(args: tuple) -> dict | None:
+    """
+    Worker unit: read one file and query the binary.
+
+    Accepts a (rel_path, abs_path, binary) tuple so it can be dispatched
+    via executor.map() without needing a closure.
+    Returns a result dict on success, or None if the file cannot be read.
+    """
+    rel_path, abs_path, binary = args
+    try:
+        content = abs_path.read_text(encoding="utf-8", errors="ignore")
+    except Exception:
+        return None
+
+    data = query_binary(binary, content)
+    ext = actual_ext(rel_path)
+    is_name_fb = data["suggested_name"] == ""
+
+    # Extension alias groups — all extensions in a group are considered equivalent
+    # for detection accuracy purposes (e.g. .tsx IS TypeScript, .yml IS YAML).
+    _TS_GROUP = {"ts", "tsx", "mts", "cts"}
+    _JS_GROUP = {"js", "jsx", "mjs", "cjs"}
+    _YAML_GROUP = {"yaml", "yml", "cff"}
+    _MD_GROUP = {"md", "mdx", "markdown"}
+    _CPP_GROUP = {"cpp", "cc", "cxx", "c++", "h", "hpp", "hh", "hxx"}
+    _C_GROUP = {"c", "h"}
+    _RB_GROUP = {"rb", "gemspec", "rake", "jbuilder"}
+    _KT_GROUP = {"kt", "kts"}
+    _XML_GROUP = {"xml", "plist", "csproj", "nuspec", "xcworkspacedata",
+                  "storyboard", "xcscheme", "entitlements", "xcsettings"}
+    _CSV_GROUP = {"csv", "tsv"}
+    _SCSS_GROUP = {"scss", "sass"}
+    # JSON-family: .arb and .prettierrc are JSON-formatted config files
+    _JSON_GROUP = {"json", "jsonc", "json5", "geojson", "arb", "prettierrc"}
+    # Text-family: ignore-files and plain-text configs that correctly detect as text
+    _TEXT_GROUP = {"txt", "ini", "cfg", "eslintignore", "gitignore",
+                   "gitattributes", "editorconfig"}
+
+    _EXT_ALIASES = {}
+    for _group in [_TS_GROUP, _JS_GROUP, _YAML_GROUP, _MD_GROUP,
+                   _CPP_GROUP, _RB_GROUP, _KT_GROUP, _XML_GROUP,
+                   _CSV_GROUP, _SCSS_GROUP, _JSON_GROUP, _TEXT_GROUP]:
+        for _ext in _group:
+            _EXT_ALIASES[_ext] = _group
+    # C/C++ header overlap: `h` maps to both C and C++ — use the wider group
+    for _ext in _C_GROUP:
+        _EXT_ALIASES[_ext] = _CPP_GROUP  # h→{cpp,cc,cxx,c++,h,hpp,hh,hxx}
+
+    # Known no-extension filenames and their expected content_suggested_ext value.
+    # Used to evaluate detection accuracy for files like Dockerfile, Makefile, etc.
+    _NO_EXT_EXPECTED = {
+        "dockerfile": "dockerfile",
+        "makefile": "sh",
+        "gnumakefile": "sh",
+        "rakefile": "rb",
+        "gemfile": "rb",
+        "jenkinsfile": "txt",
+        "vagrantfile": "txt",
+    }
+
+    suggested = data["content_suggested_ext"]
+    # Check if suggested extension matches actual extension (including aliases)
+    if ext and suggested:
+        alias_group = _EXT_ALIASES.get(suggested, {suggested})
+        content_ext_ok = "yes" if ext in alias_group else "no"
+    elif not ext and suggested:
+        # No-extension file (e.g. Dockerfile, Makefile): compare against known map
+        filename_base = Path(rel_path).name.lower()
+        expected_ext = _NO_EXT_EXPECTED.get(filename_base)
+        content_ext_ok = "yes" if expected_ext and suggested == expected_ext else "no"
+    else:
+        content_ext_ok = "no"
+
+    return {
+        "file": rel_path,
+        "actual_ext": ext,
+        "content_detected_lang": data["content_detected_lang"],
+        "content_suggested_ext": data["content_suggested_ext"],
+        "content_ext_match": content_ext_ok,
+        "suggested_name": data["suggested_name"],
+        "is_name_fallback": "yes" if is_name_fb else "no",
+        # internal flags used only for stats accumulation
+        "_is_name_fb": is_name_fb,
+        "_content_ext_ok": content_ext_ok,
+        "_ext": ext,
+    }
+
 
 def audit_repo(
     repo_dir: Path,
     repo_name: str,
     binary: Path,
     output_dir: Path,
+    workers: int = 1,
 ) -> None:
-    """Walk repo_dir, name every file, and write <repo_name>.csv to output_dir."""
+    """Walk repo_dir, analyse every file in parallel, and write <repo_name>.csv to output_dir."""
     output_dir.mkdir(parents=True, exist_ok=True)
     csv_path = output_dir / f"{repo_name}.csv"
 
+    # Collect all files upfront so executor.map() can distribute them evenly.
+    file_list = list(walk_repo(repo_dir))
+    work_items = [(rel_path, abs_path, binary) for rel_path, abs_path in file_list]
+
     rows: list[dict] = []
-    total = fallbacks = 0
+    total = name_fallbacks = detect_mismatches = 0
 
-    for rel_path, abs_path in walk_repo(repo_dir):
-        try:
-            content = abs_path.read_text(encoding="utf-8", errors="ignore")
-        except Exception:
-            continue
-
-        name, is_fb = suggest_name(binary, content, rel_path)
-        total += 1
-        if is_fb:
-            fallbacks += 1
-
-        rows.append({
-            "file": rel_path,
-            "suggested_name": name,
-            "is_fallback": "yes" if is_fb else "no",
-        })
+    # ThreadPoolExecutor is appropriate here: each task is subprocess/I/O-bound,
+    # so the GIL is released during the subprocess call and threads scale well.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+        for result in executor.map(_process_file, work_items):
+            if result is None:
+                continue
+            total += 1
+            if result["_is_name_fb"]:
+                name_fallbacks += 1
+            if result["_content_ext_ok"] == "no" and result["_ext"] != "":
+                detect_mismatches += 1
+            # Strip internal stat keys before appending to output rows.
+            rows.append({k: v for k, v in result.items() if not k.startswith("_")})
 
     with open(csv_path, "w", newline="", encoding="utf-8") as fh:
-        writer = csv.DictWriter(
-            fh,
-            fieldnames=["file", "suggested_name", "is_fallback"],
-        )
+        writer = csv.DictWriter(fh, fieldnames=_FIELDNAMES)
         writer.writeheader()
         writer.writerows(rows)
 
-    pct = round(100 * (total - fallbacks) / total) if total else 0
+    named_pct = round(100 * (total - name_fallbacks) / total) if total else 0
+    detected_pct = round(100 * (total - detect_mismatches) / total) if total else 0
     print(
-        f"  {repo_name}: {total} files audited, "
-        f"{fallbacks} fallbacks ({pct}% named) → {csv_path.name}"
+        f"  {repo_name}: {total} files  |  "
+        f"content-detection: {detected_pct}% ({detect_mismatches} mismatches)  |  "
+        f"naming: {named_pct}% named ({name_fallbacks} fallbacks)  "
+        f"→ {csv_path.name}"
     )
 
 
@@ -278,6 +426,15 @@ def clone_or_update(clone_url: str, dest: Path, update: bool) -> bool:
         text=True,
     )
     if result.returncode != 0:
+        if dest.is_dir():
+            # Partial checkout — some paths were too long for the OS (e.g. Windows
+            # MAX_PATH).  Audit whatever files were successfully checked out.
+            print(
+                "  Checkout partially failed (long paths?). "
+                "Auditing available files.",
+                file=sys.stderr,
+            )
+            return True
         err = result.stderr.strip() or result.stdout.strip()
         print(f"  Clone failed: {err}", file=sys.stderr)
         return False
@@ -296,6 +453,16 @@ def main() -> None:
         "--build",
         action="store_true",
         help="Build (or rebuild) the name_file Rust binary before running.",
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=os.cpu_count() or 1,
+        metavar="N",
+        help=(
+            "Number of parallel workers for processing files within each repo "
+            "(default: number of logical CPU cores)."
+        ),
     )
     parser.add_argument(
         "--update",
@@ -334,9 +501,10 @@ def main() -> None:
         )
         sys.exit(1)
 
-    print(f"Binary : {binary}")
-    print(f"Cache  : {REPOS_CACHE_DIR}")
-    print(f"Output : {output_dir}\n")
+    print(f"Binary  : {binary}")
+    print(f"Cache   : {REPOS_CACHE_DIR}")
+    print(f"Output  : {output_dir}")
+    print(f"Workers : {args.workers}\n")
 
     # ── Parse repos list ──────────────────────────────────────────────────────
     if not repos_file.exists():
@@ -365,13 +533,13 @@ def main() -> None:
             dest = REPOS_CACHE_DIR / repo_name
             if not clone_or_update(clone_url, dest, args.update):
                 continue
-            audit_repo(dest, repo_name, binary, output_dir)
+            audit_repo(dest, repo_name, binary, output_dir, args.workers)
         else:
             local_path = Path(entry).expanduser().resolve()
             if not local_path.is_dir():
                 print(f"  Local path not found: {local_path}", file=sys.stderr)
                 continue
-            audit_repo(local_path, repo_name, binary, output_dir)
+            audit_repo(local_path, repo_name, binary, output_dir, args.workers)
 
     print(f"\nDone! CSVs are in: {output_dir}")
 

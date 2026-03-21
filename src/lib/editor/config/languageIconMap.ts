@@ -34,6 +34,7 @@ import SiToml from "~icons/simple-icons/toml";
 import SiSass from "~icons/simple-icons/sass";
 import SiJinja from "~icons/simple-icons/jinja";
 import SiPowershell from "~icons/simple-icons/powershell";
+import SiPerl from "~icons/simple-icons/perl";
 
 export type LanguageIcon = Component;
 
@@ -82,6 +83,7 @@ const CSHARP:       Language = { value: "csharp",       label: "C#",           t
 const SCALA:        Language = { value: "scala",        label: "Scala",        token: "SCALA",   icon: SiScala };
 const DART:         Language = { value: "dart",         label: "Dart",         token: "DART",    icon: SiDart };
 const JSON:         Language = { value: "json",         label: "JSON",         token: "JSON",    icon: SiJson };
+const PERL:         Language = { value: "perl",         label: "Perl",         token: "PERL",    icon: SiPerl };
 
 // All known languages
 const ALL_LANGUAGES: Language[] = [
@@ -89,7 +91,7 @@ const ALL_LANGUAGES: Language[] = [
     C, CPP, JAVA, GO, XML, CSV, MARKDOWN, SHELL, DOCKERFILE,
     SVELTE, VUE, RUST, CLOJURE, SQL, PHP, SASS, SCSS, JINJA,
     ANGULAR, NGINX, POWERSHELL, RUBY, SWIFT, TOML, KOTLIN,
-    OBJECTIVEC, OBJECTIVECPP, CSHARP, SCALA, DART, JSON,
+    OBJECTIVEC, OBJECTIVECPP, CSHARP, SCALA, DART, JSON, PERL,
 ];
 
 /**

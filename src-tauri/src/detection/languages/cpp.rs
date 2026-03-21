@@ -1,0 +1,48 @@
+use super::{wp, LanguageDefinition};
+
+pub fn definition() -> LanguageDefinition {
+    LanguageDefinition {
+        name: "cpp",
+        extensions: &[".cpp", ".cxx", ".cc", ".hpp", ".hxx", ".hh"],
+        filenames: &[],
+        filename_patterns: &[],
+        shebangs: &[],
+        structural_priority: None,
+        structural_detect: None,
+        patterns: &[
+            wp!(r"\bstd::\w+", 5),
+            wp!(r"\bcout\s*<<", 5),
+            wp!(r"\bcin\s*>>", 5),
+            wp!(r"(?m)#include\s*<(iostream|string|vector|map|set|algorithm|memory|functional)>", 5),
+            wp!(r"\busing\s+namespace\s+std\b", 5),
+            wp!(r"\bnullptr\b", 4),
+            wp!(r"\b(unique_ptr|shared_ptr|weak_ptr)<", 4),
+            wp!(r"\bconstexpr\b", 3),
+            wp!(r"(?m)\btemplate\s*<", 3),
+            wp!(r"(?m)\bauto\s+\w+\s*=", 2),
+            wp!(r"(?m)\bclass\s+\w+\s*[:\{]", 2),
+            wp!(r"\bvirtual\s+", 2),
+            wp!(r#"(?m)#include\s*[<"]"#, 2),
+            wp!(r"->\w+", 1),
+        ],
+        anti_patterns: &[],
+        uses_hash_comments: false,
+        keywords: &[
+            "constexpr", "consteval", "constinit", "decltype", "noexcept",
+            "nullptr", "template", "typename", "virtual", "override",
+            "final", "explicit", "mutable", "namespace", "using",
+            "concept", "requires", "co_await", "co_return", "co_yield",
+            "static_cast", "dynamic_cast", "reinterpret_cast", "const_cast",
+            "static_assert", "thread_local", "alignas", "alignof",
+        ],
+        builtins: &[
+            "cout", "cin", "cerr", "endl", "string", "vector", "map",
+            "set", "deque", "list", "queue", "stack", "pair",
+            "unique_ptr", "shared_ptr", "weak_ptr", "optional",
+            "variant", "mutex", "future", "promise", "tuple",
+        ],
+        illegal: None,
+        // extends: Some("c"),  // disabled: causes C++ to outscore C on pure C content
+        extends: None,
+    }
+}

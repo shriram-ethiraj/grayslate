@@ -33,8 +33,14 @@ fn get_ts_language(lang: &str) -> Option<tree_sitter::Language> {
 fn validation_error_ratio(content: &str, lang: &str) -> Option<f64> {
     let ts_lang = get_ts_language(lang)?;
 
+    // Walk back from MAX_VALIDATION_BYTES to a safe UTF-8 char boundary so we
+    // never panic when the limit lands mid-codepoint.
     let bounded = if content.len() > MAX_VALIDATION_BYTES {
-        &content[..MAX_VALIDATION_BYTES]
+        let mut end = MAX_VALIDATION_BYTES;
+        while end > 0 && !content.is_char_boundary(end) {
+            end -= 1;
+        }
+        &content[..end]
     } else {
         content
     };
@@ -104,6 +110,41 @@ pub fn validate_candidates(content: &str, candidate_a: &str, candidate_b: &str) 
         (None, Some(_)) => lang_to_static(candidate_b),
         (None, None) => None,
     }
+}
+
+/// Validate a heuristic winner against tree-sitter.
+///
+/// If the winner parses with too many errors (>30%), and the runner-up
+/// parses better, return the runner-up instead. This catches cases where
+/// heuristic scoring picks the wrong language but the parse tree reveals it.
+pub fn validate_winner<'a>(
+    content: &str,
+    winner: &'a str,
+    runner_up: Option<&'a str>,
+) -> &'a str {
+    let winner_ratio = match validation_error_ratio(content, winner) {
+        Some(r) => r,
+        None => return winner, // No grammar for winner — can't validate
+    };
+
+    // Winner parses well enough
+    if winner_ratio <= 0.3 {
+        return winner;
+    }
+
+    // Winner has high error ratio — check runner-up
+    if let Some(runner) = runner_up {
+        if let Some(runner_ratio) = validation_error_ratio(content, runner) {
+            if runner_ratio < winner_ratio && runner_ratio <= 0.3 {
+                // Runner-up parses significantly better
+                if let Some(static_runner) = lang_to_static(runner) {
+                    return static_runner;
+                }
+            }
+        }
+    }
+
+    winner
 }
 
 /// Convert a language string to a &'static str (matches our known IDs).

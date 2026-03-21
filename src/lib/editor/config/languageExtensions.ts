@@ -41,6 +41,7 @@ import { shell } from "@codemirror/legacy-modes/mode/shell";
 import { dockerFile } from "@codemirror/legacy-modes/mode/dockerfile";
 import { nginx } from "@codemirror/legacy-modes/mode/nginx";
 import { powerShell } from "@codemirror/legacy-modes/mode/powershell";
+import { perl } from "@codemirror/legacy-modes/mode/perl";
 import { ruby } from "@codemirror/legacy-modes/mode/ruby";
 import { swift } from "@codemirror/legacy-modes/mode/swift";
 import { toml } from "@codemirror/legacy-modes/mode/toml";
@@ -128,6 +129,8 @@ export function getLanguageExtension(langId: string): Extension | Extension[] {
             return angular();
         case "nginx":
             return StreamLanguage.define(nginx);
+        case "perl":
+            return StreamLanguage.define(perl);
         case "powershell":
             return StreamLanguage.define(powerShell);
         case "ruby":

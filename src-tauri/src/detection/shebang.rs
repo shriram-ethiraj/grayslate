@@ -1,58 +1,15 @@
 /// Phase 2 — Shebang line detection.
 ///
 /// Parses `#!/...` lines to identify the interpreter.
-use regex::Regex;
-use std::sync::LazyLock;
-
-struct ShebangPattern {
-    pattern: &'static str,
-    language: &'static str,
-}
-
-static SHEBANG_PATTERNS: &[ShebangPattern] = &[
-    ShebangPattern {
-        pattern: r"\bpython[23w]?\b",
-        language: "python",
-    },
-    ShebangPattern {
-        pattern: r"\bnode(js)?\b",
-        language: "javascript",
-    },
-    ShebangPattern {
-        pattern: r"\bdeno\b",
-        language: "typescript",
-    },
-    ShebangPattern {
-        pattern: r"\b(ba|z|k|fi)?sh\b",
-        language: "shell",
-    },
-    ShebangPattern {
-        pattern: r"\bperl\b",
-        language: "text",
-    },
-    ShebangPattern {
-        pattern: r"\bruby\b",
-        language: "ruby",
-    },
-    ShebangPattern {
-        pattern: r"\bphp\b",
-        language: "php",
-    },
-];
-
-static COMPILED_SHEBANGS: LazyLock<Vec<(Regex, &'static str)>> = LazyLock::new(|| {
-    SHEBANG_PATTERNS
-        .iter()
-        .map(|sp| (Regex::new(sp.pattern).unwrap(), sp.language))
-        .collect()
-});
+/// Patterns are auto-derived from per-language definitions in `languages/`.
+use super::languages::SHEBANG_MAP;
 
 /// Detect language from a shebang line (e.g. `#!/usr/bin/env python3`).
 ///
 /// The input should be the first line of the content, already confirmed
 /// to start with `#!`.
 pub fn detect_by_shebang(first_line: &str) -> Option<&'static str> {
-    for (regex, language) in COMPILED_SHEBANGS.iter() {
+    for (regex, language) in SHEBANG_MAP.iter() {
         if regex.is_match(first_line) {
             return Some(language);
         }

@@ -1,0 +1,13 @@
+# Generated audit output (per-repo CSVs and summary files)
+output/
+
+# Analysis artifacts (content-match negatives, metrics, fallback positives)
+analysis/
+
+# Cloned repos used for auditing (subdirectories and per-repo result CSVs)
+repos/*/
+repos/*.csv
+
+# Python cache
+__pycache__/
+*.pyc

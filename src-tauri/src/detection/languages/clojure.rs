@@ -1,0 +1,63 @@
+use super::{wp, LanguageDefinition};
+
+pub fn definition() -> LanguageDefinition {
+    LanguageDefinition {
+        name: "clojure",
+        extensions: &[".clj", ".cljs", ".cljc", ".edn"],
+        filenames: &["deps.edn"],
+        filename_patterns: &[],
+        shebangs: &[],
+        structural_priority: None,
+        structural_detect: None,
+        patterns: &[
+            wp!(r"(?m)^\s*\(ns\s+[\w.\-]+", 5),
+            wp!(r"\(defn\s+\w+", 5),
+            wp!(r"\(def\s+\w+", 3),
+            wp!(r"\(let\s+\[", 3),
+            wp!(r"\(if\s+", 1),
+            wp!(r"\(cond\s", 3),
+            wp!(r"\(map\s+", 1),
+            wp!(r"\(reduce\s+", 2),
+            wp!(r#"\(require\s+'"#, 4),
+            wp!(r#"\(import\s+'"#, 3),
+            wp!(r"#\(", 2),
+            // Require `:keyword` in Lisp context — preceded/followed by space or paren
+            wp!(r"[\s(]:\w[\w\-]*[\s)]", 2),
+            wp!(r"\(assoc\s", 3),
+            wp!(r"\(-> ", 3),
+            wp!(r"\(->> ", 3),
+        ],
+        anti_patterns: &[
+            wp!(r"(?m)class\s+\w+", -5),
+            wp!(r#"(?m)^\s*import\s+[\w\{*].*\s+from\s+['"`]"#, -5),
+            wp!(r"(?m)^\s*export\s+(const|let|var|function|class|default)\s", -5),
+            wp!(r"(?m)^\s*(func|package|const|var|type)\s", -5),
+            wp!(r"(?m)^(github\.com|golang\.org|gopkg\.in)/", -5),
+            wp!(r"(?m)error\[E\d+\]", -5),
+            wp!(r"(?m)^\s*,-\[", -5),
+            wp!(r"(?m)^\s*`----", -3),
+            wp!(r"(?m)^\s*\d+\s*\|", -3),
+            wp!(r"(?m)^\s*(pub\s+)?(fn|struct|enum|mod|trait|impl|use)\s", -5),
+            wp!(r"<%[=\-]?\s|%>", -5),
+            wp!(r"<(div|span|p|a|form|input|table|tr|td|ul|li|h[1-6])\b", -5),
+            wp!(r"(?m)^\s*end\s*$", -3),
+            wp!(r"\bdo\s*\|", -3),
+        ],
+        uses_hash_comments: false,
+        keywords: &[
+            "defn", "defmacro", "defonce", "defprotocol", "defstruct",
+            "defmulti", "defmethod", "deftype", "defrecord", "ns",
+            "require", "recur", "binding", "doseq", "dotimes",
+            "cond", "when", "if-let", "when-let", "loop", "fn", "let",
+        ],
+        builtins: &[
+            "conj", "assoc", "dissoc", "merge", "first", "rest",
+            "seq", "vec", "map", "filter", "reduce", "range",
+            "repeat", "cycle", "take", "drop", "partition",
+            "sort", "reverse", "count", "into", "atom", "deref",
+            "swap", "reset", "comp", "partial", "juxt",
+        ],
+        illegal: None,
+        extends: None,
+    }
+}

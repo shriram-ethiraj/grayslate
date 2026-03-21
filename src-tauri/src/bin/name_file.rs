@@ -1,41 +1,52 @@
-/// name_file — thin CLI wrapper around grayslate_lib naming pipeline.
+/// name_file — thin CLI wrapper around grayslate_lib naming + detection pipelines.
 ///
 /// Usage:
-///   echo "file content" | name_file [language_hint] [filename]
+///   echo "file content" | name_file
 ///
-/// Arguments:
-///   language_hint  Language to use for naming (e.g. "rust", "python", "json").
-///                  Pass "auto" or omit to let Rust detect from content + filename.
-///   filename       Original filename (e.g. "main.rs"). Used as a detection hint
-///                  when language_hint is "auto". Optional.
+/// Reads document content from stdin and performs content-only analysis:
+///   1. Detects the language without any filename hint (mirrors paste/untitled flow).
+///   2. Runs the naming pipeline using the detected language.
 ///
-/// Reads content from stdin, writes the suggested filename stem to stdout.
-/// Prints nothing if the naming system cannot derive a useful name (fallback).
+/// Writes a single JSON object to stdout:
 ///
-/// Language hints match the values used in the Grayslate naming pipeline, e.g.:
-///   rust  typescript  javascript  python  svelte  json  toml  yaml
-///   markdown  sql  html  css  go  java  cpp  c  bash  csv
+///   {
+///     "content_detected_lang": "python",   // language detected from content alone
+///     "content_suggested_ext": "py",        // canonical extension for that language
+///     "suggested_name":        "my-module" // naming result, or "" on fallback
+///   }
 ///
-/// This binary is intended for use by audit_repos.py to scan external repos.
+/// This binary is intended for use by audit_repos.py to evaluate how well the
+/// Grayslate detection and naming pipelines handle content without any filename
+/// context — the primary path for paste/untitled documents.
 use std::io::{self, Read};
 
-use grayslate_lib::naming;
+use grayslate_lib::{detection, naming};
 
 fn main() {
-    let args: Vec<String> = std::env::args().collect();
-
-    // language_hint defaults to "auto" when not provided.
-    let lang_hint = args.get(1).map(|s| s.as_str()).unwrap_or("auto");
-
-    // Optional filename — used as an extension hint when lang_hint is "auto".
-    let filename = args.get(2).map(|s| s.as_str());
-
     let mut content = String::new();
     io::stdin().read_to_string(&mut content).ok();
 
-    let (name, _lang) = naming::suggest_stem_auto(&content, lang_hint, filename);
-    if let Some(name) = name {
-        print!("{}", name);
-    }
-    // Nothing printed → caller treats it as a fallback.
+    // Content-only detection: no filename hint, mirrors the paste/untitled path.
+    let detected_lang = detection::detect_language(&content, None)
+        .unwrap_or("text")
+        .to_string();
+
+    let suggested_ext = naming::language_to_extension(&detected_lang);
+
+    // Naming uses the detected language; no filename context.
+    let suggested_name = naming::suggest_stem(&content, &detected_lang)
+        .unwrap_or_default();
+
+    let json = format!(
+        "{{\"content_detected_lang\":{},\"content_suggested_ext\":{},\"suggested_name\":{}}}",
+        json_str(&detected_lang),
+        json_str(suggested_ext),
+        json_str(&suggested_name),
+    );
+    println!("{}", json);
+}
+
+/// Minimal JSON string escaping for the fields we emit (no control chars expected).
+fn json_str(s: &str) -> String {
+    format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
 }

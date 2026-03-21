@@ -44,6 +44,8 @@ pub fn slugify(raw: &str) -> Option<String> {
         .map(|c| match c {
             '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' | '\0' => '-',
             '_' | ' ' | '\t' | '\n' | '\r' | '.' => '-',
+            // Punctuation that should never appear in a filename stem.
+            ',' | ';' | '(' | ')' | '{' | '}' | '[' | ']' | '#' | '@' => '-',
             _ => c,
         })
         .collect::<String>()

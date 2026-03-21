@@ -29,7 +29,7 @@
 # https://github.com/microsoft/vscode
 # https://github.com/rust-lang/rust
 
-
+# Phase 1
 https://github.com/nicehash/NiceHashQuickMiner
 https://github.com/practical-tutorials/project-based-learning
 https://github.com/kamranahmedse/developer-roadmap
@@ -39,3 +39,18 @@ https://github.com/dair-ai/Prompt-Engineering-Guide
 https://github.com/gin-gonic/gin
 https://github.com/shadcn-ui/ui
 https://github.com/vercel/next.js/
+
+Phase 2
+https://github.com/docker/awesome-compose
+https://github.com/vapor/vapor
+https://github.com/flutter/gallery
+https://github.com/laravel/framework
+https://github.com/ripienaar/free-for-dev
+https://github.com/coreui/coreui-free-bootstrap-admin-template
+https://github.com/twbs/bootstrap
+https://github.com/foundation/foundation-sites
+https://github.com/rails/rails
+https://github.com/jekyll/jekyll
+https://github.com/necolas/normalize.css
+https://github.com/square/okhttp
+https://github.com/android/architecture-samples

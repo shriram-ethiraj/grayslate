@@ -33,6 +33,3 @@ Thumbs.db
 .venv
 .python-version
 
-# Naming audit — generated output and cached repo clones
-tools/naming-audit/output/*.csv
-tools/naming-audit/repos/*/

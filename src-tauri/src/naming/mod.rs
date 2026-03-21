@@ -183,6 +183,10 @@ fn language_profile(language_hint: &str) -> LanguageNamingProfile {
             extension: "rb",
             extractor: ExtractorGroup::Code(CodeStyle::Ruby),
         },
+        "perl" => LanguageNamingProfile {
+            extension: "pl",
+            extractor: ExtractorGroup::Prose,
+        },
         "php" => LanguageNamingProfile {
             extension: "php",
             extractor: ExtractorGroup::Code(CodeStyle::Php),
@@ -462,6 +466,7 @@ mod tests {
         assert_eq!(language_to_extension("python"), "py");
         assert_eq!(language_to_extension("rust"), "rs");
         assert_eq!(language_to_extension("sql"), "sql");
+        assert_eq!(language_to_extension("perl"), "pl");
         assert_eq!(language_to_extension("unknown_lang"), "txt");
     }
 

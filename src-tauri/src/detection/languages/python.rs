@@ -1,0 +1,60 @@
+use super::{wp, LanguageDefinition};
+
+pub fn definition() -> LanguageDefinition {
+    LanguageDefinition {
+        name: "python",
+        extensions: &[".py", ".pyi", ".pyw"],
+        filenames: &[],
+        filename_patterns: &[],
+        shebangs: &[r"\bpython[23w]?\b"],
+        structural_priority: None,
+        structural_detect: None,
+        patterns: &[
+            wp!(r"(?m)^\s*def\s+\w+\s*\(", 3),
+            wp!(r"(?m)^\s*class\s+\w+[^:\n]{0,80}:", 3),
+            wp!(r"(?m)^\s*from\s+\w+\s+import\s", 3),
+            wp!(r"(?m)^\s*from\s+\.[\w.]*\s+import\s", 3),
+            wp!(r"(?m)^\s*import\s+\w+", 2),
+            wp!(r"(?m)^\s*elif\s+", 5),
+            wp!(r#"if\s+__name__\s*==\s*['"]__main__['"]"#, 5),
+            wp!(r"\bself\.\w+", 3),
+            wp!(r"(?m)^\s*@\w+(\.\w+)*(\(.*\))?\s*$", 2),
+            wp!(r"(?m)^\s*(try|except|finally)\s*:", 2),
+            wp!(r"\b(None|True|False)\b", 1),
+            wp!(r"(?m)^\s*with\s+\w+[^:\n]{0,80}\s+as\s+", 3),
+            wp!(r"(?m)^\s*raise\s+\w+", 2),
+            wp!(r"(?m)^\s*yield\s+", 2),
+            wp!(r"\bprint\s*\(", 1),
+            wp!(r"\blen\s*\(", 1),
+            wp!(r"(?m)^\s*async\s+def\s+\w+", 4),
+            wp!(r"(?m)^__all__\s*=\s*[\[\(]", 4),
+            wp!(r"(?m)^__version__\s*=\s*", 2),
+            wp!(r"(?m)^__author__\s*=\s*", 2),
+            // REPL prompt (relevance 10 in highlight.js)
+            wp!(r"(?m)^>>> ", 5),
+            // f-string: f"...{expr}..."
+            wp!(r#"f['"][^'"]*\{[^}]+\}"#, 3),
+            // Type hints: `-> type`, `: type =`
+            wp!(r"(?m)\)\s*->\s*\w+\s*:", 3),
+        ],
+        anti_patterns: &[
+            wp!(r"(?m);\s*$", -2),
+            wp!(r"\{[\s]*$", -2),
+            wp!(r"(?m)^\s*\}\s*$", -1),
+        ],
+        uses_hash_comments: true,
+        keywords: &[
+            "elif", "except", "lambda", "nonlocal", "pass", "raise", "yield",
+            "assert", "del", "global", "with", "async", "await", "def",
+        ],
+        builtins: &[
+            "enumerate", "isinstance", "issubclass", "classmethod", "staticmethod",
+            "property", "delattr", "getattr", "hasattr", "setattr", "callable",
+            "frozenset", "memoryview", "bytearray", "reversed", "breakpoint",
+            "__init__", "__name__", "__main__", "__all__", "__file__",
+            "__version__", "__author__", "__doc__", "__dict__", "__slots__",
+        ],
+        illegal: None,
+        extends: None,
+    }
+}

@@ -119,6 +119,8 @@ When generating code or proposing architectural changes, adhere to the following
 5.  **Conciseness:** Provide the exact code block needed to fix the issue. Avoid unnecessary pleasantries or overly long explanations unless asked to explain the architectural choice.
 
 ## 🚀 Commits & Workflow
+> # 🚫 CRITICAL: NEVER AUTO-COMMIT
+> **Do not run `git commit` under ANY circumstances.** Not as a "helpful" final step, not in autopilot mode, not to "save" progress. This applies even if you have a commit message template or Co-authored-by trailer available. Stage changes with `git add` if needed, but STOP THERE. The developer commits manually after reviewing staged changes.
 
 - Keep `.gitignore` respected (e.g., `node_modules`, `target`, `.svelte-kit`).
 - Verify code works with `pnpm run check` (runs `svelte-check`) and compiles with `pnpm run tauri build`.
