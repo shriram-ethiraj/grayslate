@@ -25,7 +25,7 @@ pub(crate) fn is_likely_yaml(trimmed: &str, _was_sliced: bool) -> bool {
     }
 
     static YAML_KV: LazyLock<Regex> =
-        LazyLock::new(|| Regex::new(r"^\s*[a-zA-Z_][\w.\-]*\s*:\s").unwrap());
+        LazyLock::new(|| Regex::new(r"^\s*[a-zA-Z_][\w./\-]*\s*:(\s|$)").unwrap());
     static YAML_LIST: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s*\-\s+\S").unwrap());
     static CODE_PATTERNS: LazyLock<Vec<Regex>> = LazyLock::new(|| vec![
         Regex::new(r"^\s*(def|class|if|for|while|return|import|from|try|except|with|async|yield)\s").unwrap(),
@@ -116,5 +116,61 @@ pub fn definition() -> LanguageDefinition {
         builtins: &[],
         family: None,
         exclusive_patterns: &[],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn kubernetes_deployment_detected() {
+        let src = "\
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-app
+  labels:
+    app.kubernetes.io/name: my-app
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: my-app
+  template:
+    spec:
+      containers:
+        - name: app-container
+          image: my-app:latest
+          ports:
+            - containerPort: 8080
+";
+        assert!(is_likely_yaml(src, false), "k8s deployment should be YAML");
+    }
+
+    #[test]
+    fn block_mapping_keys_counted() {
+        // Keys with no inline value (colon at end-of-line) must be counted.
+        let src = "spec:\n  template:\n    metadata:\n      labels:\n        app: web\n";
+        assert!(is_likely_yaml(src, false), "block keys should be YAML");
+    }
+
+    #[test]
+    fn kubernetes_label_slash_in_key() {
+        // Keys with '/' (Kubernetes labels) must be matched.
+        let src = "metadata:\n  labels:\n    app.kubernetes.io/name: my-app\n    app.kubernetes.io/version: \"1.0\"\n";
+        assert!(is_likely_yaml(src, false), "slash in key should be YAML");
+    }
+
+    #[test]
+    fn sass_not_detected_as_yaml() {
+        let src = "$primary: #333;\n$font-size: 16px;\nbody {\n  color: $primary;\n}";
+        assert!(!is_likely_yaml(src, false), "Sass should NOT be YAML");
+    }
+
+    #[test]
+    fn simple_config_detected() {
+        let src = "name: my-service\nport: 8080\ndebug: true\n";
+        assert!(is_likely_yaml(src, false), "simple config should be YAML");
     }
 }
