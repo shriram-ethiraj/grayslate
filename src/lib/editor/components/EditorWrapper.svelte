@@ -850,7 +850,7 @@
       "save_untitled_slate",
       {
         content,
-        languageHint: activeLanguage,
+        languageHint: language,
       },
     );
 
@@ -919,7 +919,9 @@
           "suggest_slate_name",
           {
             content,
-            languageHint: activeLanguage,
+            // Same as saveUntitledSlate: send language (not activeLanguage)
+            // so the backend can re-detect when in auto mode.
+            languageHint: language,
           },
         );
         const notesRoot = await resolveNotesRoot();
