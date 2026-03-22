@@ -52,7 +52,7 @@ pub fn definition() -> LanguageDefinition {
             "instance_variable_get", "instance_variable_set",
             "each", "map", "select", "reject", "inject", "collect",
         ],
-        illegal: None,
-        extends: None,
+        family: None,
+        exclusive_patterns: &[],
     }
 }

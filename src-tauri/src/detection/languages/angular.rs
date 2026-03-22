@@ -41,7 +41,7 @@ pub fn definition() -> LanguageDefinition {
             "BehaviorSubject", "EventEmitter", "ChangeDetectorRef",
             "ElementRef", "TemplateRef", "ViewContainerRef",
         ],
-        illegal: None,
-        extends: None,
+        family: None,
+        exclusive_patterns: &[],
     }
 }

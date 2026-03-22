@@ -1,4 +1,4 @@
-use super::model::{MAX_CONTENT_BYTES, MAX_STEM_LEN};
+use super::model::{ExtractedName, StemKind, MAX_CONTENT_BYTES, MAX_STEM_LEN};
 
 // ---------------------------------------------------------------------------
 // Bounded input helper
@@ -23,7 +23,15 @@ pub(super) fn bound(content: &str) -> &str {
 
 /// Converts a raw extracted stem into a safe, lowercase hyphenated filename
 /// component. Returns `None` if the result would be empty.
+///
+/// The optional `budget` caps the slug portion *before* any suffix is
+/// appended.  Pass `MAX_STEM_LEN` (or `None`) for the default cap.
 pub fn slugify(raw: &str) -> Option<String> {
+    slugify_with_budget(raw, MAX_STEM_LEN)
+}
+
+/// Core slugification with an explicit character budget.
+fn slugify_with_budget(raw: &str, budget: usize) -> Option<String> {
     if raw.trim().is_empty() {
         return None;
     }
@@ -60,27 +68,72 @@ pub fn slugify(raw: &str) -> Option<String> {
     let slug = slug.trim_start_matches(|c: char| c.is_ascii_digit() || c == '-');
     let slug = slug.trim_matches('-');
 
+    // Deduplicate words: remove any word that already appeared earlier in the
+    // slug. This handles both adjacent repeats ("sanity-sanity-test" →
+    // "sanity-test") and non-adjacent repeats ("github-com-xyz-github-com" →
+    // "github-com-xyz").
+    let slug = {
+        let parts: Vec<&str> = slug.split('-').collect();
+        let mut seen = std::collections::HashSet::new();
+        let deduped: Vec<&str> = parts
+            .into_iter()
+            .filter(|w| !w.is_empty() && seen.insert(*w))
+            .collect();
+        deduped.join("-")
+    };
+    let slug = slug.as_str();
+
     if slug.is_empty() {
         return None;
     }
 
     // Cap length at a word boundary.
-    let capped = if slug.len() <= MAX_STEM_LEN {
-        slug.to_string()
-    } else {
-        let end = &slug[..MAX_STEM_LEN];
-        // Roll back to last hyphen to avoid cutting mid-word.
-        match end.rfind('-') {
-            Some(pos) if pos > 10 => end[..pos].to_string(),
-            _ => end.to_string(),
-        }
-    };
+    let capped = truncate_at_word_boundary(slug, budget);
 
     if capped.is_empty() {
         None
     } else {
-        Some(capped)
+        Some(capped.to_string())
     }
+}
+
+/// Truncate a hyphenated slug to at most `max_len` characters, preferring
+/// a break at the last `-` so words are not chopped mid-way.
+fn truncate_at_word_boundary(slug: &str, max_len: usize) -> &str {
+    if slug.len() <= max_len {
+        return slug;
+    }
+    let end = &slug[..max_len];
+    match end.rfind('-') {
+        Some(pos) if pos > 10 => &end[..pos],
+        _ => end,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Suffix-aware finalizer
+// ---------------------------------------------------------------------------
+
+/// Slugify a raw stem and append the appropriate suffix (`-email`,
+/// `-prompt`, or nothing) while keeping the total length within
+/// `MAX_STEM_LEN`.
+pub(super) fn finalize(raw: Option<String>, kind: StemKind) -> Option<String> {
+    let raw = raw?;
+    let suffix = kind.suffix();
+    // Reserve room for the suffix so it is never truncated.
+    let budget = MAX_STEM_LEN.saturating_sub(suffix.len());
+    let slug = slugify_with_budget(&raw, budget)?;
+    if suffix.is_empty() {
+        Some(slug)
+    } else {
+        Some(format!("{slug}{suffix}"))
+    }
+}
+
+/// Finalize an `ExtractedName` (stem + kind) into the final slug.
+pub(super) fn finalize_extracted(en: Option<ExtractedName>) -> Option<String> {
+    let en = en?;
+    finalize(Some(en.stem), en.kind)
 }
 
 /// Human-readable fallback: `slate-19-mar-2026-0530`.
@@ -155,4 +208,68 @@ fn days_to_ymd(mut days: u32) -> (u32, u32, u32) {
 
 fn is_leap(year: u32) -> bool {
     (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dedup_adjacent_words() {
+        let result = slugify("sanity-sanity-test").unwrap();
+        assert_eq!(result, "sanity-test");
+    }
+
+    #[test]
+    fn dedup_non_adjacent_words() {
+        let result = slugify("github-com-xyz-github-com").unwrap();
+        assert_eq!(result, "github-com-xyz");
+    }
+
+    #[test]
+    fn dedup_multiple_repeats() {
+        let result = slugify("fix-modifying-modifying-users-bugfixes").unwrap();
+        assert_eq!(result, "fix-modifying-users-bugfixes");
+    }
+
+    #[test]
+    fn dedup_callback_repeat() {
+        let result = slugify("yaml-output-default-callback-callback-plugin").unwrap();
+        assert_eq!(result, "yaml-output-default-callback-plugin");
+    }
+
+    #[test]
+    fn no_dedup_when_unique() {
+        let result = slugify("authentication-token-parser").unwrap();
+        assert_eq!(result, "authentication-token-parser");
+    }
+
+    #[test]
+    fn camel_case_split_and_dedup() {
+        let result = slugify("SanitySanityTest").unwrap();
+        assert_eq!(result, "sanity-test");
+    }
+
+    #[test]
+    fn empty_returns_none() {
+        assert!(slugify("").is_none());
+        assert!(slugify("   ").is_none());
+    }
+
+    #[test]
+    fn truncation_at_word_boundary() {
+        let long = "a]b-".repeat(20); // 80 chars
+        let result = slugify(&long).unwrap();
+        assert!(result.len() <= MAX_STEM_LEN, "len={}", result.len());
+    }
+
+    #[test]
+    fn leading_digits_stripped() {
+        let result = slugify("123-my-module").unwrap();
+        assert_eq!(result, "my-module");
+    }
 }

@@ -1,53 +1,41 @@
 /// Maximum bytes fed to any extractor.
 pub const MAX_CONTENT_BYTES: usize = 5_000;
 
-/// Maximum characters in the final slug.
+/// Maximum characters in the final slug (including any suffix).
 pub const MAX_STEM_LEN: usize = 60;
 
 /// Maximum symbol tokens combined into the stem.
-pub const MAX_TOKENS: usize = 4;
+/// Set to 1 so extractors pick the single best name, not a concatenation.
+pub const MAX_TOKENS: usize = 1;
 
-#[derive(Clone, Copy)]
-pub struct LanguageNamingProfile {
-    pub extension: &'static str,
-    pub extractor: ExtractorGroup,
+// ---------------------------------------------------------------------------
+// Extracted-name metadata
+// ---------------------------------------------------------------------------
+
+/// Distinguishes generic content from email / prompt prose detections so the
+/// pipeline can append a descriptive suffix to the final filename.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StemKind {
+    Generic,
+    Email,
+    Prompt,
 }
 
-#[derive(Clone, Copy)]
-pub enum ExtractorGroup {
-    Structured(StructuredNamingKind),
-    Markup(MarkupNamingKind),
-    Code(CodeStyle),
-    Sql,
-    Prose,
+impl StemKind {
+    /// The suffix string appended to the slug (empty for generic content).
+    pub fn suffix(self) -> &'static str {
+        match self {
+            StemKind::Generic => "",
+            StemKind::Email => "-email",
+            StemKind::Prompt => "-prompt",
+        }
+    }
 }
 
-#[derive(Clone, Copy)]
-pub enum StructuredNamingKind {
-    Csv,
-    Json,
-    Yaml,
-    Toml,
-}
-
-#[derive(Clone, Copy)]
-pub enum MarkupNamingKind {
-    XmlHtml,
-    Markdown,
-}
-
-#[derive(Clone, Copy)]
-pub enum CodeStyle {
-    JsTs,
-    Python,
-    Rust,
-    JavaLike,
-    Go,
-    CFamily,
-    CSharp,
-    Swift,
-    Ruby,
-    Php,
-    Dart,
-    Shell,
+/// A named extraction result that carries both the raw stem and the prose
+/// kind (email / prompt / generic).
+#[derive(Debug, Clone)]
+pub struct ExtractedName {
+    pub stem: String,
+    pub kind: StemKind,
 }

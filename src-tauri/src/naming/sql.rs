@@ -14,7 +14,7 @@ use super::{prose::extract_yake, shared::slugify};
 /// After ranking, a prefix-aware word deduplication pass ensures no individual
 /// word (or prefix-relative near-duplicate like "month"/"monthly") appears
 /// twice in the final stem.
-pub(super) fn extract_sql(content: &str) -> Option<String> {
+pub(crate) fn extract_sql(content: &str) -> Option<String> {
     use sqlparser::ast::{
         Expr, GroupByExpr, OrderByKind, SetExpr, Statement, TableFactor, TableObject,
     };

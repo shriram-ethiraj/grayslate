@@ -49,7 +49,9 @@ fn is_noise_csv_column(col: &str) -> bool {
 }
 
 /// CSV: take first MAX_TOKENS non-noise header column names from the first line.
-pub(super) fn extract_csv(content: &str) -> Option<String> {
+/// Falls back to row-count + column-count description when all headers are
+/// generic/noise (e.g., "col1,col2,col3" → "3-cols-5-rows").
+pub(crate) fn extract_csv(content: &str) -> Option<String> {
     let first_line = content.lines().next()?.trim();
     if first_line.is_empty() {
         return None;
@@ -77,13 +79,19 @@ pub(super) fn extract_csv(content: &str) -> Option<String> {
         .copied()
         .collect();
 
-    // If every column is noise, return None (let timestamp fallback handle it).
-    if semantic.is_empty() {
-        return None;
+    if !semantic.is_empty() {
+        let tokens: Vec<&str> = semantic.into_iter().take(MAX_TOKENS).collect();
+        return Some(tokens.join("-"));
     }
 
-    let tokens: Vec<&str> = semantic.into_iter().take(MAX_TOKENS).collect();
-    Some(tokens.join("-"))
+    // All headers are generic — produce a descriptive shape stem
+    let col_count = all_headers.len();
+    let row_count = content.lines().count().saturating_sub(1); // exclude header
+    if row_count > 0 {
+        Some(format!("{col_count}-cols-{row_count}-rows"))
+    } else {
+        Some(format!("{col_count}-cols"))
+    }
 }
 
 // ===== JSON ================================================================
@@ -116,18 +124,29 @@ fn is_json_noise_key(key: &str, value: Option<&serde_json::Value>) -> bool {
 }
 
 /// Extract a short string value from a JSON key (for `name`, `title`, `error`).
+/// Long values are truncated at a word boundary to stay within filename limits.
 fn json_short_string_value(value: &serde_json::Value) -> Option<String> {
     if let serde_json::Value::String(s) = value {
         let trimmed = s.trim();
-        if !trimmed.is_empty() && trimmed.len() <= 60 {
+        if trimmed.is_empty() {
+            return None;
+        }
+        if trimmed.len() <= 60 {
             return Some(trimmed.to_string());
         }
+        // Truncate long values at a word boundary (space) within 60 chars
+        let cut = &trimmed[..60];
+        let end = cut.rfind(' ').unwrap_or(60);
+        if end > 10 {
+            return Some(cut[..end].to_string());
+        }
+        return Some(cut.to_string());
     }
     None
 }
 
 /// Known-pattern detection: returns Some(stem) if the object matches a known
-/// schema shape (package.json, OpenAPI, tsconfig, GeoJSON, JSON Schema).
+/// schema shape (package.json, OpenAPI, tsconfig, GeoJSON, JSON Schema, etc.).
 fn json_detect_known_pattern(obj: &serde_json::Map<String, serde_json::Value>) -> Option<String> {
     let has = |k: &str| obj.contains_key(k);
     let str_val = |k: &str| obj.get(k).and_then(|v| v.as_str());
@@ -148,6 +167,12 @@ fn json_detect_known_pattern(obj: &serde_json::Map<String, serde_json::Value>) -
                 return Some(title.to_string());
             }
         }
+        // $schema without title — detect type from $schema URL
+        if let Some(schema_url) = str_val("$schema") {
+            if schema_url.contains("json-schema.org") {
+                return Some("json-schema".to_string());
+            }
+        }
     }
 
     // OpenAPI / Swagger: {swagger|openapi} with info.title
@@ -166,16 +191,81 @@ fn json_detect_known_pattern(obj: &serde_json::Map<String, serde_json::Value>) -
         return Some("tsconfig".to_string());
     }
 
-    // GeoJSON: {type: "FeatureCollection"}
-    if str_val("type") == Some("FeatureCollection") {
-        return Some("feature-collection".to_string());
+    // GeoJSON: {type: "FeatureCollection" | "Feature"}
+    if let Some(type_val) = str_val("type") {
+        if type_val == "FeatureCollection" || type_val == "Feature" {
+            return Some("geojson".to_string());
+        }
+    }
+
+    // ESLint config: {rules} with {extends|plugins|env|parserOptions}
+    if has("rules") && (has("extends") || has("plugins") || has("env") || has("parserOptions")) {
+        return Some("eslint-config".to_string());
+    }
+
+    // Babel config: {presets} or {plugins} with one of {env, sourceType, targets}
+    if (has("presets") || has("plugins")) && (has("env") || has("sourceType") || has("targets")) {
+        return Some("babel-config".to_string());
+    }
+
+    // Prettier config: {trailingComma|singleQuote|tabWidth|printWidth}
+    if (has("trailingComma") || has("singleQuote") || has("semi"))
+        && (has("tabWidth") || has("printWidth"))
+    {
+        return Some("prettier-config".to_string());
+    }
+
+    // VS Code settings: {editor.*|workbench.*} keys
+    let vscode_keys = obj.keys().any(|k| k.starts_with("editor.") || k.starts_with("workbench.") || k.starts_with("files."));
+    if vscode_keys {
+        return Some("vscode-settings".to_string());
+    }
+
+    // VS Code launch.json: {version, configurations}
+    if has("version") && has("configurations") {
+        return Some("vscode-launch".to_string());
+    }
+
+    // VS Code tasks.json: {version, tasks}
+    if has("version") && has("tasks") && !has("scripts") {
+        return Some("vscode-tasks".to_string());
+    }
+
+    // Lerna: {packages, npmClient|useWorkspaces}
+    if has("packages") && (has("npmClient") || has("useWorkspaces")) {
+        return Some("lerna-config".to_string());
+    }
+
+    // Nx workspace: {projects} with {npmScope|affected}
+    if has("projects") && (has("npmScope") || has("affected")) {
+        return Some("nx-workspace".to_string());
+    }
+
+    // Docker container inspect: {Id, Created, State, Config}
+    if has("Id") && has("Created") && has("State") && has("Config") {
+        if let Some(name) = str_val("Name") {
+            let name = name.trim_start_matches('/');
+            if !name.is_empty() {
+                return Some(format!("container-{name}"));
+            }
+        }
+        return Some("docker-container".to_string());
+    }
+
+    // Composer (PHP): {require} with {name, autoload|scripts}
+    if has("require") && has("name") && (has("autoload") || has("scripts")) {
+        if let Some(name) = str_val("name") {
+            if !name.is_empty() && name.len() <= 60 {
+                return Some(name.to_string());
+            }
+        }
     }
 
     None
 }
 
 /// JSON: semantic value extraction + pattern detection + noise filtering.
-pub(super) fn extract_json(content: &str) -> Option<String> {
+pub(crate) fn extract_json(content: &str) -> Option<String> {
     let trimmed = content.trim();
     if trimmed.is_empty() {
         return None;
@@ -244,17 +334,53 @@ fn json_extract_from_value(value: &serde_json::Value) -> Option<String> {
 // ===== YAML ================================================================
 
 /// YAML: extract first few `key:` lines from the bounded sample.
-pub(super) fn extract_yaml(content: &str) -> Option<String> {
-    // Skip document markers and comments; extract `key:` patterns.
-    let re = regex::Regex::new(r"^([a-zA-Z_][a-zA-Z0-9_\-]*)[\s]*:").ok()?;
+/// Kept as shared utility for tests and backward compatibility.
+#[allow(dead_code)]
+pub(crate) fn extract_yaml(content: &str) -> Option<String> {
+    // Keys whose *value* is a better filename than the key itself.
+    const SEMANTIC_KEYS: &[&str] = &[
+        "name", "title", "description", "summary", "label", "id",
+        "apiVersion", "kind",
+    ];
+
+    // Matches `key: value` at any indentation level (for semantic key scan).
+    let re_kv = regex::Regex::new(
+        r#"^\s*([a-zA-Z_][a-zA-Z0-9_\-]*)[\s]*:[\s]+["']?([^"'\n\r]+?)["']?[\s]*$"#,
+    ).ok()?;
+    // Matches top-level `key:` only (no leading whitespace).
+    let re_key = regex::Regex::new(r"^([a-zA-Z_][a-zA-Z0-9_\-]*)[\s]*:").ok()?;
+
+    let meaningful_lines = content.lines().filter(|l| {
+        let t = l.trim();
+        !t.is_empty() && !t.starts_with('#') && !t.starts_with("---") && !t.starts_with("...")
+    });
+
+    // First pass: look for a semantic key whose value makes a good name.
+    // Scans all indentation levels so `metadata:\n  name: my-app` is caught.
+    for line in meaningful_lines.clone() {
+        if let Some(caps) = re_kv.captures(line) {
+            let key = caps.get(1).map(|m| m.as_str()).unwrap_or("");
+            let val = caps.get(2).map(|m| m.as_str()).unwrap_or("").trim();
+            if SEMANTIC_KEYS.iter().any(|sk| sk.eq_ignore_ascii_case(key))
+                && !val.is_empty()
+                && val.len() <= 80
+            {
+                return Some(val.to_string());
+            }
+        }
+    }
+
+    // Fallback: use the first top-level key name.
     let keys: Vec<String> = content
         .lines()
         .filter(|l| {
             let t = l.trim();
             !t.is_empty() && !t.starts_with('#') && !t.starts_with("---") && !t.starts_with("...")
         })
+        .filter(|l| !l.starts_with(char::is_whitespace)) // top-level only
         .filter_map(|l| {
-            re.captures(l)
+            re_key
+                .captures(l)
                 .and_then(|c| c.get(1))
                 .map(|m| m.as_str().to_string())
         })
@@ -329,6 +455,36 @@ fn toml_detect_known_pattern(root: &taplo::dom::Node) -> Option<String> {
                 return Some(name);
             }
         }
+        // Ruff config: [tool.ruff]
+        let ruff_node = tool_node.get("ruff");
+        if !ruff_node.is_invalid() {
+            return Some("ruff-config".to_string());
+        }
+        // Black config: [tool.black]
+        let black_node = tool_node.get("black");
+        if !black_node.is_invalid() {
+            return Some("black-config".to_string());
+        }
+        // MyPy config: [tool.mypy]
+        let mypy_node = tool_node.get("mypy");
+        if !mypy_node.is_invalid() {
+            return Some("mypy-config".to_string());
+        }
+    }
+
+    // rustfmt.toml: has keys like max_width, edition, etc.
+    if has_section("max_width") || has_section("edition") && has_section("hard_tabs") {
+        return Some("rustfmt".to_string());
+    }
+
+    // clippy.toml: has keys like cognitive-complexity-threshold, etc.
+    if has_section("cognitive-complexity-threshold") || has_section("too-many-arguments-threshold") {
+        return Some("clippy-config".to_string());
+    }
+
+    // .cargo/config.toml: has [build], [registries], [source]
+    if has_section("build") && (has_section("registries") || has_section("source")) {
+        return Some("cargo-config".to_string());
     }
 
     // Top-level title = "..." (Hugo / site config)
@@ -343,7 +499,7 @@ fn toml_detect_known_pattern(root: &taplo::dom::Node) -> Option<String> {
 
 /// TOML: taplo-based AST extraction with known-pattern detection and noise
 /// section filtering. Falls back to regex on parse failure.
-pub(super) fn extract_toml(content: &str) -> Option<String> {
+pub(crate) fn extract_toml(content: &str) -> Option<String> {
     let parse_result = taplo::parser::parse(content);
     let dom = parse_result.into_dom();
 
@@ -431,70 +587,72 @@ mod tests {
     #[test]
     fn csv_basic_semantic_headers() {
         let csv = "name,email,department,salary\nAlice,a@b.com,Eng,100000";
-        assert_eq!(extract_csv(csv).unwrap(), "name-email-department-salary");
+        assert_eq!(extract_csv(csv).unwrap(), "name");
     }
 
     #[test]
     fn csv_filters_id_and_timestamp_columns() {
         let csv = "id,name,email,created_at,updated_at\n1,Alice,a@b.com,2024-01-01,2024-06-01";
-        assert_eq!(extract_csv(csv).unwrap(), "name-email");
+        assert_eq!(extract_csv(csv).unwrap(), "name");
     }
 
     #[test]
     fn csv_filters_sales_date_columns() {
         let csv = "date,product,region,quantity,revenue\n2024-01-15,Widget,North,100,5000";
-        assert_eq!(extract_csv(csv).unwrap(), "product-region-quantity-revenue");
+        assert_eq!(extract_csv(csv).unwrap(), "product");
     }
 
     #[test]
     fn csv_filters_log_timestamp_and_uuid() {
         let csv = "timestamp,uuid,level,message,source\n2024-01-15T10:30:00Z,abc-123,ERROR,Disk full,server-1";
-        assert_eq!(extract_csv(csv).unwrap(), "level-message-source");
+        assert_eq!(extract_csv(csv).unwrap(), "level");
     }
 
     #[test]
     fn csv_filters_coordinate_columns() {
         let csv = "city,latitude,longitude,population\nNYC,40.71,-74.01,8000000";
-        assert_eq!(extract_csv(csv).unwrap(), "city-population");
+        assert_eq!(extract_csv(csv).unwrap(), "city");
     }
 
     #[test]
     fn csv_filters_generic_positional_columns() {
         let csv = "col1,col2,col3,col4\n1,2,3,4";
-        // All columns are noise → None.
-        assert!(extract_csv(csv).is_none());
+        // All columns are noise → shape-based fallback
+        let result = extract_csv(csv).unwrap();
+        assert!(result.contains("4-cols"), "shape fallback: {result}");
     }
 
     #[test]
     fn csv_filters_unnamed_columns() {
         let csv = "unnamed_0,unnamed_1,category,value\n0,1,A,42";
-        assert_eq!(extract_csv(csv).unwrap(), "category-value");
+        assert_eq!(extract_csv(csv).unwrap(), "category");
     }
 
     #[test]
     fn csv_filters_foreign_key_id_suffix() {
         let csv = "employee_id,order_id,product_name,quantity\n1,100,Widget,5";
-        assert_eq!(extract_csv(csv).unwrap(), "product_name-quantity");
+        assert_eq!(extract_csv(csv).unwrap(), "product_name");
     }
 
     #[test]
-    fn csv_respects_max_tokens() {
+    fn csv_respects_max_tokens_single() {
         let csv = "name,email,department,salary,location,manager\nA,a@b,Eng,100,NYC,Bob";
         let result = extract_csv(csv).unwrap();
-        // MAX_TOKENS is 4, so we get first 4 semantic columns.
-        assert_eq!(result, "name-email-department-salary");
+        // MAX_TOKENS is 1, so we get only the first semantic column.
+        assert_eq!(result, "name");
     }
 
     #[test]
     fn csv_tab_delimited_with_noise() {
         let csv = "id\tname\temail\ttimestamp\n1\tAlice\ta@b\t2024-01-01";
-        assert_eq!(extract_csv(csv).unwrap(), "name-email");
+        assert_eq!(extract_csv(csv).unwrap(), "name");
     }
 
     #[test]
-    fn csv_all_noise_returns_none() {
+    fn csv_all_noise_returns_shape() {
         let csv = "id,uuid,created_at,updated_at\n1,abc,2024-01-01,2024-06-01";
-        assert!(extract_csv(csv).is_none());
+        let result = extract_csv(csv).unwrap();
+        assert!(result.contains("4-cols") && result.contains("1-rows"), "shape: {result}");
     }
 
     #[test]
@@ -551,7 +709,7 @@ mod tests {
             "type": "FeatureCollection",
             "features": []
         }"#;
-        assert_eq!(extract_json(json).unwrap(), "feature-collection");
+        assert_eq!(extract_json(json).unwrap(), "geojson");
     }
 
     #[test]
@@ -572,7 +730,7 @@ mod tests {
             "status": 404,
             "path": "/api/users/999"
         }"#;
-        assert_eq!(extract_json(json).unwrap(), "Not Found-status-path");
+        assert_eq!(extract_json(json).unwrap(), "Not Found");
     }
 
     #[test]
@@ -581,7 +739,7 @@ mod tests {
             "name": "grayslate",
             "description": "A developer scratchpad"
         }"#;
-        assert_eq!(extract_json(json).unwrap(), "grayslate-description");
+        assert_eq!(extract_json(json).unwrap(), "grayslate");
     }
 
     #[test]
@@ -594,7 +752,7 @@ mod tests {
             "created_at": "2024-01-01",
             "updated_at": "2024-06-01"
         }"#;
-        assert_eq!(extract_json(json).unwrap(), "username-email");
+        assert_eq!(extract_json(json).unwrap(), "username");
     }
 
     #[test]
@@ -615,7 +773,7 @@ mod tests {
             { "city": "NYC", "population": 8000000, "country": "US" },
             { "city": "London", "population": 9000000, "country": "UK" }
         ]"#;
-        assert_eq!(extract_json(json).unwrap(), "city-population-country");
+        assert_eq!(extract_json(json).unwrap(), "city");
     }
 
     #[test]
@@ -700,7 +858,7 @@ url = "postgres://localhost/mydb"
 level = "info"
 "#;
         let result = extract_toml(toml).unwrap();
-        assert_eq!(result, "server-database-logging");
+        assert_eq!(result, "server");
     }
 
     #[test]
@@ -751,7 +909,7 @@ name = "redis_cache"
 ttl = 300
 "#;
         let result = extract_toml(toml).unwrap();
-        assert_eq!(result, "production_db-redis_cache");
+        assert_eq!(result, "production_db");
     }
 
     #[test]
@@ -781,5 +939,57 @@ debug = true
         // However, top-level title detection won't match here since it's `name` not `title`.
         let result = extract_toml(toml).unwrap();
         assert!(result.contains("name") || result.contains("simple"));
+    }
+
+    // ----- YAML tests ------------------------------------------------------
+
+    #[test]
+    fn yaml_name_value_preferred() {
+        let yaml = "---\nname: my-service\nversion: 1.0\n";
+        assert_eq!(extract_yaml(yaml).unwrap(), "my-service");
+    }
+
+    #[test]
+    fn yaml_title_value_preferred() {
+        let yaml = "title: Weekly Status Report\nauthor: alice\n";
+        assert_eq!(extract_yaml(yaml).unwrap(), "Weekly Status Report");
+    }
+
+    #[test]
+    fn yaml_falls_back_to_first_key() {
+        let yaml = "bugfixes:\n  - Fixed some issue\nminor_changes:\n  - Updated docs\n";
+        assert_eq!(extract_yaml(yaml).unwrap(), "bugfixes");
+    }
+
+    #[test]
+    fn yaml_skips_comments_and_markers() {
+        let yaml = "---\n# This is a comment\nname: app-config\nport: 8080\n";
+        assert_eq!(extract_yaml(yaml).unwrap(), "app-config");
+    }
+
+    #[test]
+    fn yaml_api_version_kind() {
+        let yaml = "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: nginx\n";
+        assert_eq!(extract_yaml(yaml).unwrap(), "apps/v1");
+    }
+
+    #[test]
+    fn yaml_no_semantic_key_uses_first_top_level() {
+        let yaml = "servers:\n  - host: localhost\n    port: 3000\n";
+        assert_eq!(extract_yaml(yaml).unwrap(), "servers");
+    }
+
+    #[test]
+    fn yaml_empty_returns_none() {
+        assert!(extract_yaml("").is_none());
+        assert!(extract_yaml("   \n\n").is_none());
+    }
+
+    #[test]
+    fn yaml_indented_name_not_top_level_key() {
+        // Only top-level keys should be used as fallback, not nested ones.
+        let yaml = "metadata:\n  name: nested-app\n  labels:\n    app: web\n";
+        // "name" on indented line is still a semantic key and should be found.
+        assert_eq!(extract_yaml(yaml).unwrap(), "nested-app");
     }
 }

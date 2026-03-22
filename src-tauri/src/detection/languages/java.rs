@@ -44,7 +44,11 @@ pub fn definition() -> LanguageDefinition {
             "iterator", "comparable", "runnable", "serializable",
             "inputstream", "outputstream", "bufferedreader",
         ],
-        illegal: None,
-        extends: None,
+        family: Some("jvm-family"),
+        exclusive_patterns: &[
+            wp!(r"\bpublic\s+static\s+void\s+main\s*\(", 5),
+            wp!(r"(?m)^\s*@Override\b", 3),
+            wp!(r"(?m)^\s*import\s+java\.\w+", 4),
+        ],
     }
 }

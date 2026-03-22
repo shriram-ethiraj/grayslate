@@ -187,7 +187,7 @@ pub fn definition() -> LanguageDefinition {
             "date", "time", "char", "text", "blob", "clob",
             "serial", "autoincrement", "identity",
         ],
-        illegal: None,
-        extends: None,
+        family: None,
+        exclusive_patterns: &[],
     }
 }

@@ -30,7 +30,7 @@ pub fn definition() -> LanguageDefinition {
             "NSObject", "NSString", "NSArray", "NSDictionary", "NSLog", "std",
             "shared_ptr", "unique_ptr", "vector", "string",
         ],
-        illegal: None,
-        extends: None,
+        family: Some("c-family"),
+        exclusive_patterns: &[],
     }
 }

@@ -37,7 +37,12 @@ pub fn definition() -> LanguageDefinition {
             "imag", "len", "make", "panic", "println", "print",
             "real", "recover", "goroutine",
         ],
-        illegal: None,
-        extends: None,
+        family: None,
+        exclusive_patterns: &[
+            wp!(r"(?m)^package\s+\w+", 3),
+            wp!(r"(?m)^\s*func\s+\w+\s*\(", 4),
+            wp!(r":=\s", 3),
+            wp!(r"\bgo\s+func\s*\(", 4),
+        ],
     }
 }

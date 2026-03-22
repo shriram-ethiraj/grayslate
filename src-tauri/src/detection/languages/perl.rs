@@ -60,7 +60,7 @@ pub fn definition() -> LanguageDefinition {
             "File::Basename", "File::Path", "Data::Dumper",
             "Getopt::Long", "POSIX", "DBI", "CGI", "LWP",
         ],
-        illegal: None,
-        extends: None,
+        family: None,
+        exclusive_patterns: &[],
     }
 }

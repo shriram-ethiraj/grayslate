@@ -35,6 +35,7 @@ import SiSass from "~icons/simple-icons/sass";
 import SiJinja from "~icons/simple-icons/jinja";
 import SiPowershell from "~icons/simple-icons/powershell";
 import SiPerl from "~icons/simple-icons/perl";
+import RiWindowsFill from '~icons/ri/windows-fill';
 
 export type LanguageIcon = Component;
 
@@ -60,6 +61,7 @@ const XML:          Language = { value: "xml",          label: "XML",          t
 const CSV:          Language = { value: "csv",          label: "CSV",          token: "CSV",     icon: SiGooglesheets };
 const MARKDOWN:     Language = { value: "markdown",     label: "Markdown",     token: "MD",      icon: SiMarkdown };
 const SHELL:        Language = { value: "shell",        label: "Shell",        token: "SH",      icon: Terminal };
+const CMD:          Language = { value: "cmd",          label: "Batch",        token: "BAT",     icon: RiWindowsFill };
 const DOCKERFILE:   Language = { value: "dockerfile",   label: "Dockerfile",   token: "DOCKER",  icon: Container };
 const SVELTE:       Language = { value: "svelte",       label: "Svelte",       token: "SVELTE",  icon: SiSvelte };
 const VUE:          Language = { value: "vue",          label: "Vue",          token: "VUE",     icon: SiVuedotjs };
@@ -88,7 +90,7 @@ const PERL:         Language = { value: "perl",         label: "Perl",         t
 // All known languages
 const ALL_LANGUAGES: Language[] = [
     JAVASCRIPT, TYPESCRIPT, PYTHON, HTML, CSS, YAML,
-    C, CPP, JAVA, GO, XML, CSV, MARKDOWN, SHELL, DOCKERFILE,
+    C, CPP, JAVA, GO, XML, CSV, MARKDOWN, SHELL, CMD, DOCKERFILE,
     SVELTE, VUE, RUST, CLOJURE, SQL, PHP, SASS, SCSS, JINJA,
     ANGULAR, NGINX, POWERSHELL, RUBY, SWIFT, TOML, KOTLIN,
     OBJECTIVEC, OBJECTIVECPP, CSHARP, SCALA, DART, JSON, PERL,

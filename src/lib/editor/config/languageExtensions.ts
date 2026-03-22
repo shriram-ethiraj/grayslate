@@ -105,6 +105,9 @@ export function getLanguageExtension(langId: string): Extension | Extension[] {
             return [csvRainbowHighlight];
         case "shell":
             return StreamLanguage.define(shell);
+        // Windows Batch/CMD — no dedicated CM6 highlighter exists; shell is the closest.
+        case "cmd":
+            return StreamLanguage.define(shell);
         case "dockerfile":
             return StreamLanguage.define(dockerFile);
         case "markdown":

@@ -21,6 +21,8 @@ pub fn definition() -> LanguageDefinition {
             wp!(r"\bNULL\b", 2),
             wp!(r"->\w+", 1),
             wp!(r"(?m)\bvoid\s+\w+\s*\(", 1),
+            wp!(r"(?m)#(?:ifndef|ifdef)\s+\w+", 3),
+            wp!(r"(?m)#pragma\s", 2),
         ],
         anti_patterns: &[
             wp!(r"\bstd::\w+", -5),
@@ -37,7 +39,11 @@ pub fn definition() -> LanguageDefinition {
             "strlen", "strcpy", "strcat", "strcmp", "strncmp", "strtol",
             "fopen", "fclose", "fread", "fwrite", "fgets", "fputs",
         ],
-        illegal: None,
-        extends: None,
+        family: Some("c-family"),
+        exclusive_patterns: &[
+            wp!(r#"(?m)#include\s*[<"]"#, 3),
+            wp!(r"(?m)#(?:ifndef|ifdef|define)\s+\w+", 3),
+            wp!(r"(?m)#pragma\s", 2),
+        ],
     }
 }

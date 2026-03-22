@@ -19,7 +19,7 @@ pub fn definition() -> LanguageDefinition {
         uses_hash_comments: false,
         keywords: &[],
         builtins: &[],
-        illegal: None,
-        extends: None,
+        family: None,
+        exclusive_patterns: &[],
     }
 }

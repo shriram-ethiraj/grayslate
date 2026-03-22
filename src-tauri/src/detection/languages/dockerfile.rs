@@ -81,7 +81,7 @@ pub fn definition() -> LanguageDefinition {
             "onbuild", "stopsignal", "healthcheck", "shell",
         ],
         builtins: &[],
-        illegal: Some(r"</"),
-        extends: None,
+        family: None,
+        exclusive_patterns: &[],
     }
 }

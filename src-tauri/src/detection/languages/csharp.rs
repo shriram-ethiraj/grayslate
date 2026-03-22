@@ -46,7 +46,7 @@ pub fn definition() -> LanguageDefinition {
             "idisposable", "stringbuilder", "datetime", "timespan",
             "guid", "convert", "activator", "attribute",
         ],
-        illegal: None,
-        extends: None,
+        family: None,
+        exclusive_patterns: &[],
     }
 }

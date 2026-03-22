@@ -36,7 +36,7 @@ pub fn definition() -> LanguageDefinition {
             "dirs", "mapfile", "readarray", "compgen", "complete",
             "builtin", "command", "typeset", "ulimit", "umask",
         ],
-        illegal: None,
-        extends: None,
+        family: None,
+        exclusive_patterns: &[],
     }
 }

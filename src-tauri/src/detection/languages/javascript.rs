@@ -45,7 +45,11 @@ pub fn definition() -> LanguageDefinition {
             "proxy", "reflect", "symbol", "bigint", "nan", "infinity",
             "globalthis", "settimeout", "setinterval", "fetch",
         ],
-        illegal: None,
-        extends: None,
+        family: Some("js-family"),
+        exclusive_patterns: &[
+            wp!(r#"\brequire\s*\(['"`]"#, 4),
+            wp!(r"\bmodule\.exports\b", 4),
+            wp!(r"===|!==", 2),
+        ],
     }
 }

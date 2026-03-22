@@ -42,7 +42,7 @@ pub fn definition() -> LanguageDefinition {
             "stream", "lazylist", "range", "bigdecimal", "bigint",
             "ordering", "unit", "nothing", "any", "anyval", "anyref",
         ],
-        illegal: None,
-        extends: None,
+        family: Some("jvm-family"),
+        exclusive_patterns: &[],
     }
 }

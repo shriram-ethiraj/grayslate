@@ -64,7 +64,7 @@ pub fn definition() -> LanguageDefinition {
             "var_dump", "print_r", "preg_match", "preg_replace",
             "file_get_contents", "file_put_contents", "is_array",
         ],
-        illegal: None,
-        extends: None,
+        family: None,
+        exclusive_patterns: &[],
     }
 }

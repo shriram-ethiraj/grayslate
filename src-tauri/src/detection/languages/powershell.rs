@@ -39,7 +39,7 @@ pub fn definition() -> LanguageDefinition {
             "validatepattern", "validatenotnull", "validatescript",
             "outputtype", "alias",
         ],
-        illegal: None,
-        extends: None,
+        family: None,
+        exclusive_patterns: &[],
     }
 }

@@ -723,4 +723,86 @@ require (
         let result = detect_language(content, None);
         assert_ne!(result, Some("sql"), "go.mod must not be detected as SQL");
     }
+
+    // ── Cross-family penalty integration tests ───────────────────────────
+
+    #[test]
+    fn cpp_tensorflow_header_integration() {
+        // Full integration test: content-only detection of a TensorFlow-style
+        // C++ header. Must not be TypeScript, C#, PHP, or Perl.
+        let content = r#"
+#ifndef TENSORFLOW_CORE_KERNELS_CONV_OPS_H_
+#define TENSORFLOW_CORE_KERNELS_CONV_OPS_H_
+
+#include "tensorflow/core/framework/op_kernel.h"
+#include "tensorflow/core/framework/tensor.h"
+
+namespace tensorflow {
+namespace internal {
+
+template<typename Device, typename T>
+class Conv2DOp : public OpKernel {
+ public:
+  explicit Conv2DOp(OpKernelConstruction* context) : OpKernel(context) {
+    OP_REQUIRES_OK(context, context->GetAttr("strides", &strides_));
+  }
+
+  void Compute(OpKernelContext* context) override {
+    const Tensor& input = context->input(0);
+    const Tensor& filter = context->input(1);
+    OP_REQUIRES(context, input.dims() == 4,
+                errors::InvalidArgument("input must be 4-dimensional"));
+  }
+
+ private:
+  std::vector<int32> strides_;
+  Padding padding_;
+};
+
+}  // namespace internal
+}  // namespace tensorflow
+
+#endif  // TENSORFLOW_CORE_KERNELS_CONV_OPS_H_
+"#;
+        let result = detect_language(content, None);
+        assert!(
+            result == Some("cpp") || result == Some("c"),
+            "TensorFlow C++ header detected as {:?} instead of C/C++",
+            result
+        );
+    }
+
+    #[test]
+    fn cpp_cc_file_not_csharp() {
+        // C++ .cc file content should not be detected as C#.
+        let content = r#"
+#include "mylib/utils.h"
+#include <iostream>
+#include <memory>
+
+namespace mylib {
+
+void ProcessData(const std::string& input) {
+  auto result = std::make_unique<Result>();
+  result->status = Status::OK;
+  if (input.empty()) {
+    LOG(WARNING) << "Empty input";
+    return;
+  }
+  for (const auto& item : Parse(input)) {
+    result->items.push_back(item);
+  }
+}
+
+}  // namespace mylib
+"#;
+        let result = detect_language(content, None);
+        assert!(
+            result == Some("cpp") || result == Some("c"),
+            "C++ source detected as {:?} instead of C/C++",
+            result
+        );
+        assert_ne!(result, Some("csharp"));
+        assert_ne!(result, Some("typescript"));
+    }
 }

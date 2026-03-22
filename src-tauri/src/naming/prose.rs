@@ -5,14 +5,26 @@
 use regex::Regex;
 use std::sync::LazyLock;
 
+use super::model::{ExtractedName, StemKind};
+
 /// Public entry point: tries email → prompt → YAKE in order.
-pub(super) fn extract_prose(content: &str) -> Option<String> {
+pub(crate) fn extract_prose(content: &str) -> Option<String> {
+    extract_prose_tagged(content).map(|en| en.stem)
+}
+
+/// Tagged variant that preserves whether the content was detected as
+/// email, prompt, or generic prose — so the pipeline can append a suffix.
+pub(crate) fn extract_prose_tagged(content: &str) -> Option<ExtractedName> {
     if content.trim().is_empty() {
         return None;
     }
-    try_extract_email(content)
-        .or_else(|| try_extract_prompt(content))
-        .or_else(|| extract_yake(content))
+    if let Some(stem) = try_extract_email(content) {
+        return Some(ExtractedName { stem, kind: StemKind::Email });
+    }
+    if let Some(stem) = try_extract_prompt(content) {
+        return Some(ExtractedName { stem, kind: StemKind::Prompt });
+    }
+    extract_yake(content).map(|stem| ExtractedName { stem, kind: StemKind::Generic })
 }
 
 // ===========================================================================
@@ -329,8 +341,28 @@ fn truncate_at_boundary(text: &str, max_words: usize) -> String {
 
 pub(super) fn extract_yake(content: &str) -> Option<String> {
     use yake_rust::{get_n_best, Config, StopWords};
+    use super::model::MAX_TOKENS;
 
     if content.trim().is_empty() {
+        return None;
+    }
+
+    // Strip copyright/license boilerplate before keyword extraction so it
+    // doesn't dominate the result.
+    let cleaned: String = content
+        .lines()
+        .filter(|l| {
+            let t = l.trim().to_lowercase();
+            !t.starts_with("copyright")
+                && !t.starts_with("licensed under")
+                && !t.starts_with("all rights reserved")
+                && !t.starts_with("spdx-license")
+                && !(t.starts_with('#') && t.contains("license"))
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    if cleaned.trim().is_empty() {
         return None;
     }
 
@@ -340,14 +372,14 @@ pub(super) fn extract_yake(content: &str) -> Option<String> {
         ..Config::default()
     };
 
-    let keywords = get_n_best(4, content, &stop_words, &config);
+    let keywords = get_n_best(4, &cleaned, &stop_words, &config);
     if keywords.is_empty() {
         return None;
     }
 
     let stems: Vec<&str> = keywords
         .iter()
-        .take(3)
+        .take(MAX_TOKENS)
         .map(|item| item.raw.as_str())
         .collect();
     if stems.is_empty() {
@@ -757,5 +789,41 @@ You are a security auditor. Review the authentication module for vulnerabilities
     fn cascade_empty_returns_none() {
         assert!(extract_prose("").is_none());
         assert!(extract_prose("   ").is_none());
+    }
+
+    // ── Tagged extraction ───────────────────────────────────────────────
+
+    #[test]
+    fn tagged_email_returns_email_kind() {
+        let email = "\
+From: test@example.com
+To: dev@example.com
+Subject: Database migration plan
+
+Content about migration.";
+        let en = extract_prose_tagged(email).unwrap();
+        assert_eq!(en.kind, StemKind::Email);
+        assert!(en.stem.contains("Database migration plan"));
+    }
+
+    #[test]
+    fn tagged_prompt_returns_prompt_kind() {
+        let prompt = "\
+You are a security auditor. Review the authentication module for vulnerabilities.
+
+1. Check for SQL injection
+2. Check for XSS
+3. Check for CSRF";
+        let en = extract_prose_tagged(prompt).unwrap();
+        assert_eq!(en.kind, StemKind::Prompt);
+    }
+
+    #[test]
+    fn tagged_generic_returns_generic_kind() {
+        let text = "Distributed systems require careful consideration of network partitions, \
+                     consistency models, and failure modes. The CAP theorem states that a \
+                     distributed data store can only guarantee two of three properties.";
+        let en = extract_prose_tagged(text).unwrap();
+        assert_eq!(en.kind, StemKind::Generic);
     }
 }

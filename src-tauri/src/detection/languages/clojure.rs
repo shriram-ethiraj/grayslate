@@ -57,7 +57,7 @@ pub fn definition() -> LanguageDefinition {
             "sort", "reverse", "count", "into", "atom", "deref",
             "swap", "reset", "comp", "partial", "juxt",
         ],
-        illegal: None,
-        extends: None,
+        family: None,
+        exclusive_patterns: &[],
     }
 }

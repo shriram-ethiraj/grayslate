@@ -113,13 +113,20 @@ pub(crate) fn is_likely_markdown(trimmed: &str, _was_sliced: bool) -> bool {
         (Regex::new(r"(?m)^\s*(const|let|var)\s+\w+\s*[=:]").unwrap(), 2),
         (Regex::new(r"(?m)^\s*function\s+\w*\s*\(").unwrap(), 2),
         (Regex::new(r"(?m)^\s*(interface|type|enum)\s+\w+").unwrap(), 3),
-        (Regex::new(r"(?m)^\s*class\s+\w+").unwrap(), 2),
+        // Weight 3 (was 2): any file with a `class` declaration at line-start is code,
+        // not markdown. Raising to 3 pushes code_score to the higher-threshold zone so
+        // a lone `# comment` line cannot tip the score over the markdown threshold.
+        (Regex::new(r"(?m)^\s*class\s+\w+").unwrap(), 3),
         (Regex::new(r"(?m)=>\s*[\{(\n]").unwrap(), 2),
         (Regex::new(r"(?m)^\s*def\s+\w+\s*\(").unwrap(), 3),
         (Regex::new(r#"(?m)^\s*#include\s*[<"]"#).unwrap(), 3),
         (Regex::new(r"(?m);\s*$").unwrap(), 1),
         (Regex::new(r"(?m)^\s*async\s+(function|\w+\s*[=(])").unwrap(), 2),
         (Regex::new(r"(?m)^\s*[a-zA-Z_][\w.\-]*\s*:\s+[^h\s]").unwrap(), 4),
+        // PEP 263 / Emacs file-local variable encoding header (e.g. `# -*- coding: utf-8 -*-`).
+        // These lines start with `#` so they match the markdown heading regex, causing
+        // Python files that open with this header to be misidentified as markdown.
+        (Regex::new(r"(?m)^#.*coding\s*[:=]\s*[-\w]+").unwrap(), 3),
     ]);
 
     let mut code_score = 0i32;
@@ -171,7 +178,33 @@ pub fn definition() -> LanguageDefinition {
         uses_hash_comments: false,
         keywords: &[],
         builtins: &[],
-        illegal: None,
-        extends: None,
+        family: None,
+        exclusive_patterns: &[],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn python_coding_header_not_markdown() {
+        // Regression: `# -*- coding: utf-8 -*-` matched the markdown heading
+        // regex AND all def/self signals were stripped as "indented code blocks",
+        // causing this Python file to be misidentified as markdown.
+        let src = "# -*- coding: utf-8 -*-\n\nfrom enum import Enum\n\n\nclass DefaultCategories(Enum):\n\n    HOUSING = 0\n    FOOD = 1\n\n\nclass Categorizer(object):\n\n    def __init__(self, m):\n        self.m = m\n\n    def categorize(self, t):\n        return self.m.get(t.seller)\n";
+        assert!(!is_likely_markdown(src, false), "Python class file should not be markdown");
+    }
+
+    #[test]
+    fn real_markdown_still_detected() {
+        let src = "# Getting Started\n\nSome paragraph.\n\n## Installation\n\n- Step one\n- Step two\n\n> Note: check the docs\n";
+        assert!(is_likely_markdown(src, false), "Real markdown should be detected");
+    }
+
+    #[test]
+    fn python_class_only_not_markdown() {
+        let src = "class Foo:\n    pass\n\nclass Bar(Foo):\n    def method(self):\n        return 42\n";
+        assert!(!is_likely_markdown(src, false), "Plain Python class should not be markdown");
     }
 }

@@ -96,7 +96,7 @@ pub fn definition() -> LanguageDefinition {
             "createEventDispatcher", "tick", "setContext", "getContext",
             "writable", "readable", "derived",
         ],
-        illegal: None,
-        extends: None,
+        family: None,
+        exclusive_patterns: &[],
     }
 }

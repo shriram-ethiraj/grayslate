@@ -44,7 +44,7 @@ pub fn definition() -> LanguageDefinition {
             "container", "text", "edgeinsetsall", "sizedbox",
             "navigator", "materialapp", "themedata",
         ],
-        illegal: None,
-        extends: None,
+        family: None,
+        exclusive_patterns: &[],
     }
 }

@@ -11,7 +11,7 @@ static HTML_TAG_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"<[^>]+>").unwrap());
 
 /// XML / HTML: root element name + up to two attribute values.
-pub(super) fn extract_xml_html(content: &str) -> Option<String> {
+pub(crate) fn extract_xml_html(content: &str) -> Option<String> {
     // Find the first tag: <tagname attr="val" ...>
     // Skip XML declaration and DOCTYPE.
     let tag_re = regex::Regex::new(r"<([a-zA-Z][a-zA-Z0-9\-:_]*)").ok()?;
@@ -53,7 +53,7 @@ pub(super) fn extract_xml_html(content: &str) -> Option<String> {
 }
 
 /// Markdown: first `# heading` or frontmatter `title:` value.
-pub(super) fn extract_markdown(content: &str) -> Option<String> {
+pub(crate) fn extract_markdown(content: &str) -> Option<String> {
     let mut in_frontmatter = false;
     let mut frontmatter_done = false;
     let mut first_line_was_dashes = false;
@@ -88,6 +88,14 @@ pub(super) fn extract_markdown(content: &str) -> Option<String> {
         if trimmed.starts_with('#') {
             let raw = trimmed.trim_start_matches('#').trim();
             if raw.is_empty() {
+                continue;
+            }
+            // Skip copyright/license headings — they're boilerplate, not content.
+            let lower = raw.to_lowercase();
+            if lower.starts_with("copyright")
+                || lower.starts_with("license")
+                || lower.starts_with("all rights reserved")
+            {
                 continue;
             }
             // Strip inline HTML tags (e.g. <abbr title="...">text</abbr>), keeping inner text.

@@ -39,7 +39,7 @@ pub fn definition() -> LanguageDefinition {
             "first-child", "last-child", "nth-child", "placeholder",
             "selection", "root",
         ],
-        illegal: None,
-        extends: None,
+        family: None,
+        exclusive_patterns: &[],
     }
 }

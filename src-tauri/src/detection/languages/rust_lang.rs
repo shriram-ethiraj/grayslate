@@ -51,7 +51,12 @@ pub fn definition() -> LanguageDefinition {
             "debug", "clone", "copy", "send", "sync", "sized",
             "drop", "default", "partialeq", "partialord",
         ],
-        illegal: None,
-        extends: None,
+        family: None,
+        exclusive_patterns: &[
+            wp!(r"(?m)^\s*fn\s+\w+\s*[<(]", 4),
+            wp!(r"(?m)#\[derive\(", 4),
+            wp!(r"\blet\s+mut\s+", 3),
+            wp!(r"\bimpl\s+\w+", 3),
+        ],
     }
 }

@@ -24,6 +24,10 @@ pub fn definition() -> LanguageDefinition {
             wp!(r"\bvirtual\s+", 2),
             wp!(r#"(?m)#include\s*[<"]"#, 2),
             wp!(r"->\w+", 1),
+            wp!(r"\w+::\w+", 2),
+            wp!(r"(?m)#(?:ifndef|ifdef)\s+\w+", 3),
+            wp!(r"(?m)#pragma\s", 2),
+            wp!(r"\b(static_cast|reinterpret_cast|dynamic_cast|const_cast)\s*<", 4),
         ],
         anti_patterns: &[],
         uses_hash_comments: false,
@@ -41,8 +45,11 @@ pub fn definition() -> LanguageDefinition {
             "unique_ptr", "shared_ptr", "weak_ptr", "optional",
             "variant", "mutex", "future", "promise", "tuple",
         ],
-        illegal: None,
-        // extends: Some("c"),  // disabled: causes C++ to outscore C on pure C content
-        extends: None,
+        family: Some("c-family"),
+        exclusive_patterns: &[
+            wp!(r"\btemplate\s*<", 4),
+            wp!(r"\b(static_cast|reinterpret_cast|dynamic_cast|const_cast)\s*<", 4),
+            wp!(r"\w+::\w+", 2),
+        ],
     }
 }

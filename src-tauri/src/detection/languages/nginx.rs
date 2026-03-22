@@ -42,7 +42,7 @@ pub fn definition() -> LanguageDefinition {
             "$proxy_add_x_forwarded_for", "$http_upgrade", "$scheme",
             "$server_name", "$request_method", "$content_type", "$document_root",
         ],
-        illegal: None,
-        extends: None,
+        family: None,
+        exclusive_patterns: &[],
     }
 }

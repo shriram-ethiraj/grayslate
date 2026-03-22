@@ -68,7 +68,7 @@ pub fn definition() -> LanguageDefinition {
             "defineProps", "defineEmits", "defineExpose", "withDefaults",
             "nextTick", "provide", "inject",
         ],
-        illegal: None,
-        extends: None,
+        family: None,
+        exclusive_patterns: &[],
     }
 }

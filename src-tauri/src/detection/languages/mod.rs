@@ -6,7 +6,7 @@
 ///
 /// **Adding a new language = creating one file here. No other changes needed.**
 use regex::Regex;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::LazyLock;
 
 // ── Per-language modules ─────────────────────────────────────────────────
@@ -27,6 +27,7 @@ mod jinja;
 mod json;
 mod kotlin;
 pub(crate) mod markdown;
+mod cmd;
 mod nginx;
 mod objectivec;
 mod objectivecpp;
@@ -131,13 +132,22 @@ pub struct LanguageDefinition {
     /// Matched the same way as keywords. Each unique hit adds +1.
     pub builtins: &'static [&'static str],
 
-    /// Optional regex that, if matched, instantly disqualifies this language.
-    /// For example, Java cannot contain `<\/` (HTML close tags).
-    pub illegal: Option<&'static str>,
+    // ── Cross-family penalty system ──────────────────────────
 
-    /// Optional base language whose patterns and keywords are inherited.
-    /// E.g. TypeScript extends JavaScript, C++ extends C.
-    pub extends: Option<&'static str>,
+    /// Language family ID. Languages in the same family do not
+    /// cross-penalize each other via exclusive patterns.
+    /// E.g. `Some("c-family")` for C, C++, Objective-C.
+    /// `None` means this language is in its own singleton family.
+    pub family: Option<&'static str>,
+
+    /// Patterns near-exclusive to this language or family. When these
+    /// match the content, they automatically act as negative signals
+    /// for all languages *outside* this family.
+    ///
+    /// Example: `#include` is exclusive to the C-family. If it matches,
+    /// every non-C-family language gets a score penalty — without those
+    /// languages needing to declare `#include` as an anti-pattern.
+    pub exclusive_patterns: &'static [WeightedPattern],
 }
 
 // ── Master definition list ───────────────────────────────────────────────
@@ -176,6 +186,7 @@ fn all_definitions() -> Vec<LanguageDefinition> {
         scala::definition(),
         scss::definition(),
         shell::definition(),
+        cmd::definition(),
         sql::definition(),
         svelte::definition(),
         swift::definition(),
@@ -292,8 +303,10 @@ pub(crate) struct CompiledLanguage {
     pub keywords: HashSet<&'static str>,
     /// Set of builtins (lowercase) for fingerprint matching.
     pub builtins: HashSet<&'static str>,
-    /// Compiled illegal pattern — if matched, score = -∞.
-    pub illegal: Option<Regex>,
+    /// Resolved family: explicit family or the language name itself.
+    pub family: &'static str,
+    /// Compiled exclusive patterns for cross-family penalty.
+    pub exclusive: Vec<CompiledPattern>,
 }
 
 /// Common anti-signal: markdown headings (`# Heading`).
@@ -310,15 +323,10 @@ const FENCE_ANTI: WeightedPattern = WeightedPattern {
     weight: -3,
 };
 
-/// Collect every language definition that has heuristic patterns, compile
-/// all patterns once. Handles inheritance: if a definition sets `extends`,
-/// the base language's patterns, keywords, and builtins are merged in.
+/// Collect every language definition that has heuristic patterns and compile
+/// all patterns once into `CompiledLanguage` entries.
 pub(crate) static COMPILED: LazyLock<Vec<CompiledLanguage>> = LazyLock::new(|| {
     let definitions = all_definitions();
-
-    // Index by name for inheritance lookups
-    let by_name: HashMap<&str, &LanguageDefinition> =
-        definitions.iter().map(|d| (d.name, d)).collect();
 
     definitions
         .iter()
@@ -327,17 +335,6 @@ pub(crate) static COMPILED: LazyLock<Vec<CompiledLanguage>> = LazyLock::new(|| {
             let mut compiled_patterns: Vec<CompiledPattern> = Vec::new();
             let mut keywords: HashSet<&'static str> = HashSet::new();
             let mut builtins: HashSet<&'static str> = HashSet::new();
-
-            // 0. Inheritance — merge base language's patterns/keywords first
-            if let Some(base_name) = def.extends {
-                if let Some(base) = by_name.get(base_name) {
-                    for wp in base.patterns {
-                        compiled_patterns.push(compile_wp(base.name, wp));
-                    }
-                    keywords.extend(base.keywords.iter());
-                    builtins.extend(base.builtins.iter());
-                }
-            }
 
             // 1. Own positive patterns
             for wp in def.patterns {
@@ -361,22 +358,19 @@ pub(crate) static COMPILED: LazyLock<Vec<CompiledLanguage>> = LazyLock::new(|| {
                 weight: FENCE_ANTI.weight,
             });
 
-            // 4. Own keywords/builtins (added after base)
+            // 4. Keywords/builtins
             keywords.extend(def.keywords.iter());
             builtins.extend(def.builtins.iter());
-
-            // 5. Illegal pattern
-            let illegal = def.illegal.map(|pat| {
-                Regex::new(pat)
-                    .unwrap_or_else(|e| panic!("[{}] bad illegal pattern `{}`: {}", def.name, pat, e))
-            });
 
             CompiledLanguage {
                 name: def.name,
                 patterns: compiled_patterns,
                 keywords,
                 builtins,
-                illegal,
+                family: def.family.unwrap_or(def.name),
+                exclusive: def.exclusive_patterns.iter()
+                    .map(|wp| compile_wp(def.name, wp))
+                    .collect(),
             }
         })
         .collect()

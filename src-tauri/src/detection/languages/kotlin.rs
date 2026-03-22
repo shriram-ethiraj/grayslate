@@ -48,8 +48,7 @@ pub fn definition() -> LanguageDefinition {
             "todo", "check", "require", "repeat", "run", "apply",
             "also", "let", "with", "takeif", "takeunless",
         ],
-        illegal: None,
-        // extends: Some("java"),  // disabled: causes Kotlin to outscore Java on pure Java content
-        extends: None,
+        family: Some("jvm-family"),
+        exclusive_patterns: &[],
     }
 }

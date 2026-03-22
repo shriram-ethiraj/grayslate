@@ -43,7 +43,7 @@ pub fn definition() -> LanguageDefinition {
             "dictsort", "filesizeformat", "wordcount", "striptags", "urlencode",
             "center", "truncate",
         ],
-        illegal: None,
-        extends: None,
+        family: None,
+        exclusive_patterns: &[],
     }
 }

@@ -50,6 +50,7 @@ Requirements:
     - Python 3.10+
     - git (for cloning remote repos)
     - The name_file Rust binary (built by this script via --build, or pre-built)
+    - pathspec (pip install pathspec)  — for .gitignore-aware file filtering
 """
 
 import argparse
@@ -61,6 +62,16 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+
+try:
+    import pathspec
+except ImportError:
+    print(
+        "Error: 'pathspec' is required.\n"
+        "Install it with:  pip install pathspec",
+        file=sys.stderr,
+    )
+    sys.exit(1)
 
 # ── Paths ────────────────────────────────────────────────────────────────────
 
@@ -77,8 +88,9 @@ _BINARY_STEMS = [
 ]
 
 # ── File filtering ────────────────────────────────────────────────────────────
-# Binary and generated files to skip entirely.
-# The name_file binary handles language detection — no EXT_TO_LANG map needed.
+# SKIP_EXTENSIONS covers binary/non-text formats that are never in .gitignore
+# (and that the name_file binary can't meaningfully detect anyway).
+# Directory filtering is done entirely via .gitignore — see walk_repo().
 
 SKIP_EXTENSIONS: set[str] = {
     ".png", ".jpg", ".jpeg", ".gif", ".ico", ".webp", ".bmp", ".tiff",
@@ -95,14 +107,6 @@ SKIP_EXTENSIONS: set[str] = {
     ".wasm",
     ".patch", ".diff",
     ".npmrc",         # INI-like config; trivial to detect as text, adds noise
-}
-
-# Directory names to prune during traversal
-SKIP_DIRS: set[str] = {
-    "node_modules", "target", ".git", ".svelte-kit",
-    "dist", "build", ".next", ".nuxt", "__pycache__", ".cache",
-    "vendor", ".pnpm", "coverage", ".turbo", ".vercel",
-    "out", ".idea", ".vscode", ".vs",
 }
 
 MAX_FILE_BYTES = 500_000  # match Grayslate's 500 KB read limit
@@ -139,35 +143,81 @@ def build_binary(manifest_path: Path) -> None:
 
 # ── File helpers ──────────────────────────────────────────────────────────────
 
-def should_skip_path(rel_path: str) -> bool:
-    """True if any path segment is in SKIP_DIRS or the extension is binary/generated."""
-    parts = rel_path.replace("\\", "/").split("/")
-    for part in parts[:-1]:  # directory components only
-        if part in SKIP_DIRS or part.startswith("."):
-            return True
-    name = parts[-1].lower()
-    if "." in name:
-        ext = "." + name.rsplit(".", 1)[-1]
-        if ext in SKIP_EXTENSIONS:
+def _is_gitignored(
+    abs_path: Path,
+    specs: list[tuple[Path, "pathspec.PathSpec"]],
+) -> bool:
+    """Return True if abs_path is matched by any applicable .gitignore spec."""
+    for base_dir, spec in specs:
+        try:
+            rel = abs_path.relative_to(base_dir).as_posix()
+        except ValueError:
+            continue
+        if spec.match_file(rel):
             return True
     return False
+
+
+def _collect_gitignore_specs(
+    repo_dir: Path,
+) -> list[tuple[Path, "pathspec.PathSpec"]]:
+    """
+    Walk repo_dir top-down and load every .gitignore file found.
+
+    Each directory's .gitignore is loaded *before* its subdirectories are
+    pruned, so heavily-ignored trees (node_modules/, target/, etc.) are
+    skipped immediately on the first encounter — no descending into them.
+
+    Returns a list of (base_dir, spec) pairs where each spec's patterns are
+    relative to base_dir, matching git's per-directory semantics.
+    """
+    specs: list[tuple[Path, pathspec.PathSpec]] = []
+    for root, dirs, files in os.walk(repo_dir):
+        root_path = Path(root)
+        # Load the .gitignore in this directory FIRST so its patterns
+        # take effect when we prune subdirectories below.
+        if ".gitignore" in files:
+            gi_path = root_path / ".gitignore"
+            try:
+                lines = gi_path.read_text(encoding="utf-8", errors="ignore").splitlines()
+                spec = pathspec.PathSpec.from_lines("gitwildmatch", lines)
+                specs.append((root_path, spec))
+            except OSError:
+                pass
+        # .git is never listed in .gitignore (git treats it specially), so
+        # exclude it explicitly. Everything else is covered by the specs.
+        dirs[:] = sorted(
+            d for d in dirs
+            if d != ".git" and not _is_gitignored(root_path / d, specs)
+        )
+    return specs
 
 
 def walk_repo(repo_dir: Path):
     """
     Yield (rel_path, abs_path) for every text file worth auditing.
-    Uses os.walk so it works on both cloned repos and the local working tree.
+
+    Directories and files are filtered using all .gitignore files found under
+    repo_dir (including nested ones), matching git's per-directory semantics.
+    Binary/non-text extensions listed in SKIP_EXTENSIONS are also excluded.
     """
+    gitignore_specs = _collect_gitignore_specs(repo_dir)
+
     for root, dirs, files in os.walk(repo_dir):
-        # Prune in-place so os.walk doesn't descend into skipped dirs
+        root_path = Path(root)
         dirs[:] = sorted(
             d for d in dirs
-            if d not in SKIP_DIRS and not d.startswith(".")
+            if d != ".git" and not _is_gitignored(root_path / d, gitignore_specs)
         )
         for fname in sorted(files):
-            abs_path = Path(root) / fname
+            abs_path = root_path / fname
             rel_path = abs_path.relative_to(repo_dir).as_posix()
-            if should_skip_path(rel_path):
+            name = fname.lower()
+            if "." in name:
+                ext = "." + name.rsplit(".", 1)[-1]
+                if ext in SKIP_EXTENSIONS:
+                    continue
+            if _is_gitignored(abs_path, gitignore_specs):
                 continue
             try:
                 st = abs_path.stat()

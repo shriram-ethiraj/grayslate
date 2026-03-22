@@ -79,7 +79,7 @@ pub fn definition() -> LanguageDefinition {
             "tbody", "section", "article", "header", "footer", "nav", "main", "aside",
         ],
         builtins: &[],
-        illegal: None,
-        extends: None,
+        family: None,
+        exclusive_patterns: &[],
     }
 }

@@ -54,7 +54,11 @@ pub fn definition() -> LanguageDefinition {
             "__init__", "__name__", "__main__", "__all__", "__file__",
             "__version__", "__author__", "__doc__", "__dict__", "__slots__",
         ],
-        illegal: None,
-        extends: None,
+        family: None,
+        exclusive_patterns: &[
+            wp!(r"(?m)^\s*def\s+\w+\s*\(self[\s,)]", 4),
+            wp!(r"(?m)^\s*@\w+\s*\n\s*(def|class)\s", 3),
+            wp!(r"\b__\w+__\b", 3),
+        ],
     }
 }

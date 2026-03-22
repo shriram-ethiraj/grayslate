@@ -13,17 +13,14 @@
  * All extractors operate on at most the first MAX_CONTENT_BYTES bytes of the
  * document to keep naming fast even for very large files.
  */
-mod code;
-mod markup;
-mod model;
-mod prose;
-mod shared;
-mod sql;
-mod structured;
-
-use self::model::{
-    CodeStyle, ExtractorGroup, LanguageNamingProfile, MarkupNamingKind, StructuredNamingKind,
-};
+pub(crate) mod code;
+mod languages;
+pub(crate) mod markup;
+pub(crate) mod model;
+pub(crate) mod prose;
+pub(crate) mod shared;
+pub(crate) mod sql;
+pub(crate) mod structured;
 
 pub use self::shared::{fallback_stem, slugify};
 
@@ -52,190 +49,22 @@ pub fn suggest_stem_auto(
 /// `None` when no useful name can be derived.
 pub fn suggest_stem(content: &str, language_hint: &str) -> Option<String> {
     let bounded = shared::bound(content);
-    let profile = language_profile(language_hint);
-    let raw = match profile.extractor {
-        ExtractorGroup::Structured(kind) => match kind {
-            StructuredNamingKind::Csv => structured::extract_csv(bounded),
-            StructuredNamingKind::Json => structured::extract_json(bounded),
-            StructuredNamingKind::Yaml => structured::extract_yaml(bounded),
-            StructuredNamingKind::Toml => structured::extract_toml(bounded),
-        },
-        ExtractorGroup::Markup(kind) => match kind {
-            MarkupNamingKind::XmlHtml => markup::extract_xml_html(bounded),
-            MarkupNamingKind::Markdown => markup::extract_markdown(bounded),
-        },
-        ExtractorGroup::Code(style) => code::extract_code(bounded, style),
-        ExtractorGroup::Sql => sql::extract_sql(bounded),
-        ExtractorGroup::Prose => prose::extract_prose(bounded),
-    };
+    let def = languages::lookup(language_hint);
 
-    raw.and_then(|stem| slugify(&stem))
+    // Prose-backed languages carry kind metadata (email / prompt) so the
+    // pipeline can append a descriptive suffix.
+    if def.name == "text" {
+        let tagged = prose::extract_prose_tagged(bounded);
+        return shared::finalize_extracted(tagged);
+    }
+
+    let raw = (def.extract)(bounded);
+    shared::finalize(raw, model::StemKind::Generic)
 }
 
 /// Maps a language ID to its canonical file extension.
 pub fn language_to_extension(language_hint: &str) -> &'static str {
-    language_profile(language_hint).extension
-}
-
-fn language_profile(language_hint: &str) -> LanguageNamingProfile {
-    match language_hint {
-        "csv" => LanguageNamingProfile {
-            extension: "csv",
-            extractor: ExtractorGroup::Structured(StructuredNamingKind::Csv),
-        },
-        "json" => LanguageNamingProfile {
-            extension: "json",
-            extractor: ExtractorGroup::Structured(StructuredNamingKind::Json),
-        },
-        "yaml" => LanguageNamingProfile {
-            extension: "yaml",
-            extractor: ExtractorGroup::Structured(StructuredNamingKind::Yaml),
-        },
-        "toml" => LanguageNamingProfile {
-            extension: "toml",
-            extractor: ExtractorGroup::Structured(StructuredNamingKind::Toml),
-        },
-        "xml" => LanguageNamingProfile {
-            extension: "xml",
-            extractor: ExtractorGroup::Markup(MarkupNamingKind::XmlHtml),
-        },
-        "html" => LanguageNamingProfile {
-            extension: "html",
-            extractor: ExtractorGroup::Markup(MarkupNamingKind::XmlHtml),
-        },
-        "svelte" => LanguageNamingProfile {
-            extension: "svelte",
-            extractor: ExtractorGroup::Markup(MarkupNamingKind::XmlHtml),
-        },
-        "vue" => LanguageNamingProfile {
-            extension: "vue",
-            extractor: ExtractorGroup::Markup(MarkupNamingKind::XmlHtml),
-        },
-        "angular" => LanguageNamingProfile {
-            extension: "angular",
-            extractor: ExtractorGroup::Markup(MarkupNamingKind::XmlHtml),
-        },
-        "markdown" => LanguageNamingProfile {
-            extension: "md",
-            extractor: ExtractorGroup::Markup(MarkupNamingKind::Markdown),
-        },
-        "sql" => LanguageNamingProfile {
-            extension: "sql",
-            extractor: ExtractorGroup::Sql,
-        },
-        "javascript" => LanguageNamingProfile {
-            extension: "js",
-            extractor: ExtractorGroup::Code(CodeStyle::JsTs),
-        },
-        "typescript" => LanguageNamingProfile {
-            extension: "ts",
-            extractor: ExtractorGroup::Code(CodeStyle::JsTs),
-        },
-        "python" => LanguageNamingProfile {
-            extension: "py",
-            extractor: ExtractorGroup::Code(CodeStyle::Python),
-        },
-        "rust" => LanguageNamingProfile {
-            extension: "rs",
-            extractor: ExtractorGroup::Code(CodeStyle::Rust),
-        },
-        "java" => LanguageNamingProfile {
-            extension: "java",
-            extractor: ExtractorGroup::Code(CodeStyle::JavaLike),
-        },
-        "kotlin" => LanguageNamingProfile {
-            extension: "kt",
-            extractor: ExtractorGroup::Code(CodeStyle::JavaLike),
-        },
-        "scala" => LanguageNamingProfile {
-            extension: "scala",
-            extractor: ExtractorGroup::Code(CodeStyle::JavaLike),
-        },
-        "go" => LanguageNamingProfile {
-            extension: "go",
-            extractor: ExtractorGroup::Code(CodeStyle::Go),
-        },
-        "cpp" => LanguageNamingProfile {
-            extension: "cpp",
-            extractor: ExtractorGroup::Code(CodeStyle::CFamily),
-        },
-        "c" => LanguageNamingProfile {
-            extension: "c",
-            extractor: ExtractorGroup::Code(CodeStyle::CFamily),
-        },
-        "csharp" => LanguageNamingProfile {
-            extension: "cs",
-            extractor: ExtractorGroup::Code(CodeStyle::CSharp),
-        },
-        "swift" => LanguageNamingProfile {
-            extension: "swift",
-            extractor: ExtractorGroup::Code(CodeStyle::Swift),
-        },
-        "objectivec" => LanguageNamingProfile {
-            extension: "m",
-            extractor: ExtractorGroup::Code(CodeStyle::Swift),
-        },
-        "objectivecpp" => LanguageNamingProfile {
-            extension: "mm",
-            extractor: ExtractorGroup::Code(CodeStyle::Swift),
-        },
-        "ruby" => LanguageNamingProfile {
-            extension: "rb",
-            extractor: ExtractorGroup::Code(CodeStyle::Ruby),
-        },
-        "perl" => LanguageNamingProfile {
-            extension: "pl",
-            extractor: ExtractorGroup::Prose,
-        },
-        "php" => LanguageNamingProfile {
-            extension: "php",
-            extractor: ExtractorGroup::Code(CodeStyle::Php),
-        },
-        "dart" => LanguageNamingProfile {
-            extension: "dart",
-            extractor: ExtractorGroup::Code(CodeStyle::Dart),
-        },
-        "shell" => LanguageNamingProfile {
-            extension: "sh",
-            extractor: ExtractorGroup::Code(CodeStyle::Shell),
-        },
-        "dockerfile" => LanguageNamingProfile {
-            extension: "dockerfile",
-            extractor: ExtractorGroup::Code(CodeStyle::Shell),
-        },
-        "css" => LanguageNamingProfile {
-            extension: "css",
-            extractor: ExtractorGroup::Prose,
-        },
-        "clojure" => LanguageNamingProfile {
-            extension: "clj",
-            extractor: ExtractorGroup::Prose,
-        },
-        "sass" => LanguageNamingProfile {
-            extension: "sass",
-            extractor: ExtractorGroup::Prose,
-        },
-        "scss" => LanguageNamingProfile {
-            extension: "scss",
-            extractor: ExtractorGroup::Prose,
-        },
-        "jinja" => LanguageNamingProfile {
-            extension: "j2",
-            extractor: ExtractorGroup::Prose,
-        },
-        "powershell" => LanguageNamingProfile {
-            extension: "ps1",
-            extractor: ExtractorGroup::Prose,
-        },
-        "nginx" => LanguageNamingProfile {
-            extension: "conf",
-            extractor: ExtractorGroup::Prose,
-        },
-        _ => LanguageNamingProfile {
-            extension: "txt",
-            extractor: ExtractorGroup::Prose,
-        },
-    }
+    languages::lookup(language_hint).extension
 }
 
 #[cfg(test)]
@@ -295,8 +124,9 @@ mod tests {
     fn yaml_top_level_keys() {
         let yaml = "name: my-service\nversion: 1.0\nport: 8080\n";
         let stem = suggest_stem(yaml, "yaml").unwrap();
+        // Enhanced YAML now extracts `name:` value → "my-service"
         assert!(
-            stem.contains("name") || stem.contains("version"),
+            stem.contains("my-service"),
             "got: {stem}"
         );
     }
@@ -326,7 +156,8 @@ mod tests {
     fn html_root_element() {
         let html = r#"<!DOCTYPE html><html lang="en"><head><title>My Page</title></head></html>"#;
         let stem = suggest_stem(html, "html").unwrap();
-        assert!(stem.contains("html"), "got: {stem}");
+        // Enhanced HTML now extracts <title> content → "my-page"
+        assert!(stem.contains("my-page"), "got: {stem}");
     }
 
     // ── Markdown ─────────────────────────────────────────────────────────────
@@ -427,6 +258,27 @@ mod tests {
         );
     }
 
+    #[test]
+    fn rust_module_doc_fallback() {
+        let rs = "//! Connection pooling and retry logic\n\nuse std::net::TcpStream;\n";
+        let stem = suggest_stem(rs, "rust").unwrap();
+        assert!(stem.contains("connection-pooling"), "got: {stem}");
+    }
+
+    #[test]
+    fn python_docstring_fallback() {
+        let py = "\"\"\"Rate limiting middleware for Flask applications\"\"\"\n\nimport time\nimport functools\n";
+        let stem = suggest_stem(py, "python").unwrap();
+        assert!(stem.contains("rate-limiting"), "got: {stem}");
+    }
+
+    #[test]
+    fn go_package_doc_fallback() {
+        let go = "// Package ratelimit provides a token bucket rate limiter.\npackage ratelimit\n\nimport \"sync\"\n";
+        let stem = suggest_stem(go, "go").unwrap();
+        assert!(stem.contains("ratelimit"), "got: {stem}");
+    }
+
     // ── Sanitizer ────────────────────────────────────────────────────────────
 
     #[test]
@@ -478,6 +330,57 @@ mod tests {
         assert!(fb.starts_with("slate-"), "got: {fb}");
         // Format: slate-DD-mon-YYYY-HHMM  e.g. slate-19-mar-2026-0530 → 22 chars
         assert_eq!(fb.len(), 22, "got: {fb}");
+    }
+
+    // ── Suffix pipeline ──────────────────────────────────────────────────────
+
+    #[test]
+    fn email_gets_suffix() {
+        let email = "\
+From: test@example.com
+To: dev@example.com
+Subject: Database migration plan
+
+Content about migration.";
+        let stem = suggest_stem(email, "text").unwrap();
+        assert!(stem.ends_with("-email"), "expected -email suffix, got: {stem}");
+        assert!(stem.contains("database-migration"), "got: {stem}");
+    }
+
+    #[test]
+    fn prompt_gets_suffix() {
+        let prompt = "\
+You are a security auditor. Review the authentication module for vulnerabilities.
+
+1. Check for SQL injection
+2. Check for XSS
+3. Check for CSRF";
+        let stem = suggest_stem(prompt, "text").unwrap();
+        assert!(stem.ends_with("-prompt"), "expected -prompt suffix, got: {stem}");
+    }
+
+    #[test]
+    fn generic_text_no_suffix() {
+        let text = "Distributed systems require careful consideration of network partitions, \
+                     consistency models, and failure modes. The CAP theorem states that a \
+                     distributed data store can only guarantee two of three properties.";
+        let stem = suggest_stem(text, "text").unwrap();
+        assert!(!stem.ends_with("-email"), "no email suffix: {stem}");
+        assert!(!stem.ends_with("-prompt"), "no prompt suffix: {stem}");
+    }
+
+    #[test]
+    fn suffix_survives_length_cap() {
+        // Long email subject that exceeds MAX_STEM_LEN when slugified.
+        let email = "\
+From: a@b.com
+To: c@d.com
+Subject: Very important quarterly financial report with detailed breakdowns and comprehensive analysis of market trends
+
+Body.";
+        let stem = suggest_stem(email, "text").unwrap();
+        assert!(stem.ends_with("-email"), "suffix must survive cap, got: {stem}");
+        assert!(stem.len() <= MAX_STEM_LEN, "len={}, got: {stem}", stem.len());
     }
 
     // ── Naming audit: real project files ─────────────────────────────────────

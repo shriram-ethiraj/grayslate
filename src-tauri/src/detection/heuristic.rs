@@ -3,7 +3,12 @@
 /// Weighted pattern matching against 20+ language signatures.
 /// Language definitions live in `languages/` (one file per language).
 /// This module owns the scoring loop, superset tie-breaking, density
-/// bonus logic, and keyword fingerprinting.
+/// bonus logic, keyword fingerprinting, and **cross-family penalty**.
+///
+/// Cross-family penalty: each language definition may declare
+/// `exclusive_patterns` — patterns near-exclusive to that language family.
+/// When matched, their weights automatically penalize all languages
+/// that belong to a *different* family.
 use regex::Regex;
 use std::collections::HashSet;
 use std::sync::LazyLock;
@@ -25,6 +30,11 @@ const BUILTIN_WEIGHT: i32 = 1;
 /// Minimum unique keyword+builtin hits before the bonus kicks in.
 /// Prevents a single accidental "print" from adding score.
 const KEYWORD_MIN_HITS: usize = 3;
+
+/// Fraction of exclusive-pattern weight applied as a cross-family penalty.
+/// For each exclusive pattern that matched from *another* family, the language
+/// under evaluation loses `floor(matched_weight * factor)` points.
+const CROSS_PENALTY_FACTOR: f64 = 0.5;
 
 /// Tokenize content into a set of unique lowercase word-like tokens.
 /// Used once per scoring call; each language checks its keywords against this set.
@@ -69,20 +79,28 @@ pub fn detect_by_scoring_with_runner_up(content: &str) -> (Option<&'static str>,
     // Tokenize once for keyword fingerprinting
     let tokens = tokenize(content);
 
+    // ── Pre-pass: collect exclusive-pattern hits by family ──
+    // For each language that declares exclusive_patterns, check them against the
+    // content and accumulate the total matched weight per family. This map is used
+    // in the per-language loop to penalize unrelated families.
+    let mut family_exclusive_score: HashMap<&str, i32> = HashMap::new();
+    for sig in COMPILED.iter() {
+        for ep in &sig.exclusive {
+            let match_count = ep.regex.find_iter(content).take(5).count();
+            if match_count > 0 {
+                let weight = ep.weight + (match_count as i32 - 1).min(3);
+                *family_exclusive_score.entry(sig.family).or_insert(0) += weight;
+            }
+        }
+    }
+
     for sig in COMPILED.iter() {
         // ES module guard: file is definitively JS/TS — skip others
         if has_es_module && sig.name != "javascript" && sig.name != "typescript" {
             continue;
         }
 
-        // Illegal pattern — instant disqualification
-        if let Some(ref illegal) = sig.illegal {
-            if illegal.is_match(content) {
-                continue;
-            }
-        }
-
-        // ── Pattern scoring (existing logic) ──
+        // ── Pattern scoring ──
         let mut score = 0i32;
         for pat in &sig.patterns {
             if pat.weight > 0 {
@@ -104,6 +122,18 @@ pub fn detect_by_scoring_with_runner_up(content: &str) -> (Option<&'static str>,
         let total_hits = kw_hits + bi_hits;
         if total_hits >= KEYWORD_MIN_HITS {
             score += kw_hits as i32 * KEYWORD_WEIGHT + bi_hits as i32 * BUILTIN_WEIGHT;
+        }
+
+        // ── Cross-family penalty ──
+        // Sum exclusive scores from families OTHER than this language's family.
+        // Each point of foreign exclusive evidence is scaled by CROSS_PENALTY_FACTOR.
+        let cross_penalty: i32 = family_exclusive_score
+            .iter()
+            .filter(|(&fam, _)| fam != sig.family)
+            .map(|(_, &w)| w)
+            .sum();
+        if cross_penalty > 0 {
+            score -= (cross_penalty as f64 * CROSS_PENALTY_FACTOR) as i32;
         }
 
         if score < 0 {
@@ -371,5 +401,127 @@ func main() {
         // Doesn't contain punctuation
         assert!(!tokens.contains("("));
         assert!(!tokens.contains("::"));
+    }
+
+    // ── Cross-family penalty tests ───────────────────────────────────────
+
+    #[test]
+    fn cpp_tensorflow_style_not_typescript() {
+        // TensorFlow-style C++ with custom namespaces (no std::).
+        // Previously misdetected as TypeScript because of shared keywords
+        // (namespace, override, public, protected) and template patterns.
+        let content = r#"
+#include "tensorflow/core/framework/op_kernel.h"
+#include <vector>
+
+namespace tensorflow {
+
+class MyOp : public OpKernel {
+ public:
+  explicit MyOp(OpKernelConstruction* context) : OpKernel(context) {}
+
+  void Compute(OpKernelContext* context) override {
+    const Tensor& input = context->input(0);
+    auto flat = input.flat<float>();
+    Tensor* output = nullptr;
+    OP_REQUIRES_OK(context, context->allocate_output(0, input.shape(), &output));
+  }
+
+ private:
+  int batch_size_;
+};
+
+}  // namespace tensorflow
+"#;
+        let result = detect_by_scoring(content);
+        assert!(
+            result == Some("cpp") || result == Some("c"),
+            "Expected C/C++ but got {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn cpp_header_with_templates_not_typescript() {
+        // C++ header with templates and preprocessor guards.
+        let content = r#"
+#ifndef MY_HEADER_H_
+#define MY_HEADER_H_
+
+#include <string>
+#include <memory>
+
+namespace mylib {
+
+template<typename T>
+class Container {
+ public:
+  void push(const T& item);
+  T pop();
+  size_t size() const;
+
+ private:
+  std::vector<T> items_;
+};
+
+template<typename T>
+void Container<T>::push(const T& item) {
+  items_.push_back(item);
+}
+
+}  // namespace mylib
+
+#endif  // MY_HEADER_H_
+"#;
+        let result = detect_by_scoring(content);
+        assert_eq!(result, Some("cpp"), "Expected cpp but got {:?}", result);
+    }
+
+    #[test]
+    fn cross_penalty_does_not_affect_same_family() {
+        // TypeScript should still beat JavaScript when TS-specific syntax is present.
+        // The JS-family exclusive patterns should NOT penalize TypeScript.
+        let content = r#"
+interface User {
+    name: string;
+    age: number;
+}
+
+const greet = (user: User): string => {
+    return `Hello ${user.name}`;
+};
+
+export const validate = (x: unknown): x is User => {
+    return typeof x === 'object' && x !== null;
+};
+"#;
+        assert_eq!(detect_by_scoring(content), Some("typescript"));
+    }
+
+    #[test]
+    fn c_preprocessor_penalizes_unrelated_langs() {
+        // Pure C with preprocessor directives. Should not be detected as
+        // PHP, C#, or Perl (all of which share some syntax with C).
+        let content = r#"
+#include <stdio.h>
+#include <stdlib.h>
+
+#ifndef MAX_SIZE
+#define MAX_SIZE 1024
+#endif
+
+#pragma once
+
+int main(int argc, char* argv[]) {
+    printf("Hello, world!\n");
+    return 0;
+}
+"#;
+        let result = detect_by_scoring(content);
+        assert!(
+            result == Some("c") || result == Some("cpp"),
+            "Expected C/C++ but got {:?}",
+            result
+        );
     }
 }

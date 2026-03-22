@@ -46,7 +46,7 @@ pub fn definition() -> LanguageDefinition {
             "dispatchqueue", "urlsession", "codable", "encodable",
             "decodable", "identifiable", "hashable", "equatable",
         ],
-        illegal: None,
-        extends: None,
+        family: None,
+        exclusive_patterns: &[],
     }
 }

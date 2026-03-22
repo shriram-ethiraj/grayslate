@@ -21,7 +21,7 @@ pub fn definition() -> LanguageDefinition {
             wp!(r"(?m)^///\s*<reference\s", 5),
             wp!(r#"(?m)^\s*import\s+[\w\{*].*\s+from\s+['"`]"#, 2),
             wp!(r"(?m)^\s*export\s+(const|let|var|function|class|default|type|interface|enum)\s", 2),
-            wp!(r"<\w+(\s+extends\s+\w+)?>", 2),
+            wp!(r"<\w+(\s+extends\s+\w+)?>", 1),
             wp!(r"(?m)\b(const|let|var)\s+\w+\s*=", 1),
             wp!(r"=>\s*[\{(\n]", 1),
             wp!(r"===|!==", 1),
@@ -37,17 +37,20 @@ pub fn definition() -> LanguageDefinition {
         anti_patterns: &[],
         uses_hash_comments: false,
         keywords: &[
-            "interface", "type", "namespace", "declare", "abstract",
-            "readonly", "enum", "override", "satisfies", "keyof", "infer",
-            "implements", "private", "protected", "public",
+            "interface", "type", "declare", "readonly", "enum",
+            "satisfies", "keyof", "infer", "implements",
         ],
         builtins: &[
             "readonly", "partial", "record", "pick", "omit", "required",
             "exclude", "extract", "nonnullable", "returntype", "instancetype",
             "parameters", "awaited", "uppercase", "lowercase", "capitalize",
         ],
-        illegal: None,
-        // extends: Some("javascript"),  // disabled: causes TS to outscore JS on pure JS content
-        extends: None,
+        family: Some("js-family"),
+        exclusive_patterns: &[
+            wp!(r"(?m)\bdeclare\s+(module|namespace|function|class|const|type|interface)\b", 4),
+            wp!(r"(?m)^///\s*<reference\s", 5),
+            wp!(r"\b(keyof|infer|satisfies)\s+", 5),
+            wp!(r":\s*(string|number|boolean)\b", 3),
+        ],
     }
 }

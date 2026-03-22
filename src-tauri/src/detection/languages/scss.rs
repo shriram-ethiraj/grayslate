@@ -102,7 +102,7 @@ pub fn definition() -> LanguageDefinition {
             "nth", "map-get", "map-merge", "percentage", "round", "ceil", "floor",
             "abs", "min", "max", "length", "append", "join", "unquote", "quote",
         ],
-        illegal: None,
-        extends: None,
+        family: None,
+        exclusive_patterns: &[],
     }
 }

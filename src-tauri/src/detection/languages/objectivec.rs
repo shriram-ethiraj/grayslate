@@ -40,7 +40,7 @@ pub fn definition() -> LanguageDefinition {
             "NSMutableDictionary", "NSNumber", "NSLog", "NSError",
             "NSNotificationCenter", "NSUserDefaults", "NSBundle", "NSURL", "NSData",
         ],
-        illegal: None,
-        extends: None,
+        family: Some("c-family"),
+        exclusive_patterns: &[],
     }
 }
