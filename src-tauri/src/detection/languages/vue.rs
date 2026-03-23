@@ -1,4 +1,5 @@
 use super::{wp, LanguageDefinition};
+use super::ContentFamily;
 use regex::Regex;
 use std::sync::LazyLock;
 
@@ -70,5 +71,33 @@ pub fn definition() -> LanguageDefinition {
         ],
         family: None,
         exclusive_patterns: &[],
+        // ── Family-gated fields ──────────────────────────────
+        content_families: &[ContentFamily::Markup],
+        anchors: &[
+            wp!(r"\bv-if=", 5),
+            wp!(r"\bv-for=", 5),
+            wp!(r"\bv-model=", 5),
+            wp!(r"\bv-bind:", 4),
+            wp!(r"\bv-on:", 4),
+            wp!(r"<script\s+setup", 4),
+            wp!(r"\bdefineProps\b", 4),
+            wp!(r"\bdefineEmits\b", 4),
+        ],
+        hints: &[
+            wp!(r"<template\b", 3),
+            wp!(r"@click=", 3),
+            wp!(r":class=", 3),
+        ],
+        rivals: &["svelte"],
+        differentiators: &[
+            wp!(r"\bv-if=", 5),
+            wp!(r"\bv-for=", 5),
+            wp!(r"\bv-model=", 5),
+            wp!(r"\bv-bind:", 4),
+            wp!(r"\bv-on:", 4),
+            wp!(r"@click=", 3),
+            wp!(r"\bdefineProps\b", 4),
+        ],
+        disqualifiers: &[],
     }
 }

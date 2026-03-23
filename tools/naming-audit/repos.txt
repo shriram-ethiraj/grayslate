@@ -30,32 +30,41 @@
 # https://github.com/rust-lang/rust
 
 # Phase 1
-# https://github.com/nicehash/NiceHashQuickMiner
-# https://github.com/practical-tutorials/project-based-learning
-# https://github.com/kamranahmedse/developer-roadmap
-# https://github.com/fastapi/fastapi
-# https://github.com/f/prompts.chat
-# https://github.com/dair-ai/Prompt-Engineering-Guide
-# https://github.com/gin-gonic/gin
-# https://github.com/shadcn-ui/ui
-# https://github.com/vercel/next.js/
+https://github.com/nicehash/NiceHashQuickMiner
+https://github.com/practical-tutorials/project-based-learning
+https://github.com/kamranahmedse/developer-roadmap
+https://github.com/fastapi/fastapi
+https://github.com/f/prompts.chat
+https://github.com/dair-ai/Prompt-Engineering-Guide
+https://github.com/shadcn-ui/ui
+https://github.com/vercel/next.js/
 
 # Phase 2
-# https://github.com/docker/awesome-compose
-# https://github.com/vapor/vapor
-# https://github.com/flutter/gallery
-# https://github.com/laravel/framework
-# https://github.com/ripienaar/free-for-dev
-# https://github.com/coreui/coreui-free-bootstrap-admin-template
-# https://github.com/twbs/bootstrap
-# https://github.com/foundation/foundation-sites
-# https://github.com/rails/rails
-# https://github.com/jekyll/jekyll
-# https://github.com/necolas/normalize.css
-# https://github.com/square/okhttp
-# https://github.com/android/architecture-samples
+https://github.com/docker/awesome-compose
+https://github.com/vapor/vapor
+https://github.com/flutter/gallery
+https://github.com/laravel/framework
+https://github.com/ripienaar/free-for-dev
+https://github.com/coreui/coreui-free-bootstrap-admin-template
+https://github.com/twbs/bootstrap
+https://github.com/foundation/foundation-sites
+https://github.com/rails/rails
+https://github.com/jekyll/jekyll
+https://github.com/necolas/normalize.css
+https://github.com/android/architecture-samples
 
+# phase 3
 https://github.com/tensorflow/tensorflow
 https://github.com/curl/curl
 https://github.com/ansible/ansible
 https://github.com/helm/helm
+
+# Final phase
+https://github.com/ktorio/ktor
+https://github.com/weavejester/compojure
+https://github.com/gin-gonic/gin
+https://github.com/scalatra/scalatra
+https://github.com/square/okhttp
+https://github.com/sinatra/sinatra
+https://github.com/mojolicious/mojo
+https://github.com/DapperLib/Dapper

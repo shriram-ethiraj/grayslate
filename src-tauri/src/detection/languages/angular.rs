@@ -1,6 +1,7 @@
 use super::{wp, LanguageDefinition};
+use super::ContentFamily;
 
-pub fn definition() -> LanguageDefinition {
+pub fn definition()-> LanguageDefinition {
     LanguageDefinition {
         name: "angular",
         extensions: &[],
@@ -43,5 +44,31 @@ pub fn definition() -> LanguageDefinition {
         ],
         family: None,
         exclusive_patterns: &[],
+        // ── Family-gated fields ──────────────────────────────
+        content_families: &[ContentFamily::Code],
+        anchors: &[
+            wp!(r"@Component\s*\(\{", 5),
+            wp!(r"@Injectable\s*\(", 5),
+            wp!(r"@NgModule\s*\(", 5),
+            wp!(r"\*ngIf=", 5),
+            wp!(r"\*ngFor=", 5),
+            wp!(r"\[\(ngModel\)\]", 5),
+        ],
+        hints: &[
+            wp!(r"@Directive\s*\(", 4),
+            wp!(r"@Pipe\s*\(", 4),
+            wp!(r"@Input\s*\(", 4),
+            wp!(r"@Output\s*\(", 4),
+            wp!(r"\(click\)=", 3),
+        ],
+        rivals: &["typescript"],
+        differentiators: &[
+            wp!(r"@Component\s*\(\{", 5),
+            wp!(r"@NgModule\s*\(", 5),
+            wp!(r"\*ngIf=", 5),
+            wp!(r"\*ngFor=", 5),
+            wp!(r"\[\(ngModel\)\]", 5),
+        ],
+        disqualifiers: &[],
     }
 }

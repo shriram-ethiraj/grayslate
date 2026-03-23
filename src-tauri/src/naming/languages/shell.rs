@@ -17,6 +17,8 @@ pub fn definition() -> NamingDefinition {
 ///   1. Description comment (first `#` comment after shebang that isn't boilerplate) — P10
 ///   2. Function names — P7
 ///   3. Key variable assignments (SCREAMING_CASE) — P5
+///
+/// Also handles scripts without a shebang line.
 fn extract_shell(content: &str) -> Option<String> {
     use regex::Regex;
     use std::sync::LazyLock;
@@ -36,13 +38,21 @@ fn extract_shell(content: &str) -> Option<String> {
         "PATH", "HOME", "USER", "PWD", "SHELL", "TERM", "LANG", "LC_ALL",
         "VERBOSE", "DEBUG", "QUIET", "DRY_RUN", "FORCE",
     ];
+    const BOILERPLATE: &[&str] = &[
+        "shellcheck", "vim:", "copyright", "license", "author",
+        "spdx", "apache", "mit license", "bsd", "gnu",
+        "you may not use", "distributed on an", "unless required by",
+        "without warranties", "see the license", "all rights reserved",
+        "permission is hereby granted", "redistribution",
+    ];
 
     struct Symbol { name: String, priority: u8 }
     let mut symbols: Vec<Symbol> = Vec::new();
 
     // Try to extract a description from early comments.
+    // Works with or without a shebang line.
     let mut past_shebang = false;
-    for line in content.lines().take(15) {
+    for line in content.lines().take(20) {
         let trimmed = line.trim();
         if trimmed.starts_with("#!") {
             past_shebang = true;
@@ -51,26 +61,25 @@ fn extract_shell(content: &str) -> Option<String> {
         if trimmed.is_empty() { continue; }
         if trimmed.starts_with('#') {
             let comment = trimmed.trim_start_matches('#').trim();
-            // Skip boilerplate: license, shellcheck, vim modelines, empty comments
-            if comment.is_empty()
-                || comment.starts_with('!')
-                || comment.to_lowercase().starts_with("shellcheck")
-                || comment.to_lowercase().starts_with("vim:")
-                || comment.to_lowercase().starts_with("copyright")
-                || comment.to_lowercase().starts_with("license")
-                || comment.to_lowercase().starts_with("author")
-                || comment.starts_with('-')
-                || comment.starts_with('=')
-            {
+            // Skip boilerplate
+            if comment.is_empty() || comment.starts_with('!') || comment.starts_with('-') || comment.starts_with('=') {
                 continue;
             }
-            if past_shebang && comment.len() >= 5 && comment.len() <= 80 {
+            let lower = comment.to_lowercase();
+            if BOILERPLATE.iter().any(|b| lower.starts_with(b) || lower.contains(b)) {
+                continue;
+            }
+            // Accept description comments (with or without shebang)
+            if comment.len() >= 5 && comment.len() <= 80 {
                 symbols.push(Symbol { name: comment.to_string(), priority: 10 });
                 break;
             }
-        }
-        if !trimmed.starts_with('#') {
-            break; // Past the header comments
+        } else {
+            // Non-comment, non-empty line reached — stop looking for descriptions
+            if past_shebang {
+                break;
+            }
+            break;
         }
     }
 
@@ -138,6 +147,33 @@ mod tests {
         let src = "#!/bin/bash\nPROJECT_NAME=\"myapp\"\nBUILD_DIR=\"./build\"\n";
         let n = name(src).unwrap();
         assert!(n.contains("project-name"), "got: {n}");
+    }
+
+    // --- New: no shebang ---
+    #[test]
+    fn no_shebang_with_description() {
+        let src = "# Update artifact dumps from CI\nset -e\ncurl https://ci.example.com/artifacts | tar xz";
+        let n = name(src).unwrap();
+        assert!(n.contains("update-artifact-dumps"), "no-shebang comment: {n}");
+    }
+
+    // --- New: license boilerplate skipped ---
+    #[test]
+    fn license_boilerplate_skipped() {
+        let src = "#!/bin/bash\n# Copyright 2024 Example Corp\n# Licensed under Apache 2.0\n# Build and deploy the application\nset -e";
+        let n = name(src).unwrap();
+        assert!(n.contains("build") && n.contains("deploy"), "license skipped: {n}");
+    }
+
+    // --- Apache license block with "you may not use" ---
+    #[test]
+    fn apache_license_block_skipped() {
+        let src = "#!/bin/bash\n# Copyright 2023 The TensorFlow Authors. All Rights Reserved.\n#\n# Licensed under the Apache License, Version 2.0 (the \"License\");\n# you may not use this file except in compliance with the License.\n# You may obtain a copy of the License at\n#\n#     http://www.apache.org/licenses/LICENSE-2.0\n#\n# Unless required by applicable law or agreed to in writing, software\n# distributed on an \"AS IS\" BASIS,\n# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n# See the License for the specific language governing permissions and\n# limitations under the License.\n# ==============================================================================\n\nset -e\nBASEDIR=$(dirname $0)\n";
+        // Should NOT produce "you-may-not-use-this-file..."
+        let result = name(src);
+        if let Some(ref n) = result {
+            assert!(!n.contains("compliance"), "Apache boilerplate should be filtered: {n}");
+        }
     }
 }
 

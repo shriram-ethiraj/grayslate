@@ -102,11 +102,14 @@ pub fn detect_by_scoring_with_runner_up(content: &str) -> (Option<&'static str>,
 
         // ── Pattern scoring ──
         let mut score = 0i32;
+        let mut pattern_score = 0i32; // track positive pattern evidence separately
         for pat in &sig.patterns {
             if pat.weight > 0 {
                 let match_count = pat.regex.find_iter(content).take(5).count();
                 if match_count > 0 {
-                    score += pat.weight + (match_count as i32 - 1).min(3);
+                    let pts = pat.weight + (match_count as i32 - 1).min(3);
+                    score += pts;
+                    pattern_score += pts;
                 }
             } else {
                 if pat.regex.is_match(content) {
@@ -116,11 +119,15 @@ pub fn detect_by_scoring_with_runner_up(content: &str) -> (Option<&'static str>,
         }
 
         // ── Keyword fingerprint bonus ──
-        // Count unique keyword+builtin hits; only add bonus if ≥ KEYWORD_MIN_HITS
+        // Count unique keyword+builtin hits; only add bonus if ≥ KEYWORD_MIN_HITS.
+        // Guard: require at least one positive pattern hit before applying the
+        // keyword bonus. Common English words ("with", "given", "for", "if",
+        // "not", "set") appear in many keyword lists and inflate scores for
+        // plain prose when no actual code patterns matched.
         let kw_hits: usize = sig.keywords.iter().filter(|kw| tokens.contains(**kw)).count();
         let bi_hits: usize = sig.builtins.iter().filter(|bi| tokens.contains(**bi)).count();
         let total_hits = kw_hits + bi_hits;
-        if total_hits >= KEYWORD_MIN_HITS {
+        if total_hits >= KEYWORD_MIN_HITS && pattern_score > 0 {
             score += kw_hits as i32 * KEYWORD_WEIGHT + bi_hits as i32 * BUILTIN_WEIGHT;
         }
 
@@ -347,11 +354,13 @@ public class Main {
 
     #[test]
     fn keyword_boost_python_builtins() {
-        // Short snippet — patterns alone are weak but keyword hits push it over
+        // Short snippet — patterns alone are weak but keyword hits push it over.
+        // The print() call provides the minimal pattern evidence needed.
         let content = r#"
 result = isinstance(x, str)
 items = enumerate(data)
 frozen = frozenset([1, 2])
+print(result)
 "#;
         assert_eq!(detect_by_scoring(content), Some("python"));
     }

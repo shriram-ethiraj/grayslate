@@ -52,14 +52,15 @@ fn collect_go(root: &tree_sitter::Node, src: &[u8], symbols: &mut Vec<Symbol>) {
             "function_declaration" => {
                 if let Some(name) = field_text(&child, "name", src) {
                     let first = name.chars().next().unwrap_or('_');
-                    let pri = if first.is_uppercase() { 7 } else { 4 };
+                    // Exported (PascalCase) P7, unexported P6 (above package P5)
+                    let pri = if first.is_uppercase() { 7 } else { 6 };
                     symbols.push(Symbol { name: name.to_string(), priority: pri });
                 }
             }
             "method_declaration" => {
                 if let Some(name) = field_text(&child, "name", src) {
                     let first = name.chars().next().unwrap_or('_');
-                    let pri = if first.is_uppercase() { 6 } else { 3 };
+                    let pri = if first.is_uppercase() { 6 } else { 4 };
                     symbols.push(Symbol { name: name.to_string(), priority: pri });
                 }
             }
@@ -131,7 +132,8 @@ mod tests {
     fn package_only_when_no_exports() {
         let code = "package utils\n\nfunc helper() {}\nfunc another() {}";
         let result = name(code).unwrap();
-        assert!(result.contains("utils"), "package fallback: {result}");
+        // Unexported func (P6) now beats package (P5)
+        assert!(result.contains("helper"), "unexported func wins: {result}");
     }
 
     #[test]
@@ -154,5 +156,14 @@ mod tests {
         let result = name(code).unwrap();
         // Should get the doc comment description, not just "ratelimit"
         assert!(result.contains("ratelimit"), "got: {result}");
+    }
+
+    // --- Unexported function beats generic package name ---
+    #[test]
+    fn unexported_func_beats_cmd_package() {
+        let code = "package cmd\n\nimport \"fmt\"\n\nfunc newCompletionCmd() *cobra.Command {\n    return nil\n}\n\nfunc runCompletionBash() error {\n    return nil\n}";
+        let result = name(code).unwrap();
+        // Unexported func (P6) beats package (P5) — more descriptive
+        assert!(result.contains("new-completion-cmd") || result.contains("completion"), "func beats cmd: {result}");
     }
 }

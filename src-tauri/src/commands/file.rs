@@ -9,11 +9,15 @@ use std::{
     },
 };
 
+use tauri::Emitter;
+
 use crate::filesystem::{
     classify_file_source, resolve_default_notes_root_path, resolve_notes_root_path,
     sanitize_filename, unique_path_in_dir,
 };
 use crate::storage::{AppStorage, FileEventType, FileSource, RecentFileRecord, SETTING_NOTES_ROOT};
+
+use super::RECENT_FILES_UPDATED_EVENT;
 
 /// Maximum file size allowed to be opened: 200 MB.
 const MAX_FILE_SIZE: u64 = 200 * 1024 * 1024;
@@ -151,6 +155,8 @@ fn clamp_recent_files_limit(limit: Option<usize>) -> usize {
 /// - the file is not valid UTF-8.
 #[tauri::command]
 pub async fn read_file_content(
+    app: tauri::AppHandle,
+    storage: tauri::State<'_, AppStorage>,
     cancellations: tauri::State<'_, FileReadCancellationRegistry>,
     window: tauri::Window,
     path: String,
@@ -183,6 +189,11 @@ pub async fn read_file_content(
         .map_err(|error| format!("Failed to join file read task: {}", error))??;
 
         ensure_read_not_cancelled(cancellation_flag.as_ref())?;
+
+       if let Ok(source) = classify_file_source(&app, storage.inner(), &path_buf) {
+            let _ = storage.record_file_event(&path_buf, source, FileEventType::Open);
+        }
+        let _ = app.emit(RECENT_FILES_UPDATED_EVENT, ());
 
         Ok(tauri::ipc::Response::new(bytes))
     }
@@ -315,7 +326,9 @@ pub async fn write_file_content(
     .map_err(|error| format!("Failed to join file write task: {}", error))??;
 
     let source = classify_file_source(&app, storage.inner(), &target_path)?;
-    storage.record_file_event(&target_path, source, FileEventType::Save)
+    storage.record_file_event(&target_path, source, FileEventType::Save)?;
+    let _ = app.emit(RECENT_FILES_UPDATED_EVENT, ());
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -451,6 +464,7 @@ pub async fn delete_file(
     // Best-effort removal from tracking; ignore errors if the row was never
     // stored.
     let _ = storage.delete_tracked_file(&target);
+    let _ = app.emit(RECENT_FILES_UPDATED_EVENT, ());
 
     Ok(())
 }
@@ -492,6 +506,7 @@ pub async fn rename_file(
     .map_err(|e| format!("Rename task failed: {}", e))??;
 
     storage.rename_tracked_file(&old_path, &new_path)?;
+    let _ = app.emit(RECENT_FILES_UPDATED_EVENT, ());
 
     Ok(new_path_str)
 }
@@ -549,6 +564,7 @@ pub async fn duplicate_local_file_as_slate(
         crate::storage::FileSource::Slates,
         FileEventType::Open,
     )?;
+    let _ = app.emit(RECENT_FILES_UPDATED_EVENT, ());
 
     Ok(dest_str)
 }
@@ -599,6 +615,7 @@ pub async fn duplicate_file(
 
     let source = classify_file_source(&app, storage.inner(), &dest)?;
     storage.record_file_event(&dest, source, FileEventType::Open)?;
+    let _ = app.emit(RECENT_FILES_UPDATED_EVENT, ());
 
     Ok(dest_str)
 }

@@ -1,6 +1,7 @@
 use super::{wp, LanguageDefinition};
+use super::ContentFamily;
 
-pub fn definition() -> LanguageDefinition {
+pub fn definition()-> LanguageDefinition {
     LanguageDefinition {
         name: "objectivec",
         extensions: &[".m"],
@@ -42,5 +43,30 @@ pub fn definition() -> LanguageDefinition {
         ],
         family: Some("c-family"),
         exclusive_patterns: &[],
+        // ── Family-gated fields ──────────────────────────────
+        content_families: &[ContentFamily::Code],
+        anchors: &[
+            wp!(r"@interface\s+\w+", 5),
+            wp!(r"@implementation\s+\w+", 5),
+            wp!(r"@protocol\s+\w+", 4),
+            wp!(r"@property\s*\(", 4),
+            wp!(r"@synthesize\s+\w+", 4),
+        ],
+        hints: &[
+            wp!(r"\[\w+\s+\w+[:\]]", 3),
+            wp!(r"@selector\s*\(", 3),
+            wp!(r"@autoreleasepool\s*\{", 3),
+            wp!(r#"#import\s+[<"]"#, 3),
+            wp!(r"\bNS\w{3,}\b", 2),
+        ],
+        rivals: &["c"],
+        differentiators: &[
+            wp!(r"@interface\s+\w+", 5),
+            wp!(r"@implementation\s+\w+", 5),
+            wp!(r"@protocol\s+\w+", 4),
+            wp!(r"@property\s*\(", 4),
+            wp!(r"\bNS\w{3,}\b", 3),
+        ],
+        disqualifiers: &[],
     }
 }

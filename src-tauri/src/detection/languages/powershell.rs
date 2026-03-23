@@ -1,4 +1,5 @@
 use super::{wp, LanguageDefinition};
+use super::ContentFamily;
 
 pub fn definition() -> LanguageDefinition {
     LanguageDefinition {
@@ -41,5 +42,35 @@ pub fn definition() -> LanguageDefinition {
         ],
         family: None,
         exclusive_patterns: &[],
+        // ── Family-gated fields ──────────────────────────────
+        content_families: &[ContentFamily::ShellScript],
+        anchors: &[
+            wp!(r"\$PSVersionTable\b", 5),
+            // Cmdlet patterns: Get-/Set-/New-/Remove-
+            wp!(r"\b(Get|Set|New|Remove|Invoke)-\w+", 5),
+            // param( block
+            wp!(r"(?m)\bparam\s*\(", 4),
+            // [CmdletBinding()]
+            wp!(r"\[CmdletBinding\(\)\]", 5),
+        ],
+        hints: &[
+            wp!(r"\$_\b", 3),
+            wp!(r"\bWrite-(Host|Output|Error|Verbose|Warning)\b", 3),
+            wp!(r"\bForEach-Object\b", 3),
+            // Pipe with cmdlets
+            wp!(r"\|\s*(Where-Object|ForEach-Object|Select-Object|Sort-Object)\b", 3),
+        ],
+        rivals: &["shell", "cmd"],
+        differentiators: &[
+            // Cmdlet patterns — not in shell or cmd
+            wp!(r"\b(Get|Set|New|Remove|Invoke)-\w+", 5),
+            // $PSVersionTable — PowerShell-only
+            wp!(r"\$PSVersionTable\b", 5),
+            // param( — PowerShell-only
+            wp!(r"(?m)\bparam\s*\(", 4),
+            // PascalCase commands (Write-Host etc.)
+            wp!(r"\bWrite-(Host|Output|Error|Verbose|Warning)\b", 4),
+        ],
+        disqualifiers: &[],
     }
 }

@@ -36,12 +36,19 @@ static EMAIL_HEADER_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)^(Subject|From|To|Date|CC|BCC)\s*:").unwrap());
 
 /// Greeting at the start of an email body.
+/// Accepts any word after the greeting word (upper or lower case).
 static GREETING_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?i)^(Dear|Hi|Hello)\s+[A-Z]").unwrap());
+    LazyLock::new(|| Regex::new(r"(?i)^(Dear|Hi|Hello|Hey)\s+[A-Za-z]").unwrap());
 
-/// Closing line in an email.
+/// Formal closing line in an email.
 static CLOSING_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)^(Best\b|Regards|Thanks|Sincerely|Cheers|Kind regards|Best regards|Thank you)")
+    Regex::new(r"(?i)^(Best\b|Regards|Thanks|Sincerely|Cheers|Kind regards|Best regards|Thank you|Warm regards|Many thanks)")
+        .unwrap()
+});
+
+/// Informal sign-off phrases that also indicate email (no formal closing needed).
+static SIGNOFF_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)(let\s+me\s+know|please\s+(?:advise|let\s+me\s+know|confirm|reply)|looking\s+forward|feel\s+free\s+to|do\s+not\s+hesitate|any\s+questions\b)")
         .unwrap()
 });
 
@@ -86,13 +93,23 @@ fn is_email(lines: &[&str]) -> bool {
         return true;
     }
 
-    // Method 2: greeting in first 3 lines + closing anywhere
     let has_greeting = lines
         .iter()
         .take(3)
         .any(|l| GREETING_RE.is_match(l.trim()));
+
+    if !has_greeting {
+        return false;
+    }
+
+    // Method 2: greeting + formal closing
     let has_closing = lines.iter().any(|l| CLOSING_RE.is_match(l.trim()));
-    has_greeting && has_closing
+    if has_closing {
+        return true;
+    }
+
+    // Method 3: greeting + informal sign-off phrase
+    lines.iter().any(|l| SIGNOFF_RE.is_match(l))
 }
 
 /// Extracts and cleans the Subject: line content.

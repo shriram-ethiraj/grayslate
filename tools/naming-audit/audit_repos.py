@@ -124,11 +124,12 @@ def find_binary() -> Path | None:
 
 
 def build_binary(manifest_path: Path) -> None:
-    """Compile the name_file Rust binary (debug profile for speed)."""
-    print("Building name_file binary (cargo build --bin name_file)…")
+    """Compile the name_file Rust binary (release profile to match find_binary priority)."""
+    print("Building name_file binary (cargo build --release --bin name_file)…")
     result = subprocess.run(
         [
             "cargo", "build",
+            "--release",
             "--bin", "name_file",
             "--manifest-path", str(manifest_path),
         ],

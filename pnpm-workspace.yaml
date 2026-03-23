@@ -1,3 +1,7 @@
+packages:
+  - '.'
+  - '!tools/naming-audit/repos/**'
+
 onlyBuiltDependencies:
   - esbuild
   - '@tailwindcss/oxide'

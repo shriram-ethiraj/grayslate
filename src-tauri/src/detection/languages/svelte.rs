@@ -1,4 +1,5 @@
 use super::{wp, LanguageDefinition};
+use super::ContentFamily;
 use regex::Regex;
 use std::sync::LazyLock;
 
@@ -88,15 +89,47 @@ pub fn definition() -> LanguageDefinition {
         ],
         uses_hash_comments: false,
         keywords: &[
-            "#if", "#each", "#await", ":else", ":then", ":catch",
-            "/if", "/each", "/await",
+            "#if", "#each", "#await", "#snippet", "#key",
+            ":else", ":then", ":catch",
+            "/if", "/each", "/await", "/snippet", "/key",
         ],
         builtins: &[
+            // Svelte 5 runes
+            "$state", "$derived", "$effect", "$props", "$bindable",
+            "$inspect", "$host",
+            // Svelte 4 lifecycle (still valid)
             "onMount", "onDestroy", "beforeUpdate", "afterUpdate",
             "createEventDispatcher", "tick", "setContext", "getContext",
+            // Svelte stores
             "writable", "readable", "derived",
         ],
         family: None,
         exclusive_patterns: &[],
+        // ── Family-gated fields ──────────────────────────────
+        content_families: &[ContentFamily::Markup],
+        anchors: &[
+            wp!(r"\{#if\s", 5),
+            wp!(r"\{#each\s", 5),
+            wp!(r"\{#await\s", 5),
+            wp!(r"\{:else", 4),
+            wp!(r"\{/if\}", 4),
+            wp!(r"\{/each\}", 4),
+        ],
+        hints: &[
+            wp!(r"\bon:click\b", 3),
+            wp!(r"\bon:\w+=", 3),
+            wp!(r"\bbind:\w+", 3),
+            wp!(r"\btransition:\w+", 3),
+            wp!(r"\buse:\w+", 3),
+        ],
+        rivals: &["vue"],
+        differentiators: &[
+            wp!(r"\{#if\s", 5),
+            wp!(r"\{#each\s", 5),
+            wp!(r"\{#await\s", 5),
+            wp!(r"\bbind:\w+", 3),
+            wp!(r"\buse:\w+", 3),
+        ],
+        disqualifiers: &[],
     }
 }

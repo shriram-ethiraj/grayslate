@@ -1,4 +1,5 @@
 use super::{wp, LanguageDefinition};
+use super::ContentFamily;
 
 pub fn definition() -> LanguageDefinition {
     LanguageDefinition {
@@ -44,5 +45,23 @@ pub fn definition() -> LanguageDefinition {
         ],
         family: None,
         exclusive_patterns: &[],
+        // ── Family-gated fields ──────────────────────────────
+        content_families: &[ContentFamily::Config],
+        anchors: &[
+            wp!(r"(?m)^\s*server\s*\{", 5),
+            wp!(r"(?m)^\s*location\s+[~/^]", 5),
+            wp!(r"(?m)^\s*upstream\s+\w+", 5),
+            wp!(r"(?m)^\s*proxy_pass\s+", 4),
+        ],
+        hints: &[
+            wp!(r"(?m)^\s*listen\s+\d", 3),
+            wp!(r"(?m)^\s*root\s+/", 3),
+            wp!(r"(?m)^\s*index\s+", 2),
+            wp!(r"(?m)^\s*access_log\s+", 3),
+            wp!(r"(?m)^\s*error_log\s+", 3),
+        ],
+        rivals: &[],
+        differentiators: &[],
+        disqualifiers: &[],
     }
 }

@@ -13,10 +13,11 @@ pub fn definition() -> NamingDefinition {
 
 /// Perl naming extraction.
 ///
-/// Priority order:
-///   1. `package` declaration — P10 (uses last 2 segments for richer context)
-///   2. `sub` declarations — P7
-///   3. `use` module imports — P5
+/// Priority order (file-local symbols outrank package context):
+///   1. POD `=head1 NAME` section — highest quality, returns directly
+///   2. `sub` declarations — P9
+///   3. `package` declaration — P5 (fallback context, uses last 2 segments)
+///   4. `use` module imports — P4
 fn extract_perl(content: &str) -> Option<String> {
     use regex::Regex;
     use std::sync::LazyLock;
@@ -30,11 +31,16 @@ fn extract_perl(content: &str) -> Option<String> {
     // POD =head1 NAME section
     static POD_NAME_RE: LazyLock<Regex> =
         LazyLock::new(|| Regex::new(r"(?m)^=head1\s+NAME\s*\n+\s*(\S.+)$").unwrap());
+    // Test::More / Test2 subtest names: subtest 'name' => sub {
+    static SUBTEST_RE: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r#"(?m)subtest\s+['"]([^'"]{3,50})['"]\s*=>"#).unwrap());
 
     const NOISE: &[&str] = &[
         "main", "new", "init", "import", "AUTOLOAD", "DESTROY",
         "BEGIN", "END", "strict", "warnings", "utf8", "vars",
-        "Exporter", "Carp", "Data",
+        "Exporter", "Carp", "Data", "Base", "More", "Most",
+        "Config", "File", "Path", "Getopt", "POSIX", "Fcntl",
+        "constant", "parent", "lib",
     ];
 
     struct Symbol { name: String, priority: u8 }
@@ -50,7 +56,21 @@ fn extract_perl(content: &str) -> Option<String> {
         }
     }
 
-    // Package declaration → Foo::Bar::Baz → "Bar-Baz" (last 2 segments)
+    // Subroutines (P9) — file-local symbols first
+    for cap in SUB_RE.captures_iter(content).take(4) {
+        let name = cap[1].to_string();
+        if !NOISE.contains(&name.as_str()) && !name.starts_with('_') {
+            symbols.push(Symbol { name, priority: 9 });
+        }
+    }
+
+    // Subtest names (P8) — very common in Mojo/Test2 test files
+    for cap in SUBTEST_RE.captures_iter(content).take(3) {
+        let name = cap[1].to_string();
+        symbols.push(Symbol { name, priority: 8 });
+    }
+
+    // Package declaration → fallback context (P5)
     if let Some(cap) = PACKAGE_RE.captures(content) {
         let full = &cap[1];
         let segments: Vec<&str> = full.split("::").collect();
@@ -60,24 +80,16 @@ fn extract_perl(content: &str) -> Option<String> {
             segments.last().unwrap_or(&full).to_string()
         };
         if !short.is_empty() && !NOISE.contains(&short.as_str()) {
-            symbols.push(Symbol { name: short, priority: 10 });
+            symbols.push(Symbol { name: short, priority: 5 });
         }
     }
 
-    // Subroutines (P7)
-    for cap in SUB_RE.captures_iter(content).take(4) {
-        let name = cap[1].to_string();
-        if !NOISE.contains(&name.as_str()) && !name.starts_with('_') {
-            symbols.push(Symbol { name, priority: 7 });
-        }
-    }
-
-    // use modules (P5) — last segment only
+    // use modules (P4) — last segment only
     for cap in USE_RE.captures_iter(content).take(3) {
         let full = &cap[1];
         let short = full.rsplit("::").next().unwrap_or(full);
         if !NOISE.contains(&short) {
-            symbols.push(Symbol { name: short.to_string(), priority: 5 });
+            symbols.push(Symbol { name: short.to_string(), priority: 4 });
         }
     }
 
@@ -108,15 +120,16 @@ mod tests {
     fn package_preserves_hierarchy() {
         let src = "package MyApp::Auth;\nuse strict;\n\nsub authenticate {\n    my ($self, $user) = @_;\n}\n\nsub authorize {\n}";
         let n = name(src).unwrap();
-        // With MAX_TOKENS=1, only the package token is kept
-        assert!(n.contains("my-app-auth"), "got: {n}");
+        // Sub now wins over package (P9 > P5)
+        assert!(n.contains("authenticate"), "sub wins over package: {n}");
     }
 
     #[test]
     fn deep_package_uses_last_two() {
         let src = "package Com::Example::API::Router;\n\nsub dispatch { }";
         let n = name(src).unwrap();
-        assert!(n.contains("api-router"), "last 2 segments: {n}");
+        // Sub (P9) beats package (P5) — dispatch wins
+        assert!(n.contains("dispatch"), "sub beats deep package: {n}");
     }
 
     #[test]
@@ -138,7 +151,41 @@ mod tests {
         let src = "package Foo;\nsub _internal { }\nsub public_api { }";
         let n = name(src).unwrap();
         assert!(!n.contains("internal"), "private excluded: {n}");
-        assert!(n.contains("foo"), "package kept: {n}");
+        // public_api (P9) now wins over Foo (P5)
+        assert!(n.contains("public-api"), "public sub wins: {n}");
+    }
+
+    // --- New: sub wins over package ---
+    #[test]
+    fn sub_leads_over_package() {
+        let src = "package Mojo::File;\n\nsub new { }\nsub list { my @files = glob('*'); @files }\nsub path { }";
+        let n = name(src).unwrap();
+        assert!(n.contains("list"), "sub wins over package: {n}");
+    }
+
+    // --- Package-only fallback ---
+    #[test]
+    fn package_only_when_no_subs() {
+        let src = "package Mojo::Util;\nuse strict;\nuse warnings;\n1;";
+        let n = name(src).unwrap();
+        assert!(n.contains("mojo-util"), "package fallback: {n}");
+    }
+
+    // --- Subtest extraction (Mojo test files) ---
+    #[test]
+    fn subtest_from_test_file() {
+        let src = "use Mojo::Base -strict;\nuse Test::More;\n\nsubtest 'File asset' => sub {\n  my $file = Mojo::Asset::File->new;\n  is $file->size, 0, 'file is empty';\n};";
+        let n = name(src).unwrap();
+        assert!(n.contains("file-asset"), "subtest name extracted: {n}");
+    }
+
+    // --- Noise use modules filtered ---
+    #[test]
+    fn noise_use_modules_filtered() {
+        let src = "use Mojo::Base -strict;\nuse Mojo::Asset::Memory;\n1;";
+        let n = name(src).unwrap();
+        // Base is noise; Memory should survive
+        assert!(n.contains("memory"), "non-noise use module: {n}");
     }
 }
 

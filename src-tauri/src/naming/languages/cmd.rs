@@ -37,6 +37,8 @@ fn extract_cmd(content: &str) -> Option<String> {
     // Boilerplate prefixes to skip in REM comments
     const BOILERPLATE: &[&str] = &[
         "copyright", "license", "author", "version", "usage", "---", "===",
+        "you may not use", "distributed on an", "unless required by",
+        "without warranties", "all rights reserved", "permission is hereby granted",
     ];
 
     struct Symbol {

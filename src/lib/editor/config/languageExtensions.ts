@@ -108,6 +108,10 @@ export function getLanguageExtension(langId: string): Extension | Extension[] {
         // Windows Batch/CMD — no dedicated CM6 highlighter exists; shell is the closest.
         case "cmd":
             return StreamLanguage.define(shell);
+        // Email and prompt — plain text with no code highlighting.
+        case "email":
+        case "prompt":
+            return [];
         case "dockerfile":
             return StreamLanguage.define(dockerFile);
         case "markdown":

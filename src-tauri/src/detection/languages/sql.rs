@@ -2,6 +2,7 @@ use regex::Regex;
 use std::sync::LazyLock;
 
 use super::{wp, LanguageDefinition};
+use super::ContentFamily;
 
 /// Structural detection for SQL content.
 pub(crate) fn is_likely_sql(trimmed: &str, _was_sliced: bool) -> bool {
@@ -169,6 +170,8 @@ pub fn definition() -> LanguageDefinition {
             wp!(r"className=", -5),
             wp!(r"(?m)^\s*[\w.\-\[\]#]+\s*\{", -3),
             wp!(r"(?m)^\s*@(media|keyframes|layer)\b", -5),
+            // English contractions — prose, not SQL
+            wp!(r"(?i)\b\w+'(m|s|re|ll|t|ve|d)\b", -5),
         ],
         uses_hash_comments: false,
         keywords: &[
@@ -189,5 +192,24 @@ pub fn definition() -> LanguageDefinition {
         ],
         family: None,
         exclusive_patterns: &[],
+        // ── Family-gated fields ──────────────────────────────
+        content_families: &[ContentFamily::Code],
+        anchors: &[
+            wp!(r"(?mi)^\s*SELECT\s+(DISTINCT\s+)?\*", 5),
+            wp!(r"(?i)\bCREATE\s+(TABLE|INDEX|VIEW|DATABASE|PROCEDURE|FUNCTION)\b", 5),
+            wp!(r"(?i)\bINSERT\s+INTO\s+\w+", 4),
+            wp!(r"(?i)\bALTER\s+TABLE\s+\w+", 5),
+            wp!(r"(?i)\bDROP\s+(TABLE|INDEX|VIEW|DATABASE)\b", 4),
+        ],
+        hints: &[
+            wp!(r"(?i)\bWHERE\s+\w+", 3),
+            wp!(r"(?i)\bGROUP\s+BY\b", 3),
+            wp!(r"(?i)\bORDER\s+BY\b", 2),
+            wp!(r"(?i)\b(INNER|LEFT|RIGHT|FULL|CROSS)\s+JOIN\b", 3),
+            wp!(r"(?i)\bHAVING\s+", 3),
+        ],
+        rivals: &[],
+        differentiators: &[],
+        disqualifiers: &[],
     }
 }

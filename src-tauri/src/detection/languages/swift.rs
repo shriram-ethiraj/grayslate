@@ -1,6 +1,7 @@
 use super::{wp, LanguageDefinition};
+use super::ContentFamily;
 
-pub fn definition() -> LanguageDefinition {
+pub fn definition()-> LanguageDefinition {
     LanguageDefinition {
         name: "swift",
         extensions: &[".swift"],
@@ -48,5 +49,29 @@ pub fn definition() -> LanguageDefinition {
         ],
         family: None,
         exclusive_patterns: &[],
+        // ── Family-gated fields ──────────────────────────────
+        content_families: &[ContentFamily::Code],
+        anchors: &[
+            wp!(r"(?m)^\s*import\s+(Foundation|UIKit|SwiftUI|Combine)\b", 5),
+            wp!(r"\bguard\s+let\s+\w+", 5),
+            wp!(r"\b@(IBOutlet|IBAction|objc|escaping|Published|State|Binding)\b", 5),
+            wp!(r"\bweak\s+var\s+", 4),
+            wp!(r"\bif\s+let\s+\w+\s*=", 4),
+        ],
+        hints: &[
+            wp!(r"(?m)^\s*func\s+\w+\s*\(", 3),
+            wp!(r"(?m)\bextension\s+\w+", 3),
+            wp!(r"\bguard\s+\w+", 3),
+            wp!(r"\boptional\s+func\b", 3),
+        ],
+        rivals: &["kotlin"],
+        differentiators: &[
+            wp!(r"\bguard\s+let\s+\w+", 5),
+            wp!(r"(?m)^\s*import\s+(Foundation|UIKit|SwiftUI|Combine)\b", 5),
+            wp!(r"\b@(IBOutlet|IBAction|objc|escaping|Published|State|Binding)\b", 5),
+            wp!(r"\bweak\s+var\s+", 4),
+            wp!(r"\bif\s+let\s+\w+\s*=", 4),
+        ],
+        disqualifiers: &[],
     }
 }

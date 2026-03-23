@@ -1,6 +1,7 @@
 use super::{wp, LanguageDefinition};
+use super::ContentFamily;
 
-pub fn definition() -> LanguageDefinition {
+pub fn definition()-> LanguageDefinition {
     LanguageDefinition {
         name: "csharp",
         extensions: &[".cs"],
@@ -48,5 +49,30 @@ pub fn definition() -> LanguageDefinition {
         ],
         family: None,
         exclusive_patterns: &[],
+        // ── Family-gated fields ──────────────────────────────
+        content_families: &[ContentFamily::Code],
+        anchors: &[
+            wp!(r"(?m)^\s*using\s+System(\.\w+)*\s*;", 5),
+            wp!(r"\bstatic\s+void\s+Main\s*\(", 5),
+            wp!(r"\bConsole\.(Write|WriteLine|ReadLine)\s*\(", 5),
+            wp!(r"\basync\s+Task\b", 4),
+            wp!(r"\bLINQ|\.Select\(|\.Where\(|\.OrderBy\(", 4),
+        ],
+        hints: &[
+            wp!(r"(?m)^\s*namespace\s+\w+(\.\w+)*", 3),
+            wp!(r"(?m)\bpublic\s+(class|struct|interface|enum)\s+\w+", 2),
+            wp!(r"\bvar\s+\w+\s*=\s*new\s+", 2),
+            wp!(r"\bstring\.\w+", 2),
+            wp!(r"\b(IEnumerable|IList|IDictionary|IQueryable)<", 3),
+        ],
+        rivals: &["java"],
+        differentiators: &[
+            wp!(r"(?m)^\s*using\s+System(\.\w+)*\s*;", 5),
+            wp!(r"\bConsole\.(Write|WriteLine|ReadLine)\s*\(", 5),
+            wp!(r"\basync\s+Task\b", 4),
+            wp!(r"\bLINQ|\.Select\(|\.Where\(|\.OrderBy\(", 4),
+            wp!(r"(?m)\b(get|set)\s*[;\{]", 3),
+        ],
+        disqualifiers: &[],
     }
 }

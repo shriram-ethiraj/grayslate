@@ -1,6 +1,7 @@
 use super::{wp, LanguageDefinition};
+use super::ContentFamily;
 
-pub fn definition() -> LanguageDefinition {
+pub fn definition()-> LanguageDefinition {
     LanguageDefinition {
         name: "objectivecpp",
         extensions: &[".mm"],
@@ -32,5 +33,27 @@ pub fn definition() -> LanguageDefinition {
         ],
         family: Some("c-family"),
         exclusive_patterns: &[],
+        // ── Family-gated fields ──────────────────────────────
+        content_families: &[ContentFamily::Code],
+        anchors: &[
+            wp!(r"@interface\s+\w+", 5),
+            wp!(r"@implementation\s+\w+", 5),
+            wp!(r"@property\s*\(", 4),
+        ],
+        hints: &[
+            wp!(r"\[\w+\s+\w+[:\]]", 3),
+            wp!(r#"#import\s+[<"]"#, 3),
+            wp!(r"\bNS\w{3,}\b", 2),
+            wp!(r"\bstd::", 2),
+            wp!(r"\btemplate\s*<", 2),
+        ],
+        rivals: &["cpp"],
+        differentiators: &[
+            wp!(r"@interface\s+\w+", 5),
+            wp!(r"@implementation\s+\w+", 5),
+            wp!(r"@property\s*\(", 4),
+            wp!(r"\bNS\w{3,}\b", 3),
+        ],
+        disqualifiers: &[],
     }
 }

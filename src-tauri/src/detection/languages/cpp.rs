@@ -1,4 +1,5 @@
 use super::{wp, LanguageDefinition};
+use super::ContentFamily;
 
 pub fn definition() -> LanguageDefinition {
     LanguageDefinition {
@@ -51,5 +52,37 @@ pub fn definition() -> LanguageDefinition {
             wp!(r"\b(static_cast|reinterpret_cast|dynamic_cast|const_cast)\s*<", 4),
             wp!(r"\w+::\w+", 2),
         ],
+        // ── New family-gated fields ──────────────────────────
+        content_families: &[ContentFamily::Code],
+        anchors: &[
+            wp!(r"\bstd::\w+", 5),
+            wp!(r"\bcout\s*<<", 5),
+            wp!(r"\bcin\s*>>", 5),
+            wp!(r"(?m)#include\s*<(iostream|string|vector|map|set|algorithm|memory|functional)>", 5),
+            wp!(r"\busing\s+namespace\s+std\b", 5),
+            wp!(r"(?m)\btemplate\s*<", 4),
+            wp!(r"\bnullptr\b", 4),
+            wp!(r"\b(unique_ptr|shared_ptr|weak_ptr)<", 4),
+            wp!(r"\b(static_cast|reinterpret_cast|dynamic_cast|const_cast)\s*<", 4),
+        ],
+        hints: &[
+            wp!(r"(?m)\bclass\s+\w+\s*[:\{]", 2),
+            wp!(r"(?m)\bnamespace\s+\w+", 3),
+            wp!(r"\bconstexpr\b", 3),
+            wp!(r"\bvirtual\s+", 2),
+            wp!(r"\bnew\s+\w+", 2),
+            wp!(r"\bdelete\s+\w+", 2),
+        ],
+        rivals: &["c"],
+        differentiators: &[
+            wp!(r"\bstd::\w+", 5),
+            wp!(r"\bcout\s*<<", 5),
+            wp!(r"\bcin\s*>>", 5),
+            wp!(r"(?m)\btemplate\s*<", 4),
+            wp!(r"(?m)\bnamespace\s+\w+", 3),
+            wp!(r"(?m)\bclass\s+\w+\s*[:\{]", 3),
+            wp!(r"\w+::\w+", 2),
+        ],
+        disqualifiers: &[],
     }
 }

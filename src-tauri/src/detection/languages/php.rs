@@ -2,8 +2,9 @@ use regex::Regex;
 use std::sync::LazyLock;
 
 use super::{wp, LanguageDefinition};
+use super::ContentFamily;
 
-/// Structural detection for PHP content.
+/// Structuraldetection for PHP content.
 pub(crate) fn is_likely_php(trimmed: &str, _was_sliced: bool) -> bool {
     static PHP_OPEN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^<\?php\b").unwrap());
     if PHP_OPEN.is_match(trimmed) {
@@ -66,5 +67,22 @@ pub fn definition() -> LanguageDefinition {
         ],
         family: None,
         exclusive_patterns: &[],
+        // ── Family-gated fields ──────────────────────────────
+        content_families: &[ContentFamily::Code],
+        anchors: &[
+            wp!(r"<\?php\b", 5),
+            wp!(r"\$_?(GET|POST|REQUEST|SESSION|SERVER|COOKIE)\b", 5),
+            wp!(r"\$this->\w+", 4),
+            wp!(r"(?m)\b(public|private|protected)\s+function\b", 4),
+        ],
+        hints: &[
+            wp!(r"(?m)\bnamespace\s+\w+(\\\w+)*", 3),
+            wp!(r"(?m)\buse\s+\w+(\\\w+)+\s*;", 3),
+            wp!(r#"\becho\s+['"\$]"#, 3),
+            wp!(r"\b(array|isset|unset|empty|die|exit)\s*\(", 3),
+        ],
+        rivals: &[],
+        differentiators: &[],
+        disqualifiers: &[],
     }
 }

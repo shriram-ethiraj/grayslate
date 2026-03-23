@@ -1,4 +1,5 @@
 use super::{wp, LanguageDefinition};
+use super::ContentFamily;
 
 pub fn definition() -> LanguageDefinition {
     LanguageDefinition {
@@ -51,5 +52,28 @@ pub fn definition() -> LanguageDefinition {
             wp!(r"\bmodule\.exports\b", 4),
             wp!(r"===|!==", 2),
         ],
+        // ── New family-gated fields ──────────────────────────
+        content_families: &[ContentFamily::Code],
+        anchors: &[
+            wp!(r#"\brequire\s*\(['"`]"#, 4),
+            wp!(r"\bmodule\.exports\b", 4),
+            wp!(r"===|!==", 4),
+            wp!(r"\bconsole\.\w+\s*\(", 4),
+            wp!(r"(?m)\b(const|let)\s+\w+\s*=\s*require\s*\(", 4),
+        ],
+        hints: &[
+            wp!(r"(?m)\bfunction\s+\w*\s*\(", 2),
+            wp!(r"(?m)\b(const|let|var)\s+\w+\s*=", 2),
+            wp!(r"=>\s*[\{(\n]", 3),
+            wp!(r"\bdocument\.\w+", 2),
+            wp!(r"\.addEventListener\s*\(", 2),
+        ],
+        rivals: &["typescript"],
+        differentiators: &[
+            wp!(r#"\brequire\s*\(['"`]"#, 4),
+            wp!(r"\bmodule\.exports\b", 4),
+            wp!(r"===|!==", 3),
+        ],
+        disqualifiers: &[],
     }
 }

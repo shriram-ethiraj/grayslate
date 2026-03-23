@@ -1,4 +1,5 @@
 use super::{wp, LanguageDefinition};
+use super::ContentFamily;
 use regex::Regex;
 use std::sync::LazyLock;
 
@@ -98,5 +99,31 @@ pub fn definition() -> LanguageDefinition {
         ],
         family: None,
         exclusive_patterns: &[],
+        // ── Family-gated fields ──────────────────────────────
+        content_families: &[ContentFamily::Code],
+        anchors: &[
+            // Indentation-based syntax (no braces), $variable
+            wp!(r"(?m)^\$[\w-]+:", 4),
+            // +mixin (Sass shorthand for @include)
+            wp!(r"(?m)^\+[\w-]+", 4),
+            // =mixin-name (Sass shorthand for @mixin)
+            wp!(r"(?m)^=[\w-]+", 4),
+        ],
+        hints: &[
+            wp!(r"@import\s+", 2),
+            wp!(r"@extend\s+[.%]", 3),
+            // Nesting by indentation (indented properties)
+            wp!(r"(?m)^\s{2,}[a-z\-]+\s*:", 2),
+        ],
+        rivals: &["scss", "css"],
+        differentiators: &[
+            // No braces — Sass is indentation-based
+            // +/= shorthand — Sass only
+            wp!(r"(?m)^\+[\w-]+", 4),
+            wp!(r"(?m)^=[\w-]+", 4),
+            // $variable — distinguishes from CSS
+            wp!(r"(?m)^\$[\w-]+:", 3),
+        ],
+        disqualifiers: &[],
     }
 }

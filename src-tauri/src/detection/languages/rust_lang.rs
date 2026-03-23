@@ -1,4 +1,5 @@
 use super::{wp, LanguageDefinition};
+use super::ContentFamily;
 
 pub fn definition() -> LanguageDefinition {
     LanguageDefinition {
@@ -58,5 +59,39 @@ pub fn definition() -> LanguageDefinition {
             wp!(r"\blet\s+mut\s+", 3),
             wp!(r"\bimpl\s+\w+", 3),
         ],
+        // ── New family-gated fields ──────────────────────────
+        content_families: &[ContentFamily::Code],
+        anchors: &[
+            wp!(r"(?m)^\s*fn\s+\w+\s*[<(]", 4),
+            wp!(r"(?m)^\s*#\[derive\(", 5),
+            wp!(r"(?m)^\s*let\s+mut\s+\w+", 4),
+            wp!(r"(?m)^\s*impl\s+\w+", 4),
+            wp!(r"(?m)^\s*pub\s+(fn|struct|enum|mod|trait|impl)\s", 4),
+            wp!(r"(?m)^\s*macro_rules!\s+\w+", 5),
+            wp!(r"\bprintln!\s*\(", 5),
+            wp!(r"\beprintln!\s*\(", 5),
+            wp!(r"(?m)^\s*#!\[", 5),
+        ],
+        hints: &[
+            wp!(r"(?m)^\s*use\s+\w+(::\w+)+", 3),
+            wp!(r"(?m)^\s*match\s+\w+\s*\{", 3),
+            wp!(r"\b(Option|Result)<\w", 3),
+            wp!(r"\b\w+\.unwrap\(\)", 3),
+            wp!(r"&mut\s+\w+", 3),
+            wp!(r"(?m)^\s*mod\s+\w+\s*[;\{]", 2),
+            wp!(r"(?m)^\s*unsafe\s*\{", 2),
+        ],
+        rivals: &["go", "c", "cpp"],
+        differentiators: &[
+            wp!(r"(?m)^\s*let\s+mut\s+\w+", 4),
+            wp!(r"(?m)^\s*#\[derive\(", 5),
+            wp!(r"(?m)^\s*impl\s+\w+", 4),
+            wp!(r"\b\w+\.unwrap\(\)", 3),
+            wp!(r"\b(Option|Result)<\w", 3),
+            wp!(r"(?m)^\s*fn\s+", 3),
+            wp!(r"(?m)^\s*let\s+", 3),
+            wp!(r"(?m)^\s*match\s+\w+\s*\{", 3),
+        ],
+        disqualifiers: &[],
     }
 }

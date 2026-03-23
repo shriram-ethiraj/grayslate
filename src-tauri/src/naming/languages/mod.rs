@@ -24,6 +24,7 @@ mod css;
 mod csv_lang;
 mod dart;
 mod dockerfile;
+mod email;
 mod go;
 mod html;
 mod java;
@@ -39,6 +40,7 @@ mod cmd;
 mod perl;
 mod php;
 mod powershell;
+mod prompt;
 mod python;
 mod ruby;
 mod rust_lang;
@@ -113,6 +115,7 @@ fn all_definitions() -> Vec<NamingDefinition> {
         shell::definition(),
         cmd::definition(),
         dockerfile::definition(),
+        email::definition(),
         // SQL
         sql::definition(),
         // Style languages
@@ -124,6 +127,7 @@ fn all_definitions() -> Vec<NamingDefinition> {
         clojure::definition(),
         jinja::definition(),
         powershell::definition(),
+        prompt::definition(),
         nginx::definition(),
         // Catch-all
         text::definition(),

@@ -1,6 +1,7 @@
 use super::{wp, LanguageDefinition};
+use super::ContentFamily;
 
-pub fn definition() -> LanguageDefinition {
+pub fn definition()-> LanguageDefinition {
     LanguageDefinition {
         name: "jinja",
         extensions: &[".j2", ".jinja", ".jinja2"],
@@ -45,5 +46,32 @@ pub fn definition() -> LanguageDefinition {
         ],
         family: None,
         exclusive_patterns: &[],
+        // ── Family-gated fields ──────────────────────────────
+        content_families: &[ContentFamily::Markup],
+        anchors: &[
+            wp!(r"\{%\s*\w+", 5),
+            wp!(r"\{%\s*end\w+", 5),
+            wp!(r"\{%\s*extends\s+", 5),
+            wp!(r"\{\{.*\}\}", 4),
+            wp!(r"\{%\s*block\s+\w+", 4),
+            wp!(r"\{%\s*for\s+\w+\s+in\s+", 4),
+            wp!(r"\{%\s*macro\s+", 4),
+        ],
+        hints: &[
+            wp!(r"\{%\s*include\s+", 3),
+            wp!(r"\{%\s*if\s+", 3),
+            wp!(r"\{%\s*set\s+", 3),
+            wp!(r"\{#.*#\}", 3),
+            wp!(r"\|\s*(safe|escape|truncatewords|default|length|join|upper|lower)\b", 2),
+        ],
+        rivals: &["html"],
+        differentiators: &[
+            wp!(r"\{%\s*\w+", 5),
+            wp!(r"\{%\s*end\w+", 5),
+            wp!(r"\{\{.*\}\}", 4),
+            wp!(r"\{%\s*extends\s+", 5),
+            wp!(r"\{%\s*macro\s+", 4),
+        ],
+        disqualifiers: &[],
     }
 }

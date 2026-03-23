@@ -44,10 +44,6 @@ export async function getRecentFiles(limit = 50): Promise<RecentFileRecord[]> {
   return invoke<RecentFileRecord[]>("get_recent_files", { limit });
 }
 
-export async function prepareFileOpen(path: string): Promise<RecentFileRecord> {
-  return invoke<RecentFileRecord>("prepare_file_open", { path });
-}
-
 export async function searchSidebarFiles(
   query: string,
   filterMode: "unified" | RecentFileSource,

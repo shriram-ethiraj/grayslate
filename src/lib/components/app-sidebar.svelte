@@ -42,21 +42,39 @@
     let filterMode = $state<FilterMode>(DEFAULT_FILTER_MODE);
     let sortMode = $state<SortMode>(DEFAULT_SORT_MODE);
 
-    // `recentFiles` is the list currently shown. `stagedRecentFiles` holds a
-    // fresh fetch that arrived while the list was frozen (suppressReorder=true);
-    // it is promoted to `recentFiles` on the next explicit user action.
     let recentFiles = $state<RecentFileRecord[]>([]);
-    let stagedRecentFiles = $state<RecentFileRecord[] | undefined>(undefined);
 
     let searchResults = $state<SidebarSearchResult[]>([]);
     let isLoading = $state(false);
     let isSearchLoading = $state(false);
     let loadError = $state("");
 
-    // When true, incoming RECENT_FILES_UPDATED_EVENT updates are staged instead
-    // of applied immediately, preserving the current visual order. Set when the
-    // user opens a file from the sidebar; cleared on any explicit user action
-    // (tab change, sort change, refresh, or opening a file from outside).
+    // ---------------------------------------------------------------------------
+    // Reorder suppression policy
+    //
+    // Goal: the visible file list must never shift under the user's cursor
+    // while they are browsing or navigating via the sidebar.
+    //
+    // When active (`suppressReorder = true`):
+    //   • The derived `visibleRecentFiles` skips re-sorting.
+    //   • RECENT_FILES_UPDATED_EVENT refreshes are silently deferred.
+    //
+    // Activated by:
+    //   • Opening a file from the sidebar (`openRecentFile`).
+    //
+    // Cleared only by explicit user actions:
+    //   • Changing the sort order.
+    //   • Clicking the manual refresh button.
+    //   • Closing the sidebar (pre-fetches invisibly on close so reopen
+    //     shows fresh data without a visible transition).
+    //   • An external navigation that doesn't match the sidebar-opened path
+    //     (safety valve so suppression doesn't stick forever).
+    //
+    // NOT cleared by:
+    //   • Backend events (file save, rename, duplicate, delete).
+    //   • Filter (tab) changes while suppression is active.
+    //   • Rename of the active file (tracking path is updated instead).
+    // ---------------------------------------------------------------------------
     let suppressReorder = $state(false);
     // The path of the last file opened via the sidebar, used to decide whether
     // to keep suppressReorder active when the editor navigation event fires.
@@ -79,6 +97,7 @@
     let lastObservedUntitledState = editorState.isUntitledDocument;
     let lastObservedFilterMode: FilterMode = DEFAULT_FILTER_MODE;
     let lastObservedSortMode: SortMode = DEFAULT_SORT_MODE;
+    let lastObservedSidebarOpen = true;
 
     // ---------------------------------------------------------------------------
     // Derived state
@@ -146,11 +165,11 @@
     // ---------------------------------------------------------------------------
 
     async function fetchRecentFiles(options?: {
-        applyToVisibleList?: boolean;
         showLoading?: boolean;
+        clearSuppression?: boolean;
     }): Promise<void> {
-        const applyToVisibleList = options?.applyToVisibleList ?? true;
         const showLoading = options?.showLoading ?? true;
+        const clearSuppression = options?.clearSuppression ?? false;
         const currentVersion = ++recentFilesRequestVersion;
         if (showLoading) {
             isLoading = true;
@@ -166,12 +185,14 @@
                 return;
             }
 
-            if (applyToVisibleList) {
-                recentFiles = result;
-                stagedRecentFiles = undefined;
-            } else {
-                stagedRecentFiles = result;
+            // Clear suppression and update data in the same synchronous block so
+            // Svelte batches them into one render. This prevents the two-step
+            // jitter: "list re-sorts on old data" → "list updates with new data".
+            if (clearSuppression) {
+                suppressReorder = false;
+                lastSidebarOpenedPath = undefined;
             }
+            recentFiles = result;
         } catch (error: unknown) {
             if (currentVersion !== recentFilesRequestVersion) {
                 return;
@@ -190,17 +211,13 @@
     }
 
     async function refreshRecentFiles(): Promise<void> {
-        await fetchRecentFiles({
-            applyToVisibleList: true,
-            showLoading: true,
-        });
+        await fetchRecentFiles({ showLoading: true });
     }
 
-    async function stageRecentFilesUpdate(): Promise<void> {
-        await fetchRecentFiles({
-            applyToVisibleList: false,
-            showLoading: false,
-        });
+    /** Silently refresh without showing a loading skeleton. Used for
+     *  background syncs (backend events, tab switches, sidebar reveal). */
+    async function quietRefreshRecentFiles(options?: { clearSuppression?: boolean }): Promise<void> {
+        await fetchRecentFiles({ showLoading: false, clearSuppression: options?.clearSuppression });
     }
 
     async function refreshSearchResults(): Promise<void> {
@@ -263,11 +280,6 @@
     async function handleDuplicateRecentFile(file: RecentFileRecord): Promise<void> {
         try {
             const newPath = await duplicateFile(file.path);
-            // Clear reorder suppression and refresh directly so the new file
-            // is always visible immediately, even if suppressReorder is active
-            // from a prior sidebar-initiated file open.
-            clearReorderSuppression();
-            void refreshRecentFiles();
             const newName = newPath.replace(/\\/g, "/").split("/").pop() ?? "copy";
             toast.success(`Duplicated as "${newName}"`);
         } catch (err) {
@@ -279,8 +291,6 @@
     async function handleDuplicateLocalFileAsSlate(file: RecentFileRecord): Promise<void> {
         try {
             const newPath = await duplicateLocalFileAsSlate(file.path);
-            clearReorderSuppression();
-            void refreshRecentFiles();
             const newName = newPath.replace(/\\/g, "/").split("/").pop() ?? "copy";
             toast.success(`Duplicated as slate "${newName}"`);
         } catch (err) {
@@ -320,11 +330,18 @@
 
     $effect(() => {
         librarySidebarState.requestActivateSearch = activateLibrarySearch;
+        // Registered for the rename dialog: refreshes cached file data (new
+        // filename, new path) while keeping suppressReorder active so the
+        // visible list order doesn't shift.
+        librarySidebarState.requestQuietDataRefresh = () => {
+            void fetchRecentFiles({ showLoading: false, clearSuppression: false });
+        };
 
         return () => {
             if (librarySidebarState.requestActivateSearch === activateLibrarySearch) {
                 librarySidebarState.requestActivateSearch = undefined;
             }
+            librarySidebarState.requestQuietDataRefresh = undefined;
         };
     });
 
@@ -334,6 +351,22 @@
 
     $effect(() => {
         void refreshRecentFiles();
+    });
+
+    // Refresh when the sidebar is reopened so the list reflects any changes
+    // that occurred while it was collapsed (e.g. suppressed open events).
+    $effect(() => {
+        const isOpen = sidebar.open;
+        const wasOpen = lastObservedSidebarOpen;
+        lastObservedSidebarOpen = isOpen;
+
+        if (!isOpen && wasOpen && suppressReorder) {
+            // Sidebar is closing while list reorder is suppressed. Pre-fetch
+            // now (while the sidebar is animating away, invisible to the user)
+            // so the correctly-sorted data is already in place when it opens
+            // again. No visible transition on reopen.
+            void quietRefreshRecentFiles({ clearSuppression: true });
+        }
     });
 
     // Debounced search: clears results immediately when query is empty,
@@ -371,7 +404,12 @@
         }
 
         clearReorderSuppression();
-        filterMode = pending.source;
+        // Switch to "unified" so the file is visible regardless of its actual
+        // source (slates vs local). We don't know the backend-classified
+        // source at this point; "unified" guarantees visibility.
+        if (filterMode !== "unified") {
+            filterMode = "unified";
+        }
         if (query.length > 0) {
             query = "";
         }
@@ -381,6 +419,7 @@
         const currentFilePath = editorState.currentFilePath;
         const isUntitledDocument = editorState.isUntitledDocument;
         const pending = pendingOpenFile;
+        const renamedPath = librarySidebarState.lastRenamedPath;
 
         const editorLocationChanged = currentFilePath !== lastObservedEditorPath
             || isUntitledDocument !== lastObservedUntitledState;
@@ -392,12 +431,29 @@
             return;
         }
 
-        // File was opened from the sidebar — keep the list frozen until a user action.
+        // The active file was renamed — update suppression tracking to the
+        // new path so we don't misinterpret the rename as an external open.
+        if (renamedPath && suppressReorder && lastSidebarOpenedPath === renamedPath.from) {
+            lastSidebarOpenedPath = renamedPath.to;
+            librarySidebarState.lastRenamedPath = undefined;
+            return;
+        }
+
+        // Consume the signal even if suppression wasn't active.
+        if (renamedPath) {
+            librarySidebarState.lastRenamedPath = undefined;
+        }
+
+        // File was opened from the sidebar — keep the list frozen until an
+        // explicit user action (sort change, manual refresh, sidebar reopen).
         if (suppressReorder && currentFilePath && currentFilePath === lastSidebarOpenedPath) {
             return;
         }
 
-        if (suppressReorder || currentFilePath || isUntitledDocument) {
+        // Edge case: suppression is active but the loaded file doesn't match
+        // the sidebar-clicked path (e.g. a concurrent external open won the
+        // race). Clear it so the list isn't stuck frozen indefinitely.
+        if (suppressReorder) {
             clearReorderSuppression();
         }
     });
@@ -416,19 +472,26 @@
             return;
         }
 
-        clearReorderSuppression();
         scrollResultsToTop();
 
         if (normalizedQuery.length > 0) {
+            clearReorderSuppression();
             void refreshSearchResults();
             return;
         }
 
-        // Apply any staged data that arrived while the list was frozen.
-        if (filterChanged && stagedRecentFiles) {
-            recentFiles = stagedRecentFiles;
-            stagedRecentFiles = undefined;
+        // Pure filter (tab) change while the list is frozen from a sidebar
+        // open: skip the fetch entirely. The visibleRecentFiles derived
+        // already re-filters the existing data under the new tab — the only
+        // difference in the DB is the opened_at bump on the file the user
+        // just clicked, and surfacing that reorder mid-browse is the jitter
+        // we want to avoid. Suppression clears on sort change, manual
+        // refresh, sidebar reopen, or opening a file from outside.
+        if (suppressReorder && filterChanged && !sortChanged) {
+            return;
         }
+
+        void quietRefreshRecentFiles({ clearSuppression: true });
     });
 
     $effect(() => {
@@ -448,16 +511,16 @@
                     return;
                 }
 
-                // Only stage the refresh when a file-open navigation is actively
-                // in flight (pendingOpenFile). The suppressReorder flag only
-                // freezes the sort order (handled in visibleRecentFiles), so
-                // mutations like rename/delete/duplicate still refresh immediately.
-                if (pendingOpenFile) {
-                    void stageRecentFilesUpdate();
+                // When the user opened a file from the sidebar, skip the
+                // refresh so the list doesn't reorder under their cursor.
+                // The data will catch up on the next user action that clears
+                // suppressReorder (tab switch, sort change, manual refresh,
+                // or opening a file from outside the sidebar).
+                if (suppressReorder) {
                     return;
                 }
 
-                void refreshRecentFiles();
+                void quietRefreshRecentFiles();
             });
         });
 

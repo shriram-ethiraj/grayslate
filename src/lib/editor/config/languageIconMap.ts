@@ -3,6 +3,8 @@ import FileText from "~icons/lucide/file-text";
 import FileCode from "~icons/lucide/file-code";
 import Terminal from "~icons/lucide/terminal";
 import Container from "~icons/lucide/container";
+import Mail from "~icons/lucide/mail";
+import MessageSquare from "~icons/lucide/message-square";
 
 import SiJavascript from "~icons/simple-icons/javascript";
 import SiTypescript from "~icons/simple-icons/typescript";
@@ -62,6 +64,8 @@ const CSV:          Language = { value: "csv",          label: "CSV",          t
 const MARKDOWN:     Language = { value: "markdown",     label: "Markdown",     token: "MD",      icon: SiMarkdown };
 const SHELL:        Language = { value: "shell",        label: "Shell",        token: "SH",      icon: Terminal };
 const CMD:          Language = { value: "cmd",          label: "Batch",        token: "BAT",     icon: RiWindowsFill };
+const EMAIL:        Language = { value: "email",        label: "Email",        token: "EMAIL",   icon: Mail };
+const PROMPT:       Language = { value: "prompt",       label: "Prompt",       token: "PROMPT",  icon: MessageSquare };
 const DOCKERFILE:   Language = { value: "dockerfile",   label: "Dockerfile",   token: "DOCKER",  icon: Container };
 const SVELTE:       Language = { value: "svelte",       label: "Svelte",       token: "SVELTE",  icon: SiSvelte };
 const VUE:          Language = { value: "vue",          label: "Vue",          token: "VUE",     icon: SiVuedotjs };
@@ -90,7 +94,7 @@ const PERL:         Language = { value: "perl",         label: "Perl",         t
 // All known languages
 const ALL_LANGUAGES: Language[] = [
     JAVASCRIPT, TYPESCRIPT, PYTHON, HTML, CSS, YAML,
-    C, CPP, JAVA, GO, XML, CSV, MARKDOWN, SHELL, CMD, DOCKERFILE,
+    C, CPP, JAVA, GO, XML, CSV, MARKDOWN, SHELL, CMD, EMAIL, PROMPT, DOCKERFILE,
     SVELTE, VUE, RUST, CLOJURE, SQL, PHP, SASS, SCSS, JINJA,
     ANGULAR, NGINX, POWERSHELL, RUBY, SWIFT, TOML, KOTLIN,
     OBJECTIVEC, OBJECTIVECPP, CSHARP, SCALA, DART, JSON, PERL,

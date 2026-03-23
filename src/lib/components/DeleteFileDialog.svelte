@@ -6,7 +6,7 @@
     import Trash2 from "~icons/lucide/trash-2";
     import { appDialogsState, closeAppDialog } from "$lib/state/appDialogs.svelte";
     import { editorState } from "$lib/state/editor.svelte";
-    import { deleteFile, RECENT_FILES_UPDATED_EVENT } from "$lib/files/recentFiles";
+    import { deleteFile } from "$lib/files/recentFiles";
 
     const isOpen = $derived(appDialogsState.active.type === "delete");
     const file = $derived(
@@ -29,7 +29,6 @@
         try {
             await deleteFile(filePath);
             closeAppDialog();
-            await emit(RECENT_FILES_UPDATED_EVENT);
             if (wasCurrentFile) {
                 // Reset the editor to a new untitled slate via the shared event bus.
                 await emit("menu://new-file");

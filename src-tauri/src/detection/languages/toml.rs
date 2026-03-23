@@ -1,4 +1,5 @@
 use super::LanguageDefinition;
+use super::ContentFamily;
 use regex::Regex;
 use std::sync::LazyLock;
 
@@ -192,5 +193,12 @@ pub fn definition() -> LanguageDefinition {
         builtins: &[],
         family: None,
         exclusive_patterns: &[],
+        // ── Family-gated fields ──────────────────────────────
+        content_families: &[ContentFamily::StructuredData, ContentFamily::Config],
+        anchors: &[],
+        hints: &[],
+        rivals: &["yaml"],
+        differentiators: &[],
+        disqualifiers: &[],
     }
 }

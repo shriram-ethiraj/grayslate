@@ -1,4 +1,5 @@
 use super::{wp, LanguageDefinition};
+use super::ContentFamily;
 use regex::Regex;
 use std::sync::LazyLock;
 
@@ -81,5 +82,27 @@ pub fn definition() -> LanguageDefinition {
         builtins: &[],
         family: None,
         exclusive_patterns: &[],
+        // ── Family-gated fields ──────────────────────────────
+        content_families: &[ContentFamily::Markup],
+        anchors: &[
+            wp!(r"<!DOCTYPE\s+html", 5),
+            wp!(r"(?i)<!doctype\s+html", 5),
+            wp!(r"<html[\s>]", 4),
+        ],
+        hints: &[
+            wp!(r"<head[\s>]", 3),
+            wp!(r"<body[\s>]", 3),
+            wp!(r"<(div|span|p|a|img|form|input|button|table|ul|ol|li|h[1-6])[\s>/]", 2),
+            wp!(r"\b(class|id|href|src|alt|style|type|name|value)=", 2),
+        ],
+        rivals: &["xml"],
+        differentiators: &[
+            wp!(r"<!DOCTYPE\s+html", 5),
+            wp!(r"<html[\s>]", 4),
+            wp!(r"<head[\s>]", 4),
+            wp!(r"<body[\s>]", 4),
+            wp!(r"\b(class|id|href|src)=", 3),
+        ],
+        disqualifiers: &[],
     }
 }

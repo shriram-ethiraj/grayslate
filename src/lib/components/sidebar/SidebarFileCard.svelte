@@ -54,7 +54,9 @@
     // Language / display helpers
     // ---------------------------------------------------------------------------
 
-    const FileIcon = $derived(languageMetaByValue.get(recentFile.language ?? "text")?.icon ?? null);
+    const fileLangMeta = $derived(languageMetaByValue.get(recentFile.language ?? "text"));
+    const FileIcon = $derived(fileLangMeta?.icon ?? null);
+    const fileLanguageLabel = $derived(fileLangMeta?.label ?? "Text");
     const fileSize = $derived(formatSize(recentFile.size_bytes));
     const searchResult = $derived(isSearchResult(recentFile) ? recentFile : null);
 
@@ -107,11 +109,11 @@
                         <button
                             type="button"
                             class="flex w-full min-w-0 items-start gap-3 px-3.5 py-3 pr-9 text-left outline-none"
-                            title={recentFile.path}
                             onclick={() => onOpen(recentFile.path, recentFile.source)}
                         >
                         <Item.Media
                             variant="icon"
+                            title={fileLanguageLabel}
                             class="mt-0.5 {isActive ? 'border-sidebar-ring/40 bg-sidebar-foreground/[0.04] text-sidebar-foreground' : 'border-sidebar-border/70 bg-sidebar-accent/45 text-sidebar-foreground/80 group-hover:border-sidebar-background/60 group-hover:bg-sidebar/80 group-hover:text-sidebar-accent-foreground group-data-[state=open]:border-sidebar-background/60 group-data-[state=open]:bg-sidebar/80 group-data-[state=open]:text-sidebar-accent-foreground'}"
                         >
                             {#if FileIcon}
@@ -124,7 +126,7 @@
                         <Item.Content class="min-w-0 gap-2.5">
                             <div class="flex items-start justify-between gap-3">
                                 <div class="min-w-0 flex-1">
-                                    <Item.Title class="truncate text-sm leading-tight {isActive ? 'text-black dark:text-white' : 'text-sidebar-foreground group-hover:text-sidebar-accent-foreground group-data-[state=open]:text-sidebar-accent-foreground'}">
+                                    <Item.Title title={recentFile.path} class="truncate text-sm leading-tight {isActive ? 'text-black dark:text-white' : 'text-sidebar-foreground group-hover:text-sidebar-accent-foreground group-data-[state=open]:text-sidebar-accent-foreground'}">
                                         {#if searchTerms.length > 0}
                                             {#each splitTextByTerms(recentFile.file_name, searchTerms) as fragment}
                                                 {#if fragment.isMatch}<mark class="bg-[var(--selection-match-bg)] text-inherit rounded-sm px-0.5 ring-1 ring-[var(--selection-match-border)]">{fragment.text}</mark>{:else}{fragment.text}{/if}

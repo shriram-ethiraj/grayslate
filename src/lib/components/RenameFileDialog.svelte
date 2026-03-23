@@ -1,7 +1,6 @@
 <script lang="ts">
     import { tick } from "svelte";
     import { invoke } from "@tauri-apps/api/core";
-    import { emit } from "@tauri-apps/api/event";
     import { toast } from "$lib/components/ui/sonner";
     import * as Dialog from "$lib/components/ui/dialog/index.js";
     import { Button } from "$lib/components/ui/button/index.js";
@@ -12,9 +11,9 @@
         closeAppDialog,
     } from "$lib/state/appDialogs.svelte";
     import { editorState } from "$lib/state/editor.svelte";
+    import { librarySidebarState } from "$lib/state/librarySidebar.svelte";
     import {
         renameFile,
-        RECENT_FILES_UPDATED_EVENT,
     } from "$lib/files/recentFiles";
 
     const isOpen = $derived(appDialogsState.active.type === "rename");
@@ -103,10 +102,18 @@
         try {
             const newPath = await renameFile(oldPath, trimmed);
             closeAppDialog();
-            await emit(RECENT_FILES_UPDATED_EVENT);
+
+            // Refresh sidebar data to pick up the new filename. This triggers
+            // a quiet refetch that updates file metadata in place without
+            // clearing suppression — so the list doesn't reorder.
+            librarySidebarState.requestQuietDataRefresh?.();
 
             // Keep the editor's save path in sync with the renamed file.
+            // Signal the sidebar BEFORE updating the path so it can update
+            // its suppression tracking instead of misinterpreting the path
+            // change as an external navigation.
             if (wasCurrentFile) {
+                librarySidebarState.lastRenamedPath = { from: oldPath, to: newPath };
                 editorState.currentFilePath = newPath;
             }
 

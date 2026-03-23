@@ -1,21 +1,55 @@
-/// Phase 3 — Structural signal detection.
+/// Structural signal detection (two-tier).
 ///
-/// Delegates to per-language structural detectors registered in languages/.
-/// Detectors are sorted by priority (lower = checked first) and run in order.
+/// **Strong detectors** (Phase 0c) are near-deterministic and run before the
+/// family classifier. They have very low false-positive rates.
 ///
-/// Current priority order (defined in each language file):
 ///   JSON(5) → PHP(10) → Svelte(20) → Vue(30) → HTML(40) → XML(50)
-///   → Dockerfile(60) → CSV(70) → Markdown(80) → SCSS(90) → Sass(91)
-///   → TOML(100) → SQL(110) → YAML(120)
-use super::languages::STRUCTURAL_DETECTORS;
+///   → Dockerfile(60) → CSV(70)
+///
+/// **Soft detectors** (Phase 2) run AFTER the family classifier and are
+/// gated by content family. This prevents, e.g., markdown from eating code
+/// files that start with `# comments`, or YAML from matching prose.
+///
+///   Markdown(80) → SCSS(90) → Sass(91) → TOML(100) → SQL(110)
+///   → Prompt(115) → YAML(120)
+use super::family::ContentFamily;
+use super::languages::{STRONG_STRUCTURAL, SOFT_STRUCTURAL};
 
 /// Re-export strip_code_blocks from markdown.rs — used by the heuristic
 /// pipeline in mod.rs to sanitize content before scoring.
 pub(crate) use super::languages::markdown::strip_code_blocks;
 
-/// Try to detect a data-format or markup language from structural signals.
-pub fn detect_structural(trimmed: &str, was_sliced: bool) -> Option<&'static str> {
-    for entry in STRUCTURAL_DETECTORS.iter() {
+/// Phase 0c — strong structural probes (near-deterministic).
+///
+/// These detectors have very low false-positive rates and run before
+/// the family classifier gates anything.
+pub fn detect_strong_structural(trimmed: &str, was_sliced: bool) -> Option<&'static str> {
+    for entry in STRONG_STRUCTURAL.iter() {
+        if (entry.detect)(trimmed, was_sliced) {
+            return Some(entry.name);
+        }
+    }
+    None
+}
+
+/// Phase 2 — soft structural probes (family-gated).
+///
+/// Only fires detectors whose declared content families overlap with
+/// the families the classifier identified. Returns `None` if no soft
+/// detector matches within the allowed families.
+pub fn detect_soft_structural(
+    trimmed: &str,
+    was_sliced: bool,
+    families: &[ContentFamily],
+) -> Option<&'static str> {
+    for entry in SOFT_STRUCTURAL.iter() {
+        // Family gate: skip detectors that don't match the classified families.
+        // When families is empty (classifier abstained), allow all detectors.
+        if !families.is_empty()
+            && !entry.content_families.iter().any(|f| families.contains(f))
+        {
+            continue;
+        }
         if (entry.detect)(trimmed, was_sliced) {
             return Some(entry.name);
         }
@@ -26,6 +60,20 @@ pub fn detect_structural(trimmed: &str, was_sliced: bool) -> Option<&'static str
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::detection::family::ContentFamily;
+
+    /// Test helper: runs both strong and soft structural detection with all families.
+    fn detect_structural(content: &str, was_sliced: bool) -> Option<&'static str> {
+        let trimmed = content.trim();
+        if let Some(lang) = detect_strong_structural(trimmed, was_sliced) {
+            return Some(lang);
+        }
+        let all_families = vec![
+            ContentFamily::Code, ContentFamily::StructuredData, ContentFamily::Markup,
+            ContentFamily::Config, ContentFamily::ShellScript, ContentFamily::Prose,
+        ];
+        detect_soft_structural(trimmed, was_sliced, &all_families)
+    }
 
     #[test]
     fn json_object() {

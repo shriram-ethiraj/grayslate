@@ -1,6 +1,7 @@
 use super::{wp, LanguageDefinition};
+use super::ContentFamily;
 
-pub fn definition() -> LanguageDefinition {
+pub fn definition()-> LanguageDefinition {
     LanguageDefinition {
         name: "perl",
         extensions: &[".pl", ".pm", ".perl", ".pod", ".t"],
@@ -62,5 +63,35 @@ pub fn definition() -> LanguageDefinition {
         ],
         family: None,
         exclusive_patterns: &[],
+        // ── Family-gated fields ──────────────────────────────
+        content_families: &[ContentFamily::Code],
+        anchors: &[
+            wp!(r"\buse\s+strict\b", 5),
+            wp!(r"\buse\s+warnings\b", 5),
+            wp!(r"\bmy\s+[\$@%]", 4),
+            wp!(r"\bour\s+[\$@%]", 4),
+            wp!(r"\bsub\s+\w+\s*\{", 4),
+            wp!(r"=~\s*[ms]/", 4),
+            wp!(r"\bqw\s*[(\[{/!|]", 4),
+            wp!(r"__END__", 4),
+            wp!(r"__DATA__", 4),
+        ],
+        hints: &[
+            wp!(r"\buse\s+\w+(::\w+)*\s*;", 3),
+            wp!(r"\bchomp\s*[\$@]", 3),
+            wp!(r"\bbless\s+\{", 3),
+            wp!(r#"\b(print|say)\s+[\$@"']"#, 2),
+            wp!(r"\bdie\s+", 2),
+        ],
+        rivals: &["ruby", "python"],
+        differentiators: &[
+            wp!(r"\buse\s+strict\b", 5),
+            wp!(r"\buse\s+warnings\b", 5),
+            wp!(r"\bmy\s+[\$@%]", 4),
+            wp!(r"=~\s*[ms]/", 4),
+            wp!(r"\$\w+->", 3),
+            wp!(r"__END__", 4),
+        ],
+        disqualifiers: &[],
     }
 }

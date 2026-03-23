@@ -1,6 +1,6 @@
 ---
 name: svelte-frontend
-description: Rules for writing Svelte 5, strictly typed TypeScript, and Vite configuration in Grayslate.
+description: Rules for writing Svelte 5, strictly typed TypeScript, and frontend coordination patterns in Grayslate.
 ---
 
 # Svelte Frontend Guidelines
@@ -16,6 +16,52 @@ description: Rules for writing Svelte 5, strictly typed TypeScript, and Vite con
 - **Strong Typing:** Do not use `any`. Define strictly typed interfaces and types for all component props, Tauri IPC payloads, and CodeMirror extensions.
 - **Vite Native:** Keep assets optimized. Import static assets cleanly and let Vite handle caching and bundling.
 - **Tooltip Preference:** Prefer native `title` attributes for simple hover labels such as full paths. Do not add custom tooltip components unless the interaction clearly requires richer content or behavior.
+
+## Shared Sidebar Coordination
+
+For cross-component coordination between the editor, dialogs, and the library sidebar, prefer the shared state surface in `src/lib/state/librarySidebar.svelte.ts` over custom event chains.
+
+Current coordination hooks:
+
+- `pendingOpenFile`
+- `requestActivateSearch`
+- `requestQuietDataRefresh`
+- `lastRenamedPath`
+
+Use these for sidebar/editor/dialog interaction where the components do not have a direct parent-child data flow.
+
+## Sidebar Reorder Suppression Policy
+
+The library sidebar has an explicit UX invariant:
+
+- when a user opens a file from the sidebar, the visible recent-files list must not jump under the cursor
+
+Implementation lives in `src/lib/components/app-sidebar.svelte`.
+
+Key pieces:
+
+- `suppressReorder`
+- `lastSidebarOpenedPath`
+- `quietRefreshRecentFiles(...)`
+
+Rules:
+
+- opening a file from the sidebar activates suppression
+- while suppressed, incoming recent-file refreshes do not re-sort the visible list
+- pure filter-tab changes do not clear suppression
+- suppression clears on explicit user actions like sort change or manual refresh
+- sidebar close/reopen performs an invisible quiet refresh so reopen shows fresh, already-sorted data
+
+Do not reintroduce eager reordering or a second staged list unless you have verified the UX impact.
+
+## Rename-Aware UI Sync
+
+`RenameFileDialog.svelte` now coordinates with the sidebar carefully:
+
+1. it triggers `requestQuietDataRefresh?.()` after rename
+2. it sets `lastRenamedPath = { from, to }` before updating `editorState.currentFilePath`
+
+That ordering lets the sidebar update suppression tracking without treating the rename as an unrelated external navigation.
 
 ## Linux / WebKitGTK Rendering Notes
 
@@ -48,13 +94,13 @@ Typical structure:
 </Shell>
 ```
 
-### Do / Don’t
+### Do / Don't
 
 - **Do** use `m-px` on an inner wrapper when a full-bleed child would otherwise visually cover the outer ring.
 - **Do** keep selected-state styles stronger than hover-state styles; hover must not override active styling.
 - **Do** test dialogs, menus, cards, and popovers on Linux after changing border/radius/overflow behavior.
-- **Don’t** put `overflow-hidden` on the same rounded element that owns the physical `border` unless you have verified Linux rendering.
-- **Don’t** assume a fix that looks correct on macOS/Windows will behave the same on Linux.
+- **Don't** put `overflow-hidden` on the same rounded element that owns the physical `border` unless you have verified Linux rendering.
+- **Don't** assume a fix that looks correct on macOS/Windows will behave the same on Linux.
 
 ### When to suspect this issue
 

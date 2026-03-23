@@ -10,6 +10,10 @@ static HEADING_ATTRS_RE: LazyLock<Regex> =
 static HTML_TAG_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"<[^>]+>").unwrap());
 
+/// Markdown inline link: `[text](url)` → keep only `text`.
+static MD_LINK_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\[([^\]]*)\]\([^)]*\)").unwrap());
+
 /// XML / HTML: root element name + up to two attribute values.
 pub(crate) fn extract_xml_html(content: &str) -> Option<String> {
     // Find the first tag: <tagname attr="val" ...>
@@ -52,11 +56,19 @@ pub(crate) fn extract_xml_html(content: &str) -> Option<String> {
     }
 }
 
-/// Markdown: first `# heading` or frontmatter `title:` value.
+/// Markdown: first `# heading` or frontmatter `title:` / `name:` value.
+///
+/// Skips version-only headings (e.g. `# 3.4.1`) and detects known document
+/// types (changelog, readme, contributing, etc.) when all headings are weak.
 pub(crate) fn extract_markdown(content: &str) -> Option<String> {
+    // Version-only heading: digits, dots, optional v prefix, optional -beta/rc suffix
+    static VERSION_RE: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"^v?\d+(?:\.\d+)*(?:[-.]?(?:alpha|beta|rc|dev|snapshot|pre|post|RELEASE|FINAL|GA)\d*)?$").unwrap());
+
     let mut in_frontmatter = false;
     let mut frontmatter_done = false;
     let mut first_line_was_dashes = false;
+    let mut frontmatter_name: Option<String> = None;
 
     for (i, line) in content.lines().enumerate() {
         let trimmed = line.trim();
@@ -73,16 +85,32 @@ pub(crate) fn extract_markdown(content: &str) -> Option<String> {
                 frontmatter_done = true;
                 continue;
             }
-            // title: My Document
+            // title: My Document — highest priority
             if let Some(rest) = trimmed.strip_prefix("title:") {
                 let title = rest.trim().trim_matches('"').trim_matches('\'').trim();
                 if !title.is_empty() {
                     return Some(title.to_string());
                 }
             }
+            // name: Bug Report — fallback when title is empty (issue templates)
+            if let Some(rest) = trimmed.strip_prefix("name:") {
+                let name = rest.trim().trim_matches('"').trim_matches('\'').trim();
+                if !name.is_empty() && frontmatter_name.is_none() {
+                    frontmatter_name = Some(name.to_string());
+                }
+            }
             continue;
         }
         let _ = (frontmatter_done, first_line_was_dashes); // suppress warnings
+
+        // If frontmatter had name: but no title:, use it now
+        if frontmatter_done {
+            if let Some(ref name) = frontmatter_name {
+                return Some(name.clone());
+            }
+            // Reset so we only check once
+            frontmatter_done = false;
+        }
 
         // ATX headings: # H1, ## H2, etc.
         if trimmed.starts_with('#') {
@@ -100,17 +128,63 @@ pub(crate) fn extract_markdown(content: &str) -> Option<String> {
             }
             // Strip inline HTML tags (e.g. <abbr title="...">text</abbr>), keeping inner text.
             let cleaned = HTML_TAG_RE.replace_all(raw, "");
+            // Strip markdown links (e.g. [1.9.0](https://...)) → keep link text only.
+            let cleaned = MD_LINK_RE.replace_all(&cleaned, "$1");
             // Strip inline backtick code markers (e.g. `Request` → Request).
             let cleaned = cleaned.replace('`', "");
             // Strip Pandoc/MkDocs/Kramdown attribute blocks (e.g. { #anchor }, {#id}, {: .class }).
             let cleaned = HEADING_ATTRS_RE.replace_all(cleaned.trim(), "");
             let heading = cleaned.trim();
-            if !heading.is_empty() {
-                return Some(heading.to_string());
+            if heading.is_empty() {
+                continue;
             }
-            // Heading was entirely attributes/markup — keep scanning for a real one.
+            // Skip version-only headings (e.g. "3.4.1", "v2.0.0-beta1")
+            if VERSION_RE.is_match(heading) {
+                continue;
+            }
+            return Some(heading.to_string());
         }
     }
+
+    // If frontmatter name: was found but nothing else, use it
+    if let Some(name) = frontmatter_name {
+        return Some(name);
+    }
+
+    // Fallback: detect known document types by content patterns
+    detect_document_type(content)
+}
+
+/// Detect well-known document types when headings fail.
+fn detect_document_type(content: &str) -> Option<String> {
+    let lower = content.to_lowercase();
+    let sample = if lower.len() > 2000 { &lower[..2000] } else { &lower };
+
+    // Changelog: version headers, "## [X.Y.Z]", "### Added/Changed/Fixed"
+    if sample.contains("changelog")
+        || (sample.contains("## [") && (sample.contains("### added") || sample.contains("### changed") || sample.contains("### fixed")))
+        || (sample.contains("## [") && sample.contains("](http"))
+    {
+        return Some("changelog".to_string());
+    }
+
+    // Contributing guide
+    if sample.contains("contributing")
+        && (sample.contains("pull request") || sample.contains("issue") || sample.contains("fork"))
+    {
+        return Some("contributing-guide".to_string());
+    }
+
+    // Security policy
+    if sample.contains("security") && sample.contains("vulnerabilit") {
+        return Some("security-policy".to_string());
+    }
+
+    // Code of conduct
+    if sample.contains("code of conduct") || sample.contains("contributor covenant") {
+        return Some("code-of-conduct".to_string());
+    }
+
     None
 }
 
@@ -203,5 +277,59 @@ mod tests {
     #[test]
     fn empty_content() {
         assert_eq!(md(""), None);
+    }
+
+    // --- New: version-only headings skipped ---
+    #[test]
+    fn version_only_heading_skipped() {
+        let input = "# 3.4.1\n\nSome release notes content.";
+        // Version heading skipped, no other heading → None or doc-type fallback
+        assert_eq!(md(input), None);
+    }
+
+    #[test]
+    fn version_heading_falls_through_to_next() {
+        let input = "# 3.4.1\n## Improvements\n\n- Added feature X";
+        assert_eq!(md(input), Some("improvements".into()));
+    }
+
+    #[test]
+    fn version_with_v_prefix_skipped() {
+        let input = "# v2.0.0-beta1\n## Breaking Changes\n\n- Removed old API";
+        assert_eq!(md(input), Some("breaking-changes".into()));
+    }
+
+    // --- New: frontmatter name: when title: is empty ---
+    #[test]
+    fn frontmatter_name_when_no_title() {
+        let input = "---\nname: Bug Report\nabout: Create a report to help us improve\ntitle: ''\nlabels: bug\n---\n\n## Description";
+        assert_eq!(md(input), Some("bug-report".into()));
+    }
+
+    #[test]
+    fn frontmatter_title_still_preferred() {
+        let input = "---\nname: Bug Report\ntitle: Report a Bug\n---\n\n## Description";
+        assert_eq!(md(input), Some("report-a-bug".into()));
+    }
+
+    // --- New: document-type detection fallback ---
+    #[test]
+    fn changelog_detection() {
+        // All headings are version-only → falls through to detect_document_type
+        let input = "# 2.0.0\n\n## [1.9.0](https://github.com/...)\n\n- New feature\n- Updated API\n\n## [1.8.0](https://github.com/...)";
+        assert_eq!(md(input), Some("changelog".into()));
+    }
+
+    #[test]
+    fn contributing_guide_detection() {
+        let input = "Thank you for contributing to this project.\n\nPlease submit a pull request with your changes.\nCreate an issue first to discuss the feature or fork the repo.";
+        assert_eq!(md(input), Some("contributing-guide".into()));
+    }
+
+    #[test]
+    fn security_policy_detection() {
+        let input = "# Security\n\nReport security vulnerabilities to security@example.com";
+        // Has a heading "Security" so it returns that directly
+        assert_eq!(md(input), Some("security".into()));
     }
 }

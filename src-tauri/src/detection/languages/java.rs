@@ -1,4 +1,5 @@
 use super::{wp, LanguageDefinition};
+use super::ContentFamily;
 
 pub fn definition() -> LanguageDefinition {
     LanguageDefinition {
@@ -24,13 +25,25 @@ pub fn definition() -> LanguageDefinition {
         ],
         anti_patterns: &[
             wp!(r"=>\s*[\{(\n]", -3),
-            wp!(r"\bfun\s+\w+", -4),
-            wp!(r"\bval\s+\w+", -3),
-            wp!(r"\bvar\s+\w+\s*[=:]", -2),
+            // Kotlin signals
+            wp!(r"(?m)^\s*(override\s+|internal\s+|private\s+)*fun\s+\w+", -5),
             wp!(r"\bcompanion\s+object\b", -5),
             wp!(r"\bdata\s+class\b", -5),
-            wp!(r"\bsealed\s+class\b", -4),
-            wp!(r"\bobject\s+\w+\s*:", -3),
+            wp!(r"\bsealed\s+(class|interface)\b", -5),
+            wp!(r"\btypealias\s+\w+", -5),
+            wp!(r"@file:\w+", -5),
+            wp!(r"\bby\s+lazy\s*\{", -4),
+            wp!(r"\?\.", -3),
+            wp!(r"\?:", -3),
+            wp!(r"\bvalue\s+class\s+\w+", -5),
+            // Scala signals
+            wp!(r"(?m)^\s*case\s+class\s+\w+", -5),
+            wp!(r"(?m)^\s*sealed\s+trait\b", -5),
+            wp!(r"(?m)\bimplicit\s+(val|def|class)\b", -5),
+            wp!(r"\bmatch\s*\{", -4),
+            wp!(r"(?m)^\s*def\s+\w+\s*[(\[]", -3),
+            wp!(r"(?m)^\s*trait\s+\w+", -4),
+            wp!(r"(?m)^\s*object\s+\w+\s*(extends|\{)", -3),
         ],
         uses_hash_comments: false,
         keywords: &[
@@ -50,5 +63,33 @@ pub fn definition() -> LanguageDefinition {
             wp!(r"(?m)^\s*@Override\b", 3),
             wp!(r"(?m)^\s*import\s+java\.\w+", 4),
         ],
+        // ── Family-gated fields ──────────────────────────────
+        content_families: &[ContentFamily::Code],
+        anchors: &[
+            wp!(r"\bpublic\s+static\s+void\s+main", 5),
+            wp!(r"\bSystem\.out\.print(ln)?\s*\(", 5),
+            wp!(r"(?m)\bimport\s+java\.\w+", 5),
+            wp!(r"(?m)\bimport\s+javax\.\w+", 5),
+            wp!(r"@Override\b", 4),
+            wp!(r"(?m)\bthrows\s+\w+", 4),
+            wp!(r"\binstanceof\s+", 4),
+        ],
+        hints: &[
+            wp!(r"(?m)\bpublic\s+class\s+\w+", 3),
+            wp!(r"(?m)\bprivate\s+(final\s+)?\w+\s+\w+", 2),
+            wp!(r"(?m)\bprotected\s+", 2),
+            wp!(r"\bimplements\s+\w+", 2),
+            wp!(r"\bnew\s+ArrayList<", 2),
+        ],
+        rivals: &["kotlin", "scala", "csharp"],
+        differentiators: &[
+            wp!(r"\bpublic\s+static\s+void\s+main", 5),
+            wp!(r"\bSystem\.out\.print(ln)?\s*\(", 5),
+            wp!(r"@Override\b", 4),
+            wp!(r"\binstanceof\s+", 4),
+            wp!(r"(?m)\bimport\s+java\.\w+", 5),
+            wp!(r"\bimplements\s+\w+", 3),
+        ],
+        disqualifiers: &[],
     }
 }

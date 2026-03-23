@@ -111,6 +111,8 @@ fn extract_c(content: &str) -> Option<String> {
 }
 
 /// Shared C/C++ tree-sitter collector.
+///
+/// Recurses into namespace bodies so nested classes/structs are found.
 pub(super) fn collect_c_cpp(
     root: &tree_sitter::Node,
     src: &[u8],
@@ -121,7 +123,13 @@ pub(super) fn collect_c_cpp(
         match child.kind() {
             "namespace_definition" => {
                 if let Some(name) = field_text(&child, "name", src) {
-                    symbols.push(Symbol { name: name.to_string(), priority: 10 });
+                    // Namespace as fallback context (P5), not primary —
+                    // file-local classes/structs (P9) should outrank namespace.
+                    symbols.push(Symbol { name: name.to_string(), priority: 5 });
+                }
+                // Recurse into namespace body to find nested classes/structs
+                if let Some(body) = child.child_by_field_name("body") {
+                    collect_c_cpp(&body, src, symbols);
                 }
             }
             "class_specifier" | "struct_specifier" => {

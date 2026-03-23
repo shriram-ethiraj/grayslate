@@ -1,4 +1,5 @@
 use super::{wp, LanguageDefinition};
+use super::ContentFamily;
 
 pub fn definition() -> LanguageDefinition {
     LanguageDefinition {
@@ -61,5 +62,39 @@ pub fn definition() -> LanguageDefinition {
         ],
         family: None,
         exclusive_patterns: &[],
+        // ── Family-gated fields ──────────────────────────────
+        content_families: &[ContentFamily::ShellScript],
+        anchors: &[
+            // @echo off — canonical Batch header
+            wp!(r"(?mi)^\s*@echo\s+(off|on)\s*$", 6),
+            // %VAR% variable expansion
+            wp!(r"%[A-Za-z_]\w*%", 4),
+            // set /p (user prompt) or set /a (arithmetic)
+            wp!(r"(?mi)^\s*set\s+/[pa]\b", 4),
+            // if exist — Batch-specific
+            wp!(r"(?mi)^\s*if\s+(exist|not\s+exist|errorlevel|defined)\b", 4),
+        ],
+        hints: &[
+            wp!(r"(?mi)^\s*echo\.\s*$", 2),
+            wp!(r"(?mi)^\s*goto\s+\:?\w+", 3),
+            wp!(r"(?mi)^\s*rem\s", 2),
+            wp!(r"(?mi)^\s*(setlocal|endlocal)\b", 3),
+            // :label at start of line
+            wp!(r"(?mi)^\:[a-zA-Z_]\w*\s*$", 3),
+        ],
+        rivals: &["shell", "powershell"],
+        differentiators: &[
+            // @echo off — not in shell or powershell
+            wp!(r"(?mi)^\s*@echo\s+(off|on)\s*$", 6),
+            // %VAR% — Batch-only variable syntax
+            wp!(r"%[A-Za-z_]\w*%", 4),
+            // set /p — Batch-specific flags
+            wp!(r"(?mi)^\s*set\s+/[pa]\b", 4),
+            // Windows paths with backslash drive letter
+            wp!(r"[A-Z]:\\", 3),
+            // goto :label — not in powershell
+            wp!(r"(?mi)^\s*goto\s+\:?\w+", 3),
+        ],
+        disqualifiers: &[],
     }
 }

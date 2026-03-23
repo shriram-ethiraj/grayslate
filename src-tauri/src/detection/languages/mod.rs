@@ -19,6 +19,7 @@ mod css;
 mod csv;
 mod dart;
 mod dockerfile;
+mod email;
 mod go;
 mod html;
 mod java;
@@ -34,6 +35,7 @@ mod objectivecpp;
 mod perl;
 mod php;
 mod powershell;
+mod prompt;
 mod python;
 mod ruby;
 mod rust_lang;
@@ -104,6 +106,12 @@ pub struct LanguageDefinition {
 
     /// Priority for structural detection (lower = checked first).
     /// `None` means this language has no structural detector.
+    ///
+    /// The priority also determines *when* the detector runs:
+    /// - **≤ `STRONG_STRUCTURAL_CUTOFF` (70)** — strong/deterministic, runs
+    ///   in Phase 0 *before* the family classifier.
+    /// - **> 70** — soft/heuristic, runs in Phase 2 *after* the family
+    ///   classifier, gated by `content_families`.
     pub structural_priority: Option<u8>,
 
     /// Structural detection function: `(trimmed_content, was_sliced) -> bool`.
@@ -148,6 +156,64 @@ pub struct LanguageDefinition {
     /// every non-C-family language gets a score penalty — without those
     /// languages needing to declare `#include` as an anti-pattern.
     pub exclusive_patterns: &'static [WeightedPattern],
+
+    // ── New: Family-gated detection fields ───────────────────
+    // These fields support the new family-first detection pipeline.
+    // During migration, they coexist with the old heuristic fields above.
+
+    /// Content families this language belongs to (e.g. Code, StructuredData).
+    /// Used by the family classifier to gate which languages are considered.
+    pub content_families: &'static [ContentFamily],
+
+    /// High-confidence positive signals (weight ≥ 4).
+    /// Nearly exclusive to this language — a match is strong evidence.
+    pub anchors: &'static [WeightedPattern],
+
+    /// Lower-confidence secondary signals (weight 1–3).
+    /// Supporting evidence that needs corroboration.
+    pub hints: &'static [WeightedPattern],
+
+    /// Languages this competes with most closely (nearest neighbors).
+    /// Disambiguation focuses on these rivals specifically in Phase 3.
+    pub rivals: &'static [&'static str],
+
+    /// Patterns that distinguish this language FROM its declared rivals.
+    /// Only evaluated during neighbor disambiguation (Phase 3).
+    pub differentiators: &'static [WeightedPattern],
+
+    /// Patterns that definitively rule OUT this language.
+    /// Used sparingly — only for truly impossible combinations.
+    pub disqualifiers: &'static [WeightedPattern],
+}
+
+/// Re-export from family module.
+pub use crate::detection::family::ContentFamily;
+
+impl Default for LanguageDefinition {
+    fn default() -> Self {
+        Self {
+            name: "unknown",
+            extensions: &[],
+            filenames: &[],
+            filename_patterns: &[],
+            shebangs: &[],
+            structural_priority: None,
+            structural_detect: None,
+            patterns: &[],
+            anti_patterns: &[],
+            uses_hash_comments: false,
+            keywords: &[],
+            builtins: &[],
+            family: None,
+            exclusive_patterns: &[],
+            content_families: &[],
+            anchors: &[],
+            hints: &[],
+            rivals: &[],
+            differentiators: &[],
+            disqualifiers: &[],
+        }
+    }
 }
 
 // ── Master definition list ───────────────────────────────────────────────
@@ -165,6 +231,7 @@ fn all_definitions() -> Vec<LanguageDefinition> {
         csv::definition(),
         dart::definition(),
         dockerfile::definition(),
+        email::definition(),
         go::definition(),
         html::definition(),
         java::definition(),
@@ -179,6 +246,7 @@ fn all_definitions() -> Vec<LanguageDefinition> {
         perl::definition(),
         php::definition(),
         powershell::definition(),
+        prompt::definition(),
         python::definition(),
         ruby::definition(),
         rust_lang::definition(),
@@ -269,18 +337,66 @@ pub(crate) struct StructuralEntry {
     pub detect: fn(&str, bool) -> bool,
 }
 
-/// Structural detectors sorted by priority (lower = checked first).
-pub(crate) static STRUCTURAL_DETECTORS: LazyLock<Vec<StructuralEntry>> = LazyLock::new(|| {
+/// Soft structural entry — includes content families for family gating.
+pub(crate) struct SoftStructuralEntry {
+    pub name: &'static str,
+    pub detect: fn(&str, bool) -> bool,
+    pub content_families: &'static [ContentFamily],
+}
+
+/// Priority cutoff between strong and soft structural detectors.
+///
+/// - **Strong (priority ≤ cutoff):** near-deterministic detectors that match
+///   unique syntax (e.g. `<?php`, `<?xml`, valid JSON parse, `<!DOCTYPE html>`).
+///   Run in Phase 0 before the family classifier.
+///
+/// - **Soft (priority > cutoff):** heuristic detectors whose patterns CAN appear
+///   in other content types (e.g. `# Heading` vs `# comment`, `key: value`).
+///   Run in Phase 2 after the family classifier, gated by `content_families`.
+///
+/// Current assignments:
+///   Strong: json(5) php(10) svelte(20) vue(30) html(40) xml(50) dockerfile(60) csv(70)
+///   Soft:   markdown(80) scss(90) sass(91) toml(100) sql(110) prompt(115) yaml(120)
+const STRONG_STRUCTURAL_CUTOFF: u8 = 70;
+
+/// Strong structural detectors — near-deterministic, run before the family
+/// classifier (Phase 0c). Priority ≤ `STRONG_STRUCTURAL_CUTOFF`.
+pub(crate) static STRONG_STRUCTURAL: LazyLock<Vec<StructuralEntry>> = LazyLock::new(|| {
     let mut entries: Vec<(u8, StructuralEntry)> = Vec::new();
     for def in all_definitions() {
         if let (Some(prio), Some(detect)) = (def.structural_priority, def.structural_detect) {
-            entries.push((
-                prio,
-                StructuralEntry {
-                    name: def.name,
-                    detect,
-                },
-            ));
+            if prio <= STRONG_STRUCTURAL_CUTOFF {
+                entries.push((
+                    prio,
+                    StructuralEntry {
+                        name: def.name,
+                        detect,
+                    },
+                ));
+            }
+        }
+    }
+    entries.sort_by_key(|(prio, _)| *prio);
+    entries.into_iter().map(|(_, entry)| entry).collect()
+});
+
+/// Soft structural detectors — run AFTER the family classifier (Phase 2).
+/// Priority > `STRONG_STRUCTURAL_CUTOFF`. Only fire when the classified
+/// content family matches the detector's `content_families`.
+pub(crate) static SOFT_STRUCTURAL: LazyLock<Vec<SoftStructuralEntry>> = LazyLock::new(|| {
+    let mut entries: Vec<(u8, SoftStructuralEntry)> = Vec::new();
+    for def in all_definitions() {
+        if let (Some(prio), Some(detect)) = (def.structural_priority, def.structural_detect) {
+            if prio > STRONG_STRUCTURAL_CUTOFF {
+                entries.push((
+                    prio,
+                    SoftStructuralEntry {
+                        name: def.name,
+                        detect,
+                        content_families: def.content_families,
+                    },
+                ));
+            }
         }
     }
     entries.sort_by_key(|(prio, _)| *prio);
@@ -384,3 +500,36 @@ fn compile_wp(lang: &str, wp: &WeightedPattern) -> CompiledPattern {
         weight: wp.weight,
     }
 }
+
+// ── New: Family-gated compiled registry ──────────────────────────────────
+
+/// Compiled language entry for the family-gated scoring pipeline.
+pub(crate) struct CompiledFamilyLanguage {
+    pub name: &'static str,
+    pub content_families: &'static [ContentFamily],
+    pub anchors: Vec<CompiledPattern>,
+    pub hints: Vec<CompiledPattern>,
+    pub rivals: &'static [&'static str],
+    pub differentiators: Vec<CompiledPattern>,
+    pub disqualifiers: Vec<CompiledPattern>,
+}
+
+/// All languages with family-gated scoring fields populated, compiled.
+/// Only includes languages that have at least one anchor or hint.
+pub(crate) static COMPILED_FAMILY: LazyLock<Vec<CompiledFamilyLanguage>> = LazyLock::new(|| {
+    let definitions = all_definitions();
+
+    definitions
+        .iter()
+        .filter(|def| !def.anchors.is_empty() || !def.hints.is_empty())
+        .map(|def| CompiledFamilyLanguage {
+            name: def.name,
+            content_families: def.content_families,
+            anchors: def.anchors.iter().map(|wp| compile_wp(def.name, wp)).collect(),
+            hints: def.hints.iter().map(|wp| compile_wp(def.name, wp)).collect(),
+            rivals: def.rivals,
+            differentiators: def.differentiators.iter().map(|wp| compile_wp(def.name, wp)).collect(),
+            disqualifiers: def.disqualifiers.iter().map(|wp| compile_wp(def.name, wp)).collect(),
+        })
+        .collect()
+});

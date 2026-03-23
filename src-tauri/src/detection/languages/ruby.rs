@@ -1,6 +1,7 @@
 use super::{wp, LanguageDefinition};
+use super::ContentFamily;
 
-pub fn definition() -> LanguageDefinition {
+pub fn definition()-> LanguageDefinition {
     LanguageDefinition {
         name: "ruby",
         extensions: &[".rb"],
@@ -54,5 +55,33 @@ pub fn definition() -> LanguageDefinition {
         ],
         family: None,
         exclusive_patterns: &[],
+        // ── Family-gated fields ──────────────────────────────
+        content_families: &[ContentFamily::Code],
+        anchors: &[
+            wp!(r#"\brequire_relative\s+['""]"#, 5),
+            wp!(r"\battr_(accessor|reader|writer)\s+:", 5),
+            wp!(r"(?m)^=begin\b", 5),
+            wp!(r"%(w|i|r|q|Q|x)\s*[\[\({<]", 4),
+            wp!(r"\bdo\s*\|[\w,\s]+\|", 4),
+            wp!(r"(?m)^\s*unless\s+", 4),
+        ],
+        hints: &[
+            wp!(r"(?m)^\s*def\s+\w+", 3),
+            wp!(r"(?m)^\s*end\s*$", 3),
+            wp!(r"(?m)^\s*module\s+\w+", 3),
+            wp!(r#"\bputs\s+['"\w]"#, 3),
+            wp!(r#"\brequire\s+['""]"#, 3),
+            wp!(r"\.(each|map|select|reject|inject|collect)\s*(\{|\bdo\b)", 3),
+        ],
+        rivals: &["python", "perl"],
+        differentiators: &[
+            wp!(r"(?m)^\s*end\s*$", 4),
+            wp!(r"\battr_(accessor|reader|writer)\s+:", 5),
+            wp!(r"\bdo\s*\|[\w,\s]+\|", 4),
+            wp!(r"(?m)^\s*unless\s+", 4),
+            wp!(r#"\brequire_relative\s+['""]"#, 5),
+            wp!(r"(?m)^=begin\b", 5),
+        ],
+        disqualifiers: &[],
     }
 }

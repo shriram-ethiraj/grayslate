@@ -1,4 +1,5 @@
 use super::LanguageDefinition;
+use super::ContentFamily;
 use regex::Regex;
 use std::sync::LazyLock;
 
@@ -35,17 +36,64 @@ pub(crate) fn is_likely_yaml(trimmed: &str, _was_sliced: bool) -> bool {
         Regex::new(r"^\s*(func|package|type|defer|go)\s").unwrap(),
     ]);
 
+    // Prose detection: count weighted prose indicators on lines that are NOT
+    // yaml-like and NOT code-like. Contractions (I'm, don't, can't) are very
+    // strong signals — they are nearly impossible in valid YAML. Question marks
+    // and parenthetical phrases outside YAML values are moderate signals.
+    static PAREN_PHRASE: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"\([^)]{4,}\)").unwrap());
+    // English contractions: I'm, it's, can't, don't, we're, I'll, they've, etc.
+    static CONTRACTION: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"\b\w+'(m|s|re|ll|t|ve|d)\b").unwrap());
+    // Multi-word prose headers: "Team sync notes:", "Action items:", "Things to do:"
+    // Real YAML keys are identifiers (no spaces). Multi-word headers are strong prose.
+    static PROSE_HEADER: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"^[A-Z][a-z]+(\s+\w+)+\s*:\s*$").unwrap());
+
     let mut yaml_lines = 0usize;
     let mut code_lines = 0usize;
+    let mut prose_weight = 0i32;
+
+    // Count contractions across ALL lines (including YAML-like ones).
+    // Contractions are nearly impossible in real YAML values, but common in
+    // prose formatted as bullet lists (meeting notes, todo lists).
+    let global_contraction_count = non_empty
+        .iter()
+        .filter(|l| CONTRACTION.is_match(l))
+        .count();
+    if global_contraction_count >= 3 {
+        return false;
+    }
+
     for line in &non_empty {
         if CODE_PATTERNS.iter().any(|p| p.is_match(line)) {
             code_lines += 1;
         } else if YAML_KV.is_match(line) || YAML_LIST.is_match(line) {
             yaml_lines += 1;
+        } else {
+            // Non-YAML, non-code line — check for prose indicators
+            if line.contains('?') {
+                prose_weight += 1;
+            }
+            if PAREN_PHRASE.is_match(line) {
+                prose_weight += 1;
+            }
+            if CONTRACTION.is_match(line) {
+                prose_weight += 2;
+            }
+            if PROSE_HEADER.is_match(line) {
+                prose_weight += 2;
+            }
         }
     }
 
     if code_lines > yaml_lines {
+        return false;
+    }
+
+    // If non-YAML lines carry strong prose signals, this is prose not YAML.
+    // Threshold 3 = contraction + one other signal, or 3 moderate signals.
+    if prose_weight >= 3 {
         return false;
     }
 
@@ -116,6 +164,13 @@ pub fn definition() -> LanguageDefinition {
         builtins: &[],
         family: None,
         exclusive_patterns: &[],
+        // ── Family-gated fields ──────────────────────────────
+        content_families: &[ContentFamily::StructuredData, ContentFamily::Config],
+        anchors: &[],
+        hints: &[],
+        rivals: &["toml"],
+        differentiators: &[],
+        disqualifiers: &[],
     }
 }
 

@@ -1,4 +1,5 @@
 use super::{wp, LanguageDefinition};
+use super::ContentFamily;
 use regex::Regex;
 use std::sync::LazyLock;
 
@@ -104,5 +105,38 @@ pub fn definition() -> LanguageDefinition {
         ],
         family: None,
         exclusive_patterns: &[],
+        // ── Family-gated fields ──────────────────────────────
+        content_families: &[ContentFamily::Code],
+        anchors: &[
+            // $variable: value
+            wp!(r"\$[\w-]+\s*:", 4),
+            // @mixin
+            wp!(r"@mixin\s+[\w-]+", 4),
+            // @include
+            wp!(r"@include\s+[\w-]+", 4),
+            // &:hover / &.class — parent selector
+            wp!(r"&[.:\[>~+]", 3),
+        ],
+        hints: &[
+            // Nesting with braces
+            wp!(r"\{", 1),
+            // @extend
+            wp!(r"@extend\s+[.%]", 3),
+            // @function
+            wp!(r"@function\s+[\w-]+", 3),
+            // @if / @else
+            wp!(r"@if\s+", 2),
+        ],
+        rivals: &["css", "sass"],
+        differentiators: &[
+            // $variable — SCSS has it, CSS does not
+            wp!(r"\$[\w-]+\s*:", 4),
+            // @mixin / @include — SCSS-only
+            wp!(r"@mixin\s+[\w-]+", 4),
+            wp!(r"@include\s+[\w-]+", 4),
+            // Braces — SCSS has them, Sass does not
+            wp!(r"\{", 2),
+        ],
+        disqualifiers: &[],
     }
 }

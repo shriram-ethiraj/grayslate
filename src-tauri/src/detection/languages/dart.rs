@@ -1,6 +1,7 @@
 use super::{wp, LanguageDefinition};
+use super::ContentFamily;
 
-pub fn definition() -> LanguageDefinition {
+pub fn definition()-> LanguageDefinition {
     LanguageDefinition {
         name: "dart",
         extensions: &[".dart"],
@@ -46,5 +47,29 @@ pub fn definition() -> LanguageDefinition {
         ],
         family: None,
         exclusive_patterns: &[],
+        // ── Family-gated fields ──────────────────────────────
+        content_families: &[ContentFamily::Code],
+        anchors: &[
+            wp!(r#"(?m)^\s*import\s+['"]package:"#, 5),
+            wp!(r"\bWidget\s+build\s*\(", 5),
+            wp!(r"\b(StatelessWidget|StatefulWidget|State<\w+>)\b", 5),
+            wp!(r"\blate\s+(final\s+)?\w+\s+\w+", 4),
+            wp!(r"\brequired\s+this\.\w+", 4),
+        ],
+        hints: &[
+            wp!(r"\bFuture<\w+>", 3),
+            wp!(r"(?m)^\s*void\s+main\s*\(\)\s*(async\s*)?\{", 3),
+            wp!(r"\bfinal\s+\w+\s*=", 2),
+            wp!(r"\b@override\b", 2),
+        ],
+        rivals: &["typescript", "kotlin"],
+        differentiators: &[
+            wp!(r#"(?m)^\s*import\s+['"]package:"#, 5),
+            wp!(r"\bWidget\s+build\s*\(", 5),
+            wp!(r"\b(StatelessWidget|StatefulWidget|State<\w+>)\b", 5),
+            wp!(r"\brequired\s+this\.\w+", 4),
+            wp!(r"\blate\s+(final\s+)?\w+\s+\w+", 4),
+        ],
+        disqualifiers: &[],
     }
 }

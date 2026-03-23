@@ -19,6 +19,10 @@ use crate::{
     storage::{AppStorage, FileEventType},
 };
 
+use tauri::Emitter;
+
+use super::RECENT_FILES_UPDATED_EVENT;
+
 /// Result of saving an untitled slate — includes both the path and the
 /// detected language so the frontend can update its state in one IPC call.
 #[derive(serde::Serialize)]
@@ -90,6 +94,7 @@ pub async fn save_untitled_slate(
     // Record the save event in storage (mirrors write_file_content behaviour).
     let source = classify_file_source(&app, storage.inner(), &target_path)?;
     storage.record_file_event(&target_path, source, FileEventType::Save)?;
+    let _ = app.emit(RECENT_FILES_UPDATED_EVENT, ());
 
     target_path
         .into_os_string()

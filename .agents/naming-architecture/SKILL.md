@@ -1,353 +1,359 @@
 ---
 name: naming-architecture
-description: Content-based filename suggestion, canonical save-extension mapping, per-language detection config, and FE save/rename naming flows.
+description: Family-first detection, per-language naming definitions, canonical save-extension mapping, and save/rename naming flows.
 ---
 
 # Naming Architecture
 
-Use this skill when changing filename suggestions, adding a new language, or modifying how save and rename flows choose a filename or extension.
+Use this skill when changing language detection, filename suggestion, canonical save extensions, or the save/rename flows that bridge Rust naming with the Svelte UI.
 
 ## Primary Files
 
-- `src-tauri/src/naming/mod.rs`
-- `src-tauri/src/naming/model.rs`
-- `src-tauri/src/naming/shared.rs`
-- `src-tauri/src/naming/structured.rs`
-- `src-tauri/src/naming/markup.rs`
-- `src-tauri/src/naming/code.rs`
-- `src-tauri/src/naming/prose.rs`
-- `src-tauri/src/naming/sql.rs`
-- `src-tauri/src/commands/naming.rs`
 - `src-tauri/src/detection/mod.rs`
-- `src-tauri/src/detection/extension.rs`
-- `src-tauri/src/detection/shebang.rs`
-- `src-tauri/src/detection/structural.rs`
+- `src-tauri/src/detection/features.rs`
+- `src-tauri/src/detection/family.rs`
+- `src-tauri/src/detection/scoring.rs`
+- `src-tauri/src/detection/disambiguation.rs`
 - `src-tauri/src/detection/heuristic.rs`
 - `src-tauri/src/detection/treesitter.rs`
 - `src-tauri/src/detection/languages/mod.rs`
 - `src-tauri/src/detection/languages/*.rs`
-- `src/lib/editor/components/EditorWrapper.svelte`
+- `src-tauri/src/naming/mod.rs`
+- `src-tauri/src/naming/model.rs`
+- `src-tauri/src/naming/prose.rs`
+- `src-tauri/src/naming/shared.rs`
+- `src-tauri/src/naming/languages/mod.rs`
+- `src-tauri/src/naming/languages/*.rs`
+- `src-tauri/src/commands/naming.rs`
 - `src/lib/components/RenameFileDialog.svelte`
-- `src/lib/editor/core/detectByExtension.ts`
+- `src/lib/editor/components/EditorWrapper.svelte`
 - `src/lib/editor/config/languageExtensions.ts`
 - `src/lib/editor/config/languageIconMap.ts`
+- `src/lib/state/librarySidebar.svelte.ts`
 
 ## Current Architecture at a Glance
 
-Naming and detection are tightly coupled, but they solve different problems:
+Detection and naming are intentionally separate systems that meet at a shared language ID.
 
-- **Detection** answers: "what language is this content?"
-- **Naming** answers: "what stem should we suggest, and what canonical extension should we save with?"
+- **Detection** answers: "what language does this content most likely belong to?"
+- **Naming** answers: "what stem and canonical extension should we suggest/save with?"
 
-Those are intentionally separate systems.
+Rust is the source of truth for both:
 
-### Important distinction: detection extensions vs save extension
+- content-based language detection
+- content-based filename suggestion
+- canonical save-extension mapping
 
-Detection can recognize many extensions for a language, but naming picks one canonical extension for saves and suggestions.
+The frontend keeps only thin synchronous maps for immediate UI behavior:
 
-Examples:
+- `languageExtensions.ts` for CodeMirror language support
+- `languageIconMap.ts` for sidebar/status-bar labels and icons
 
-- Scala detection accepts `.scala`, `.sc`, and `.sbt`, but naming saves as `.scala`
-- Perl detection accepts `.pl`, `.pm`, `.perl`, `.pod`, and `.t`, but naming saves as `.pl`
-
-If a language is detectable but missing from `language_profile()` in `src-tauri/src/naming/mod.rs`, saves and generated names fall back to `.txt`.
+Do not move content-based detection or naming heuristics back into Svelte.
 
 ## Detection Architecture
 
-### Per-language config lives in `src-tauri/src/detection/languages/*.rs`
+## Family-first pipeline
 
-Each language file owns its own detection fingerprint via `LanguageDefinition`.
+`src-tauri/src/detection/mod.rs::detect_language()` now delegates to the v2 family-first pipeline.
 
-Current fields include:
+Ordered phases:
 
-- `name`
-- `extensions`
-- `filenames`
-- `filename_patterns`
-- `shebangs`
-- `structural_priority`
-- `structural_detect`
-- `patterns`
-- `anti_patterns`
-- `uses_hash_comments`
-- `keywords`
-- `builtins`
-- `illegal`
-- `extends`
-
-This means extension, shebang, structural, and heuristic config all live with the language itself rather than being scattered across separate hardcoded maps.
-
-### Registry compilation
-
-`src-tauri/src/detection/languages/mod.rs` compiles the per-language definitions into shared registries used by the pipeline:
-
-- `SUPPORTED_LANGUAGES`
-- `EXTENSION_MAP`
-- `FILENAME_MAP`
-- `FILENAME_PATTERNS`
-- `SHEBANG_MAP`
-- `STRUCTURAL_DETECTORS`
-- `COMPILED`
-
-`extension.rs`, `shebang.rs`, `structural.rs`, and `heuristic.rs` now consume those registries instead of maintaining their own language-specific config.
-
-### Detection pipeline
-
-`src-tauri/src/detection/mod.rs::detect_language(content, filename)` runs the 4-phase cascade:
-
-1. extension / filename
+1. filename / extension
 2. shebang
-3. structural
-4. heuristic scoring + tree-sitter validation
+3. strong structural detection
+4. content family classification
+5. family-gated candidate scoring
+6. rival disambiguation
+7. confidence gate
+8. legacy heuristic fallback when v2 abstains
 
-The FE should continue treating Rust as the source of truth for content-based detection.
+The key architectural change is that content is classified into broad families before language-specific scoring runs:
 
-### Current reality for adding a language
+- `Prose`
+- `Code`
+- `StructuredData`
+- `Markup`
+- `ShellScript`
+- `Config`
 
-Per-language config is now self-contained in the language file, but the registry is still manually wired.
+That family gate dramatically reduces cross-family false positives. Prose should not compete with Scala, SQL, YAML, CMD, or PowerShell unless the content first looks like code/data/shell.
 
-Today, a new backend language usually means:
+## Phase ownership
 
-1. create `src-tauri/src/detection/languages/<lang>.rs`
-2. add `mod <lang>;` in `src-tauri/src/detection/languages/mod.rs`
-3. add `<lang>::definition()` to `all_definitions()`
+### Deterministic phases
 
-Do not assume file-only auto-discovery exists yet.
+- extension / filename: `extension.rs`
+- shebang: `shebang.rs`
+- strong structural detectors: `structural.rs` plus language-local structural functions
 
-### Structural and heuristic guidance
+These still short-circuit early for highly reliable cases like JSON, HTML, XML, Dockerfile, etc.
 
-- Data/markup formats like JSON, CSV, XML, YAML, TOML, Markdown, and plain text can stay primarily structural. That is expected.
-- Code and template languages that lack strong structural signals should carry their own regex patterns, keywords, and builtins in their language file.
-- Highlight.js is a reasonable source for language keywords and builtins when expanding heuristic coverage.
+### Family classification
 
-### `extends` is risky
+- `features.rs` extracts language-agnostic signals such as:
+  - greeting / closing presence
+  - contractions and stopword-heavy prose signals
+  - import/function/operator density
+  - key-value density and indentation depth
+  - tag density
+  - pipes / redirects / env expansion counts
+- `family.rs` scores those signals and picks the top family or top-two families when ambiguous
 
-Be conservative with `extends`.
+This stage is deterministic and rule-based. There is no ML model here.
 
-Inheritance can make the child language outscore the parent on pure parent content. This already happens easily for near-superset pairs such as:
+### Family-gated language scoring
 
-- TypeScript over JavaScript
-- C++ over C
-- Kotlin over Java
-- Angular over TypeScript
-- Objective-C++ over C++
-- SCSS/Sass over CSS
+`src-tauri/src/detection/scoring.rs` only scores languages whose `content_families` intersect the chosen family set.
 
-Default to `extends: None` unless tests prove inheritance is safe for that language pair.
+Each language now carries new v2 metadata in `LanguageDefinition`:
 
-### Heuristic threshold reminder
+- `content_families`
+- `anchors` — strong, near-exclusive signals
+- `hints` — weaker supporting signals
+- `rivals` — nearest neighboring languages
+- `differentiators` — patterns used only in head-to-head disambiguation
+- `disqualifiers` — hard rule-outs
 
-`src-tauri/src/detection/heuristic.rs` only applies keyword/builtin bonus when there are at least 3 unique hits.
+Legacy fields (`patterns`, `anti_patterns`, `keywords`, `builtins`, `exclusive_patterns`) still exist because the v2 pipeline intentionally falls back to the legacy scorer when it abstains.
 
-Avoid generic single-keyword or single-pattern signals that can hit the global threshold by accident. A pattern like `print something` is too weak by itself; prefer language-specific syntax such as sigils, delimiters, or distinctive constructs.
+### Rival disambiguation
+
+`disambiguation.rs` resolves close competitors such as:
+
+- JavaScript vs TypeScript
+- Java vs Kotlin vs Scala
+- C vs C++
+- Python vs Ruby / Perl
+
+It uses `rivals` + `differentiators` first, then tree-sitter error ratios where grammars exist.
+
+## First-class prose languages
+
+`email` and `prompt` are now real languages in detection, not just prose side-signals.
+
+Detection files:
+
+- `src-tauri/src/detection/languages/email.rs`
+- `src-tauri/src/detection/languages/prompt.rs`
+
+Both live in `ContentFamily::Prose`, which means:
+
+- they do not compete with code families unless the family classifier is already wrong
+- email vs prompt ambiguity is resolved with prose-specific anchors and differentiators
+
+Examples:
+
+- email anchors: RFC headers, greetings, closings, reply markers
+- prompt anchors: role framing (`You are`, `Act as`), instruction verbs, output-format directives
+
+## Adding a new detection language
+
+1. Create `src-tauri/src/detection/languages/<lang>.rs`
+2. Export `definition() -> LanguageDefinition`
+3. Register the module and `definition()` in `src-tauri/src/detection/languages/mod.rs`
+4. Populate both:
+   - deterministic / legacy fields as needed
+   - v2 family fields (`content_families`, `anchors`, `hints`, `rivals`, `differentiators`)
+5. Add tests for:
+   - positive detection
+   - nearby-rival disambiguation
+   - prose / mixed-content rejection where relevant
+
+Do not assume the old global heuristic loop is the primary architecture anymore.
 
 ## Naming Architecture
 
-### Public API
+## Per-language naming registry
 
-`src-tauri/src/naming/mod.rs` is the stable naming surface:
+Naming no longer routes through the old `language_profile()/ExtractorGroup` map.
 
-- `suggest_stem(content, language_hint)`
+Current architecture:
+
+- each language lives in `src-tauri/src/naming/languages/*.rs`
+- each file exports `definition() -> NamingDefinition`
+- `src-tauri/src/naming/languages/mod.rs` compiles them into `NAMING_MAP`
+
+`NamingDefinition` is intentionally small:
+
+- `name`
+- `extension`
+- `extract`
+
+That means adding naming support for a language is usually:
+
+1. create one file
+2. register it in `all_definitions()`
+
+The canonical save extension now lives directly on `NamingDefinition.extension`.
+
+## Public naming API
+
+`src-tauri/src/naming/mod.rs` is the stable surface:
+
 - `suggest_stem_auto(content, language_hint, filename)`
+- `suggest_stem(content, language_hint)`
 - `language_to_extension(language_hint)`
-- `slugify(raw)`
 - `fallback_stem()`
+- `slugify(raw)`
 
 ### `suggest_stem_auto`
 
-`suggest_stem_auto(content, language_hint, filename)` is the bridge between detection and naming.
+When `language_hint` is empty or `"auto"`:
 
-- if `language_hint` is empty or `"auto"`, it runs `detect_language(content, filename)`
-- it returns both the suggested stem and the effective language
-- callers should propagate that effective language instead of recomputing it separately
+- it runs `crate::detection::detect_language(content, filename)`
+- falls back to `"text"` if detection abstains
+- returns both the suggested stem and the effective language
 
-### `language_profile()` is the canonical save-extension map
+That returned language must be propagated by callers rather than recomputed separately.
 
-`src-tauri/src/naming/mod.rs::language_profile()` maps a language ID to:
+### `suggest_stem`
 
-1. the canonical save extension
-2. the extractor group used to derive the filename stem
+Flow:
 
-This mapping is separate from detection and must be updated whenever a newly supported language should save with a non-`.txt` extension.
+1. bound content
+2. look up `NamingDefinition`
+3. extract raw stem
+4. finalize / slugify / suffix-tag
 
-### Extractor routing
+Special cases:
 
-`model.rs` contains the routing model:
+- if `def.name == "text"`, route through `prose::extract_prose_tagged()`
+- if `def.name == "email"` or `"prompt"`, force `StemKind::Email` / `StemKind::Prompt`
 
-- `LanguageNamingProfile`
-- `ExtractorGroup`
-- `StructuredNamingKind`
-- `MarkupNamingKind`
-- `CodeStyle`
+That explicit `StemKind` routing is important: once detection returns `"email"` or `"prompt"`, the generated filename must keep the `-email` or `-prompt` suffix even though those languages now have dedicated naming definitions.
 
-Keep language-to-extractor dispatch centralized in `language_profile()` rather than spreading extension logic across command handlers.
+## Prose naming
 
-## Extractor Responsibilities
+`src-tauri/src/naming/prose.rs` remains the prose fallback cascade:
 
-### `shared.rs`
+1. email extraction
+2. prompt extraction
+3. YAKE fallback
 
-- bounded input sampling
-- slug sanitization
-- timestamp fallback naming
+The new naming language files:
 
-Keep this file generic and language-agnostic.
+- `src-tauri/src/naming/languages/email.rs`
+- `src-tauri/src/naming/languages/prompt.rs`
 
-### `structured.rs`
+both delegate to that prose extractor, but they preserve distinct language IDs and therefore distinct suffix behavior.
 
-Structured formats:
+## Detection extension vs save extension
 
-- CSV: semantic header extraction with noise filtering
-- JSON: known file shapes plus semantic key/value extraction
-- YAML: key-based extraction
-- TOML: AST-first extraction with pattern-aware fallbacks
+Keep this distinction clear:
 
-### `markup.rs`
+- detection may accept many aliases for one language
+- naming uses one canonical save extension from `NamingDefinition.extension`
 
-Markup/document formats:
+Examples:
 
-- XML/HTML-like markup
-- Markdown
-- Svelte/Vue/Angular naming when routed through markup-style extraction
+- detect many Perl-related extensions, save as `.pl`
+- detect multiple Scala-ish filenames, save as `.scala`
+- unknown languages fall back to the `text` naming definition and save as `.txt`
 
-### `code.rs`
+Do not derive canonical save extensions from frontend icon maps or old file extensions.
 
-Programming language extraction:
+## Command / IPC Flow
 
-- tree-sitter-backed extraction for grammars already in the project
-- regex fallback for styles without tree-sitter coverage in naming
+## `save_untitled_slate`
 
-Current regex-fallback styles include:
+`src-tauri/src/commands/naming.rs::save_untitled_slate`:
 
-- CSharp
-- Swift
-- Ruby
-- PHP
-- Dart
-- Shell
+1. resolves notes root
+2. calls `suggest_stem_auto`
+3. maps the effective language through `language_to_extension`
+4. sanitizes and de-duplicates the filename
+5. writes the file
+6. records a save event in storage
+7. emits `RECENT_FILES_UPDATED_EVENT`
+8. returns `SaveResult { path, detectedLanguage }`
 
-If tree-sitter parsing is absent or not yet wired for naming, prefer reusing an existing fallback style before inventing a new extractor.
+This command is the source of truth for first-save naming. The frontend should not assemble untitled save paths by itself.
 
-### `prose.rs`
+## `suggest_slate_name`
 
-Fallback extractor cascade:
-
-1. email detection
-2. prompt detection
-3. YAKE keyword extraction
-
-This is also the current fallback for some detected languages whose naming extractor has not been specialized yet.
-
-### `sql.rs`
-
-All SQL-specific filename inference belongs here.
-
-Do not spread SQL naming heuristics into command handlers or unrelated extractors.
-
-## Command and IPC Flow
-
-### `save_untitled_slate`
-
-`src-tauri/src/commands/naming.rs::save_untitled_slate` handles first save for untitled documents:
-
-1. resolve notes root
-2. call `suggest_stem_auto`
-3. call `language_to_extension`
-4. sanitize and de-duplicate the target filename
-5. write the file
-6. record the save event
-7. return `SaveResult { path, detectedLanguage }`
-
-### `suggest_slate_name`
-
-`suggest_slate_name(content, language_hint)` is the content-in / filename-out helper used when the FE already has the document text.
-
-It returns:
+Use when the frontend already has the live content in memory and wants:
 
 - `filename`
 - `detectedLanguage`
 
-Use this when the frontend already has content in memory and wants the generated name to reflect that exact content.
+This is the "content in, filename out" helper for Save As and live rename suggestions.
 
-### `suggest_name_for_file`
+## `suggest_name_for_file`
 
-`suggest_name_for_file(path)` is the disk-backed helper for existing files when the FE only has a path.
+Use when the frontend only has a path.
 
 Important behavior:
 
-- reads a bounded sample from disk
-- uses `"auto"` content detection
-- intentionally does **not** use the file extension as the language hint
-- returns a full filename string (`stem.extension`)
+- reads only a bounded sample from disk
+- uses `"auto"` detection internally
+- intentionally does **not** trust the existing file extension as a naming hint
 
-This prevents misnamed files from getting locked into the wrong extension during name generation.
+That prevents misnamed files from being locked into the wrong canonical extension.
 
-Do not feed raw file extensions like `"pl"` or `"py"` into `language_profile()` and expect canonical naming behavior. `language_profile()` wants language IDs like `"perl"` or `"python"`.
+## Frontend Flows
 
-## Frontend Flow
+## `EditorWrapper.svelte`
 
-### `EditorWrapper.svelte`
+Relevant contracts:
 
-Key behavior:
-
-- content-based detection stays in Rust via `invoke("detect_language")`
+- content-based detection remains Rust-side via `invoke("detect_language")`
+- saved-file language pinning still uses path/filename sync detection (`detectByFilename`) so the status bar reflects the actual saved extension
 - untitled save calls `save_untitled_slate`
-- untitled Save As calls `suggest_slate_name`
-- the FE still keeps a thin `detectByExtension.ts` map for sync, extension-only UI decisions like icons
+- name generation for live content calls `suggest_slate_name`
+- opening a file uses `setPendingSidebarOpenFile(...)` and `OPEN_FILE_PATH_EVENT`
 
-### `RenameFileDialog.svelte`
+Important sidebar interaction:
 
-The "Generate name" button should mirror untitled naming behavior as closely as possible.
+- after a successful `read_file_content`, the **backend** records the open event and emits `RECENT_FILES_UPDATED_EVENT`
+- `EditorWrapper` should not manually emit recent-files refresh events anymore
 
-Current behavior:
+## `RenameFileDialog.svelte`
 
-- if the file being renamed is the **currently open file**, use live editor content and call `suggest_slate_name` with `languageHint: "auto"`
-- this includes unsaved in-editor changes in the suggestion
-- if the file is **not** the currently open file, fall back to `suggest_name_for_file(path)` so the backend reads the file from disk
+The Generate Name button mirrors untitled naming as closely as possible:
 
-In both cases, the generated name should include the extension derived from content, not just the old filename.
+- if the file is the current editor file, use live editor content + `suggest_slate_name(..., "auto")`
+- otherwise call `suggest_name_for_file(path)`
+
+After rename succeeds:
+
+1. call `librarySidebarState.requestQuietDataRefresh?.()` so the sidebar picks up the new filename/path without visible jitter
+2. if the renamed file is the active editor file, set `librarySidebarState.lastRenamedPath = { from, to }`
+3. then update `editorState.currentFilePath = newPath`
+
+That ordering is important. The sidebar uses `lastRenamedPath` to update its suppression tracking instead of misclassifying the rename as an external navigation.
+
+## Frontend language support
+
+If a detected/named language should also have first-class editor UI support, update:
+
+- `src/lib/editor/config/languageExtensions.ts`
+- `src/lib/editor/config/languageIconMap.ts`
+
+Current notable behavior:
+
+- `email` and `prompt` intentionally render as plain text in CodeMirror
+- `cmd` uses the shell highlighter as the closest available CM mode
+- `languageIconMap.ts` is the user-facing label/icon source for sidebar cards and the status bar
 
 ## Adding a New Language End-to-End
 
-### Backend detection
-
-1. create a new file under `src-tauri/src/detection/languages/`
-2. define extensions, filenames, shebangs, structural detector, and heuristics in that file
-3. register the module and `definition()` in `src-tauri/src/detection/languages/mod.rs`
-
-### Backend naming
-
-4. add a `language_profile()` entry in `src-tauri/src/naming/mod.rs`
-5. choose the canonical save extension
-6. route the language to the best existing extractor group, or add new extractor support if truly needed
-
-### Frontend language support
-
-If the language should render with syntax highlighting and app-specific UI support, also update:
-
-7. `src/lib/editor/config/languageExtensions.ts`
-8. `src/lib/editor/config/languageIconMap.ts`
-
-### Tests
-
-Add or update tests close to the changed module:
-
-- detection extension / filename cases
-- shebang cases
-- structural detection
-- heuristic scoring
-- naming extension mapping
-- command-level naming behavior where appropriate
+1. Add detection definition in `src-tauri/src/detection/languages/`
+2. Register it in `detection/languages/mod.rs`
+3. Populate v2 family fields
+4. Add naming definition in `src-tauri/src/naming/languages/`
+5. Register it in `naming/languages/mod.rs`
+6. Add CodeMirror/icon support if user-visible
+7. Add tests near the changed modules
 
 ## Safe Change Checklist
 
-- Keep per-language detection config inside the language file
-- Keep canonical save-extension routing in `language_profile()`
-- Preserve the distinction between detection extensions and save extension
-- Prefer content-based `"auto"` flows when suggesting names from live content
-- Do not assume the old file extension is trustworthy for rename suggestions
-- Be very cautious with `extends`
-- Add tests for new language routing and extension behavior
+- Keep Rust as the source of truth for content-based detection and naming
+- Preserve the distinction between detection aliases and canonical save extension
+- When adding languages, populate `content_families`, `anchors`, `hints`, and `rivals`
+- Keep `email` / `prompt` suffix behavior intact
+- Do not trust the current filename extension inside `suggest_name_for_file`
+- Do not reintroduce frontend-only recent-files refresh emits for read/save flows
 - Re-run:
   - `cargo test --manifest-path src-tauri/Cargo.toml`
   - `pnpm run check`
-  - `pnpm run build`

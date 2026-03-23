@@ -1,4 +1,5 @@
 use super::{wp, LanguageDefinition};
+use super::ContentFamily;
 
 pub fn definition() -> LanguageDefinition {
     LanguageDefinition {
@@ -45,5 +46,30 @@ pub fn definition() -> LanguageDefinition {
             wp!(r"(?m)#(?:ifndef|ifdef|define)\s+\w+", 3),
             wp!(r"(?m)#pragma\s", 2),
         ],
+        // ── New family-gated fields ──────────────────────────
+        content_families: &[ContentFamily::Code],
+        anchors: &[
+            wp!(r#"(?m)#include\s*[<"]"#, 4),
+            wp!(r"(?m)#define\s+\w+", 4),
+            wp!(r"(?m)#(?:ifndef|ifdef)\s+\w+", 4),
+            wp!(r"(?m)\bint\s+main\s*\(", 4),
+            wp!(r"\bprintf\s*\(", 4),
+            wp!(r"\b(malloc|calloc|realloc|free)\s*\(", 4),
+        ],
+        hints: &[
+            wp!(r"(?m)\bvoid\s+\w+\s*\(", 2),
+            wp!(r"\bsizeof\s*\(", 2),
+            wp!(r"\btypedef\s+", 2),
+            wp!(r"(?m)\bstruct\s+\w+\s*\{", 2),
+            wp!(r"\bNULL\b", 2),
+        ],
+        rivals: &["cpp"],
+        differentiators: &[
+            wp!(r"\bprintf\s*\(", 4),
+            wp!(r"\b(malloc|calloc|realloc|free)\s*\(", 4),
+            wp!(r"\btypedef\s+", 3),
+            wp!(r"\bNULL\b", 2),
+        ],
+        disqualifiers: &[],
     }
 }

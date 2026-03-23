@@ -1,4 +1,5 @@
 use super::{wp, LanguageDefinition};
+use super::ContentFamily;
 
 pub fn definition() -> LanguageDefinition {
     LanguageDefinition {
@@ -52,5 +53,32 @@ pub fn definition() -> LanguageDefinition {
             wp!(r"\b(keyof|infer|satisfies)\s+", 5),
             wp!(r":\s*(string|number|boolean)\b", 3),
         ],
+        // ── New family-gated fields ──────────────────────────
+        content_families: &[ContentFamily::Code],
+        anchors: &[
+            wp!(r"(?m)\binterface\s+\w+", 4),
+            wp!(r"(?m)\btype\s+\w+\s*=\s*", 4),
+            wp!(r":\s*(string|number|boolean|void|any|never|unknown|undefined)\b", 4),
+            wp!(r"\bas\s+(string|number|any|unknown|[A-Z]\w+)\b", 4),
+            wp!(r"(?m)\bdeclare\s+(const|function|class|module|type|interface)", 4),
+            wp!(r"(?m)^///\s*<reference\s", 5),
+            wp!(r"\b(keyof|infer|satisfies)\s+", 5),
+        ],
+        hints: &[
+            wp!(r#"(?m)^\s*import\s+[\w\{*].*\s+from\s+['"`]"#, 2),
+            wp!(r"(?m)^\s*export\s+(const|let|var|function|class|default|type|interface|enum)\s", 2),
+            wp!(r"\bPromise<", 2),
+            wp!(r"(?m)\benum\s+\w+\s*\{", 3),
+            wp!(r"(?m)\basync\s+", 2),
+        ],
+        rivals: &["javascript"],
+        differentiators: &[
+            wp!(r"(?m)\binterface\s+\w+", 4),
+            wp!(r"(?m)\btype\s+\w+\s*=\s*", 4),
+            wp!(r":\s*(string|number|boolean)\b", 3),
+            wp!(r"(?m)\bdeclare\s+(const|function|class|module|type|interface)", 4),
+            wp!(r"<\w+(\s+extends\s+\w+)?>", 3),
+        ],
+        disqualifiers: &[],
     }
 }

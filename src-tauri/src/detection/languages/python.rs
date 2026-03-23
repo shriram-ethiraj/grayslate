@@ -1,4 +1,5 @@
 use super::{wp, LanguageDefinition};
+use super::ContentFamily;
 
 pub fn definition() -> LanguageDefinition {
     LanguageDefinition {
@@ -30,11 +31,8 @@ pub fn definition() -> LanguageDefinition {
             wp!(r"(?m)^__all__\s*=\s*[\[\(]", 4),
             wp!(r"(?m)^__version__\s*=\s*", 2),
             wp!(r"(?m)^__author__\s*=\s*", 2),
-            // REPL prompt (relevance 10 in highlight.js)
             wp!(r"(?m)^>>> ", 5),
-            // f-string: f"...{expr}..."
             wp!(r#"f['"][^'"]*\{[^}]+\}"#, 3),
-            // Type hints: `-> type`, `: type =`
             wp!(r"(?m)\)\s*->\s*\w+\s*:", 3),
         ],
         anti_patterns: &[
@@ -60,5 +58,33 @@ pub fn definition() -> LanguageDefinition {
             wp!(r"(?m)^\s*@\w+\s*\n\s*(def|class)\s", 3),
             wp!(r"\b__\w+__\b", 3),
         ],
+        // ── New family-gated fields ──────────────────────────
+        content_families: &[ContentFamily::Code],
+        anchors: &[
+            wp!(r"(?m)^\s*elif\s+", 5),
+            wp!(r#"if\s+__name__\s*==\s*['"]__main__['"]"#, 5),
+            wp!(r"(?m)^>>> ", 5),
+            wp!(r"(?m)^\s*def\s+\w+\s*\(self[\s,)]", 4),
+            wp!(r"(?m)^\s*async\s+def\s+\w+", 4),
+            wp!(r"(?m)^__all__\s*=\s*[\[\(]", 4),
+        ],
+        hints: &[
+            wp!(r"(?m)^\s*def\s+\w+\s*\(", 3),
+            wp!(r"(?m)^\s*from\s+\w+\s+import\s", 3),
+            wp!(r"\bself\.\w+", 3),
+            wp!(r#"f['"][^'"]*\{[^}]+\}"#, 3),
+            wp!(r"\b__\w+__\b", 2),
+            wp!(r"(?m)^\s*@\w+(\.\w+)*(\(.*\))?\s*$", 2),
+            wp!(r"(?m)^\s*(try|except|finally)\s*:", 2),
+        ],
+        rivals: &["ruby", "perl"],
+        differentiators: &[
+            wp!(r"(?m)^\s*elif\s+", 5),
+            wp!(r"\bself\.\w+", 4),
+            wp!(r"\b__\w+__\b", 3),
+            wp!(r#"f['"][^'"]*\{[^}]+\}"#, 3),
+            wp!(r"(?m)^\s*@\w+\s*\n\s*(def|class)\s", 3),
+        ],
+        disqualifiers: &[],
     }
 }

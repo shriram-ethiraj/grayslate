@@ -1,4 +1,5 @@
 use super::LanguageDefinition;
+use super::ContentFamily;
 use regex::Regex;
 use std::sync::LazyLock;
 
@@ -118,7 +119,8 @@ pub(crate) fn is_likely_markdown(trimmed: &str, _was_sliced: bool) -> bool {
         // a lone `# comment` line cannot tip the score over the markdown threshold.
         (Regex::new(r"(?m)^\s*class\s+\w+").unwrap(), 3),
         (Regex::new(r"(?m)=>\s*[\{(\n]").unwrap(), 2),
-        (Regex::new(r"(?m)^\s*def\s+\w+\s*\(").unwrap(), 3),
+        // `def` without requiring parens — catches Ruby `def self.method` and `def foo`.
+        (Regex::new(r"(?m)^\s*def\s+[\w.]+").unwrap(), 3),
         (Regex::new(r#"(?m)^\s*#include\s*[<"]"#).unwrap(), 3),
         (Regex::new(r"(?m);\s*$").unwrap(), 1),
         (Regex::new(r"(?m)^\s*async\s+(function|\w+\s*[=(])").unwrap(), 2),
@@ -127,6 +129,17 @@ pub(crate) fn is_likely_markdown(trimmed: &str, _was_sliced: bool) -> bool {
         // These lines start with `#` so they match the markdown heading regex, causing
         // Python files that open with this header to be misidentified as markdown.
         (Regex::new(r"(?m)^#.*coding\s*[:=]\s*[-\w]+").unwrap(), 3),
+        // Ruby `module Foo` — uppercase module names are code, not markdown prose.
+        (Regex::new(r"(?m)^\s*module\s+[A-Z]\w*").unwrap(), 3),
+        // Ruby/Lua `end` on its own line — block terminators are a strong code signal.
+        (Regex::new(r"(?m)^\s*end\s*$").unwrap(), 2),
+        // Ruby magic comment pragma (e.g. `# frozen_string_literal: true`).
+        // Starts with `#` so it matches the markdown heading regex.
+        (Regex::new(r"(?m)^#\s*frozen_string_literal:").unwrap(), 3),
+        // Method chaining: 3+ dot-separated identifiers at line start
+        // (e.g. `Rails.application.config.filter_parameters`).
+        // Universally code (Ruby/Java/Python/JS), never appears in prose.
+        (Regex::new(r"(?m)^\s*[a-zA-Z_]\w*(?:\.\w+){2,}").unwrap(), 3),
     ]);
 
     let mut code_score = 0i32;
@@ -180,6 +193,13 @@ pub fn definition() -> LanguageDefinition {
         builtins: &[],
         family: None,
         exclusive_patterns: &[],
+        // ── Family-gated fields ──────────────────────────────
+        content_families: &[ContentFamily::Markup, ContentFamily::Prose, ContentFamily::Code],
+        anchors: &[],
+        hints: &[],
+        rivals: &[],
+        differentiators: &[],
+        disqualifiers: &[],
     }
 }
 
@@ -206,5 +226,49 @@ mod tests {
     fn python_class_only_not_markdown() {
         let src = "class Foo:\n    pass\n\nclass Bar(Foo):\n    def method(self):\n        return 42\n";
         assert!(!is_likely_markdown(src, false), "Plain Python class should not be markdown");
+    }
+
+    #[test]
+    fn ruby_gem_version_not_markdown() {
+        // Regression: `# frozen_string_literal: true` matched the heading regex,
+        // causing Ruby files to be misidentified as markdown.
+        let src = "# frozen_string_literal: true\n\nmodule Rails\n  # Returns the currently loaded version of \\Rails as a +Gem::Version+.\n  def self.gem_version\n    Gem::Version.new VERSION::STRING\n  end\n\n  module VERSION\n    MAJOR = 8\n    MINOR = 2\n    TINY  = 0\n    PRE   = \"alpha\"\n\n    STRING = [MAJOR, MINOR, TINY, PRE].compact.join(\".\")\n  end\nend\n";
+        assert!(!is_likely_markdown(src, false), "Ruby gem_version file should not be markdown");
+    }
+
+    #[test]
+    fn ruby_simple_module_not_markdown() {
+        // A minimal Ruby file with just a module and no def — still not markdown.
+        let src = "# frozen_string_literal: true\n\nmodule Rails\n  VERSION = \"8.2.0\"\nend\n";
+        assert!(!is_likely_markdown(src, false), "Ruby module file should not be markdown");
+    }
+
+    #[test]
+    fn ruby_class_with_methods_not_markdown() {
+        let src = "# frozen_string_literal: true\n\nclass Foo\n  def initialize(bar)\n    @bar = bar\n  end\n\n  def to_s\n    @bar.to_s\n  end\nend\n";
+        assert!(!is_likely_markdown(src, false), "Ruby class file should not be markdown");
+    }
+
+    #[test]
+    fn ruby_without_pragma_not_markdown() {
+        // Ruby file without frozen_string_literal — module + end still block markdown.
+        let src = "module MyApp\n  module Config\n    TIMEOUT = 30\n  end\nend\n";
+        assert!(!is_likely_markdown(src, false), "Ruby module without pragma should not be markdown");
+    }
+
+    #[test]
+    fn markdown_with_ruby_code_block_still_detected() {
+        // Markdown that contains a Ruby fenced code block should still be markdown.
+        let src = "# Installation\n\nAdd to your Gemfile:\n\n```ruby\nrequire 'my_gem'\nmodule Foo\n  def bar\n  end\nend\n```\n\nThen run `bundle install`.\n";
+        assert!(is_likely_markdown(src, false), "Markdown with Ruby code block should still be markdown");
+    }
+
+    #[test]
+    fn ruby_config_with_hash_comments_not_markdown() {
+        // Regression: Ruby initializer file with `# comment` lines matched the
+        // markdown heading regex. Method chaining (Rails.application.config.*)
+        // is a strong code signal that should block markdown detection.
+        let src = "# Be sure to restart your server when you modify this file.\n\n# Configure parameters to be filtered from the log file. Use this to limit dissemination of\n# sensitive information. See the ActiveSupport::ParameterFilter documentation for supported\n# notations and behaviors.\nRails.application.config.filter_parameters += [\n  :passw, :secret, :token, :_key, :crypt, :salt, :certificate, :otp, :ssn\n]\n";
+        assert!(!is_likely_markdown(src, false), "Ruby config file with method chaining should not be markdown");
     }
 }

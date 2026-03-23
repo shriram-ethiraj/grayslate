@@ -1,16 +1,21 @@
 ---
 name: search-architecture
-description: Current implementation reference for sidebar library search, Rust search pipeline, frontend wiring, cancellation, and BM25-style ranking. Use when changing search scope, result ranking, preview generation, sidebar query behavior, or the Tauri search command.
+description: Sidebar library search and recent-files orchestration, including backend search, backend-driven refresh events, and reorder suppression.
 ---
 
 # Sidebar Search Architecture
 
-This skill documents the current sidebar search implementation in the repository. It reflects the current in-repo search architecture built directly on Rust search crates.
+Use this skill when changing sidebar search scope, ranking, recent-files behavior, open-file interactions, or the library sidebar's refresh/reorder logic.
 
 ## Primary Files
 
 - `src/lib/components/app-sidebar.svelte`
+- `src/lib/components/sidebar/SidebarFileCard.svelte`
+- `src/lib/state/librarySidebar.svelte.ts`
 - `src/lib/files/recentFiles.ts`
+- `src/lib/files/sidebarUtils.ts`
+- `src-tauri/src/commands/mod.rs`
+- `src-tauri/src/commands/file.rs`
 - `src-tauri/src/commands/search.rs`
 - `src-tauri/src/search/mod.rs`
 - `src-tauri/src/search/query.rs`
@@ -18,58 +23,68 @@ This skill documents the current sidebar search implementation in the repository
 - `src-tauri/src/search/scope.rs`
 - `src-tauri/src/search/rank.rs`
 - `src-tauri/src/search/types.rs`
-- `src-tauri/src/filesystem.rs`
 - `src-tauri/src/storage.rs`
-- `src-tauri/src/lib.rs`
 
-## Current Architecture
+## Current High-Level Split
 
-### 1. High-Level Pipeline
+The library sidebar has two modes:
 
-Sidebar search runs as a three-stage backend pipeline:
+- **recent-files mode** when `query.trim()` is empty
+- **search mode** when the normalized query is non-empty
 
-1. `query.rs` normalizes the raw string and splits it into whitespace-delimited terms.
-2. `scope.rs` resolves the searchable file set from the internal notes root plus tracked external files.
-3. `grep.rs` scans file contents and `rank.rs` scores the candidates before returning sorted results.
+`app-sidebar.svelte` owns:
 
-The orchestration entrypoint is `search::run_sidebar_search()` in `src-tauri/src/search/mod.rs`.
+- query / filter / sort state
+- recent-files data
+- search result data
+- request-version staleness guards
+- backend event listening
+- reorder suppression policy
 
-### 2. Crate-Based Search Implementation
+## Shared Sidebar State
 
-- Search is implemented directly with Rust crates:
-  - `ignore`
-  - `grep-regex`
-  - `grep-searcher`
-  - `grep-matcher`
+`src/lib/state/librarySidebar.svelte.ts` is the cross-component coordination surface for sidebar/editor/dialog behavior.
 
-This means search behavior is cross-platform through Cargo dependencies and in-process Rust code.
+Current shared fields:
 
-## Frontend Flow
+- `pendingOpenFile`
+- `requestActivateSearch`
+- `requestQuietDataRefresh`
+- `lastRenamedPath`
 
-### 1. Sidebar Ownership
+Use this shared state for sidebar/editor/dialog coordination instead of ad-hoc custom event chains.
 
-- `app-sidebar.svelte` owns the library UI, filter tabs, sort mode, query state, loading states, and empty/error rendering.
-- When the query is empty, the sidebar shows recent files from `get_recent_files`.
-- When the query is non-empty, the sidebar switches to backend search results from `search_sidebar_files`.
+## Recent-Files Mode
 
-### 2. Search Triggering
+`recentFiles.ts` defines the frontend IPC contract:
 
-- `normalizedQuery` is derived from `query.trim().toLowerCase()`.
-- Search requests are debounced by 120 ms in an `$effect`.
-- Search only runs while the sidebar is open.
-- Clearing the query resets `searchResults`, cancels client-side result acceptance by incrementing the request version, and returns the UI to recent-files mode.
+- `getRecentFiles(limit)`
+- `searchSidebarFiles(query, filterMode, requestId, limit)`
+- `deleteFile(path)`
+- `renameFile(path, newName)`
+- `duplicateFile(path)`
+- `duplicateLocalFileAsSlate(path)`
 
-### 3. Frontend Request Contract
+When the query is empty:
 
-`recentFiles.ts` defines the frontend IPC surface:
+- the sidebar shows recent files from `get_recent_files`
+- `visibleRecentFiles` applies source filtering and sorting
+- recency sections are built only for the recent-opened sorts
 
-- `getRecentFiles(limit)` returns `RecentFileRecord[]`
-- `searchSidebarFiles(query, filterMode, requestId, limit)` returns `SidebarSearchResult[]`
+## Search Mode
 
-`SidebarSearchResult` extends the recent file metadata with:
+When the query is non-empty:
 
-- `preview_line`
-- `preview_line_number`
+- `normalizedQuery` is `query.trim().toLowerCase()`
+- search is debounced by 120 ms
+- search only runs while the sidebar is open
+- `searchRequestVersion` guards against stale results
+- `"Search cancelled."` is intentionally suppressed in the UI
+
+`SidebarSearchResult` currently includes:
+
+- all `RecentFileRecord` fields
+- `matched_lines: { line_number, line_text }[]`
 - `match_count`
 - `filename_score`
 - `content_score`
@@ -77,145 +92,177 @@ This means search behavior is cross-platform through Cargo dependencies and in-p
 - `usage_score`
 - `final_score`
 
-### 4. Frontend Staleness Handling
+`SidebarFileCard.svelte` renders excerpts/highlights from `matched_lines` through helpers in `sidebarUtils.ts`.
 
-- `recentFilesRequestVersion` guards recent-file refreshes.
-- `searchRequestVersion` guards live search refreshes.
-- If a request resolves after a newer one started, the result is ignored.
-- The frontend explicitly suppresses the `Search cancelled.` error string so fast typing does not flash an error state.
+## Reorder Suppression Policy
 
-## Backend Flow
+This is the major frontend architecture change for the library sidebar.
 
-### 1. Tauri Command Boundary
+Goal:
 
-- `src-tauri/src/commands/search.rs` contains the Tauri command surface only.
-- `search_sidebar_files` is async at the IPC boundary and moves the heavy work into `tauri::async_runtime::spawn_blocking`.
-- The command clamps the result limit to `1..=200`.
-- The command stores per-window cancellation state so a new search cancels the previous in-flight search for the same window.
+- when the user opens a file from the sidebar, the visible recent-files list must not jump/re-sort under the cursor
 
-### 2. Runtime State
+State:
 
-`SearchRuntimeState` currently owns:
+- `suppressReorder`
+- `lastSidebarOpenedPath`
 
-- a cancellation registry keyed by Tauri window label
-- a cached `average_document_length` used by ranking
+Activation:
 
-Do not move ranking logic into the command layer. The current split intentionally keeps retrieval and scoring testable outside of Tauri IPC functions.
+- `openRecentFile(...)` sets `suppressReorder = true`
+- it also records `lastSidebarOpenedPath`
 
-### 3. Search Scope Resolution
+Behavior while active:
 
-`scope.rs` constructs `SearchScope`:
+- `visibleRecentFiles` skips re-sorting when query is empty
+- `RECENT_FILES_UPDATED_EVENT` refreshes are ignored
+- pure filter-tab changes do not refetch
+- rename metadata refreshes happen quietly without clearing suppression
 
-- `internal_root`: the configured notes root, if enabled by the current filter mode and if the directory exists
-- `external_files`: tracked external files that still exist on disk
-- `tracked_by_key`: normalized-path map of all tracked file metadata from SQLite
+Suppression clears only on explicit user or session boundaries:
 
-Filter behavior:
+- sort change
+- manual refresh
+- sidebar close/reopen cycle
+- external navigation that does not match the sidebar-opened path
 
-- `unified` searches internal and external files
-- `internal` searches only the notes root
-- `external` searches only tracked external files
+## Quiet Refresh Pattern
 
-### 4. Candidate Collection
+The sidebar now prefers a single-list model plus quiet refreshes over the old "staged buffer" style.
 
-`mod.rs` first builds the candidate path universe:
+Key functions:
 
-- file paths discovered by walking the scope
-- tracked file paths already known to SQLite
+- `fetchRecentFiles({ showLoading, clearSuppression })`
+- `refreshRecentFiles()`
+- `quietRefreshRecentFiles({ clearSuppression })`
 
-This is intentional. It allows filename-only matches to appear even when content does not match, and it preserves metadata for files already tracked by the app.
+Important behavior:
 
-### 5. Content Search Implementation
+- quiet refresh updates data without showing loading skeletons
+- sidebar-close while suppressed triggers an invisible quiet refresh with `clearSuppression: true`
+- reopening the sidebar then shows already-fresh data with no visible jitter
 
-`grep.rs` is the content-matching layer.
+Do not reintroduce a second recent-files buffer unless there is a very strong reason.
 
-- `WalkBuilder` walks the internal notes tree.
-- External files are scanned directly from the tracked file list.
-- The query is tokenized into terms and each term is searched independently.
-- Terms are escaped with `escape_regex_meta()` so matching behaves like fixed-string search.
-- `RegexMatcherBuilder::case_smart(true)` preserves smart-case behavior.
-- `SearcherBuilder::line_number(true)` captures the first preview line number.
-- Binary or unreadable files are skipped by treating `search_path` failures as non-matches.
+## Rename-Aware Suppression Tracking
 
-`ContentMatchSummary` stores:
+`RenameFileDialog.svelte` and `app-sidebar.svelte` now coordinate renames explicitly.
 
-- `total_hits`
-- `term_frequencies`
-- `document_frequencies`
-- first `preview`
+Flow:
 
-The first matched line becomes the preview returned to the sidebar.
+1. rename succeeds in the dialog
+2. dialog calls `librarySidebarState.requestQuietDataRefresh?.()`
+3. dialog sets `librarySidebarState.lastRenamedPath = { from, to }`
+4. dialog updates `editorState.currentFilePath`
+5. sidebar sees the rename signal and updates `lastSidebarOpenedPath` instead of clearing suppression
 
-### 6. Ranking Model
+Without `lastRenamedPath`, the sidebar would misread the path change as an external navigation and reorder the list mid-session.
 
-`rank.rs` combines multiple signals:
+## Backend-Driven Recent Files Refresh
 
-- filename and path heuristics
+The frontend no longer owns recent-file update emits for file operations.
+
+`src-tauri/src/commands/mod.rs` defines:
+
+- `RECENT_FILES_UPDATED_EVENT = "files://recent-updated"`
+
+The backend emits this event after:
+
+- `read_file_content` (after recording an open event)
+- `write_file_content`
+- `delete_file`
+- `rename_file`
+- `duplicate_local_file_as_slate`
+- `duplicate_file`
+- `save_untitled_slate`
+
+`app-sidebar.svelte` listens for that event and quiet-refreshes recent files when suppression is not active.
+
+This means:
+
+- duplicate/delete/rename handlers in the sidebar no longer need to manually refresh
+- `EditorWrapper` should not emit recent-file update events after open/read
+
+## Open-File Flow
+
+Sidebar-opened navigation still uses `OPEN_FILE_PATH_EVENT`.
+
+Flow:
+
+1. `app-sidebar.svelte::openRecentFile(...)` sets suppression + pending-open metadata
+2. it emits `OPEN_FILE_PATH_EVENT`
+3. `EditorWrapper.svelte` listens and opens the file
+4. backend `read_file_content` records the open event and emits `RECENT_FILES_UPDATED_EVENT`
+5. sidebar ignores that refresh if suppression is active
+
+This split is intentional:
+
+- `OPEN_FILE_PATH_EVENT` is the FE navigation signal
+- `RECENT_FILES_UPDATED_EVENT` is the backend data-refresh signal
+
+## Backend Search Pipeline
+
+Search itself still follows the crate-based Rust pipeline:
+
+1. `query.rs` normalizes and tokenizes the query
+2. `scope.rs` resolves the searchable file universe
+3. `grep.rs` scans file contents
+4. `rank.rs` scores and sorts results
+
+The orchestration entrypoint remains `search::run_sidebar_search()` in `src-tauri/src/search/mod.rs`.
+
+Search implementation stays fully in-process and crate-based:
+
+- `ignore`
+- `grep-regex`
+- `grep-searcher`
+- `grep-matcher`
+
+## Ranking and Scope Notes
+
+Key ranking inputs still include:
+
+- filename/path heuristics
 - BM25-style content score
-- freshness from `last_modified_at`
-- usage recency from `last_opened_at`, `last_saved_at`, and `last_seen_at`
+- freshness
+- usage recency
 - pinned-file boost
 
-Current final score formula:
+Scope still supports:
 
-```text
-final_score =
-  filename_score * 1.6
-  + content_score * 1.0
-  + freshness_score * 0.15
-  + usage_score * 0.1
-  + (pinned ? 0.35 : 0.0)
-```
+- `unified`
+- `internal`
+- `external`
 
-Current sort behavior:
+Candidate collection still includes both:
 
-- score always dominates first
-- `sort_mode` acts as a secondary ordering strategy
-- final tiebreakers are lowercase filename, then lowercase full path
+- filesystem-discovered files
+- tracked SQLite files
 
-### 7. Result Shaping
-
-`mod.rs` merges live filesystem metadata with tracked SQLite metadata to build `FileSearchCandidate` values.
-
-- Live filesystem metadata wins when available for size and modified time.
-- Tracked metadata fills gaps for files that are missing or not directly discovered.
-- Windows normalized path keys are restored with `restore_normalized_path()` when needed.
-
-## Storage Dependencies
-
-Search depends on SQLite metadata from `storage.rs`.
-
-- `RecentFileRecord` is cloneable so it can be reused across search scope and ranking.
-- `list_recent_files()` is still the source of the non-search sidebar mode.
-- `list_tracked_files()` is the backend search inventory source.
-- `normalize_path_key()` is the canonical path identity function and must stay consistent across file tracking and search.
-
-The current tracked-files query orders by `updated_at DESC` for scope enumeration. Search ranking itself happens later in `rank.rs`.
+That preserves filename-only matches and metadata-rich ranking.
 
 ## Important Invariants
 
 1. Keep search fully in-process and crate-based.
-2. Do not add external search-binary resolution into the runtime.
-3. Keep Tauri command code in `commands/search.rs` thin.
-4. Keep ranking and retrieval code outside command functions.
-5. Preserve normalized path behavior across Windows and non-Windows paths.
-6. Preserve cancellation checks throughout long-running file walks and scans.
-7. Keep frontend stale-result protection aligned with backend cancellation.
+2. Keep command-layer code thin; ranking/retrieval stays outside Tauri IPC functions.
+3. Treat `RECENT_FILES_UPDATED_EVENT` as backend-owned.
+4. Preserve `suppressReorder` behavior after sidebar-initiated opens.
+5. Keep rename-aware suppression tracking via `lastRenamedPath`.
+6. Keep stale-result guards aligned with backend cancellation.
+7. Preserve normalized-path behavior across Windows and non-Windows paths.
 
 ## Failure Modes To Watch
 
-- If results flash stale entries while typing, inspect `searchRequestVersion` and the per-window cancellation registry.
-- If search stops respecting filter tabs, inspect `scope.rs` first.
-- If filename matches disappear, inspect candidate collection in `mod.rs`, not only content scanning.
-- If preview lines are missing, inspect `MatchCollector` and `SearcherBuilder::line_number(true)`.
-- If cross-platform path handling regresses on Windows, inspect `normalize_path_key()` and `restore_normalized_path()` together.
-- If binary files start producing noise, inspect the error-handling path in `grep.rs`.
+- If the list jumps after clicking a sidebar file, inspect `suppressReorder` and `lastSidebarOpenedPath`.
+- If rename causes a reorder, inspect `lastRenamedPath` and `requestQuietDataRefresh`.
+- If duplicate/delete/rename do not refresh the sidebar, inspect backend event emit sites before adding frontend refresh code.
+- If search flashes stale results while typing, inspect `searchRequestVersion` and backend cancellation.
+- If filename-only matches disappear, inspect candidate collection in `search/mod.rs`, not only grep logic.
 
 ## Safe Change Checklist
 
-- Update frontend `SidebarSearchResult` typing together with backend response shape changes.
-- Re-run `cargo check` after any Rust search-layer change.
-- Re-run `pnpm run check` after changing sidebar search UI or request wiring.
-- If changing ranking weights, verify both exact filename matches and content-heavy matches still rank sensibly.
-- If changing scope rules, verify internal-only, external-only, and unified searches separately.
-- If touching docs, keep the language aligned with the crate-based implementation.
+- Update frontend and backend search-result shapes together.
+- Re-run `cargo check` after Rust sidebar/search changes.
+- Re-run `pnpm run check` after changing `app-sidebar.svelte`, `SidebarFileCard.svelte`, or sidebar state wiring.
+- Verify recent-files mode, search mode, and sidebar-opened navigation separately.
+- Verify a rename of the currently open file does not reorder the sidebar unexpectedly.

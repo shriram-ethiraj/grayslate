@@ -1,4 +1,5 @@
 use super::{wp, LanguageDefinition};
+use super::ContentFamily;
 use regex::Regex;
 use std::sync::LazyLock;
 
@@ -83,5 +84,24 @@ pub fn definition() -> LanguageDefinition {
         builtins: &[],
         family: None,
         exclusive_patterns: &[],
+        // ── Family-gated fields ──────────────────────────────
+        content_families: &[ContentFamily::Config],
+        anchors: &[
+            wp!(r"(?m)^FROM\s+\S", 5),
+            wp!(r"(?m)^RUN\s+", 4),
+            wp!(r"(?m)^COPY\s+", 4),
+            wp!(r"(?m)^CMD\s+", 4),
+            wp!(r"(?m)^ENTRYPOINT\s+", 4),
+        ],
+        hints: &[
+            wp!(r"(?m)^WORKDIR\s+", 3),
+            wp!(r"(?m)^EXPOSE\s+", 3),
+            wp!(r"(?m)^ENV\s+", 3),
+            wp!(r"(?m)^ARG\s+", 3),
+            wp!(r"(?m)^LABEL\s+", 2),
+        ],
+        rivals: &[],
+        differentiators: &[],
+        disqualifiers: &[],
     }
 }

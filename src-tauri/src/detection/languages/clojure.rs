@@ -1,6 +1,7 @@
 use super::{wp, LanguageDefinition};
+use super::ContentFamily;
 
-pub fn definition() -> LanguageDefinition {
+pub fn definition()-> LanguageDefinition {
     LanguageDefinition {
         name: "clojure",
         extensions: &[".clj", ".cljs", ".cljc", ".edn"],
@@ -12,6 +13,8 @@ pub fn definition() -> LanguageDefinition {
         patterns: &[
             wp!(r"(?m)^\s*\(ns\s+[\w.\-]+", 5),
             wp!(r"\(defn\s+\w+", 5),
+            wp!(r"\(defproject\s+\w+", 5),
+            wp!(r"\(deftest\s+\w+", 5),
             wp!(r"\(def\s+\w+", 3),
             wp!(r"\(let\s+\[", 3),
             wp!(r"\(if\s+", 1),
@@ -21,11 +24,13 @@ pub fn definition() -> LanguageDefinition {
             wp!(r#"\(require\s+'"#, 4),
             wp!(r#"\(import\s+'"#, 3),
             wp!(r"#\(", 2),
-            // Require `:keyword` in Lisp context — preceded/followed by space or paren
             wp!(r"[\s(]:\w[\w\-]*[\s)]", 2),
             wp!(r"\(assoc\s", 3),
             wp!(r"\(-> ", 3),
             wp!(r"\(->> ", 3),
+            // Clojure require with vector: (:require [lib])
+            wp!(r"\(:require\s+\[", 4),
+            wp!(r"\(:import\s+", 3),
         ],
         anti_patterns: &[
             wp!(r"(?m)class\s+\w+", -5),
@@ -42,6 +47,9 @@ pub fn definition() -> LanguageDefinition {
             wp!(r"<(div|span|p|a|form|input|table|tr|td|ul|li|h[1-6])\b", -5),
             wp!(r"(?m)^\s*end\s*$", -3),
             wp!(r"\bdo\s*\|", -3),
+            // Not CSS — CSS uses `.class { prop: val; }` syntax
+            wp!(r"(?m)[.#][\w\-]+\s*\{[^}]*(color|margin|padding|display)\s*:", -5),
+            wp!(r"@media\s*[\s(]", -5),
         ],
         uses_hash_comments: false,
         keywords: &[
@@ -49,6 +57,7 @@ pub fn definition() -> LanguageDefinition {
             "defmulti", "defmethod", "deftype", "defrecord", "ns",
             "require", "recur", "binding", "doseq", "dotimes",
             "cond", "when", "if-let", "when-let", "loop", "fn", "let",
+            "defproject", "deftest",
         ],
         builtins: &[
             "conj", "assoc", "dissoc", "merge", "first", "rest",
@@ -58,6 +67,33 @@ pub fn definition() -> LanguageDefinition {
             "swap", "reset", "comp", "partial", "juxt",
         ],
         family: None,
-        exclusive_patterns: &[],
+        exclusive_patterns: &[
+            wp!(r"\(defn\s+\w+", 4),
+            wp!(r"(?m)^\s*\(ns\s+[\w.\-]+", 4),
+            wp!(r"\(defproject\s+\w+", 4),
+        ],
+        // ── Family-gated fields ──────────────────────────────
+        content_families: &[ContentFamily::Code],
+        anchors: &[
+            wp!(r"(?m)^\s*\(ns\s+[\w.\-]+", 5),
+            wp!(r"\(defn\s+\w+", 5),
+            wp!(r"\(defproject\s+\w+", 5),
+            wp!(r"\(deftest\s+\w+", 5),
+            wp!(r#"\(require\s+'"#, 4),
+            wp!(r"\(:require\s+\[", 4),
+        ],
+        hints: &[
+            wp!(r"\(def\s+\w+", 3),
+            wp!(r"\(let\s+\[", 3),
+            wp!(r"\(cond\s", 3),
+            wp!(r"\(assoc\s", 3),
+            wp!(r"\(-> ", 3),
+            wp!(r"\(->> ", 3),
+            wp!(r#"\(import\s+'"#, 3),
+            wp!(r"[\s(]:\w[\w\-]*[\s)]", 2),
+        ],
+        rivals: &[],
+        differentiators: &[],
+        disqualifiers: &[],
     }
 }

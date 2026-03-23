@@ -1,4 +1,5 @@
 use super::LanguageDefinition;
+use super::ContentFamily;
 
 pub fn definition() -> LanguageDefinition {
     LanguageDefinition {
@@ -21,5 +22,12 @@ pub fn definition() -> LanguageDefinition {
         builtins: &[],
         family: None,
         exclusive_patterns: &[],
+        // ── Family-gated fields ──────────────────────────────
+        content_families: &[ContentFamily::Prose],
+        anchors: &[],
+        hints: &[],
+        rivals: &[],
+        differentiators: &[],
+        disqualifiers: &[],
     }
 }

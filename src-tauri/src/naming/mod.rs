@@ -58,8 +58,17 @@ pub fn suggest_stem(content: &str, language_hint: &str) -> Option<String> {
         return shared::finalize_extracted(tagged);
     }
 
+    // When the language is explicitly "email" or "prompt", the detection
+    // pipeline already confirmed the kind — force the correct StemKind so the
+    // suffix ("-email" / "-prompt") always appears in the filename.
+    let kind = match def.name {
+        "email" => model::StemKind::Email,
+        "prompt" => model::StemKind::Prompt,
+        _ => model::StemKind::Generic,
+    };
+
     let raw = (def.extract)(bounded);
-    shared::finalize(raw, model::StemKind::Generic)
+    shared::finalize(raw, kind)
 }
 
 /// Maps a language ID to its canonical file extension.
@@ -345,6 +354,45 @@ Content about migration.";
         let stem = suggest_stem(email, "text").unwrap();
         assert!(stem.ends_with("-email"), "expected -email suffix, got: {stem}");
         assert!(stem.contains("database-migration"), "got: {stem}");
+    }
+
+    #[test]
+    fn email_language_hint_gets_suffix() {
+        // When detection returns "email" as the language, suggest_stem must
+        // append "-email" even though it is not going through "text" dispatch.
+        let email = "\
+Hi team,
+
+Quick update on the search improvements:
+
+* Basic indexing is done
+* Filters are partially working (need to fix edge cases)
+* Performance is still inconsistent for large datasets
+
+I'll continue working on optimization today and share another update tomorrow.
+
+Let me know if anything urgent needs to be prioritize";
+        let stem = suggest_stem(email, "email").unwrap();
+        assert!(
+            stem.ends_with("-email"),
+            "explicit 'email' language should have -email suffix, got: {stem}"
+        );
+    }
+
+    #[test]
+    fn prompt_language_hint_gets_suffix() {
+        let prompt = "\
+You are a code reviewer. Analyze the following function for correctness.
+
+Guidelines:
+- Check for edge cases
+- Verify error handling
+- Review naming conventions";
+        let stem = suggest_stem(prompt, "prompt").unwrap();
+        assert!(
+            stem.ends_with("-prompt"),
+            "explicit 'prompt' language should have -prompt suffix, got: {stem}"
+        );
     }
 
     #[test]

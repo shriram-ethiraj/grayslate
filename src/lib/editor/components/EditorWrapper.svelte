@@ -64,8 +64,6 @@
   } from "$lib/state/librarySidebar.svelte";
   import {
     OPEN_FILE_PATH_EVENT,
-    prepareFileOpen,
-    RECENT_FILES_UPDATED_EVENT,
     type OpenFilePathPayload,
   } from "$lib/files/recentFiles";
   import {
@@ -631,6 +629,9 @@
 
     disposeManagedEditorSession(previousSession);
 
+    // Focus the editor so the user can start typing immediately.
+    editorView?.focus();
+
     // Reclaim stale heap after tearing down a large document into a blank editor.
     requestFileOpenReclaim(previousDocLength, 0);
   }
@@ -650,6 +651,9 @@
       if (lineNumber !== undefined) {
         editorGoToLine(editorView, lineNumber);
       }
+      // Clean up any pending sidebar state that openRecentFile may have set
+      // so it doesn't linger and block the editor-navigation effect later.
+      clearPendingSidebarOpenFile();
       return;
     }
 
@@ -669,29 +673,9 @@
     });
 
     try {
-      const preparedFile = await prepareFileOpen(filePath);
-      if (!isActiveFileOpenRequest(requestVersion)) {
-        return;
-      }
-
-      setPendingSidebarOpenFile({
-        path: filePath,
-        source: preparedFile.source,
-        requestId: requestVersion,
-        revealInRecentList: preservesPendingMetadata
-          ? existingPendingFile.revealInRecentList
-          : true,
-        lineNumber,
-      });
-
-      const { emit } = await import("@tauri-apps/api/event");
-      await emit(RECENT_FILES_UPDATED_EVENT);
-      if (!isActiveFileOpenRequest(requestVersion)) {
-        return;
-      }
-
-      // Start a decelerating progress ticker after the backend has tracked the
-      // file so the sidebar can refresh from SQLite before the read begins.
+      // Start a decelerating progress ticker while the file is read.
+      // The backend records the open event and emits RECENT_FILES_UPDATED_EVENT
+      // after a successful read, so the sidebar refreshes automatically.
       startLoaderTicker("Reading file…", filename, {
         ceiling: 65,
         factor: 0.06,
@@ -808,34 +792,17 @@
   }
 
   async function writeDocumentToPath(path: string, content: string): Promise<void> {
-    const filename = await getPathLabel(path);
-
-    startLoaderTicker("Saving file…", filename, {
-      ceiling: 88,
-      factor: 0.08,
-      minStep: 0.4,
-      interval: 70,
-      startAt: 8,
-    });
-
-    try {
-      await invoke("write_file_content", { path, content });
-      await syncLanguageFromPath(path);
-      activeDocument = {
-        kind: "saved",
-        path,
-        source: "file",
-        lastSavedValue: content,
-      };
-      // Flush any pending debounced value sync so that `isDirty`
-      // resolves immediately after saving (value === lastSavedValue).
-      flushPendingValueSync(editorSession);
-      const { emit } = await import("@tauri-apps/api/event");
-      await emit(RECENT_FILES_UPDATED_EVENT);
-    } finally {
-      stopLoaderTicker();
-      hideEditorLoader();
-    }
+    await invoke("write_file_content", { path, content });
+    await syncLanguageFromPath(path);
+    activeDocument = {
+      kind: "saved",
+      path,
+      source: "file",
+      lastSavedValue: content,
+    };
+    // Flush any pending debounced value sync so that `isDirty`
+    // resolves immediately after saving (value === lastSavedValue).
+    flushPendingValueSync(editorSession);
   }
 
   /**
@@ -872,34 +839,26 @@
         }
 
         await writeDocumentToPath(activeDocument.path, content);
+        editorView?.focus();
         return;
       }
 
       const savePath = await saveUntitledSlate(content);
       // Transition the document state — writeDocumentToPath would overwrite
       // with write_file_content again, so apply state directly here.
-      startLoaderTicker("Saving file…", "New Slate", {
-        ceiling: 88,
-        factor: 0.08,
-        minStep: 0.4,
-        interval: 70,
-        startAt: 8,
-      });
-      try {
-        await syncLanguageFromPath(savePath);
-        activeDocument = {
-          kind: "saved",
-          path: savePath,
-          source: "file",
-          lastSavedValue: content,
-        };
-        flushPendingValueSync(editorSession);
-        const { emit } = await import("@tauri-apps/api/event");
-        await emit(RECENT_FILES_UPDATED_EVENT);
-      } finally {
-        stopLoaderTicker();
-        hideEditorLoader();
-      }
+      await syncLanguageFromPath(savePath);
+      activeDocument = {
+        kind: "saved",
+        path: savePath,
+        source: "file",
+        lastSavedValue: content,
+      };
+      flushPendingValueSync(editorSession);
+      // The {#key activeFilePath} block destroys and remounts <Editor> when
+      // the document key changes (untitled key → saved path). Wait a tick
+      // for Svelte to mount the new EditorView before focusing.
+      await new Promise<void>((resolve) => setTimeout(resolve, 10));
+      editorView?.focus();
     } catch (err: unknown) {
       const msg = typeof err === "string" ? err : "Failed to save file.";
       toast.error(msg);

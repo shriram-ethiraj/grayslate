@@ -56,7 +56,7 @@ fn extract_cpp(content: &str) -> Option<String> {
     }
 
     for cap in NAMESPACE_RE.captures_iter(content).take(2) {
-        symbols.push(Sym { name: cap[1].to_string(), priority: 10 });
+        symbols.push(Sym { name: cap[1].to_string(), priority: 5 });
     }
     for cap in CLASS_RE.captures_iter(content).take(3) {
         symbols.push(Sym { name: cap[1].to_string(), priority: 9 });
@@ -95,7 +95,8 @@ mod tests {
     fn namespace_and_class() {
         let src = "namespace rendering {\nclass SceneGraph {\npublic:\n    void render();\n};\n}";
         let n = name(src).unwrap();
-        assert!(n.contains("rendering"), "got: {n}");
+        // Class (P9) now beats namespace (P5)
+        assert!(n.contains("scene-graph"), "class wins over namespace: {n}");
     }
 
     #[test]
@@ -116,9 +117,25 @@ mod tests {
     fn cpp_class_via_tree_sitter() {
         let src = "#include <string>\n\nnamespace network {\nclass HttpClient {\npublic:\n    void get(const std::string& url);\nprivate:\n    std::string base_url;\n};\n}";
         let n = name(src).unwrap();
-        assert!(
-            n.contains("network") || n.contains("http-client"),
-            "got: {n}"
-        );
+        // Class (P9) beats namespace (P5) via tree-sitter
+        assert!(n.contains("http-client"), "class wins over namespace: {n}");
+    }
+
+    // --- Namespace-only fallback ---
+    #[test]
+    fn namespace_only_when_no_classes() {
+        let src = "namespace tensorflow {\nvoid helper() {}\n}";
+        let n = name(src).unwrap();
+        // When only namespace + function, namespace (P5) is fallback context
+        // but function (P7) actually wins here
+        assert!(n.contains("helper") || n.contains("tensorflow"), "fallback: {n}");
+    }
+
+    // --- Audit regression: tensorflow namespace shouldn't dominate ---
+    #[test]
+    fn class_beats_namespace_tensorflow() {
+        let src = "namespace tensorflow {\nclass CheckpointReader {\npublic:\n    void Read();\n};\n}";
+        let n = name(src).unwrap();
+        assert!(n.contains("checkpoint-reader"), "class beats tensorflow ns: {n}");
     }
 }
