@@ -8,6 +8,7 @@
     import type { FilterMode, SortMode } from "$lib/files/sidebarUtils";
     import Search from "~icons/lucide/search";
     import RefreshCcw from "~icons/lucide/refresh-ccw";
+    import X from "~icons/lucide/x";
     import Files from "~icons/lucide/files";
     import Clock3 from "~icons/lucide/clock-3";
     import History from "~icons/lucide/history";
@@ -115,16 +116,36 @@
 <Sidebar.Group class="shrink-0 gap-2 border-b border-sidebar-border/70 px-2 py-2">
     <div class="flex items-center justify-between gap-2 px-1">
         <div class="min-w-0 truncate text-sm font-medium">Library</div>
-        <Button
-            variant="ghost"
-            size="icon-sm"
-            class="text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-            aria-label="Refresh recent files"
-            title="Refresh recent files"
-            onclick={onRefresh}
-        >
-            <RefreshCcw class={isLoading || isSearchLoading ? "size-4 animate-spin" : "size-4"} />
-        </Button>
+        <div class="flex items-center gap-1">
+            {#if query}
+                <Button
+                    variant="ghost"
+                    size="sm"
+                    class="gap-1.5 px-2 text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                    aria-label="Clear search"
+                    title="Clear search"
+                    onclick={() => {
+                        query = "";
+                        searchInput?.focus();
+                    }}
+                >
+                    <span class="flex items-center gap-1.5">
+                        <X class="size-3.5 shrink-0" />
+                        <span class="text-xs">Clear</span>
+                    </span>
+                </Button>
+            {/if}
+            <Button
+                variant="ghost"
+                size="icon-sm"
+                class="text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                aria-label="Refresh recent files"
+                title="Refresh recent files"
+                onclick={onRefresh}
+            >
+                <RefreshCcw class={isLoading || isSearchLoading ? "size-4 animate-spin" : "size-4"} />
+            </Button>
+        </div>
     </div>
 
     <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 px-1">
@@ -133,7 +154,6 @@
             <Input
                 bind:ref={searchInput}
                 bind:value={query}
-                clearable
                 onkeydown={onSearchKeydown}
                 placeholder="Search library..."
                 class="border-sidebar-border bg-sidebar ps-9 text-sm shadow-none placeholder:text-sidebar-foreground/45 focus-visible:border-sidebar-ring focus-visible:ring-sidebar-ring"
