@@ -20,14 +20,20 @@ export interface RecentFileRecord {
   pinned: boolean;
 }
 
+export interface HighlightFragment {
+  text: string;
+  is_match: boolean;
+}
+
 export interface MatchedLine {
   line_number: number;
-  line_text: string;
+  fragments: HighlightFragment[];
 }
 
 export interface SidebarSearchResult extends RecentFileRecord {
   matched_lines: MatchedLine[];
   match_count: number;
+  filename_fragments: HighlightFragment[];
   filename_score: number;
   content_score: number;
   freshness_score: number;
@@ -56,6 +62,11 @@ export async function searchSidebarFiles(
     requestId,
     limit,
   });
+}
+
+/** Immediately cancel any in-flight sidebar search for this window. */
+export async function cancelSidebarSearch(): Promise<void> {
+  return invoke<void>("cancel_sidebar_search");
 }
 
 /** Permanently delete a slate file from disk and remove it from tracking. */

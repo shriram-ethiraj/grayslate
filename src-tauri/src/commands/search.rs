@@ -74,6 +74,21 @@ impl SearchRuntimeState {
         }
     }
 
+    /// Cancel any in-flight search for the given window without starting a
+    /// replacement.  Called by the frontend when the query is cleared, the
+    /// sidebar is closed, or the component tears down.
+    fn cancel_active(&self, window_label: &str) {
+        let mut active_searches = self
+            .cancellations
+            .active_searches
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+        if let Some(active) = active_searches.remove(window_label) {
+            active.cancelled.store(true, Ordering::Relaxed);
+        }
+    }
+
     pub fn average_document_length(&self) -> Option<f32> {
         *self
             .stats
@@ -134,4 +149,16 @@ pub async fn search_sidebar_files(
         Err(error) if error == SEARCH_CANCELLED_MESSAGE => Err(error),
         other => other,
     }
+}
+
+/// Immediately cancel any in-flight sidebar search for this window.
+/// Called by the frontend when the query is cleared, the sidebar closes,
+/// or the search component tears down — without waiting for a replacement
+/// search to arrive.
+#[tauri::command]
+pub fn cancel_sidebar_search(
+    search_state: tauri::State<'_, SearchRuntimeState>,
+    window: Window,
+) {
+    search_state.cancel_active(window.label());
 }

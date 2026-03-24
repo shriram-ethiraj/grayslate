@@ -41,6 +41,34 @@ The library sidebar has two modes:
 - backend event listening
 - reorder suppression policy
 
+## Search Mode Signal
+
+`isSearchMode` in `app-sidebar.svelte` is a dedicated `$derived(normalizedQuery.length > 0)` boolean that only changes at the empty ↔ non-empty boundary, not on every character typed. All downstream derivations (`activeResults`, `visibleRecentFiles`, `recentFileSections`) and the `SidebarFileList` prop depend on `isSearchMode` instead of `normalizedQuery` directly. This prevents Svelte from re-reconciling the 80-card result list on every keystroke. Do not replace `isSearchMode` with `normalizedQuery.length > 0` in these dependants.
+
+**Critical:** `fetchRecentFiles` also uses `isSearchMode` (not `normalizedQuery`) to avoid accidentally subscribing the mount `$effect` to `normalizedQuery`. Reading `normalizedQuery` inside any function called synchronously from an `$effect` subscribes the effect to every keystroke. If you need "is the search query empty?" inside such a function, always read `isSearchMode`.
+
+## Cancellation
+
+Backend search uses cooperative cancellation via `AtomicBool` flags in `SearchRuntimeState` (`src-tauri/src/commands/search.rs`).
+
+Key mechanisms:
+
+- `begin_request()`: cancels the previous search and installs a fresh flag
+- `cancel_active()`: cancels without starting a replacement (for query-clear, sidebar-close, teardown)
+- `cancel_sidebar_search` Tauri command: exposes `cancel_active()` to the frontend
+- `cancelSidebarSearch()` FE wrapper: called from the debounce effect on every keystroke and on component teardown
+
+Cancellation checkpoints in Rust:
+
+- `grep.rs::list_directory_files()` — every directory-walk entry
+- `grep.rs::collect_content_matches()` — before each file AND between each term within a file
+
+**Do not remove the per-keystroke `cancelSidebarSearch()` call in the debounce effect.** It ensures the backend stops immediately when a keystroke supersedes the running search, without waiting for the 120 ms debounce to fire a replacement search.
+
+## Matched-Line Display Cap
+
+`SidebarFileCard.svelte` limits visible `matched_lines` per card to 5 (`MAX_VISIBLE_MATCHED_LINES`). The backend still returns up to `MAX_PREVIEWS_PER_FILE` (50), but the card shows the first 5 with a "+N more matches" overflow button. This keeps DOM lightweight when rendering 80 search result cards.
+
 ## Shared Sidebar State
 
 `src/lib/state/librarySidebar.svelte.ts` is the cross-component coordination surface for sidebar/editor/dialog behavior.
@@ -60,6 +88,7 @@ Use this shared state for sidebar/editor/dialog coordination instead of ad-hoc c
 
 - `getRecentFiles(limit)`
 - `searchSidebarFiles(query, filterMode, requestId, limit)`
+- `cancelSidebarSearch()` — immediately cancels any in-flight search
 - `deleteFile(path)`
 - `renameFile(path, newName)`
 - `duplicateFile(path)`
@@ -250,6 +279,31 @@ That preserves filename-only matches and metadata-rich ranking.
 5. Keep rename-aware suppression tracking via `lastRenamedPath`.
 6. Keep stale-result guards aligned with backend cancellation.
 7. Preserve normalized-path behavior across Windows and non-Windows paths.
+8. **Never read `normalizedQuery` inside functions called synchronously from `$effect`.** Use `isSearchMode` for boolean checks. See "Search Mode Signal" above.
+9. **Always call `cancelSidebarSearch()` before clearing results or exiting search.** This prevents the backend from wasting thread-pool time on stale work.
+10. **Keep matched-line display capped in `SidebarFileCard`.** The backend intentionally returns up to 50 per file for future use; the FE must cap what it renders.
+
+## Performance Pitfalls
+
+These patterns caused severe input lag and must not be reintroduced:
+
+### 1. Reactive subscription leak in `fetchRecentFiles`
+
+`fetchRecentFiles` is called from the mount `$effect`. In Svelte 5, all `$state`/`$derived` reads **before the first `await`** inside an async function become subscriptions of the calling `$effect`. Previously, `normalizedQuery.length` was read at lines 185/208, making the mount effect re-run on every keystroke — flooding Rust with `getRecentFiles()` IPC calls (120+ filesystem stats each) and toggling `isLoading` per character. Fixed by reading `isSearchMode` instead.
+
+**Rule:** Any async function called from an `$effect` must never read fast-changing reactive state before its first `await`. Snapshot the value beforehand or use a coarser derived signal.
+
+### 2. Missing explicit cancel path
+
+Without `cancel_sidebar_search`, the backend only stopped work when the **next** `begin_request()` arrived — which happened after the 120 ms debounce. During that window, stale search work continued, competing for the Rust thread pool. Fixed by adding `cancelSidebarSearch()` calls on every keystroke and on teardown.
+
+### 3. Unbounded matched-line rendering
+
+Each `SidebarFileCard` rendered up to 50 `matched_lines` (buttons + fragment loops + `<mark>` elements). Worst case: 80 cards × 50 lines = 4000 interactive buttons rendered synchronously. Fixed by capping visible lines to 5 with a "+N more" overflow button.
+
+### 4. Per-term cancellation gap in grep
+
+`collect_content_matches` only checked `cancelled` once per file, not between terms. A multi-term query on a large file could keep the blocking thread busy. Fixed by adding `ensure_not_cancelled` between each `(term, matcher)` iteration.
 
 ## Failure Modes To Watch
 
@@ -258,6 +312,8 @@ That preserves filename-only matches and metadata-rich ranking.
 - If duplicate/delete/rename do not refresh the sidebar, inspect backend event emit sites before adding frontend refresh code.
 - If search flashes stale results while typing, inspect `searchRequestVersion` and backend cancellation.
 - If filename-only matches disappear, inspect candidate collection in `search/mod.rs`, not only grep logic.
+- **If typing in the search input lags**, check that `fetchRecentFiles` has no `normalizedQuery` reads before its first `await`, and that the debounce effect still calls `cancelSidebarSearch()`.
+- **If backend search keeps running after the sidebar closes**, check that the teardown cleanup in the event-listener `$effect` still calls `cancelSidebarSearch()`.
 
 ## Safe Change Checklist
 

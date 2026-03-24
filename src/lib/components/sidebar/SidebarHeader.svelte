@@ -30,6 +30,8 @@
          */
         focusRequest: number;
         onRefresh: () => void;
+        /** Keyboard handler for ArrowUp/Down/Enter navigation of results. */
+        onSearchKeydown?: (event: KeyboardEvent) => void;
     }
 
     let {
@@ -40,6 +42,7 @@
         isSearchLoading,
         focusRequest,
         onRefresh,
+        onSearchKeydown,
     }: Props = $props();
 
     // Owned by this component; never needs to leave.
@@ -131,6 +134,7 @@
                 bind:ref={searchInput}
                 bind:value={query}
                 clearable
+                onkeydown={onSearchKeydown}
                 placeholder="Search library..."
                 class="border-sidebar-border bg-sidebar ps-9 text-sm shadow-none placeholder:text-sidebar-foreground/45 focus-visible:border-sidebar-ring focus-visible:ring-sidebar-ring"
             />
@@ -161,7 +165,17 @@
         </Select.Root>
     </div>
 
-    <Tabs.Root bind:value={filterMode}>
+    <Tabs.Root
+        bind:value={filterMode}
+        onkeydown={(e) => {
+            // Forward Up/Down/Enter to the file-list navigator while focus is on
+            // a tab trigger. Left/Right are handled natively by the Tabs component
+            // (cycling between triggers); all other keys pass through unmodified.
+            if (e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "Enter") {
+                onSearchKeydown?.(e);
+            }
+        }}
+    >
         <Tabs.List class="grid h-10 w-full grid-cols-3 bg-sidebar-accent/45 px-1">
             {#each filterOptions as option (option.value)}
                 {@const Icon = option.icon}

@@ -2,7 +2,10 @@ use std::cmp::Ordering;
 
 use super::{
     query::ParsedSearchQuery,
-    types::{FileSearchCandidate, MatchedLine, SearchResultRecord},
+    types::{
+        get_line_excerpt, split_text_by_terms, FileSearchCandidate, MatchedLine,
+        SearchResultRecord,
+    },
 };
 
 const BM25_K1: f32 = 1.2;
@@ -66,13 +69,20 @@ pub fn rank_candidate(
             .previews
             .iter()
             .filter_map(|preview| {
-                preview.line_number.map(|ln| MatchedLine {
-                    line_number: ln,
-                    line_text: preview.line_text.clone(),
+                preview.line_number.map(|ln| {
+                    let excerpt = get_line_excerpt(&preview.line_text, &context.query.terms);
+                    MatchedLine {
+                        line_number: ln,
+                        fragments: split_text_by_terms(&excerpt, &context.query.terms),
+                    }
                 })
             })
             .collect(),
         match_count: candidate.content.total_hits,
+        filename_fragments: split_text_by_terms(
+            &candidate.file_name,
+            &context.query.terms,
+        ),
         filename_score,
         content_score,
         freshness_score,

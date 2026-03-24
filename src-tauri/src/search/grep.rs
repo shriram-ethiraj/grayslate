@@ -82,6 +82,10 @@ pub fn collect_content_matches(
         }
 
         for (term, matcher) in &matchers {
+            // Check cancellation between terms so a multi-term query on a
+            // large file doesn't keep the blocking thread busy too long.
+            ensure_not_cancelled(cancelled)?;
+
             if search_file_for_term(path, matcher, term, &mut by_path)? {
                 *document_frequencies.entry(term.to_string()).or_insert(0) += 1;
             }

@@ -77,6 +77,7 @@ pub fn run() {
             commands::naming::save_untitled_slate,
             commands::naming::suggest_slate_name,
             commands::naming::suggest_name_for_file,
+            commands::search::cancel_sidebar_search,
             commands::search::search_sidebar_files,
             commands::transform::cancel_transformation,
             commands::transform::execute_transformation,

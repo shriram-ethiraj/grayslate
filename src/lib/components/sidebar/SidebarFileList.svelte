@@ -8,13 +8,15 @@
 
     interface Props {
         sections: RecentFileSection[];
-        normalizedQuery: string;
-        searchTerms: string[];
+        /** True while the search query is non-empty (stable boolean, not the raw query string). */
+        isSearchMode: boolean;
         isLoading: boolean;
         isSearchLoading: boolean;
         /** All visible results across both browse and search modes (used for empty-state detection). */
         activeResults: LibraryFileRecord[];
         loadError: string;
+        /** Path of the currently keyboard-highlighted result. */
+        highlightedPath: string | undefined;
         /** Path of the file currently being opened (pending navigation). */
         pendingOpenFilePath: string | undefined;
         /** Path of the file currently shown in the editor. */
@@ -22,22 +24,25 @@
         /** DOM ref propagated back to parent so it can call scrollTo. */
         scrollContainer?: HTMLDivElement | null;
         onOpen: (path: string, source: RecentFileSource, lineNumber?: number) => void;
+        /** Called when the pointer enters a card — parent syncs highlightedIndex without scrolling. */
+        onHighlight: (path: string) => void;
         onDuplicate: (file: RecentFileRecord) => void;
         onDuplicateAsSlate: (file: RecentFileRecord) => void;
     }
 
     let {
         sections,
-        normalizedQuery,
-        searchTerms,
+        isSearchMode,
         isLoading,
         isSearchLoading,
         activeResults,
         loadError,
+        highlightedPath,
         pendingOpenFilePath,
         currentFilePath,
         scrollContainer = $bindable(null),
         onOpen,
+        onHighlight,
         onDuplicate,
         onDuplicateAsSlate,
     }: Props = $props();
@@ -62,8 +67,8 @@
                 {loadError}
             </div>
 
-        {:else if (normalizedQuery.length === 0 && isLoading && activeResults.length === 0)
-            || (normalizedQuery.length > 0 && isSearchLoading && activeResults.length === 0)}
+        {:else if (!isSearchMode && isLoading && activeResults.length === 0)
+            || (isSearchMode && isSearchLoading && activeResults.length === 0)}
             <!-- Skeleton — shown only on the initial load before any results arrive. -->
             <div class="space-y-2 px-1 pt-1">
                 {#each Array.from({ length: 5 }) as _, index (index)}
@@ -78,7 +83,7 @@
             <div class="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-sidebar-border/70 px-4 py-10 text-center text-sm text-sidebar-foreground/65">
                 <Files class="size-5 text-sidebar-foreground/45" />
                 <div>
-                    {normalizedQuery.length === 0 ? "No recent files yet." : "No files match this search."}
+                    {isSearchMode ? "No files match this search." : "No recent files yet."}
                 </div>
             </div>
 
@@ -103,8 +108,9 @@
                                 <SidebarFileCard
                                     {recentFile}
                                     isActive={isActive(recentFile)}
-                                    {searchTerms}
+                                    isHighlighted={recentFile.path === highlightedPath}
                                     {onOpen}
+                                    onHover={() => onHighlight(recentFile.path)}
                                     {onDuplicate}
                                     {onDuplicateAsSlate}
                                 />

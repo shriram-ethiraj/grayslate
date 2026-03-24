@@ -15,6 +15,7 @@
         type RecentFileSource,
         type SidebarSearchResult,
         searchSidebarFiles,
+        cancelSidebarSearch,
         duplicateFile,
         duplicateLocalFileAsSlate,
     } from "$lib/files/recentFiles";
@@ -33,6 +34,7 @@
     import { toast } from "$lib/components/ui/sonner";
     import SidebarHeader from "$lib/components/sidebar/SidebarHeader.svelte";
     import SidebarFileList from "$lib/components/sidebar/SidebarFileList.svelte";
+    import { useListNavigator } from "$lib/components/sidebar/useListNavigator.svelte";
 
     // ---------------------------------------------------------------------------
     // Component state
@@ -89,6 +91,9 @@
     let resultsScrollContainer = $state<HTMLDivElement | null>(null);
     // Incrementing counter: bump to request focus of the search input in SidebarHeader.
     let focusSearchRequest = $state(0);
+    // True when focus is anywhere inside the sidebar panel (input, list, buttons).
+    // Use this to gate sidebar-wide keyboard shortcuts (e.g. Left/Right tab nav).
+    let isSidebarFocused = $state(false);
 
     // Previous values used to detect *changes* in effects without triggering
     // on the initial run. Initialized to the current values so the first pass
@@ -106,14 +111,12 @@
     const sidebar = Sidebar.useSidebar();
 
     const normalizedQuery = $derived(query.trim().toLowerCase());
+    // Boolean derived that only changes at the empty ↔ non-empty boundary, never
+    // on intermediate keystrokes. Downstream derivations that only need to know
+    // "are we searching?" depend on this instead of normalizedQuery directly, so
+    // they don't re-run on every character the user types.
+    const isSearchMode = $derived(normalizedQuery.length > 0);
     const pendingOpenFile = $derived(librarySidebarState.pendingOpenFile);
-
-    /** Whitespace-split search terms for frontend highlight rendering. */
-    const searchTerms = $derived(
-        normalizedQuery.length > 0
-            ? normalizedQuery.split(/\s+/).filter((t: string) => t.length > 0)
-            : [],
-    );
 
     const visibleRecentFiles = $derived.by(() => {
         const filteredRecentFiles = recentFiles.filter((recentFile) =>
@@ -122,7 +125,7 @@
 
         // Skip re-sorting while the list is frozen so the order doesn't jump
         // mid-session when the user has just opened a file.
-        if (suppressReorder && normalizedQuery.length === 0) {
+        if (suppressReorder && !isSearchMode) {
             return filteredRecentFiles;
         }
 
@@ -137,12 +140,22 @@
     });
 
     const activeResults = $derived<LibraryFileRecord[]>(
-        normalizedQuery.length === 0 ? visibleRecentFiles : sortedSearchResults,
+        isSearchMode ? sortedSearchResults : visibleRecentFiles,
     );
+
+    // -----------------------------------------------------------------------
+    // List navigation (keyboard, hover, scroll)
+    // -----------------------------------------------------------------------
+
+    const navigator = useListNavigator({
+        getActiveResults: () => activeResults,
+        getScrollContainer: () => resultsScrollContainer,
+        onOpen: (path, source) => openRecentFile(path, source),
+    });
 
     const recentFileSections = $derived.by((): RecentFileSection[] => {
         if (
-            normalizedQuery.length > 0 ||
+            isSearchMode ||
             (sortMode !== "recently-opened" && sortMode !== "least-recently-opened")
         ) {
             return [{ key: "all", label: "", items: activeResults }];
@@ -175,7 +188,10 @@
             isLoading = true;
         }
 
-        if (showLoading && normalizedQuery.length === 0) {
+        // Use the stable isSearchMode boolean instead of normalizedQuery so
+        // callers inside $effect don't accidentally subscribe to normalizedQuery
+        // (which changes on every keystroke).
+        if (showLoading && !isSearchMode) {
             loadError = "";
         }
 
@@ -198,7 +214,7 @@
                 return;
             }
 
-            if (showLoading && normalizedQuery.length === 0) {
+            if (showLoading && !isSearchMode) {
                 loadError = typeof error === "string"
                     ? error
                     : "Failed to load recent files.";
@@ -236,6 +252,7 @@
             }
 
             searchResults = result;
+            navigator.reset();
         } catch (error: unknown) {
             if (currentVersion !== searchRequestVersion) {
                 return;
@@ -301,6 +318,7 @@
 
     function handleRefresh(): void {
         clearReorderSuppression();
+        navigator.reset();
         if (normalizedQuery.length > 0) {
             void refreshSearchResults();
         } else {
@@ -312,14 +330,11 @@
         focusSearchRequest += 1;
     }
 
-    function scrollResultsToTop(): void {
-        resultsScrollContainer?.scrollTo({ top: 0, behavior: "auto" });
-    }
-
     function activateLibrarySearch(): void {
         filterMode = DEFAULT_FILTER_MODE;
         sortMode = DEFAULT_SORT_MODE;
         query = "";
+        navigator.reset();
 
         if (!sidebar.open) {
             sidebar.setOpen(true);
@@ -371,6 +386,8 @@
 
     // Debounced search: clears results immediately when query is empty,
     // otherwise waits 120 ms after the last keystroke before firing.
+    // Cancels any in-flight backend search immediately on every keystroke
+    // so superseded work stops as early as possible.
     $effect(() => {
         normalizedQuery;
         filterMode;
@@ -381,12 +398,19 @@
             searchResults = [];
             isSearchLoading = false;
             loadError = "";
+            navigator.reset();
+            // Kill any in-flight backend search immediately.
+            void cancelSidebarSearch();
             return;
         }
 
         if (!sidebar.open) {
             return;
         }
+
+        // Cancel the previous backend search right away — don't wait for
+        // the replacement debounced request to reach Rust.
+        void cancelSidebarSearch();
 
         const timeoutId = window.setTimeout(() => {
             void refreshSearchResults();
@@ -472,9 +496,10 @@
             return;
         }
 
-        scrollResultsToTop();
+        navigator.scrollToTop();
+        navigator.reset();
 
-        if (normalizedQuery.length > 0) {
+        if (isSearchMode) {
             clearReorderSuppression();
             void refreshSearchResults();
             return;
@@ -526,6 +551,9 @@
 
         return () => {
             disposed = true;
+            // Kill any in-flight search when the sidebar component unmounts
+            // so the backend doesn't keep working on a stale request.
+            void cancelSidebarSearch();
             setup.finally(() => {
                 unlistenRecentFiles?.();
             });
@@ -533,7 +561,11 @@
     });
 </script>
 
-<div class="flex h-full w-full flex-col bg-sidebar text-sidebar-foreground">
+<div
+    class="flex h-full w-full flex-col bg-sidebar text-sidebar-foreground"
+    onfocusin={() => { isSidebarFocused = true; }}
+    onfocusout={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) isSidebarFocused = false; }}
+>
     <SidebarHeader
         bind:query
         bind:filterMode
@@ -542,20 +574,22 @@
         {isSearchLoading}
         focusRequest={focusSearchRequest}
         onRefresh={handleRefresh}
+        onSearchKeydown={navigator.handleKeydown}
     />
 
     <SidebarFileList
         bind:scrollContainer={resultsScrollContainer}
         sections={recentFileSections}
-        {normalizedQuery}
-        {searchTerms}
+        {isSearchMode}
         {isLoading}
         {isSearchLoading}
         {activeResults}
         {loadError}
+        highlightedPath={navigator.highlightedPath}
         pendingOpenFilePath={pendingOpenFile?.path}
         currentFilePath={editorState.currentFilePath}
         onOpen={openRecentFile}
+        onHighlight={navigator.handleHighlight}
         onDuplicate={handleDuplicateRecentFile}
         onDuplicateAsSlate={handleDuplicateLocalFileAsSlate}
     />

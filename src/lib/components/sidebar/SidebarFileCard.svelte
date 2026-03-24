@@ -18,9 +18,7 @@
     import { getPlatformOsType } from "$lib/state/platform.svelte";
     import { openDeleteFileDialog, openRenameFileDialog } from "$lib/state/appDialogs.svelte";
     import {
-        getLineExcerpt,
         isSearchResult,
-        splitTextByTerms,
         formatSize,
         formatTimestamp,
         formatTimestampFull,
@@ -40,15 +38,18 @@
     interface Props {
         recentFile: LibraryFileRecord;
         isActive: boolean;
-        searchTerms: string[];
+        /** Keyboard-navigated highlight (ArrowUp/Down from the search input). */
+        isHighlighted?: boolean;
         onOpen: (path: string, source: RecentFileSource, lineNumber?: number) => void;
+        /** Called when the pointer enters this card — lets the parent sync highlightedIndex. */
+        onHover?: () => void;
         /** Provided only for slate files — omit for local files. */
         onDuplicate?: (file: RecentFileRecord) => void;
         /** Provided only for local files — omit for slate files. */
         onDuplicateAsSlate?: (file: RecentFileRecord) => void;
     }
 
-    const { recentFile, isActive, searchTerms, onOpen, onDuplicate, onDuplicateAsSlate }: Props = $props();
+    const { recentFile, isActive, isHighlighted = false, onOpen, onHover, onDuplicate, onDuplicateAsSlate }: Props = $props();
 
     // ---------------------------------------------------------------------------
     // Language / display helpers
@@ -59,6 +60,16 @@
     const fileLanguageLabel = $derived(fileLangMeta?.label ?? "Text");
     const fileSize = $derived(formatSize(recentFile.size_bytes));
     const searchResult = $derived(isSearchResult(recentFile) ? recentFile : null);
+
+    /** Cap visible matched lines per card to keep the DOM lightweight when
+     *  results arrive.  The backend may return up to 50 per file. */
+    const MAX_VISIBLE_MATCHED_LINES = 5;
+    const visibleMatchedLines = $derived(
+        searchResult ? searchResult.matched_lines.slice(0, MAX_VISIBLE_MATCHED_LINES) : [],
+    );
+    const hiddenMatchedLinesCount = $derived(
+        searchResult ? Math.max(0, searchResult.matched_lines.length - MAX_VISIBLE_MATCHED_LINES) : 0,
+    );
 
     /** Shared CSS class for dropdown menu items. */
     const ddItemClass = "data-highlighted:bg-accent data-highlighted:text-accent-foreground relative flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden select-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4";
@@ -97,14 +108,16 @@
     <Item.Root
         variant="outline"
         size="sm"
+        data-sidebar-highlighted={isHighlighted || undefined}
+        data-card-path={recentFile.path}
         class="border-0 p-0 shadow-none [transform:translateZ(0)] {isActive ? 'ring-1 ring-inset ring-sidebar-ring bg-sidebar-foreground/[0.03]' : 'ring-1 ring-inset ring-sidebar-border/65 bg-sidebar/35'}"
     >
-        <div class="w-full overflow-hidden rounded-[inherit]">
+        <div role="presentation" class="w-full overflow-hidden rounded-[inherit]" onmouseenter={() => onHover?.()}>
             <ContextMenu.Trigger>
                 {#snippet child({ props })}
                     <div
                         {...props}
-                        class="group relative transition-colors {isActive ? 'bg-sidebar-foreground/[0.04] text-sidebar-foreground' : 'hover:bg-sidebar-accent/70 hover:text-sidebar-accent-foreground data-[state=open]:bg-sidebar-accent/70 data-[state=open]:text-sidebar-accent-foreground'}"
+                        class="group relative transition-colors {isActive ? 'bg-sidebar-foreground/[0.04] text-sidebar-foreground' : isHighlighted ? 'bg-sidebar-accent/70 text-sidebar-accent-foreground' : 'data-[state=open]:bg-sidebar-accent/70 data-[state=open]:text-sidebar-accent-foreground'}"
                     >
                         <button
                             type="button"
@@ -114,7 +127,7 @@
                         <Item.Media
                             variant="icon"
                             title={fileLanguageLabel}
-                            class="mt-0.5 {isActive ? 'border-sidebar-ring/40 bg-sidebar-foreground/[0.04] text-sidebar-foreground' : 'border-sidebar-border/70 bg-sidebar-accent/45 text-sidebar-foreground/80 group-hover:border-sidebar-background/60 group-hover:bg-sidebar/80 group-hover:text-sidebar-accent-foreground group-data-[state=open]:border-sidebar-background/60 group-data-[state=open]:bg-sidebar/80 group-data-[state=open]:text-sidebar-accent-foreground'}"
+                            class="mt-0.5 {isActive ? 'border-sidebar-ring/40 bg-sidebar-foreground/[0.04] text-sidebar-foreground' : isHighlighted ? 'border-sidebar-background/60 bg-sidebar/80 text-sidebar-accent-foreground' : 'border-sidebar-border/70 bg-sidebar-accent/45 text-sidebar-foreground/80 group-data-[state=open]:border-sidebar-background/60 group-data-[state=open]:bg-sidebar/80 group-data-[state=open]:text-sidebar-accent-foreground'}"
                         >
                             {#if FileIcon}
                                 <FileIcon class="size-4.5" />
@@ -126,10 +139,10 @@
                         <Item.Content class="min-w-0 gap-2.5">
                             <div class="flex items-start justify-between gap-3">
                                 <div class="min-w-0 flex-1">
-                                    <Item.Title title={recentFile.path} class="truncate text-sm leading-tight {isActive ? 'text-black dark:text-white' : 'text-sidebar-foreground group-hover:text-sidebar-accent-foreground group-data-[state=open]:text-sidebar-accent-foreground'}">
-                                        {#if searchTerms.length > 0}
-                                            {#each splitTextByTerms(recentFile.file_name, searchTerms) as fragment}
-                                                {#if fragment.isMatch}<mark class="bg-[var(--selection-match-bg)] text-inherit rounded-sm px-0.5 ring-1 ring-[var(--selection-match-border)]">{fragment.text}</mark>{:else}{fragment.text}{/if}
+                                    <Item.Title title={recentFile.path} class="truncate text-sm leading-tight {isActive ? 'text-black dark:text-white' : isHighlighted ? 'text-sidebar-accent-foreground' : 'text-sidebar-foreground group-data-[state=open]:text-sidebar-accent-foreground'}">
+                                        {#if searchResult && searchResult.filename_fragments.length > 0}
+                                            {#each searchResult.filename_fragments as fragment}
+                                                {#if fragment.is_match}<mark class="bg-[var(--selection-match-bg)] text-inherit rounded-sm px-0.5 ring-1 ring-[var(--selection-match-border)]">{fragment.text}</mark>{:else}{fragment.text}{/if}
                                             {/each}
                                         {:else}
                                             {recentFile.file_name}
@@ -153,7 +166,7 @@
                                 {/if}
                             </div>
 
-                            <div class="flex min-w-0 flex-nowrap items-center gap-2 overflow-hidden text-xs {isActive ? 'text-black/70 dark:text-white/74' : 'text-sidebar-foreground/55 group-hover:text-sidebar-accent-foreground/72 group-data-[state=open]:text-sidebar-accent-foreground/72'}">
+                            <div class="flex min-w-0 flex-nowrap items-center gap-2 overflow-hidden text-xs {isActive ? 'text-black/70 dark:text-white/74' : isHighlighted ? 'text-sidebar-accent-foreground/72' : 'text-sidebar-foreground/55 group-data-[state=open]:text-sidebar-accent-foreground/72'}">
                                 {#if fileSize}
                                     <span class="truncate whitespace-nowrap">{fileSize}</span>
                                     <span aria-hidden="true" class="shrink-0">•</span>
@@ -173,7 +186,7 @@
                                         {...dotProps}
                                         type="button"
                                         title="File options"
-                                        class="absolute right-1.5 top-1/2 -translate-y-1/2 flex size-6 items-center justify-center rounded transition-opacity data-[state=open]:opacity-100 hover:bg-sidebar-foreground/10 text-sidebar-foreground/50 hover:text-sidebar-foreground {isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}"
+                                        class="absolute right-1.5 top-1/2 -translate-y-1/2 flex size-6 items-center justify-center rounded transition-opacity data-[state=open]:opacity-100 hover:bg-sidebar-foreground/10 text-sidebar-foreground/50 hover:text-sidebar-foreground {isActive || isHighlighted ? 'opacity-100' : 'opacity-0 group-data-[state=open]:opacity-100'}"
                                     >
                                         <Ellipsis class="size-3.5" />
                                     </button>
@@ -248,7 +261,7 @@
 
             {#if searchResult && searchResult.matched_lines.length > 0}
                 <div class="border-t border-sidebar-border/40 px-3 py-1.5">
-                    {#each searchResult.matched_lines as hit (hit.line_number)}
+                    {#each visibleMatchedLines as hit (hit.line_number)}
                         <button
                             type="button"
                             class="flex w-full min-w-0 items-baseline gap-2.5 rounded px-1.5 py-1 text-left transition-colors hover:bg-sidebar-accent/50"
@@ -257,12 +270,23 @@
                         >
                             <span class="shrink-0 select-none tabular-nums text-xs text-sidebar-foreground/40">{hit.line_number}</span>
                             <span class="min-w-0 truncate font-mono text-xs leading-relaxed {isActive ? 'text-black/70 dark:text-white/70' : 'text-sidebar-foreground/65'}">
-                                {#each splitTextByTerms(getLineExcerpt(hit.line_text, searchTerms), searchTerms) as fragment}
-                                    {#if fragment.isMatch}<mark class="bg-[var(--selection-match-bg)] text-inherit rounded-sm px-0.5 ring-1 ring-[var(--selection-match-border)]">{fragment.text}</mark>{:else}{fragment.text}{/if}
+                                {#each hit.fragments as fragment}
+                                    {#if fragment.is_match}<mark class="bg-[var(--selection-match-bg)] text-inherit rounded-sm px-0.5 ring-1 ring-[var(--selection-match-border)]">{fragment.text}</mark>{:else}{fragment.text}{/if}
                                 {/each}
                             </span>
                         </button>
                     {/each}
+                    {#if hiddenMatchedLinesCount > 0}
+                        <div
+                            role="button"
+                            tabindex="-1"
+                            class="cursor-pointer px-1.5 py-1 text-xs text-sidebar-foreground/35"
+                            onclick={() => onOpen(recentFile.path, recentFile.source)}
+                            onkeydown={(e) => { if (e.key === 'Enter') onOpen(recentFile.path, recentFile.source); }}
+                        >
+                            +{hiddenMatchedLinesCount} more line{hiddenMatchedLinesCount === 1 ? '' : 's'}
+                        </div>
+                    {/if}
                 </div>
             {/if}
         </div>
