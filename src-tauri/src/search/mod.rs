@@ -20,7 +20,7 @@ use crate::{
 
 use self::{
     grep::{collect_content_matches, list_scope_files},
-    query::parse_query,
+    query::{parse_query, SearchOptions},
     rank::{sort_search_results, RankContext},
     scope::resolve_search_scope,
     types::{system_time_to_unix_ms, FileSearchCandidate, SearchResultRecord},
@@ -33,9 +33,10 @@ pub fn run_sidebar_search(
     raw_query: &str,
     filter_mode: &str,
     limit: usize,
+    options: SearchOptions,
     cancelled: &AtomicBool,
 ) -> Result<Vec<SearchResultRecord>, String> {
-    let parsed_query = parse_query(raw_query)?;
+    let parsed_query = parse_query(raw_query, options)?;
     if parsed_query.terms.is_empty() {
         return Ok(Vec::new());
     }
@@ -57,7 +58,12 @@ pub fn run_sidebar_search(
         return Ok(Vec::new());
     }
 
-    let content_matches = collect_content_matches(&scope_files, &parsed_query, cancelled)?;
+    let content_matches = if parsed_query.is_glob {
+        // Glob mode (auto-detected): filename-only matching — skip content scanning.
+        HashMap::new()
+    } else {
+        collect_content_matches(&scope_files, &parsed_query, cancelled)?
+    };
     let mut candidates = build_candidates(indexed_paths, scope.tracked_by_key, content_matches)?;
 
     let average_document_length = rank::resolve_average_document_length(

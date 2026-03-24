@@ -14,6 +14,8 @@
         type RecentFileRecord,
         type RecentFileSource,
         type SidebarSearchResult,
+        type SearchOptions,
+        DEFAULT_SEARCH_OPTIONS,
         searchSidebarFiles,
         cancelSidebarSearch,
         duplicateFile,
@@ -43,6 +45,7 @@
     let query = $state("");
     let filterMode = $state<FilterMode>(DEFAULT_FILTER_MODE);
     let sortMode = $state<SortMode>(DEFAULT_SORT_MODE);
+    let searchOptions = $state<SearchOptions>({ ...DEFAULT_SEARCH_OPTIONS });
 
     let recentFiles = $state<RecentFileRecord[]>([]);
 
@@ -116,6 +119,12 @@
     // "are we searching?" depend on this instead of normalizedQuery directly, so
     // they don't re-run on every character the user types.
     const isSearchMode = $derived(normalizedQuery.length > 0);
+    // Stable string key that changes only when the user toggles a search option.
+    // Used in the debounce $effect to re-trigger search without reading the
+    // individual $state booleans (which would also work, but this is explicit).
+    const searchOptionsKey = $derived(
+        `${searchOptions.caseSensitive}:${searchOptions.wholeWord}:${searchOptions.useRegex}`,
+    );
     const pendingOpenFile = $derived(librarySidebarState.pendingOpenFile);
 
     const visibleRecentFiles = $derived.by(() => {
@@ -246,6 +255,7 @@
                 query.trim(),
                 filterMode,
                 currentVersion,
+                searchOptions,
             );
             if (currentVersion !== searchRequestVersion) {
                 return;
@@ -334,6 +344,7 @@
         filterMode = DEFAULT_FILTER_MODE;
         sortMode = DEFAULT_SORT_MODE;
         query = "";
+        searchOptions = { ...DEFAULT_SEARCH_OPTIONS };
         navigator.reset();
 
         if (!sidebar.open) {
@@ -388,10 +399,12 @@
     // otherwise waits 120 ms after the last keystroke before firing.
     // Cancels any in-flight backend search immediately on every keystroke
     // so superseded work stops as early as possible.
+    // Also re-runs when search options (case, word, regex) are toggled.
     $effect(() => {
         normalizedQuery;
         filterMode;
         sidebar.open;
+        searchOptionsKey;
 
         if (normalizedQuery.length === 0) {
             searchRequestVersion += 1;
@@ -570,6 +583,7 @@
         bind:query
         bind:filterMode
         bind:sortMode
+        bind:searchOptions
         {isLoading}
         {isSearchLoading}
         focusRequest={focusSearchRequest}

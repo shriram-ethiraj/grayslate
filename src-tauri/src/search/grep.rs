@@ -11,7 +11,7 @@ use ignore::WalkBuilder;
 use crate::storage::normalize_path_key;
 
 use super::{
-    query::ParsedSearchQuery,
+    query::{ParsedSearchQuery, SearchOptions},
     scope::SearchScope,
     types::{truncate_preview_line, ContentMatchSummary, SearchPreview, MAX_PREVIEWS_PER_FILE},
 };
@@ -60,11 +60,17 @@ pub fn collect_content_matches(
         .terms
         .iter()
         .map(|term| {
-            let escaped = escape_regex_meta(term);
+            let pattern = build_grep_pattern(term, &query.options);
             let matcher = RegexMatcherBuilder::new()
-                .case_smart(true)
-                .build(&escaped)
-                .map_err(|error| format!("Failed to build search matcher: {}", error))?;
+                .case_insensitive(!query.options.case_sensitive)
+                .build(&pattern)
+                .map_err(|error| {
+                    if query.options.use_regex {
+                        format!("Invalid regex pattern: {}", error)
+                    } else {
+                        format!("Failed to build search matcher: {}", error)
+                    }
+                })?;
             Ok((term.as_str(), matcher))
         })
         .collect::<Result<Vec<_>, String>>()?;
@@ -86,7 +92,7 @@ pub fn collect_content_matches(
             // large file doesn't keep the blocking thread busy too long.
             ensure_not_cancelled(cancelled)?;
 
-            if search_file_for_term(path, matcher, term, &mut by_path)? {
+            if search_file_for_term(path, matcher, term, &query.options, &mut by_path)? {
                 *document_frequencies.entry(term.to_string()).or_insert(0) += 1;
             }
         }
@@ -125,11 +131,19 @@ fn search_file_for_term(
     path: &Path,
     matcher: &grep_regex::RegexMatcher,
     term: &str,
+    options: &SearchOptions,
     by_path: &mut HashMap<String, ContentMatchSummary>,
 ) -> Result<bool, String> {
     let path_key = normalize_path_key(path)?;
+    let match_term = if options.case_sensitive {
+        term.to_string()
+    } else {
+        term.to_lowercase()
+    };
     let mut collector = MatchCollector {
-        term_lower: term.to_lowercase(),
+        match_term,
+        case_sensitive: options.case_sensitive,
+        use_regex: options.use_regex,
         total_hits: 0,
         previews: Vec::new(),
         seen_lines: HashSet::new(),
@@ -176,7 +190,9 @@ fn search_file_for_term(
 // ── Sink implementation ──────────────────────────────────────────────
 
 struct MatchCollector {
-    term_lower: String,
+    match_term: String,
+    case_sensitive: bool,
+    use_regex: bool,
     total_hits: usize,
     previews: Vec<SearchPreview>,
     seen_lines: HashSet<u64>,
@@ -195,8 +211,16 @@ impl Sink for MatchCollector {
 
         // Count individual occurrences of the term on this line so
         // term frequency scoring reflects repeated matches.
-        let line_lower = line_text.to_lowercase();
-        let count = line_lower.matches(&self.term_lower).count().max(1);
+        // In regex mode, just count each matched line as 1 hit since the
+        // pattern can match variable-length strings.
+        let count = if self.use_regex {
+            1
+        } else if self.case_sensitive {
+            line_text.matches(&self.match_term).count().max(1)
+        } else {
+            let line_lower = line_text.to_lowercase();
+            line_lower.matches(&self.match_term).count().max(1)
+        };
         self.total_hits += count;
 
         if self.previews.len() < self.max_previews {
@@ -214,6 +238,26 @@ impl Sink for MatchCollector {
 }
 
 // ── Utilities ────────────────────────────────────────────────────────
+
+/// Constructs the grep pattern for a single search term, applying escaping,
+/// word-boundary wrapping, and regex-passthrough as needed.
+fn build_grep_pattern(term: &str, options: &SearchOptions) -> String {
+    if options.use_regex {
+        if options.whole_word {
+            // Wrap the user's regex in word boundaries.
+            format!(r"\b(?:{})\b", term)
+        } else {
+            term.to_string()
+        }
+    } else {
+        let escaped = escape_regex_meta(term);
+        if options.whole_word {
+            format!(r"\b{}\b", escaped)
+        } else {
+            escaped
+        }
+    }
+}
 
 /// Escapes regex metacharacters so the term is matched as a literal string.
 fn escape_regex_meta(input: &str) -> String {

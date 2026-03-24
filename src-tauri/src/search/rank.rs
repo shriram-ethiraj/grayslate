@@ -3,7 +3,7 @@ use std::cmp::Ordering;
 use super::{
     query::ParsedSearchQuery,
     types::{
-        get_line_excerpt, split_text_by_terms, FileSearchCandidate, MatchedLine,
+        find_whole_word, get_line_excerpt, split_text_by_terms, FileSearchCandidate, MatchedLine,
         SearchResultRecord,
     },
 };
@@ -70,10 +70,20 @@ pub fn rank_candidate(
             .iter()
             .filter_map(|preview| {
                 preview.line_number.map(|ln| {
-                    let excerpt = get_line_excerpt(&preview.line_text, &context.query.terms);
+                    let excerpt = get_line_excerpt(
+                        &preview.line_text,
+                        &context.query.terms,
+                        &context.query.options,
+                        context.query.is_glob,
+                    );
                     MatchedLine {
                         line_number: ln,
-                        fragments: split_text_by_terms(&excerpt, &context.query.terms),
+                        fragments: split_text_by_terms(
+                            &excerpt,
+                            &context.query.terms,
+                            &context.query.options,
+                            context.query.is_glob,
+                        ),
                     }
                 })
             })
@@ -82,6 +92,8 @@ pub fn rank_candidate(
         filename_fragments: split_text_by_terms(
             &candidate.file_name,
             &context.query.terms,
+            &context.query.options,
+            context.query.is_glob,
         ),
         filename_score,
         content_score,
@@ -110,9 +122,38 @@ pub fn sort_search_results(results: &mut [SearchResultRecord]) {
 }
 
 fn score_filename(candidate: &FileSearchCandidate, query: &ParsedSearchQuery) -> f32 {
-    let normalized_name = candidate.file_name.to_lowercase();
-    let normalized_path = candidate.path.to_lowercase();
+    let cs = query.options.case_sensitive;
+
+    // Auto-detected glob: score by glob pattern matching against filename/path.
+    if query.is_glob {
+        return score_filename_glob(candidate, query);
+    }
+
+    // Explicit regex toggle: score by regex matching against filename/path.
+    if query.options.use_regex {
+        return score_filename_regex(candidate, query);
+    }
+
+    let normalized_name = if cs {
+        candidate.file_name.clone()
+    } else {
+        candidate.file_name.to_lowercase()
+    };
+    let normalized_path = if cs {
+        candidate.path.clone()
+    } else {
+        candidate.path.to_lowercase()
+    };
     let mut score = 0.0;
+    let ww = query.options.whole_word;
+
+    // Helper closures for whole-word–aware substring operations.
+    let name_find = |needle: &str| -> Option<usize> {
+        if ww { find_whole_word(&normalized_name, needle) } else { normalized_name.find(needle) }
+    };
+    let path_find = |needle: &str| -> Option<usize> {
+        if ww { find_whole_word(&normalized_path, needle) } else { normalized_path.find(needle) }
+    };
 
     if normalized_name == query.normalized {
         score += 8.0;
@@ -122,24 +163,34 @@ fn score_filename(candidate: &FileSearchCandidate, query: &ParsedSearchQuery) ->
         .file_name
         .split('.')
         .next()
-        .unwrap_or(&candidate.file_name)
-        .to_lowercase();
-    if stem == query.normalized {
+        .unwrap_or(&candidate.file_name);
+    let normalized_stem = if cs {
+        stem.to_string()
+    } else {
+        stem.to_lowercase()
+    };
+    if normalized_stem == query.normalized {
         score += 7.0;
     }
 
-    if normalized_name.starts_with(&query.normalized) {
+    // starts_with with whole-word awareness: must match at position 0 AND respect boundary.
+    let starts_match = if ww {
+        name_find(&query.normalized).map_or(false, |i| i == 0)
+    } else {
+        normalized_name.starts_with(&query.normalized)
+    };
+    if starts_match {
         score += 5.0;
     }
 
-    if let Some(index) = normalized_name.find(&query.normalized) {
+    if let Some(index) = name_find(&query.normalized) {
         score += 4.0 + (1.0 / (index as f32 + 1.0));
     }
 
     for term in &query.terms {
-        if let Some(index) = normalized_name.find(term) {
+        if let Some(index) = name_find(term.as_str()) {
             score += 2.4 + (0.5 / (index as f32 + 1.0));
-        } else if let Some(index) = normalized_path.find(term) {
+        } else if let Some(index) = path_find(term.as_str()) {
             score += 1.4 + (0.25 / (index as f32 + 1.0));
         }
     }
@@ -147,11 +198,65 @@ fn score_filename(candidate: &FileSearchCandidate, query: &ParsedSearchQuery) ->
     if query
         .terms
         .iter()
-        .all(|term| normalized_name.contains(term))
+        .all(|term| name_find(term.as_str()).is_some())
     {
         score += 1.5;
     }
 
+    score
+}
+
+/// Glob-mode filename scoring using `globset`, which supports all standard
+/// glob syntax: `*`, `**`, `?`, `[abc]` character classes, `{a,b}` brace
+/// expansion.  Returns 0.0 for unparseable patterns (no error banner).
+fn score_filename_glob(candidate: &FileSearchCandidate, query: &ParsedSearchQuery) -> f32 {
+    let glob = match globset::GlobBuilder::new(&query.raw)
+        .case_insensitive(!query.options.case_sensitive)
+        .literal_separator(false)
+        .build()
+        .and_then(|g| {
+            let mut builder = globset::GlobSetBuilder::new();
+            builder.add(g);
+            builder.build()
+        }) {
+        Ok(gs) => gs,
+        Err(_) => return 0.0,
+    };
+
+    let mut score = 0.0;
+    if glob.is_match(&candidate.file_name) {
+        score += 4.0;
+    }
+    if glob.is_match(&candidate.path) {
+        score += 2.0;
+    }
+    score
+}
+
+/// Regex-mode filename scoring: build a regex from the raw query and test it
+/// against the filename and full path.
+fn score_filename_regex(candidate: &FileSearchCandidate, query: &ParsedSearchQuery) -> f32 {
+    let pattern = if query.options.whole_word {
+        format!(r"\b(?:{})\b", &query.raw)
+    } else {
+        query.raw.clone()
+    };
+
+    let re = match regex::RegexBuilder::new(&pattern)
+        .case_insensitive(!query.options.case_sensitive)
+        .build()
+    {
+        Ok(r) => r,
+        Err(_) => return 0.0,
+    };
+
+    let mut score = 0.0;
+    if re.is_match(&candidate.file_name) {
+        score += 4.0;
+    }
+    if re.is_match(&candidate.path) {
+        score += 2.0;
+    }
     score
 }
 

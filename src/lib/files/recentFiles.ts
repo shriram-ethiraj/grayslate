@@ -46,6 +46,18 @@ export interface OpenFilePathPayload {
   lineNumber?: number;
 }
 
+export interface SearchOptions {
+  caseSensitive: boolean;
+  wholeWord: boolean;
+  useRegex: boolean;
+}
+
+export const DEFAULT_SEARCH_OPTIONS: SearchOptions = {
+  caseSensitive: false,
+  wholeWord: false,
+  useRegex: false,
+};
+
 export async function getRecentFiles(limit = 50): Promise<RecentFileRecord[]> {
   return invoke<RecentFileRecord[]>("get_recent_files", { limit });
 }
@@ -54,12 +66,16 @@ export async function searchSidebarFiles(
   query: string,
   filterMode: "unified" | RecentFileSource,
   requestId: number,
+  searchOptions: SearchOptions = DEFAULT_SEARCH_OPTIONS,
   limit = 80,
 ): Promise<SidebarSearchResult[]> {
   return invoke<SidebarSearchResult[]>("search_sidebar_files", {
     query,
     filterMode,
     requestId,
+    caseSensitive: searchOptions.caseSensitive,
+    wholeWord: searchOptions.wholeWord,
+    useRegex: searchOptions.useRegex,
     limit,
   });
 }

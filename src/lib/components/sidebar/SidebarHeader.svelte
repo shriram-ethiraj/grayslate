@@ -6,6 +6,7 @@
     import { Button } from "$lib/components/ui/button/index.js";
     import Input from "$lib/components/ui/input/input.svelte";
     import type { FilterMode, SortMode } from "$lib/files/sidebarUtils";
+    import { DEFAULT_SEARCH_OPTIONS, type SearchOptions } from "$lib/files/recentFiles";
     import Search from "~icons/lucide/search";
     import RefreshCcw from "~icons/lucide/refresh-ccw";
     import X from "~icons/lucide/x";
@@ -18,11 +19,15 @@
     import ArrowUpNarrowWide from "~icons/lucide/arrow-up-narrow-wide";
     import RiCodeBoxLine from "~icons/ri/code-box-line";
     import LucideHardDrive from "~icons/lucide/hard-drive";
+    import LucideCaseSensitive from "~icons/lucide/case-sensitive";
+    import LucideWholeWord from "~icons/lucide/whole-word";
+    import LucideRegex from "~icons/lucide/regex";
 
     interface Props {
         query: string;
         filterMode: FilterMode;
         sortMode: SortMode;
+        searchOptions: SearchOptions;
         isLoading: boolean;
         isSearchLoading: boolean;
         /**
@@ -39,12 +44,17 @@
         query = $bindable(),
         filterMode = $bindable(),
         sortMode = $bindable(),
+        searchOptions = $bindable(),
         isLoading,
         isSearchLoading,
         focusRequest,
         onRefresh,
         onSearchKeydown,
     }: Props = $props();
+
+    const hasActiveOptions = $derived(
+        searchOptions.caseSensitive || searchOptions.wholeWord || searchOptions.useRegex,
+    );
 
     // Owned by this component; never needs to leave.
     let searchInput = $state<HTMLInputElement | null>(null);
@@ -117,15 +127,16 @@
     <div class="flex items-center justify-between gap-2 px-1">
         <div class="min-w-0 truncate text-sm font-medium">Library</div>
         <div class="flex items-center gap-1">
-            {#if query}
+            {#if query || hasActiveOptions}
                 <Button
                     variant="ghost"
                     size="sm"
                     class="gap-1.5 px-2 text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                     aria-label="Clear search"
-                    title="Clear search"
+                    title="Clear search and reset options"
                     onclick={() => {
                         query = "";
+                        searchOptions = { ...DEFAULT_SEARCH_OPTIONS };
                         searchInput?.focus();
                     }}
                 >
@@ -156,8 +167,43 @@
                 bind:value={query}
                 onkeydown={onSearchKeydown}
                 placeholder="Search library..."
-                class="border-sidebar-border bg-sidebar ps-9 text-sm shadow-none placeholder:text-sidebar-foreground/45 focus-visible:border-sidebar-ring focus-visible:ring-sidebar-ring"
+                class="border-sidebar-border bg-sidebar pe-[5.75rem] ps-9 text-sm shadow-none placeholder:text-sidebar-foreground/45 focus-visible:border-sidebar-ring focus-visible:ring-sidebar-ring"
             />
+            <div class="absolute right-1.5 top-1/2 z-10 flex -translate-y-1/2 items-center gap-0.5">
+                <button
+                    type="button"
+                    class="inline-flex size-6 items-center justify-center rounded-sm transition-colors text-sidebar-foreground {searchOptions.caseSensitive
+                        ? 'bg-sidebar-foreground/[0.13]'
+                        : 'hover:bg-sidebar-foreground/[0.07]'}"
+                    aria-pressed={searchOptions.caseSensitive}
+                    title="Match Case"
+                    onclick={() => { searchOptions.caseSensitive = !searchOptions.caseSensitive; }}
+                >
+                    <LucideCaseSensitive class="size-[1.1rem]" />
+                </button>
+                <button
+                    type="button"
+                    class="inline-flex size-6 items-center justify-center rounded-sm transition-colors text-sidebar-foreground {searchOptions.wholeWord
+                        ? 'bg-sidebar-foreground/[0.13]'
+                        : 'hover:bg-sidebar-foreground/[0.07]'}"
+                    aria-pressed={searchOptions.wholeWord}
+                    title="Match Whole Word"
+                    onclick={() => { searchOptions.wholeWord = !searchOptions.wholeWord; }}
+                >
+                    <LucideWholeWord class="size-[1.1rem]" />
+                </button>
+                <button
+                    type="button"
+                    class="inline-flex size-6 items-center justify-center rounded-sm transition-colors text-sidebar-foreground {searchOptions.useRegex
+                        ? 'bg-sidebar-foreground/[0.13]'
+                        : 'hover:bg-sidebar-foreground/[0.07]'}"
+                    aria-pressed={searchOptions.useRegex}
+                    title="Use Regular Expression"
+                    onclick={() => { searchOptions.useRegex = !searchOptions.useRegex; }}
+                >
+                    <LucideRegex class="size-[1.1rem]" />
+                </button>
+            </div>
         </div>
 
         <Select.Root type="single" items={sortOptions} bind:value={sortMode}>

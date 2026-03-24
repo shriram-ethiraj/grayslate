@@ -9,6 +9,7 @@ dependencies = [
  "base64 0.22.1",
  "csv",
  "dprint-plugin-jsonc",
+ "globset",
  "grep-matcher",
  "grep-regex",
  "grep-searcher",

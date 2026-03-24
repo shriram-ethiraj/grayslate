@@ -121,6 +121,9 @@ pub async fn search_sidebar_files(
     filter_mode: String,
     limit: Option<usize>,
     request_id: u64,
+    case_sensitive: Option<bool>,
+    whole_word: Option<bool>,
+    use_regex: Option<bool>,
 ) -> Result<Vec<search::types::SearchResultRecord>, String> {
     let limit = clamp_search_results_limit(limit);
     let window_label = window.label().to_string();
@@ -128,6 +131,12 @@ pub async fn search_sidebar_files(
     let storage = storage.inner().clone();
     let runtime_state = search_state.inner().clone();
     let app_handle = app.clone();
+
+    let options = search::query::SearchOptions {
+        case_sensitive: case_sensitive.unwrap_or(false),
+        whole_word: whole_word.unwrap_or(false),
+        use_regex: use_regex.unwrap_or(false),
+    };
 
     let result = tauri::async_runtime::spawn_blocking(move || {
         search::run_sidebar_search(
@@ -137,6 +146,7 @@ pub async fn search_sidebar_files(
             &query,
             &filter_mode,
             limit,
+            options,
             cancellation_flag.as_ref(),
         )
     })

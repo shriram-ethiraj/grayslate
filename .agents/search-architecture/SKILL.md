@@ -110,6 +110,31 @@ When the query is non-empty:
 - `searchRequestVersion` guards against stale results
 - `"Search cancelled."` is intentionally suppressed in the UI
 
+### Search Options
+
+`app-sidebar.svelte` owns a `searchOptions: SearchOptions` state with three boolean toggles:
+
+- `caseSensitive` — when on, matching is case-sensitive; when off (default), case-insensitive
+- `wholeWord` — when on, terms are wrapped with `\b` word boundaries
+- `useRegex` — when on, the entire query is passed as a single regex pattern (no whitespace splitting)
+
+`SidebarHeader.svelte` renders three VS Code-style toggle buttons inside the search input (codicon icons: `case-sensitive`, `whole-word`, `regex`). Active toggles show a highlighted background.
+
+A `searchOptionsKey` derived string changes only on toggle clicks and is tracked in the debounce `$effect` so option changes re-trigger search without a keystroke.
+
+The Clear button resets both the query text and all toggles to defaults.
+
+The `searchSidebarFiles` IPC call passes the three booleans as top-level params (`caseSensitive`, `wholeWord`, `useRegex`). The Rust `search_sidebar_files` command accepts them as `Option<bool>` for backward compatibility.
+
+On the Rust side, `SearchOptions` lives in `search/query.rs` and is embedded in `ParsedSearchQuery`. The pipeline threads it through:
+
+- `query.rs` — controls case normalisation and term splitting (regex mode = single term)
+- `grep.rs` — controls regex escaping, word boundaries, and case insensitivity flags
+- `rank.rs` — controls filename scoring (case-aware substring matching or regex match)
+- `types.rs` — controls highlight fragment generation (literal vs regex, case-aware)
+
+Invalid regex patterns surface as error strings through the existing `loadError` banner in `SidebarFileList.svelte`.
+
 `SidebarSearchResult` currently includes:
 
 - all `RecentFileRecord` fields

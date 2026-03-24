@@ -142,7 +142,7 @@
                                     <Item.Title title={recentFile.path} class="truncate text-sm leading-tight {isActive ? 'text-black dark:text-white' : isHighlighted ? 'text-sidebar-accent-foreground' : 'text-sidebar-foreground group-data-[state=open]:text-sidebar-accent-foreground'}">
                                         {#if searchResult && searchResult.filename_fragments.length > 0}
                                             {#each searchResult.filename_fragments as fragment}
-                                                {#if fragment.is_match}<mark class="bg-[var(--selection-match-bg)] text-inherit rounded-sm px-0.5 ring-1 ring-[var(--selection-match-border)]">{fragment.text}</mark>{:else}{fragment.text}{/if}
+                                                {#if fragment.is_match}<mark class="bg-[var(--selection-match-bg)] text-inherit rounded-sm px-0.5 ring-1 ring-inset ring-[var(--selection-match-border)]">{fragment.text}</mark>{:else}{fragment.text}{/if}
                                             {/each}
                                         {:else}
                                             {recentFile.file_name}
@@ -269,9 +269,9 @@
                             onclick={() => onOpen(recentFile.path, recentFile.source, hit.line_number)}
                         >
                             <span class="shrink-0 select-none tabular-nums text-xs text-sidebar-foreground/40">{hit.line_number}</span>
-                            <span class="min-w-0 truncate font-mono text-xs leading-relaxed {isActive ? 'text-black/70 dark:text-white/70' : 'text-sidebar-foreground/65'}">
+                            <span class="min-w-0 truncate font-mono text-[0.8rem] leading-relaxed {isActive ? 'text-black/70 dark:text-white/70' : 'text-sidebar-foreground/65'}">
                                 {#each hit.fragments as fragment}
-                                    {#if fragment.is_match}<mark class="bg-[var(--selection-match-bg)] text-inherit rounded-sm px-0.5 ring-1 ring-[var(--selection-match-border)]">{fragment.text}</mark>{:else}{fragment.text}{/if}
+                                    {#if fragment.is_match}<mark class="bg-[var(--selection-match-bg)] text-inherit rounded-sm px-0.5 ring-1 ring-inset ring-[var(--selection-match-border)]">{fragment.text}</mark>{:else}{fragment.text}{/if}
                                 {/each}
                             </span>
                         </button>

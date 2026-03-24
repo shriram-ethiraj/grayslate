@@ -42,6 +42,7 @@ heck = "0.5"
 yake-rust = { version = "1", default-features = false, features = ["en"] }
 regex = "1"
 sqlparser = "0.59"
+globset = "0.4"
 grep-matcher = "0.1"
 grep-regex = "0.1"
 grep-searcher = "0.1"
