@@ -116,3 +116,25 @@ export function getFieldRanges(line: string, delimiter: string): FieldRange[] {
 
     return ranges;
 }
+
+// ---------------------------------------------------------------------------
+// Field value decoder
+// ---------------------------------------------------------------------------
+
+/**
+ * Decode a raw CSV field value as returned by {@link getFieldRanges}.
+ *
+ * RFC 4180 decoding rules:
+ *  - Quoted field (`"foo"`)   — strip outer double-quotes, unescape `""` → `"`
+ *  - Unquoted field (`foo`)   — return the value unchanged
+ *
+ * This is intentionally minimal: it covers the tooltip / display case
+ * (showing a field's *logical* content rather than its raw stored form)
+ * without replacing the full Rust-side CSV deserialiser.
+ */
+export function decodeFieldValue(raw: string): string {
+    if (raw.length >= 2 && raw[0] === '"' && raw[raw.length - 1] === '"') {
+        return raw.slice(1, -1).replace(/""/g, '"');
+    }
+    return raw;
+}

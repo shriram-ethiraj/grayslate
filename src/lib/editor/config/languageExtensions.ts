@@ -35,6 +35,7 @@ import { markdownAutocompleteProvider } from "$lib/editor/components/markdown/ma
 import { autocompletion } from "@codemirror/autocomplete";
 import { autocompleteDisplayConfig } from "$lib/editor/extensions/autocompleteFactory";
 import { csvRainbowHighlight } from "$lib/editor/extensions/csvRainbowHighlight";
+import { csvCellHeaderTooltip } from "$lib/editor/extensions/csvCellHeaderTooltip";
 import type { Extension } from "@codemirror/state";
 import { StreamLanguage } from "@codemirror/language";
 import { shell } from "@codemirror/legacy-modes/mode/shell";
@@ -102,7 +103,7 @@ export function getLanguageExtension(langId: string): Extension | Extension[] {
             //
             // Each extension is self-contained and independently
             // publishable — compose them here for the full experience.
-            return [csvRainbowHighlight];
+            return [csvRainbowHighlight, csvCellHeaderTooltip];
         case "shell":
             return StreamLanguage.define(shell);
         // Windows Batch/CMD — no dedicated CM6 highlighter exists; shell is the closest.

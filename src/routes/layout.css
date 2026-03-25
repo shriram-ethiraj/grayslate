@@ -179,7 +179,7 @@
 
   /* JSON Key Path Tooltip */
   .cm-tooltip.cm-tooltip-hover {
-    @apply !border !border-border !bg-popover !text-popover-foreground !shadow-md !rounded-lg;
+    @apply !border !border-border !bg-popover !text-popover-foreground !shadow-md !rounded-lg !overflow-hidden;
   }
 
   .cm-json-key-path-tooltip {
@@ -194,5 +194,39 @@
 
   .cm-json-key-path-tooltip:hover {
     @apply bg-muted text-foreground;
+  }
+
+  /* CSV Column Header Tooltip (text-mode hover: "Col N: Header") */
+  /* Outer wrapper inherits .cm-tooltip.cm-tooltip-hover border/bg/shadow. */
+  .cm-csv-header-tooltip {
+    @apply cursor-pointer;
+    font-family: monospace;
+    font-size: 0.82em;
+    padding: 3px 10px;
+    user-select: text;
+    white-space: nowrap;
+  }
+
+  .cm-csv-header-tooltip:hover {
+    @apply bg-muted;
+  }
+
+  /* "Col N: " — muted prefix matching the JSON path tooltip colour */
+  .cm-csv-col-prefix {
+    color: var(--cm-hint-color, #888);
+    transition: color 0.15s ease;
+  }
+
+  /* Header name — slightly more prominent so the column identity is clear */
+  .cm-csv-col-name {
+    color: var(--muted-foreground);
+    font-weight: 500;
+    transition: color 0.15s ease;
+  }
+
+  /* On hover both parts flip to foreground, matching the JSON tooltip behaviour */
+  .cm-csv-header-tooltip:hover .cm-csv-col-prefix,
+  .cm-csv-header-tooltip:hover .cm-csv-col-name {
+    color: var(--foreground);
   }
 }
