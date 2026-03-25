@@ -65,7 +65,7 @@
 					ref?.focus();
 				}}
 			>
-				<X class="size-3.5" />
+				<X class="size-4" />
 			</button>
 		{/if}
 	</div>

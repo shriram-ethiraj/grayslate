@@ -364,7 +364,7 @@
             <LucideRegex class="size-[1.1rem]" />
           </button>
           <span
-            class="text-xs pointer-events-none inline-flex shrink-0 items-center justify-center whitespace-nowrap px-1 min-w-[4.5rem] {fr.searchError ? 'text-destructive' : 'text-foreground'}"
+            class="text-sm pointer-events-none inline-flex shrink-0 items-center justify-center whitespace-nowrap px-1 min-w-[4.5rem] {fr.searchError ? 'text-destructive' : 'text-foreground'}"
           >
             {#if fr.searchError}
               Regex error
@@ -385,7 +385,7 @@
             title="Previous match ({formatForDisplay('Shift+Enter')})"
             disabled={!canNavigate}
           >
-            <ArrowUp class="size-3.5" />
+            <ArrowUp class="size-4" />
           </button>
           <button
             type="button"
@@ -394,7 +394,7 @@
             title="Next match ({formatForDisplay('Enter')})"
             disabled={!canNavigate}
           >
-            <ArrowDown class="size-3.5" />
+            <ArrowDown class="size-4" />
           </button>
           <button
             type="button"
@@ -402,7 +402,7 @@
             onclick={close}
             title="Close ({formatForDisplay('Escape')})"
           >
-            <X class="size-3.5" />
+            <X class="size-4" />
           </button>
         </div>
       </div>

@@ -185,7 +185,7 @@
                     disabled={isRenaming || isGenerating}
                     onclick={() => void handleGenerateName()}
                 >
-                    <MdiLightbulbAutomaticOutline class="size-3.5" />
+                    <MdiLightbulbAutomaticOutline class="size-4" />
                     Generate name
                 </Button>
                 <Button

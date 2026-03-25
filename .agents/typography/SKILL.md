@@ -43,11 +43,9 @@ All sizes are standard Tailwind defaults — no custom overrides needed.
 
 | Size  | Tailwind    | Usage                                                    |
 |-------|-------------|----------------------------------------------------------|
-| 14 px | `size-3.5`  | Compact controls — Find/Replace action icons, status bar |
 | 16 px | `size-4`    | Standard — menus, sidebar, toolbars, dialogs, buttons    |
 
-**Anti-pattern:** `h-[1.2rem] w-[1.2rem]` or any arbitrary icon sizing. Use
-`size-3.5` or `size-4`.
+**Anti-pattern:** `h-[1.2rem] w-[1.2rem]` or any arbitrary icon sizing. Use `size-4`.
 
 ---
 

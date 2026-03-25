@@ -153,7 +153,7 @@
                                 {#if !recentFile.exists_on_disk}
                                     <Item.Actions class="pt-0.5">
                                         <span class="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-amber-500/25 bg-amber-500/10 px-2 py-1 text-xs font-medium uppercase tracking-[0.12em] text-amber-600 dark:text-amber-300">
-                                            <FileWarning class="size-3.5" />
+                                            <FileWarning class="size-4" />
                                             Missing
                                         </span>
                                     </Item.Actions>
@@ -188,7 +188,7 @@
                                         title="File options"
                                         class="absolute right-1.5 top-1/2 -translate-y-1/2 flex size-6 items-center justify-center rounded transition-opacity data-[state=open]:opacity-100 hover:bg-sidebar-foreground/10 text-muted-foreground hover:text-sidebar-foreground {isActive || isHighlighted ? 'opacity-100' : 'opacity-0 group-data-[state=open]:opacity-100'}"
                                     >
-                                        <Ellipsis class="size-3.5" />
+                                        <Ellipsis class="size-4" />
                                     </button>
                                 {/snippet}
                             </DropdownMenuPrimitive.Trigger>
