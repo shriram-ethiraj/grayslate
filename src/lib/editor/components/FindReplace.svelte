@@ -378,32 +378,32 @@
               No results
             {/if}
           </span>
-          <Button
-            variant="ghost"
-            size="icon-xs"
+          <button
+            type="button"
+            class="inline-flex size-6 items-center justify-center rounded-sm transition-colors hover:bg-foreground/[0.07] disabled:opacity-40 disabled:cursor-not-allowed {canNavigate ? 'text-foreground' : 'text-foreground/75'}"
             onclick={findPreviousNow}
             title="Previous match ({formatForDisplay('Shift+Enter')})"
             disabled={!canNavigate}
           >
-            <ArrowUp class="h-3.5 w-3.5" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon-xs"
+            <ArrowUp class="size-3.5" />
+          </button>
+          <button
+            type="button"
+            class="inline-flex size-6 items-center justify-center rounded-sm transition-colors hover:bg-foreground/[0.07] disabled:opacity-40 disabled:cursor-not-allowed {canNavigate ? 'text-foreground' : 'text-foreground/75'}"
             onclick={findNextNow}
             title="Next match ({formatForDisplay('Enter')})"
             disabled={!canNavigate}
           >
-            <ArrowDown class="h-3.5 w-3.5" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon-xs"
+            <ArrowDown class="size-3.5" />
+          </button>
+          <button
+            type="button"
+            class="inline-flex size-6 items-center justify-center rounded-sm text-foreground transition-colors hover:bg-foreground/[0.07]"
             onclick={close}
             title="Close ({formatForDisplay('Escape')})"
           >
-            <X class="h-3.5 w-3.5" />
-          </Button>
+            <X class="size-3.5" />
+          </button>
         </div>
       </div>
 
@@ -436,24 +436,24 @@
             {@render resizeGrip()}
           </div>
           <div class="flex items-center gap-0.5 self-stretch border-l pl-1.5">
-            <Button
-              variant="ghost"
-              size="icon-xs"
+            <button
+              type="button"
+              class="inline-flex size-6 items-center justify-center rounded-sm text-foreground/75 transition-colors hover:bg-foreground/[0.07] disabled:opacity-40 disabled:cursor-not-allowed"
               onclick={replaceNextNow}
               title="Replace currently selected match"
               disabled={!canReplace}
             >
-              <CodIconReplace class="h-3.5 w-3.5" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon-xs"
+              <CodIconReplace class="size-3.5" />
+            </button>
+            <button
+              type="button"
+              class="inline-flex size-6 items-center justify-center rounded-sm text-foreground/75 transition-colors hover:bg-foreground/[0.07] disabled:opacity-40 disabled:cursor-not-allowed"
               onclick={replaceAllNow}
               title="Replace All matches"
               disabled={!canReplaceAll}
             >
-              <CodIconReplaceAll class="h-3.5 w-3.5" />
-            </Button>
+              <CodIconReplaceAll class="size-3.5" />
+            </button>
           </div>
         </div>
       {/if}
