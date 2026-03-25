@@ -3,6 +3,7 @@ use tauri::Manager;
 pub mod commands;
 pub mod detection;
 pub mod filesystem;
+pub mod findstats;
 pub mod menu;
 pub mod naming;
 pub mod search;
@@ -48,6 +49,7 @@ pub fn run() {
             app.manage(commands::file::FileReadCancellationRegistry::default());
             app.manage(commands::search::SearchRuntimeState::default());
             app.manage(commands::transform::TransformationCancellationRegistry::default());
+            app.manage(commands::findstats::EditorFindState::default());
 
             #[cfg(not(any(target_os = "android", target_os = "ios")))]
             app.handle()
@@ -77,6 +79,9 @@ pub fn run() {
             commands::naming::save_untitled_slate,
             commands::naming::suggest_slate_name,
             commands::naming::suggest_name_for_file,
+            commands::findstats::editor_find_scan,
+            commands::findstats::editor_find_selection,
+            commands::findstats::cancel_editor_find,
             commands::search::cancel_sidebar_search,
             commands::search::search_sidebar_files,
             commands::transform::cancel_transformation,

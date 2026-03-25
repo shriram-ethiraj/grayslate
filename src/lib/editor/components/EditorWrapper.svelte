@@ -582,6 +582,7 @@
     editorState.findReplace.replaceText = "";
     editorState.findReplace.matchCount = 0;
     editorState.findReplace.currentMatch = 0;
+    editorState.findReplace.searchError = "";
 
     // Free module-level caches that persist across file switches.
     clearSearchStatsCache();

@@ -25,6 +25,9 @@
   import Scaling from "~icons/lucide/scaling";
   import CodIconReplace from "~icons/codicon/replace";
   import CodIconReplaceAll from "~icons/codicon/replace-all";
+  import LucideCaseSensitive from "~icons/lucide/case-sensitive";
+  import LucideWholeWord from "~icons/lucide/whole-word";
+  import LucideRegex from "~icons/lucide/regex";
 
   let findText = $state("");
   let replaceText = $state("");
@@ -46,6 +49,7 @@
   // Convenience aliases — avoids repeating long chains everywhere
   const fr = $derived(editorState.findReplace);
   const view = $derived(editorState.activeView);
+  const findOptionsKey = $derived(`${fr.caseSensitive}:${fr.wholeWord}:${fr.useRegex}`);
 
   // Derived flags used for button disabled states
   const canNavigate = $derived(fr.matchCount > 1);
@@ -111,7 +115,11 @@
     const nextReplaceText = pendingReplaceText;
     clearPendingSearchTimer();
     if (!targetView) return;
-    editorSetSearchQuery(targetView, nextFindText, nextReplaceText, false);
+    editorSetSearchQuery(targetView, nextFindText, nextReplaceText, {
+      caseSensitive: fr.caseSensitive,
+      wholeWord: fr.wholeWord,
+      useRegex: fr.useRegex,
+    });
   }
 
   function flushPendingSearch() {
@@ -179,6 +187,7 @@
   $effect(() => {
     fr.findText = findText;
     fr.replaceText = replaceText;
+    findOptionsKey; // Re-run effect when search options change
 
     if (view && fr.visible) {
       pendingSearchView = view;
@@ -196,7 +205,7 @@
         return;
       }
 
-      // Non-empty search: keep showing the previous count until the next worker
+      // Non-empty search: keep showing the previous count until the next backend
       // result arrives, but mark the state as pending so action handlers can
       // flush immediately if the user navigates before the debounce fires.
       fr.searching = true;
@@ -220,7 +229,7 @@
     findText = "";
     // Clear the CM search query so match highlights don't linger
     if (view) {
-      editorSetSearchQuery(view, "", "", false);
+      editorSetSearchQuery(view, "", "");
     }
   }
 
@@ -321,21 +330,54 @@
           {@render resizeGrip()}
         </div>
         <div class="flex items-center gap-0.5 self-stretch border-l pl-1.5">
-          {#if findText.length > 0}
-            <span
-              class="text-xs text-muted-foreground pointer-events-none inline-flex shrink-0 items-center justify-center whitespace-nowrap px-1 min-w-[4.5rem]"
-            >
-              {#if fr.matchCount > 0}
-                {#if fr.currentMatch === 0}
-                  {fr.matchCount}+
-                {:else}
-                  {fr.currentMatch}/{fr.matchCount}
-                {/if}
-              {:else if hasResolvedSearch}
-                No results
+          <button
+            type="button"
+            class="inline-flex size-6 items-center justify-center rounded-sm transition-colors text-foreground {fr.caseSensitive
+              ? 'bg-foreground/[0.13]'
+              : 'hover:bg-foreground/[0.07]'}"
+            aria-pressed={fr.caseSensitive}
+            title="Match Case"
+            onclick={() => { fr.caseSensitive = !fr.caseSensitive; }}
+          >
+            <LucideCaseSensitive class="size-[1.1rem]" />
+          </button>
+          <button
+            type="button"
+            class="inline-flex size-6 items-center justify-center rounded-sm transition-colors text-foreground {fr.wholeWord
+              ? 'bg-foreground/[0.13]'
+              : 'hover:bg-foreground/[0.07]'}"
+            aria-pressed={fr.wholeWord}
+            title="Match Whole Word"
+            onclick={() => { fr.wholeWord = !fr.wholeWord; }}
+          >
+            <LucideWholeWord class="size-[1.1rem]" />
+          </button>
+          <button
+            type="button"
+            class="inline-flex size-6 items-center justify-center rounded-sm transition-colors text-foreground {fr.useRegex
+              ? 'bg-foreground/[0.13]'
+              : 'hover:bg-foreground/[0.07]'}"
+            aria-pressed={fr.useRegex}
+            title="Use Regular Expression"
+            onclick={() => { fr.useRegex = !fr.useRegex; }}
+          >
+            <LucideRegex class="size-[1.1rem]" />
+          </button>
+          <span
+            class="text-xs pointer-events-none inline-flex shrink-0 items-center justify-center whitespace-nowrap px-1 min-w-[4.5rem] {fr.searchError ? 'text-destructive' : 'text-foreground'}"
+          >
+            {#if fr.searchError}
+              Regex error
+            {:else if fr.matchCount > 0}
+              {#if fr.currentMatch === 0}
+                {fr.matchCount}+
+              {:else}
+                {fr.currentMatch}/{fr.matchCount}
               {/if}
-            </span>
-          {/if}
+            {:else}
+              No results
+            {/if}
+          </span>
           <Button
             variant="ghost"
             size="icon-xs"
@@ -412,8 +454,6 @@
             >
               <CodIconReplaceAll class="h-3.5 w-3.5" />
             </Button>
-            <!-- Invisible placeholder to match the Find row's Close button width for perfect horizontal alignment -->
-            <div class="size-7 shrink-0"></div>
           </div>
         </div>
       {/if}

@@ -97,6 +97,10 @@ export const editorState = $state<{
         matchCount: number;
         currentMatch: number;
         searching: boolean;
+        caseSensitive: boolean;
+        wholeWord: boolean;
+        useRegex: boolean;
+        searchError: string;
     };
     goToLine: {
         requestOpen?: () => boolean;
@@ -137,6 +141,10 @@ export const editorState = $state<{
         matchCount: 0,
         currentMatch: 0,
         searching: false,
+        caseSensitive: false,
+        wholeWord: false,
+        useRegex: false,
+        searchError: "",
     },
     goToLine: {
         requestOpen: undefined,

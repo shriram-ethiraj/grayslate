@@ -4,10 +4,20 @@ import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { toast } from "$lib/components/ui/sonner";
 import { findNext, findPrevious, replaceNext, replaceAll, SearchQuery, setSearchQuery, getSearchQuery } from "@codemirror/search";
 import { editorState } from "$lib/state/editor.svelte";
-import type {
-    FindStatsWorkerRequest,
-    FindStatsWorkerResponse,
-} from "../workers/findStatsProtocol";
+import { invoke } from "$lib/ipc";
+
+type EditorFindResponse = {
+    requestId: number;
+    matchCount: number;
+    currentMatch: number;
+    approximate: boolean;
+};
+
+export type EditorFindOptions = {
+    caseSensitive: boolean;
+    wholeWord: boolean;
+    useRegex: boolean;
+};
 
 type UpdateSearchStatsOptions = {
     docChanged?: boolean;
@@ -19,26 +29,25 @@ type SearchStatsWorkerState = {
     queryKey: string;
 };
 
-let searchStatsWorker: Worker | undefined;
-let searchStatsWorkerState: SearchStatsWorkerState | undefined;
+let searchStatsState: SearchStatsWorkerState | undefined;
 let nextSearchStatsRequestId = 0;
 let latestSearchStatsRequestId = 0;
+let scanInFlightId = 0;
 
 function clearSearchStats(): void {
     editorState.findReplace.matchCount = 0;
     editorState.findReplace.currentMatch = 0;
     editorState.findReplace.searching = false;
+    editorState.findReplace.searchError = "";
 }
 
 export function clearSearchStatsCache(): void {
-    searchStatsWorkerState = undefined;
+    searchStatsState = undefined;
     latestSearchStatsRequestId = 0;
+    scanInFlightId = 0;
     editorState.findReplace.searching = false;
-    if (searchStatsWorker) {
-        searchStatsWorker.onmessage = null;
-        searchStatsWorker.terminate();
-        searchStatsWorker = undefined;
-    }
+    editorState.findReplace.searchError = "";
+    invoke("cancel_editor_find").catch(() => {});
 }
 
 function buildSearchQueryKey(query: SearchQuery): string {
@@ -49,38 +58,6 @@ function buildSearchQueryKey(query: SearchQuery): string {
         regexp: query.regexp,
         wholeWord: query.wholeWord,
     });
-}
-
-function ensureSearchStatsWorker(): Worker {
-    if (!searchStatsWorker) {
-        searchStatsWorker = new Worker(
-            new URL("../workers/findStats.worker.ts", import.meta.url),
-            { type: "module" },
-        );
-        searchStatsWorker.onmessage = (event: MessageEvent<FindStatsWorkerResponse>) => {
-            const message = event.data;
-            if (message.requestId !== latestSearchStatsRequestId) {
-                return;
-            }
-
-            if (message.type === "error") {
-                editorState.findReplace.searching = false;
-                console.error("Find stats worker error:", message.error);
-                return;
-            }
-
-            editorState.findReplace.matchCount = message.matchCount;
-            editorState.findReplace.currentMatch = message.currentMatch;
-            editorState.findReplace.searching = false;
-        };
-    }
-
-    return searchStatsWorker;
-}
-
-function postSearchStatsRequest(request: FindStatsWorkerRequest): void {
-    latestSearchStatsRequestId = request.requestId;
-    ensureSearchStatsWorker().postMessage(request);
 }
 
 function nextRequestId(): number {
@@ -241,17 +218,27 @@ export function editorSetSearchQuery(
     view: EditorView | undefined,
     search: string,
     replace: string = "",
-    caseSensitive: boolean = false,
+    options?: EditorFindOptions,
 ) {
     if (!view) return;
+    const caseSensitive = options?.caseSensitive ?? false;
+    const wholeWord = options?.wholeWord ?? false;
+    const useRegex = options?.useRegex ?? false;
     view.dispatch({
         effects: setSearchQuery.of(
-            new SearchQuery({ search, replace, caseSensitive, literal: true })
+            new SearchQuery({
+                search,
+                replace,
+                caseSensitive,
+                literal: !useRegex,
+                regexp: useRegex,
+                wholeWord,
+            })
         )
     });
     // The CM updateListener only fires syncBindings for selectionSet or
     // docChanged — a pure search-query effect triggers neither.  Invoke
-    // stats recomputation explicitly so the worker picks up the new query.
+    // stats recomputation explicitly so the backend picks up the new query.
     updateSearchStats(view);
 }
 
@@ -280,36 +267,93 @@ export function updateSearchStats(
     const shouldRescan =
         options?.forceRescan ||
         options?.docChanged ||
-        !searchStatsWorkerState ||
-        searchStatsWorkerState.docLength !== view.state.doc.length ||
-        searchStatsWorkerState.queryKey !== queryKey;
+        !searchStatsState ||
+        searchStatsState.docLength !== view.state.doc.length ||
+        searchStatsState.queryKey !== queryKey;
 
     editorState.findReplace.searching = true;
 
     if (shouldRescan) {
-        searchStatsWorkerState = {
+        searchStatsState = {
             docLength: view.state.doc.length,
             queryKey,
         };
-        postSearchStatsRequest({
-            type: "scan",
-            requestId: nextRequestId(),
-            text: view.state.doc.toString(),
-            search: query.search,
-            caseSensitive: query.caseSensitive,
-            literal: query.literal,
-            regexp: query.regexp,
-            wholeWord: query.wholeWord,
-            selectionFrom,
-            selectionTo,
-        });
+        const requestId = nextRequestId();
+        latestSearchStatsRequestId = requestId;
+        scanInFlightId = requestId;
+        editorState.findReplace.searchError = "";
+        performScan(requestId, view, query, selectionFrom, selectionTo);
         return;
     }
 
-    postSearchStatsRequest({
-        type: "selection",
-        requestId: nextRequestId(),
-        selectionFrom,
-        selectionTo,
-    });
+    // Skip selection-only updates while a scan is in flight —
+    // the scan result will include the correct currentMatch.
+    if (scanInFlightId > 0) return;
+
+    const requestId = nextRequestId();
+    latestSearchStatsRequestId = requestId;
+    performSelectionUpdate(requestId, selectionFrom, selectionTo);
+}
+
+async function performScan(
+    requestId: number,
+    view: EditorView,
+    query: SearchQuery,
+    selectionFrom: number,
+    selectionTo: number,
+): Promise<void> {
+    try {
+        const result = await invoke<EditorFindResponse>("editor_find_scan", {
+            text: view.state.doc.toString(),
+            search: query.search,
+            caseSensitive: query.caseSensitive,
+            wholeWord: query.wholeWord,
+            useRegex: !query.literal,
+            selectionFrom,
+            selectionTo,
+            requestId,
+        });
+        if (result.requestId !== latestSearchStatsRequestId) return;
+        editorState.findReplace.matchCount = result.matchCount;
+        editorState.findReplace.currentMatch = result.currentMatch;
+        editorState.findReplace.searching = false;
+        editorState.findReplace.searchError = "";
+    } catch (e) {
+        if (requestId !== latestSearchStatsRequestId) return;
+        if (typeof e === "string" && e === "Cancelled") return;
+        editorState.findReplace.searching = false;
+        if (typeof e === "string" && e.startsWith("Invalid regex")) {
+            editorState.findReplace.searchError = e;
+            editorState.findReplace.matchCount = 0;
+            editorState.findReplace.currentMatch = 0;
+        } else {
+            editorState.findReplace.searchError = "";
+            console.error("Editor find scan error:", e);
+        }
+    } finally {
+        if (scanInFlightId === requestId) {
+            scanInFlightId = 0;
+        }
+    }
+}
+
+async function performSelectionUpdate(
+    requestId: number,
+    selectionFrom: number,
+    selectionTo: number,
+): Promise<void> {
+    try {
+        const result = await invoke<EditorFindResponse>("editor_find_selection", {
+            selectionFrom,
+            selectionTo,
+            requestId,
+        });
+        if (result.requestId !== latestSearchStatsRequestId) return;
+        editorState.findReplace.matchCount = result.matchCount;
+        editorState.findReplace.currentMatch = result.currentMatch;
+        editorState.findReplace.searching = false;
+    } catch {
+        if (requestId !== latestSearchStatsRequestId) return;
+        editorState.findReplace.searching = false;
+    }
 }

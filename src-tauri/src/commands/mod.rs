@@ -1,5 +1,6 @@
 pub mod detection;
 pub mod file;
+pub mod findstats;
 pub mod memory;
 pub mod naming;
 pub mod search;
