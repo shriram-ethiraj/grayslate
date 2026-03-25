@@ -262,7 +262,7 @@
             }
 
             searchResults = result;
-            navigator.reset();
+            navigator.resetToFile(editorState.currentFilePath);
         } catch (error: unknown) {
             if (currentVersion !== searchRequestVersion) {
                 return;
@@ -290,6 +290,7 @@
         // the sidebar, which would be jarring for sequential file navigation.
         suppressReorder = true;
         lastSidebarOpenedPath = path;
+        navigator.focusHighlight(path);
 
         const requestId = Date.now();
         setPendingSidebarOpenFile({
@@ -411,7 +412,7 @@
             searchResults = [];
             isSearchLoading = false;
             loadError = "";
-            navigator.reset();
+            navigator.resetToFile(editorState.currentFilePath);
             // Kill any in-flight backend search immediately.
             void cancelSidebarSearch();
             return;
@@ -510,7 +511,7 @@
         }
 
         navigator.scrollToTop();
-        navigator.reset();
+        navigator.resetToFile(editorState.currentFilePath);
 
         if (isSearchMode) {
             clearReorderSuppression();
@@ -588,7 +589,7 @@
         {isSearchLoading}
         focusRequest={focusSearchRequest}
         onRefresh={handleRefresh}
-        onSearchKeydown={navigator.handleKeydown}
+        navigationHotkeys={navigator.inputHotkeys}
     />
 
     <SidebarFileList
@@ -604,6 +605,7 @@
         currentFilePath={editorState.currentFilePath}
         onOpen={openRecentFile}
         onHighlight={navigator.handleHighlight}
+        listHotkeys={navigator.listHotkeys}
         onDuplicate={handleDuplicateRecentFile}
         onDuplicateAsSlate={handleDuplicateLocalFileAsSlate}
     />

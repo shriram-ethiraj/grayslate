@@ -7,6 +7,7 @@
     import Input from "$lib/components/ui/input/input.svelte";
     import type { FilterMode, SortMode } from "$lib/files/sidebarUtils";
     import { DEFAULT_SEARCH_OPTIONS, type SearchOptions } from "$lib/files/recentFiles";
+    import { hotkey, type HotkeyBinding } from "$lib/hotkeys";
     import Search from "~icons/lucide/search";
     import RefreshCcw from "~icons/lucide/refresh-ccw";
     import X from "~icons/lucide/x";
@@ -36,8 +37,12 @@
          */
         focusRequest: number;
         onRefresh: () => void;
-        /** Keyboard handler for ArrowUp/Down/Enter navigation of results. */
-        onSearchKeydown?: (event: KeyboardEvent) => void;
+        /**
+         * TanStack hotkey bindings for file-list navigation (ArrowUp/Down/Enter).
+         * Registered on the search input (ignoreInputs: false) and on the tab
+         * triggers wrapper (ignoreInputs: true). Pass `navigator.inputHotkeys`.
+         */
+        navigationHotkeys?: HotkeyBinding[];
     }
 
     let {
@@ -49,7 +54,7 @@
         isSearchLoading,
         focusRequest,
         onRefresh,
-        onSearchKeydown,
+        navigationHotkeys = [],
     }: Props = $props();
 
     const hasActiveOptions = $derived(
@@ -61,6 +66,15 @@
 
     // Used to guard focus when the sidebar panel is collapsed.
     const sidebar = Sidebar.useSidebar();
+
+    // Register navigation hotkeys on the search input so ArrowUp/Down/Enter
+    // navigate the file list while the user types. The hotkey action needs a
+    // real DOM element, so we use $effect to apply it after the input mounts.
+    $effect(() => {
+        if (!searchInput || navigationHotkeys.length === 0) return;
+        const action = hotkey(searchInput, navigationHotkeys);
+        return () => action.destroy();
+    });
 
     // ---------------------------------------------------------------------------
     // Static option lists (live here because they reference icon components)
@@ -165,7 +179,6 @@
             <Input
                 bind:ref={searchInput}
                 bind:value={query}
-                onkeydown={onSearchKeydown}
                 placeholder="Search library..."
                 class="border-sidebar-border bg-sidebar pe-[5.75rem] ps-9 text-sm shadow-none placeholder:text-sidebar-foreground/45 focus-visible:border-sidebar-ring focus-visible:ring-sidebar-ring"
             />
@@ -231,16 +244,9 @@
         </Select.Root>
     </div>
 
+    <div use:hotkey={navigationHotkeys}>
     <Tabs.Root
         bind:value={filterMode}
-        onkeydown={(e) => {
-            // Forward Up/Down/Enter to the file-list navigator while focus is on
-            // a tab trigger. Left/Right are handled natively by the Tabs component
-            // (cycling between triggers); all other keys pass through unmodified.
-            if (e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "Enter") {
-                onSearchKeydown?.(e);
-            }
-        }}
     >
         <Tabs.List class="grid h-10 w-full grid-cols-3 bg-sidebar-accent/45 px-1">
             {#each filterOptions as option (option.value)}
@@ -256,4 +262,5 @@
             {/each}
         </Tabs.List>
     </Tabs.Root>
+    </div>
 </Sidebar.Group>

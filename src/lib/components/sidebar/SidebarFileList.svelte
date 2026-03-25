@@ -5,6 +5,7 @@
     import SidebarFileCard from "./SidebarFileCard.svelte";
     import type { LibraryFileRecord, RecentFileSection } from "$lib/files/sidebarUtils";
     import type { RecentFileRecord, RecentFileSource } from "$lib/files/recentFiles";
+    import { hotkey, type HotkeyBinding } from "$lib/hotkeys";
 
     interface Props {
         sections: RecentFileSection[];
@@ -26,6 +27,8 @@
         onOpen: (path: string, source: RecentFileSource, lineNumber?: number) => void;
         /** Called when the pointer enters a card — parent syncs highlightedIndex without scrolling. */
         onHighlight: (path: string) => void;
+        /** TanStack hotkey bindings for ArrowUp/Down/Enter navigation, applied to the scroll container. Pass `navigator.listHotkeys`. */
+        listHotkeys?: HotkeyBinding[];
         onDuplicate: (file: RecentFileRecord) => void;
         onDuplicateAsSlate: (file: RecentFileRecord) => void;
     }
@@ -43,6 +46,7 @@
         scrollContainer = $bindable(null),
         onOpen,
         onHighlight,
+        listHotkeys = [],
         onDuplicate,
         onDuplicateAsSlate,
     }: Props = $props();
@@ -60,7 +64,7 @@
     }
 </script>
 
-<div bind:this={scrollContainer} class="flex-1 min-h-0 overflow-auto p-2">
+<div bind:this={scrollContainer} class="flex-1 min-h-0 overflow-auto p-2" use:hotkey={listHotkeys}>
     <Sidebar.Group class="gap-2 p-0">
         {#if loadError}
             <div class="rounded-lg border border-destructive/30 bg-destructive/8 px-3 py-2 text-sm text-destructive">

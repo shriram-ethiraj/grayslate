@@ -11,6 +11,7 @@
 import { tick } from "svelte";
 import type { LibraryFileRecord } from "$lib/files/sidebarUtils";
 import type { RecentFileSource } from "$lib/files/recentFiles";
+import type { HotkeyBinding } from "$lib/hotkeys";
 
 export interface ListNavigatorConfig {
     /** Reactive getter — called inside $derived to track the current result list. */
@@ -129,6 +130,81 @@ export function useListNavigator(config: ListNavigatorConfig) {
     }
 
     // -----------------------------------------------------------------------
+    // Private action functions — stable references used in hotkey bindings
+    // -----------------------------------------------------------------------
+
+    function navigateDown(e: KeyboardEvent): void {
+        const results = config.getActiveResults();
+        const count = results.length;
+        if (count === 0) return;
+        e.preventDefault();
+        isKeyboardNavigating = true;
+        // If the highlighted item has scrolled out of view (user scrolled
+        // manually), snap to the first visible card instead of jumping from
+        // an off-screen position.
+        if (!isHighlightedVisible()) {
+            highlightedIndex = findFirstVisibleCardIndex();
+        } else {
+            highlightedIndex = Math.min(highlightedIndex + 1, count - 1);
+        }
+        void scrollHighlightedIntoView();
+        const file = results[Math.min(highlightedIndex, count - 1)];
+        if (file) config.onOpen(file.path, file.source);
+    }
+
+    function navigateUp(e: KeyboardEvent): void {
+        const results = config.getActiveResults();
+        const count = results.length;
+        if (count === 0) return;
+        e.preventDefault();
+        isKeyboardNavigating = true;
+        if (!isHighlightedVisible()) {
+            highlightedIndex = findLastVisibleCardIndex();
+        } else {
+            highlightedIndex = Math.max(highlightedIndex - 1, 0);
+        }
+        void scrollHighlightedIntoView();
+        const file = results[Math.min(highlightedIndex, count - 1)];
+        if (file) config.onOpen(file.path, file.source);
+    }
+
+    function openHighlighted(e: KeyboardEvent): void {
+        const results = config.getActiveResults();
+        const count = results.length;
+        if (count === 0) return;
+        e.preventDefault();
+        const file = results[Math.min(highlightedIndex, count - 1)];
+        if (file) config.onOpen(file.path, file.source);
+    }
+
+    // -----------------------------------------------------------------------
+    // TanStack hotkey bindings
+    //
+    // Two sets are exposed so callers can attach them to the right elements:
+    //
+    //   inputHotkeys  — for <input> / <textarea> targets where ignoreInputs
+    //                   must be false (the target IS the input).
+    //
+    //   listHotkeys   — for the scroll-container <div> where the buttons are
+    //                   not inputs, so the default ignoreInputs: true is correct
+    //                   (prevents firing when a hypothetical child input is focused).
+    // -----------------------------------------------------------------------
+
+    /** Wire these to the search <input> via `use:hotkey`. */
+    const inputHotkeys: HotkeyBinding[] = [
+        { key: "ArrowDown", callback: navigateDown, options: { ignoreInputs: false, preventDefault: true } },
+        { key: "ArrowUp",   callback: navigateUp,   options: { ignoreInputs: false, preventDefault: true } },
+        { key: "Enter",     callback: openHighlighted, options: { ignoreInputs: false, preventDefault: true } },
+    ];
+
+    /** Wire these to the file-list scroll-container <div> via `use:hotkey`. */
+    const listHotkeys: HotkeyBinding[] = [
+        { key: "ArrowDown", callback: navigateDown, options: { ignoreInputs: true, preventDefault: true } },
+        { key: "ArrowUp",   callback: navigateUp,   options: { ignoreInputs: true, preventDefault: true } },
+        { key: "Enter",     callback: openHighlighted, options: { ignoreInputs: true, preventDefault: true } },
+    ];
+
+    // -----------------------------------------------------------------------
     // Public API
     // -----------------------------------------------------------------------
 
@@ -138,9 +214,50 @@ export function useListNavigator(config: ListNavigatorConfig) {
             return highlightedPath;
         },
 
+        /**
+         * TanStack hotkey bindings for the search `<input>` (use `use:hotkey`).
+         * `ignoreInputs: false` because the target element IS the input.
+         */
+        get inputHotkeys(): HotkeyBinding[] {
+            return inputHotkeys;
+        },
+
+        /**
+         * TanStack hotkey bindings for the file-list scroll container (use `use:hotkey`).
+         * `ignoreInputs: true` so keys don't double-fire when the search input is focused.
+         */
+        get listHotkeys(): HotkeyBinding[] {
+            return listHotkeys;
+        },
+
         /** Reset highlight to the first item (e.g. on new results or query clear). */
         reset(): void {
             highlightedIndex = 0;
+        },
+
+        /**
+         * Reset highlight, preferring `path` if it exists in the current results.
+         * Falls back to index 0 when the path is absent or undefined.
+         * Use this after tab/filter/sort changes so the currently open file
+         * stays highlighted when it is visible in the new result set.
+         */
+        resetToFile(path: string | undefined): void {
+            if (path) {
+                const results = config.getActiveResults();
+                const idx = results.findIndex((r) => r.path === path);
+                if (idx !== -1) {
+                    highlightedIndex = idx;
+                    return;
+                }
+            }
+            highlightedIndex = 0;
+        },
+        focusHighlight(path: string): void {
+            const results = config.getActiveResults();
+            const idx = results.findIndex((r) => r.path === path);
+            if (idx !== -1) {
+                highlightedIndex = idx;
+            }
         },
 
         /** Scroll the list container to the top (e.g. on filter/sort change). */
@@ -158,52 +275,6 @@ export function useListNavigator(config: ListNavigatorConfig) {
             const idx = results.findIndex((r) => r.path === path);
             if (idx !== -1) {
                 highlightedIndex = idx;
-            }
-        },
-
-        /**
-         * Keyboard handler for ArrowUp / ArrowDown / Enter.
-         * Wire to the search input's `keydown` event.
-         */
-        handleKeydown(event: KeyboardEvent): void {
-            const results = config.getActiveResults();
-            const count = results.length;
-            if (count === 0) return;
-
-            switch (event.key) {
-                case "ArrowDown":
-                    event.preventDefault();
-                    isKeyboardNavigating = true;
-                    // If the highlighted item has scrolled out of view (user
-                    // scrolled manually), snap to the first visible card instead
-                    // of jumping from an off-screen position.
-                    if (!isHighlightedVisible()) {
-                        highlightedIndex = findFirstVisibleCardIndex();
-                    } else {
-                        highlightedIndex = Math.min(highlightedIndex + 1, count - 1);
-                    }
-                    void scrollHighlightedIntoView();
-                    break;
-                case "ArrowUp":
-                    event.preventDefault();
-                    isKeyboardNavigating = true;
-                    if (!isHighlightedVisible()) {
-                        highlightedIndex = findLastVisibleCardIndex();
-                    } else {
-                        highlightedIndex = Math.max(highlightedIndex - 1, 0);
-                    }
-                    void scrollHighlightedIntoView();
-                    break;
-                case "Enter":
-                    event.preventDefault();
-                    {
-                        const idx = Math.min(highlightedIndex, count - 1);
-                        const file = results[idx];
-                        if (file) {
-                            config.onOpen(file.path, file.source);
-                        }
-                    }
-                    break;
             }
         },
     };
