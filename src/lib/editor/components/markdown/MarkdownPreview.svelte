@@ -1,5 +1,4 @@
 <script lang="ts">
-  import DOMPurify from "dompurify";
   import { createScrollSync } from "./scrollSync";
   import MarkdownPreviewContextMenu from "./MarkdownPreviewContextMenu.svelte";
   import { hotkey, type HotkeyBinding } from "$lib/hotkeys";
@@ -14,22 +13,17 @@
     selectAllMarkdownPreview,
     unregisterMarkdownPreviewElement,
   } from "./previewActions";
-  import type {
-    MarkdownPreviewWorkerRequest,
-    MarkdownPreviewWorkerResponse,
-  } from "$lib/editor/workers/markdownPreviewProtocol";
+  import { invokeText, invoke } from "$lib/ipc";
 
   let { content, editorView }: { content: string; editorView?: EditorView } =
     $props();
 
-  const PURIFY_CONFIG = { ADD_ATTR: ["data-line"] };
   const MARKDOWN_RENDER_DEBOUNCE_MS = 120;
   const MARKDOWN_RENDER_ERROR_HTML = "<p>Error parsing markdown</p>";
 
   let previewEl = $state<HTMLElement | undefined>(undefined);
   let htmlPreview = $state("");
 
-  let markdownRenderWorker: Worker | undefined;
   let nextMarkdownRenderRequestId = 0;
   let latestMarkdownRenderRequestId = 0;
   let markdownRenderTimer: ReturnType<typeof setTimeout> | undefined;
@@ -77,16 +71,6 @@
     }
   }
 
-  function disposeMarkdownRenderWorker(): void {
-    if (markdownRenderWorker) {
-      markdownRenderWorker.onmessage = null;
-      markdownRenderWorker.onerror = null;
-      markdownRenderWorker.onmessageerror = null;
-      markdownRenderWorker.terminate();
-      markdownRenderWorker = undefined;
-    }
-  }
-
   function handleMarkdownRenderFailure(
     message: string,
     error?: unknown,
@@ -99,70 +83,33 @@
     console.error(message);
   }
 
-  function ensureMarkdownRenderWorker(): Worker {
-    if (!markdownRenderWorker) {
-      markdownRenderWorker = new Worker(
-        new URL("../../workers/markdownPreview.worker.ts", import.meta.url),
-        { type: "module" },
-      );
-
-      markdownRenderWorker.onmessage = (
-        event: MessageEvent<MarkdownPreviewWorkerResponse>,
-      ) => {
-        const message = event.data;
-        if (message.requestId !== latestMarkdownRenderRequestId) {
-          return;
-        }
-
-        if (message.type === "error") {
-          handleMarkdownRenderFailure(
-            "Markdown preview render failed:",
-            message.error,
-          );
-          return;
-        }
-
-        try {
-          htmlPreview = DOMPurify.sanitize(message.html, PURIFY_CONFIG);
-        } catch (error) {
-          handleMarkdownRenderFailure(
-            "Markdown preview sanitization failed:",
-            error,
-          );
-        }
-      };
-
-      markdownRenderWorker.onerror = (event) => {
-        handleMarkdownRenderFailure(
-          "Markdown preview worker crashed:",
-          event.error ?? event.message,
-        );
-        disposeMarkdownRenderWorker();
-      };
-
-      markdownRenderWorker.onmessageerror = (event) => {
-        handleMarkdownRenderFailure(
-          "Markdown preview worker returned an unreadable message:",
-          event,
-        );
-        disposeMarkdownRenderWorker();
-      };
-    }
-
-    return markdownRenderWorker;
-  }
-
-  function postMarkdownRenderRequest(nextContent: string): void {
+  async function postMarkdownRenderRequest(nextContent: string): Promise<void> {
     nextMarkdownRenderRequestId += 1;
-    latestMarkdownRenderRequestId = nextMarkdownRenderRequestId;
+    const requestId = nextMarkdownRenderRequestId;
+    latestMarkdownRenderRequestId = requestId;
     hasPostedMarkdownRenderRequest = true;
 
-    const request: MarkdownPreviewWorkerRequest = {
-      type: "render",
-      requestId: nextMarkdownRenderRequestId,
-      content: nextContent,
-    };
-    ensureMarkdownRenderWorker().postMessage(request);
+    try {
+      const html = await invokeText("render_markdown_preview", {
+        content: nextContent,
+        requestId,
+      });
+
+      // Stale response — a newer request has been sent since this one.
+      if (requestId !== latestMarkdownRenderRequestId) return;
+
+      htmlPreview = html;
+    } catch (error) {
+      // Stale cancellation — the backend cancelled a superseded render.
+      if (requestId !== latestMarkdownRenderRequestId) return;
+
+      const message =
+        error instanceof Error ? error.message : String(error);
+      // Backend returns "Cancelled" when a render was explicitly aborted.
+      if (message === "Cancelled") return;
+
+      handleMarkdownRenderFailure("Markdown preview render failed:", error);
+    }
   }
 
   $effect(() => {
@@ -182,7 +129,7 @@
 
     markdownRenderTimer = setTimeout(() => {
       markdownRenderTimer = undefined;
-      postMarkdownRenderRequest(nextContent);
+      void postMarkdownRenderRequest(nextContent);
     }, delay);
 
     return () => {
@@ -194,6 +141,10 @@
   $effect(() => {
     const fontSize = editorState.fontSize;
     if (!previewEl || !editorView) return;
+
+    // Reset preview scroll to top when recreating sync (file switch or
+    // first mount) so both panes start aligned at the document start.
+    previewEl.scrollTop = 0;
 
     // Wait until the next paint so the rendered preview DOM is measurable.
     let syncCleanup: (() => void) | undefined;
@@ -238,7 +189,8 @@
 
   onDestroy(() => {
     clearMarkdownRenderTimer();
-    disposeMarkdownRenderWorker();
+    // Cancel any in-flight backend render for this window.
+    invoke("cancel_markdown_preview").catch(() => {});
     if (previewEl) {
       unregisterMarkdownPreviewElement(previewEl);
     }

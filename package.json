@@ -61,9 +61,7 @@
     "@tauri-apps/plugin-os": "~2.3.2",
     "@tauri-apps/plugin-window-state": "~2.4.1",
     "codemirror": "^6.0.2",
-    "dompurify": "^3.3.1",
-    "lodash-es": "^4.17.23",
-    "marked": "^17.0.3"
+    "lodash-es": "^4.17.23"
   },
   "devDependencies": {
     "@internationalized/date": "^3.11.0",

@@ -5,6 +5,7 @@ pub mod csv;
 pub mod detection;
 pub mod filesystem;
 pub mod findstats;
+pub mod markdown_preview;
 pub mod menu;
 pub mod naming;
 pub mod search;
@@ -51,6 +52,7 @@ pub fn run() {
             app.manage(commands::search::SearchRuntimeState::default());
             app.manage(commands::transform::TransformationCancellationRegistry::default());
             app.manage(commands::findstats::EditorFindState::default());
+            app.manage(commands::markdown::MarkdownPreviewState::default());
             app.manage(commands::csv::CsvSessionRegistry::default());
 
             #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -84,6 +86,8 @@ pub fn run() {
             commands::findstats::editor_find_scan,
             commands::findstats::editor_find_selection,
             commands::findstats::cancel_editor_find,
+            commands::markdown::render_markdown_preview,
+            commands::markdown::cancel_markdown_preview,
             commands::csv::csv_initialize,
             commands::csv::csv_dispose,
             commands::csv::csv_get_rows,

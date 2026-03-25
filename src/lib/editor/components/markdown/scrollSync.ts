@@ -191,7 +191,10 @@ export function createScrollSync(
 ): () => void {
     const editorScrollEl = editorView.scrollDOM;
     let anchors: ScrollAnchor[] = [];
-    let activePane: 'editor' | 'preview' | null = null;
+    // Default to 'editor' so the first MutationObserver or ResizeObserver
+    // event (e.g. initial HTML render) syncs the preview from the editor
+    // instead of silently skipping because no pane has been interacted with.
+    let activePane: 'editor' | 'preview' | null = 'editor';
     let destroyed = false;
 
     // Lerp constants — both panes use the same easing

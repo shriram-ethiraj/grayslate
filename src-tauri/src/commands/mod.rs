@@ -2,6 +2,7 @@ pub mod csv;
 pub mod detection;
 pub mod file;
 pub mod findstats;
+pub mod markdown;
 pub mod memory;
 pub mod naming;
 pub mod search;
