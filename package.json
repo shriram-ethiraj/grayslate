@@ -63,8 +63,7 @@
     "codemirror": "^6.0.2",
     "dompurify": "^3.3.1",
     "lodash-es": "^4.17.23",
-    "marked": "^17.0.3",
-    "papaparse": "^5.5.3"
+    "marked": "^17.0.3"
   },
   "devDependencies": {
     "@internationalized/date": "^3.11.0",
@@ -77,7 +76,6 @@
     "@tanstack/svelte-table": "9.0.0-alpha.10",
     "@tauri-apps/cli": "^2",
     "@types/lodash-es": "^4.17.12",
-    "@types/papaparse": "^5.5.2",
     "bits-ui": "^2.16.2",
     "clsx": "^2.1.1",
     "mode-watcher": "^1.1.0",

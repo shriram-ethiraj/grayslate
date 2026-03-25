@@ -1,20 +1,24 @@
 ---
 name: csv-architecture
-description: Current implementation reference for CSV table mode, worker data flow, virtualization, and thresholded live mirroring into CodeMirror history.
+description: Current implementation reference for CSV table mode, Rust-backed session engine, IPC command surface, virtualization, and thresholded live mirroring into CodeMirror history.
 ---
 
 # CSV Table Editor Architecture
 
-This skill documents the CSV table implementation that is currently in the repository. Use this file when changing table mode, virtualization, worker protocols, undo/redo, or the text-mode handoff.
+This skill documents the CSV table implementation that is currently in the repository. Use this file when changing table mode, virtualization, IPC protocols, undo/redo, or the text-mode handoff.
 
 ## Primary Files
 
+### Backend (Rust)
+- `src-tauri/src/csv.rs` — `CsvSession`, `TableOp`, parsing, serialization, mutation engine, undo/redo (32 unit tests)
+- `src-tauri/src/commands/csv.rs` — 9 Tauri command handlers, `CsvSessionRegistry`
+
+### Frontend (Svelte/TypeScript)
 - `src/lib/editor/components/EditorWrapper.svelte`
 - `src/lib/editor/components/csv/CsvTableView.svelte`
 - `src/lib/editor/components/csv/useCsvEditorState.svelte.ts`
 - `src/lib/editor/components/csv/useScrollVirtualizer.svelte.ts`
 - `src/lib/editor/components/csv/csvTableProtocol.ts`
-- `src/lib/editor/workers/csvTable.worker.ts`
 - `src/lib/editor/core/editorSession.ts`
 
 ## Current Architecture
@@ -38,67 +42,78 @@ This skill documents the CSV table implementation that is currently in the repos
 ### 3. CSV Table View Responsibilities
 
 - `CsvTableView.svelte` is the orchestration layer for the mounted table.
-- It owns the worker lifecycle, request/response bookkeeping, viewport refreshes, and table metadata shown in the UI.
-- It binds `content` to the outer editor wrapper, but table state is driven primarily by worker responses, not direct DOM editing.
+- It owns the Rust session lifecycle (init/dispose), IPC invocations, viewport refreshes, and table metadata shown in the UI.
+- It binds `content` to the outer editor wrapper, but table state is driven primarily by Rust IPC responses, not direct DOM editing.
 - It keeps `snapshot` and `rowWindow` as raw state objects to avoid deep reactive overhead on large datasets.
 - It reports whether the current table session is eligible for live CodeMirror mirroring.
 
-### 4. Worker-Centered Data Model
+### 4. Rust-Backed Session Engine
 
-- `csvTable.worker.ts` is the source of truth for parsed CSV table data while table mode is active.
-- The worker stores:
-	- `headers`
-	- `rows`
-	- `delimiter`
-	- `errors`
-	- serialized `text` cache
-	- session-scoped `liveMirrorEnabled`
-	- `version`
-	- `serializedVersion`
-	- structural `undoStack` and `redoStack`
-- The worker is responsible for parsing, row-window reads, single-cell reads, mutations, undo, redo, and final text flush.
-- For non-live-mirrored sessions, the worker may drop the cached serialized text after the first mutation and regenerate it only on `flush-text` to save RAM during large table-editing sessions.
+- `csv.rs` `CsvSession` is the source of truth for parsed CSV table data while table mode is active.
+- The session stores:
+	- `headers: Vec<String>`
+	- `rows: Vec<Vec<String>>`
+	- `delimiter: u8`
+	- `errors: Vec<String>`
+	- serialized `text` cache (`serialized_text: String`)
+	- session-scoped `live_mirror_enabled: bool`
+	- `version: u64`
+	- `serialized_version: i64` (-1 = dirty)
+	- structural `undo_stack` and `redo_stack` (`Vec<Vec<TableOp>>`)
+- The session handles parsing, row-window reads, single-cell reads, mutations, undo, redo, and final text flush.
+- For non-live-mirrored sessions, the session clears the cached serialized text after each mutation and regenerates it only on `flush_text` to save RAM during large table-editing sessions.
 
-## Worker Protocol
+### 5. Session Registry
 
-`csvTableProtocol.ts` defines the request/response contract.
+- `CsvSessionRegistry` in `commands/csv.rs` is managed as Tauri app state, keyed by window label.
+- Only one CSV table session per window at a time. A new `csv_initialize` disposes the previous session.
+- Follows the `EditorFindState` pattern (per-window `HashMap` behind `Arc<Mutex<>>`).
 
-### Requests
+### 6. Cancellation
 
-- `initialize`
-- `get-rows`
-- `get-cell`
-- `mutate`
-- `undo`
-- `redo`
-- `flush-text`
+- Long-running operations (init parse, flush serialize) use `AtomicBool` for cancellation.
+- `csv_cancel` sets the flag; `csv_initialize` checks it every 50,000 rows during parsing.
+- Mutations are fast enough in Rust to not need cancellation.
 
-### Responses
+## IPC Command Surface
 
-- `initialize-progress`
-- `initialized`
-- `rows`
-- `cell`
-- `mutation-applied`
-- `mirror-text-update`
-- `flushed-text`
-- `error`
+`commands/csv.rs` defines 9 Tauri commands. `csvTableProtocol.ts` defines the shared TypeScript types.
+
+| Command | Blocking | Returns | Notes |
+|---------|----------|---------|-------|
+| `csv_initialize` | `spawn_blocking` | `CsvTableSnapshot` via Channel | Parse CSV, store session, report progress |
+| `csv_dispose` | sync | `()` | Free session memory |
+| `csv_get_rows` | sync | `CsvRowWindow` (JSON) | Slice from in-memory rows |
+| `csv_get_cell` | sync | `String` | Direct index lookup |
+| `csv_mutate` | sync | `CsvMutationResponse` (JSON) | Apply ops, return snapshot + optional mirror text |
+| `csv_undo` | sync | `CsvMutationResponse` (JSON) | Pop undo stack, invert ops |
+| `csv_redo` | sync | `CsvMutationResponse` (JSON) | Pop redo stack, apply ops |
+| `csv_flush_text` | `spawn_blocking` | `tauri::ipc::Response` (raw bytes) | Serialize if dirty, return via raw byte transport |
+| `csv_cancel` | sync | `()` | Cancel in-flight init or flush |
+
+### Transport Choices
+
+- **`csv_initialize`**: Text goes *to* Rust as a string parameter. Progress via `tauri::ipc::Channel<CsvChannelEvent>`. Final snapshot via same channel.
+- **`csv_get_rows`**: JSON response (~80KB for 200 rows × 20 cols).
+- **`csv_mutate` / `csv_undo` / `csv_redo`**: JSON response with `CsvMutationResponse` including inline `mirrorText: Option<String>`.
+- **`csv_flush_text`**: Raw bytes via `tauri::ipc::Response` (bypasses JSON escaping for large text), consumed via `invokeText()`.
 
 ### Important Contract Rules
 
 - `CsvTableSnapshot.liveMirrorEnabled` is fixed when table mode is initialized.
 - Live mirroring is only enabled for sessions with at most 100,000 data rows at table-entry time.
-- When live mirroring is enabled, forward table edits plus table undo/redo emit `mirror-text-update` messages carrying the latest serialized CSV text for the preserved CodeMirror session.
-- `flush-text` returns only the latest serialized CSV text and version.
+- When live mirroring is enabled, mutation/undo/redo responses carry `mirrorText` with the latest serialized CSV text for the preserved CodeMirror session.
+- `csv_flush_text` returns only the latest serialized CSV text as raw bytes.
 
 ## Undo/Redo Model
 
 ### Table Mode Undo/Redo
 
-- Table mode undo/redo is structural and worker-owned.
-- The worker stores arrays of `TableOp` entries rather than full CSV snapshots for the active table session.
-- `undo` pops from `undoStack`, pushes onto `redoStack`, inverts the ops, applies them, increments version, and returns updated serialized text.
-- `redo` pops from `redoStack`, reapplies the ops, pushes back to `undoStack`, increments version, and returns updated serialized text.
+- Table mode undo/redo is structural and Rust-session-owned.
+- The session stores arrays of `TableOp` entries rather than full CSV snapshots.
+- `undo` pops from `undo_stack`, pushes onto `redo_stack`, inverts the ops, applies them, increments version, and returns updated serialized text (if live-mirror).
+- `redo` pops from `redo_stack`, reapplies the ops, pushes back to `undo_stack`, increments version, and returns updated serialized text (if live-mirror).
+- History is capped at `MAX_HISTORY = 200` entries.
 
 ### Text Mode Undo After Leaving Table Mode
 
@@ -116,11 +131,25 @@ This skill documents the CSV table implementation that is currently in the repos
 ## Mutation Flow
 
 1. UI action in `useCsvEditorState.svelte.ts` creates a `CsvMutationRequest`.
-2. `CsvTableView.svelte` sends the request to the worker.
-3. The worker computes structural ops, applies them, serializes updated CSV text, increments version, and returns `mutation-applied`.
-4. If `liveMirrorEnabled` is true, the worker also emits a `mirror-text-update` for the preserved CodeMirror session.
+2. `CsvTableView.svelte` calls `invoke("csv_mutate", { mutation, userEvent })`.
+3. Rust computes structural ops, applies them, serializes updated CSV text (if live-mirror), increments version, and returns `CsvMutationResponse`.
+4. If `mirrorText` is present in the response, `CsvTableView` calls `onMirrorUpdate` inline before snapshot update.
 5. `CsvTableView.svelte` updates local snapshot state and refreshes viewport data.
 6. The visible row window is refreshed only for the required viewport range.
+
+## Parsing & Serialization
+
+### Parsing (`parse_csv` in `csv.rs`)
+- Uses the Rust `csv` crate with streaming record reader.
+- Quote-aware delimiter detection (`detect_delimiter`) over candidates `[,\t;|:~]`.
+- Greedy empty-line skipping (matches PapaParse `skipEmptyLines: "greedy"`).
+- Cancellation check every 50,000 rows via `AtomicBool`.
+- Progress reporting via `Channel` at the same interval.
+
+### Serialization (`serialize_csv` in `csv.rs`)
+- Uses `csv::WriterBuilder` with the session's delimiter.
+- Trailing newline stripped to match PapaParse `unparse` output.
+- For live-mirror sessions, serialization happens inline during mutation and the result rides on `CsvMutationResponse.mirrorText`.
 
 ## Virtualization Model
 
@@ -142,22 +171,26 @@ This skill documents the CSV table implementation that is currently in the repos
 2. Do not keep a hidden CodeMirror `EditorView` mounted during table mode.
 3. Do not rebuild the full editor state for simple language, wrap, or replay changes.
 4. Do not return massive row payloads to the main thread when a narrow row window will do.
-5. Let the worker boundary's structured clone handle viewport row transport; do not add an extra deep clone before `postMessage` unless the transport contract changes.
-6. Live mirroring currently serializes the full CSV text per mirrored step; do not raise the 100,000-row cutoff casually because the cost scales with total document size.
+5. IPC JSON transport for row windows is efficient enough for typical viewport sizes (~200 rows × 20 cols ≈ 80KB).
+6. Live mirroring serializes the full CSV text per mirrored step in Rust; do not raise the 100,000-row cutoff casually because the cost scales with total document size.
 7. Do not enable live CodeMirror mirroring for table sessions above 100,000 data rows.
 8. Do not remove the virtualizer safety caps.
+9. Column add/delete on 500K+ rows is O(rows) in Rust but completes in ~5-15ms due to contiguous `Vec::splice` (`memmove` per row). Do not move these back to JS.
 
 ## Failure Modes To Watch
 
-- If small CSV sessions collapse into one text-mode undo step, inspect `liveMirrorEnabled`, worker `mirror-text-update` emissions, and queue draining in `EditorWrapper.svelte`.
-- If large CSV sessions spike memory during table edits, confirm `liveMirrorEnabled` stayed false for that table session.
+- If small CSV sessions collapse into one text-mode undo step, inspect `liveMirrorEnabled`, `mirrorText` in `CsvMutationResponse`, and queue draining in `EditorWrapper.svelte`.
+- If large CSV sessions spike memory during table edits, confirm `live_mirror_enabled` stayed false for that Rust session.
 - If the last rows become unreachable, inspect the virtualizer's scroll-height mapping.
 - If hotkeys stop firing in table mode, inspect DOM focus and element-scoped hotkey registration.
 - If switching between text and table causes history drift, inspect the final flush alignment path in `EditorWrapper.svelte`.
+- If IPC calls fail with deserialization errors, check `#[serde(rename_all = "camelCase")]` on `CsvMutationRequest` variants with multi-word fields and `#[serde(tag = "type", rename_all = "kebab-case")]` on the enum itself.
 
 ## Safe Change Checklist
 
-- Update `csvTableProtocol.ts` together with worker/frontend changes.
+- Update `csvTableProtocol.ts` together with Rust struct changes (serde names must match).
 - Preserve the 100,000-row live mirror cutoff unless the behavior is being intentionally redesigned.
-- Keep structural undo/redo inside the worker.
-- Re-run `pnpm run check` after any protocol or component change.
+- Keep structural undo/redo inside the Rust session.
+- Run `cd src-tauri && cargo test --lib csv::` after Rust changes (32 tests).
+- Run `pnpm run check` after any protocol or component change.
+- Do not add new JS dependencies for CSV parsing — the Rust `csv` crate handles everything.

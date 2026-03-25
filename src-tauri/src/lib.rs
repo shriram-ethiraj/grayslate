@@ -1,6 +1,7 @@
 use tauri::Manager;
 
 pub mod commands;
+pub mod csv;
 pub mod detection;
 pub mod filesystem;
 pub mod findstats;
@@ -50,6 +51,7 @@ pub fn run() {
             app.manage(commands::search::SearchRuntimeState::default());
             app.manage(commands::transform::TransformationCancellationRegistry::default());
             app.manage(commands::findstats::EditorFindState::default());
+            app.manage(commands::csv::CsvSessionRegistry::default());
 
             #[cfg(not(any(target_os = "android", target_os = "ios")))]
             app.handle()
@@ -82,6 +84,15 @@ pub fn run() {
             commands::findstats::editor_find_scan,
             commands::findstats::editor_find_selection,
             commands::findstats::cancel_editor_find,
+            commands::csv::csv_initialize,
+            commands::csv::csv_dispose,
+            commands::csv::csv_get_rows,
+            commands::csv::csv_get_cell,
+            commands::csv::csv_mutate,
+            commands::csv::csv_undo,
+            commands::csv::csv_redo,
+            commands::csv::csv_flush_text,
+            commands::csv::csv_cancel,
             commands::search::cancel_sidebar_search,
             commands::search::search_sidebar_files,
             commands::transform::cancel_transformation,

@@ -21,7 +21,7 @@ type MutationLoaderConfig = {
     subMessage: string;
 };
 
-const LARGE_TABLE_MUTATION_ROW_THRESHOLD = 200_000;
+const LARGE_TABLE_MUTATION_ROW_THRESHOLD = 500_000;
 const LARGE_SELECTION_CLEAR_CELL_THRESHOLD = 5_000;
 const PAGE_SIZE = 20;
 
@@ -99,6 +99,10 @@ export function useCsvEditorState(
                 factor: 0.04,
                 minStep: 0.2,
                 interval: 90,
+                // Longer grace window for Rust-backed mutations: most operations
+                // on files up to ~1M rows finish well under 300ms, so the loader
+                // is suppressed entirely for those cases.
+                graceMs: 300,
             });
         }
 
@@ -395,17 +399,24 @@ export function useCsvEditorState(
     }
 
     function addRowAt(index: number) {
-        focusedCell = { rowIndex: index, colIndex: 0 };
-        selectionBlock = {
-            startRow: index,
-            endRow: index,
-            startCol: 0,
-            endCol: Math.max(0, columns().length - 1),
-        };
-        navigateAndFocus();
-        void runAsyncAction("input.table.row-add", () =>
-            controller.runMutation({ type: "add-row", index }, "input.table.row-add"),
-        );
+        // Focus the wrapper immediately so hotkeys stay captured during IPC.
+        focusGrid?.();
+        void runAsyncAction("input.table.row-add", async () => {
+            const applied = await controller.runMutation({ type: "add-row", index }, "input.table.row-add");
+            if (applied) {
+                // Set focus/selection AFTER the row exists in the backend and
+                // the viewport DOM has been rebuilt by applyMutationResponse.
+                focusedCell = { rowIndex: index, colIndex: 0 };
+                selectionBlock = {
+                    startRow: index,
+                    endRow: index,
+                    startCol: 0,
+                    endCol: Math.max(0, columns().length - 1),
+                };
+                navigateAndFocus();
+            }
+            return applied;
+        });
     }
 
     function addRowAbove() {
@@ -431,17 +442,24 @@ export function useCsvEditorState(
     }
 
     function addColumnAt(index: number) {
-        focusedCell = { rowIndex: -1, colIndex: index };
-        selectionBlock = {
-            startRow: 0,
-            endRow: Math.max(0, getRowCount() - 1),
-            startCol: index,
-            endCol: index,
-        };
-        navigateAndFocus();
-        void runAsyncAction("input.table.column-add", () =>
-            controller.runMutation({ type: "add-column", index }, "input.table.column-add"),
-        );
+        focusGrid?.();
+        void runAsyncAction("input.table.column-add", async () => {
+            const applied = await controller.runMutation(
+                { type: "add-column", index },
+                "input.table.column-add",
+            );
+            if (applied) {
+                focusedCell = { rowIndex: -1, colIndex: index };
+                selectionBlock = {
+                    startRow: 0,
+                    endRow: Math.max(0, getRowCount() - 1),
+                    startCol: index,
+                    endCol: index,
+                };
+                navigateAndFocus();
+            }
+            return applied;
+        });
     }
 
     function addColumnLeft() {
@@ -556,11 +574,28 @@ export function useCsvEditorState(
     }
 
     function handleUndo() {
-        void runAsyncAction("undo.table", () => controller.undo());
+        focusGrid?.();
+        void runAsyncAction("undo.table", async () => {
+            const applied = await controller.undo();
+            // Restore focus after the viewport DOM is rebuilt by applyMutationResponse.
+            if (applied) {
+                if (focusedCell) navigateAndFocus();
+                else focusGrid?.();
+            }
+            return applied;
+        });
     }
 
     function handleRedo() {
-        void runAsyncAction("redo.table", () => controller.redo());
+        focusGrid?.();
+        void runAsyncAction("redo.table", async () => {
+            const applied = await controller.redo();
+            if (applied) {
+                if (focusedCell) navigateAndFocus();
+                else focusGrid?.();
+            }
+            return applied;
+        });
     }
 
     function handleTabNavigation(isShift: boolean) {
@@ -667,6 +702,28 @@ export function useCsvEditorState(
         {
             key: "Alt+ArrowRight",
             callback: () => moveSelectedColumns(1),
+            options: { preventDefault: true, ignoreInputs: true },
+        },
+        // Insert shortcuts: Mod+Alt+Arrow mirrors Alt+Arrow (move) with Mod = "insert"
+        // Mac: Cmd+Option+Arrow  |  Windows/Linux: Ctrl+Alt+Arrow
+        {
+            key: "Mod+Alt+ArrowUp",
+            callback: () => addRowAbove(),
+            options: { preventDefault: true, ignoreInputs: true },
+        },
+        {
+            key: "Mod+Alt+ArrowDown",
+            callback: () => addRowBelow(),
+            options: { preventDefault: true, ignoreInputs: true },
+        },
+        {
+            key: "Mod+Alt+ArrowLeft",
+            callback: () => addColumnLeft(),
+            options: { preventDefault: true, ignoreInputs: true },
+        },
+        {
+            key: "Mod+Alt+ArrowRight",
+            callback: () => addColumnRight(),
             options: { preventDefault: true, ignoreInputs: true },
         },
         {

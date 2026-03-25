@@ -42,7 +42,7 @@ Keep this file compact. Detailed implementation notes belong in the skill files.
 - CodeMirror document state is preserved in a managed session even when the live editor view is destroyed.
 - Find/replace uses a custom Svelte panel; CodeMirror still owns highlights and navigation on the main thread, while match-count/current-match stats now run in a dedicated worker to keep large-document typing responsive.
 - Built-in transformations use a shared Rust progress/cancellation context plus a chunked large-text transport; the frontend assembles chunked results into a CodeMirror `Text` rope and applies them as one undoable transaction.
-- CSV table mode is worker-driven and mounted on demand.
+- CSV table mode is Rust-backed and mounted on demand.
 - CSV table edits mirror live into the preserved CodeMirror session only for sessions that start at or below 100,000 data rows; larger sessions skip live mirroring and return to text mode as a single undo step back to the pre-table state.
 - Markdown preview uses `marked` plus `dompurify` with scroll-sync hooks.
 - Loader and memory-reclamation behavior are shared infrastructure, not CSV-specific logic.
@@ -101,7 +101,7 @@ Keep this file compact. Detailed implementation notes belong in the skill files.
 - **Library Sidebar:** Recent-files refresh is backend-driven via `files://recent-updated`, emitted after read/save/rename/delete/duplicate flows. The sidebar suppresses reordering after sidebar-initiated opens and uses quiet refresh + rename-path tracking so the visible list does not jump under the cursor. Sidebar search uses cooperative cancellation with `cancel_sidebar_search` IPC for immediate backend stop on keystroke/close/teardown; the debounce effect uses `isSearchMode` (not `normalizedQuery`) to avoid per-keystroke reactive leaks.
 - **Memory Management:** Uses a Rust `sysinfo` integration and a frontend "GC Pressure" trick to reclaim heap after expensive editor teardown, especially after file switches.
 - **CSV Table View:** Uses a custom scroll virtualizer with hard safety caps; see the CSV skill for the current details.
-- **CSV Mode Architecture:** CSV table mode mounts on demand, performs parsing and mutations in a worker, and only live-mirrors text undo history for sessions that start at or below 100,000 data rows.
+- **CSV Mode Architecture:** CSV table mode mounts on demand, performs parsing and mutations in a Rust `CsvSession` backend via Tauri IPC, and only live-mirrors text undo history for sessions that start at or below 100,000 data rows.
 - **Transformations:** Built-in transformations share a Rust-side progress/cancellation layer and use chunked text delivery plus CodeMirror rope assembly for large results.
 - **Find / Replace:** Uses a custom popup wired to CodeMirror search state; heavy match counting is worker-backed, but live query/highlight/navigation stays on the main thread.
 - **Markdown Preview:** Parsed via `marked` and sanitized via `dompurify`, with custom bi-directional scroll synchronization.

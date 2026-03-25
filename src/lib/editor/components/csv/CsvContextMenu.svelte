@@ -9,6 +9,10 @@
   import type { useCsvEditorState } from "./useCsvEditorState.svelte";
   import { registerHotkey } from "$lib/hotkeys";
   import { formatForDisplay } from "@tanstack/hotkeys";
+  import MaterialSymbolsAddColumnLeftOutlineRounded from '~icons/material-symbols/add-column-left-outline-rounded';
+  import MaterialSymbolsAddColumnRightOutlineRounded from '~icons/material-symbols/add-column-right-outline-rounded';
+  import MaterialSymbolsAddRowBelowOutlineRounded from '~icons/material-symbols/add-row-below-outline-rounded';
+  import MaterialSymbolsAddRowAboveOutlineRounded from '~icons/material-symbols/add-row-above-outline-rounded';
 
   let {
     editorState,
@@ -135,27 +139,39 @@
   >
     {#if menuMode === "insert-column"}
       <button class={itemEnabled} role="menuitem" onclick={handleInsertColumnLeft}>
-        <Plus class="mr-2 h-4 w-4 shrink-0" />
+        <MaterialSymbolsAddColumnLeftOutlineRounded class="mr-2 h-4 w-4 shrink-0" />
         <span>Insert Column Left</span>
+        <span class="ml-auto pl-4 text-xs text-muted-foreground"
+          >{formatForDisplay("Mod+Alt+ArrowLeft")}</span
+        >
       </button>
     {:else if isRowSelection}
       <button class={itemEnabled} role="menuitem" onclick={handleInsertColumnLeft}>
-        <Plus class="mr-2 h-4 w-4 shrink-0" />
+        <MaterialSymbolsAddColumnRightOutlineRounded class="mr-2 h-4 w-4 shrink-0" />
         <span>Insert Column Left</span>
+        <span class="ml-auto pl-4 text-xs text-muted-foreground"
+          >{formatForDisplay("Mod+Alt+ArrowLeft")}</span
+        >
       </button>
       <button class={itemEnabled} role="menuitem" onclick={() => {
         close();
         editorState.addRowAbove();
       }}>
-        <Plus class="mr-2 h-4 w-4 shrink-0" />
+        <MaterialSymbolsAddRowAboveOutlineRounded class="mr-2 h-4 w-4 shrink-0" />
         <span>Insert Row Above</span>
+        <span class="ml-auto pl-4 text-xs text-muted-foreground"
+          >{formatForDisplay("Mod+Alt+ArrowUp")}</span
+        >
       </button>
       <button class={itemEnabled} role="menuitem" onclick={() => {
         close();
         editorState.addRowBelow();
       }}>
-        <Plus class="mr-2 h-4 w-4 shrink-0" />
+        <MaterialSymbolsAddRowBelowOutlineRounded class="mr-2 h-4 w-4 shrink-0" />
         <span>Insert Row Below</span>
+        <span class="ml-auto pl-4 text-xs text-muted-foreground"
+          >{formatForDisplay("Mod+Alt+ArrowDown")}</span
+        >
       </button>
       {#if canMoveRowUp}
         <button class={itemEnabled} role="menuitem" onclick={() => {
@@ -190,15 +206,21 @@
       </button>
     {:else if isColumnSelection}
       <button class={itemEnabled} role="menuitem" onclick={handleInsertColumnLeft}>
-        <Plus class="mr-2 h-4 w-4 shrink-0" />
+        <MaterialSymbolsAddColumnLeftOutlineRounded class="mr-2 h-4 w-4 shrink-0" />
         <span>Insert Column Left</span>
+        <span class="ml-auto pl-4 text-xs text-muted-foreground"
+          >{formatForDisplay("Mod+Alt+ArrowLeft")}</span
+        >
       </button>
       <button class={itemEnabled} role="menuitem" onclick={() => {
         close();
         editorState.addColumnRight();
       }}>
-        <Plus class="mr-2 h-4 w-4 shrink-0" />
+        <MaterialSymbolsAddColumnRightOutlineRounded class="mr-2 h-4 w-4 shrink-0" />
         <span>Insert Column Right</span>
+        <span class="ml-auto pl-4 text-xs text-muted-foreground"
+          >{formatForDisplay("Mod+Alt+ArrowRight")}</span
+        >
       </button>
       {#if canMoveColumnLeft}
         <button class={itemEnabled} role="menuitem" onclick={() => {

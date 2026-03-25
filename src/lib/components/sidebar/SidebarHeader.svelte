@@ -155,8 +155,7 @@
                     }}
                 >
                     <span class="flex items-center gap-1.5">
-                        <X class="size-3.5 shrink-0" />
-                        <span class="text-xs">Clear</span>
+                        <X class="size-4 shrink-0" />
                     </span>
                 </Button>
             {/if}

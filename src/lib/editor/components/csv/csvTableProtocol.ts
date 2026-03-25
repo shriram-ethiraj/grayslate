@@ -88,86 +88,16 @@ export type CsvMutationRequest =
           direction: -1 | 1;
       };
 
-export type CsvWorkerRequest =
-    | {
-          type: "initialize";
-          requestId: number;
-          text: string;
-      }
-    | {
-          type: "get-rows";
-          requestId: number;
-          start: number;
-          end: number;
-      }
-    | {
-          type: "get-cell";
-          requestId: number;
-          rowIndex: number;
-          colIndex: number;
-      }
-    | {
-          type: "mutate";
-          requestId: number;
-          mutation: CsvMutationRequest;
-          userEvent: string;
-      }
-    | {
-          type: "undo";
-          requestId: number;
-      }
-    | {
-          type: "redo";
-          requestId: number;
-      }
-    | {
-          type: "flush-text";
-          requestId: number;
-      };
-
-export type CsvWorkerResponse =
-    | {
-          type: "initialize-progress";
-          requestId: number;
-          parsedRows: number;
-      }
-    | {
-          type: "initialized";
-          requestId: number;
-          snapshot: CsvTableSnapshot;
-      }
-    | {
-          type: "rows";
-          requestId: number;
-          window: CsvRowWindow;
-      }
-    | {
-          type: "cell";
-          requestId: number;
-          value: string;
-      }
-    | {
-          type: "mutation-applied";
-          requestId: number;
-          snapshot: CsvTableSnapshot;
-          applied: boolean;
-      }
-    | {
-          type: "mirror-text-update";
-          requestId: number;
-          update: CsvMirrorTextUpdate;
-      }
-    | {
-          type: "flushed-text";
-          requestId: number;
-          text: string;
-          version: number;
-      }
-    | {
-          type: "error";
-          requestId: number;
-          error: string;
-      };
+/**
+ * Response from Rust csv_mutate / csv_undo / csv_redo commands.
+ * The mirror text is inlined in the response (no fire-and-forget channel).
+ */
+export type CsvMutationResponse = {
+    snapshot: CsvTableSnapshot;
+    applied: boolean;
+    mirrorText: string | null;
+    mirrorUserEvent: string | null;
+};
 
 export interface CsvTableController {
     getSnapshot(): CsvTableSnapshot;

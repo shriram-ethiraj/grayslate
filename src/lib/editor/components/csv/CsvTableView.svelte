@@ -18,14 +18,16 @@
   import CsvTableHeader from "./CsvTableHeader.svelte";
   import CsvTableBody from "./CsvTableBody.svelte";
   import CsvContextMenu from "./CsvContextMenu.svelte";
+  import { invoke, invokeText } from "$lib/ipc";
+  import { Channel } from "@tauri-apps/api/core";
   import type {
     CsvMirrorTextUpdate,
+    CsvMutationRequest,
     CsvRowWindow,
     CsvTableController,
     CsvTableFlushResult,
     CsvTableSnapshot,
-    CsvWorkerRequest,
-    CsvWorkerResponse,
+    CsvMutationResponse,
   } from "./csvTableProtocol";
 
   type Updater<T> = T | ((old: T) => T);
@@ -40,17 +42,6 @@
     startOffset: number | null;
     startSize: number | null;
   };
-
-  type PendingRequest = {
-    resolve: (value: CsvWorkerResponse) => void;
-    reject: (error: Error) => void;
-  };
-
-  type CsvWorkerRequestPayload = CsvWorkerRequest extends infer T
-    ? T extends { requestId: number }
-      ? Omit<T, "requestId">
-      : never
-    : never;
 
   const EMPTY_SNAPSHOT: CsvTableSnapshot = {
     headers: [],
@@ -129,9 +120,6 @@
   let refreshing = $state(false);
 
   let lastSyncedContent = $state(content);
-  let tableWorker: Worker | undefined;
-  let nextRequestId = 0;
-  let pendingRequests = new Map<number, PendingRequest>();
   let latestRowWindowToken = 0;
 
   let tableContainerRef = $state<HTMLDivElement | undefined>(undefined);
@@ -161,26 +149,12 @@
     return `${count} rows…`;
   }
 
-  function resetPendingRequests(message: string): void {
-    const error = new Error(message);
-    for (const pending of pendingRequests.values()) {
-      pending.reject(error);
-    }
-    pendingRequests.clear();
-  }
-
-  function disposeTableWorker(): void {
-    if (tableWorker) {
-      tableWorker.onmessage = null;
-      tableWorker.terminate();
-      tableWorker = undefined;
-    }
+  function disposeSession(): void {
+    invoke("csv_dispose").catch(() => {});
   }
 
   function releaseLargeTableState(): void {
     latestRowWindowToken += 1;
-    nextRequestId = 0;
-    pendingRequests = new Map<number, PendingRequest>();
     snapshot = EMPTY_SNAPSHOT;
     rowWindow = EMPTY_ROW_WINDOW;
     lastSyncedContent = "";
@@ -201,80 +175,18 @@
     csvEditorState.dispose();
   }
 
-  function createTableWorker() {
-    if (tableWorker) {
-      tableWorker.terminate();
-      resetPendingRequests("CSV table worker restarted");
-    }
-
-    tableWorker = new Worker(
-      new URL("../../workers/csvTable.worker.ts", import.meta.url),
-      { type: "module" },
-    );
-
-    tableWorker.onmessage = (event: MessageEvent<CsvWorkerResponse>) => {
-      const message = event.data;
-
-      if (message.type === "initialize-progress") {
-        if (initialLoading) {
-          editorState.loader.subMessage = formatRowCount(message.parsedRows);
-        }
-        return;
-      }
-
-      if (message.type === "mirror-text-update") {
-        onMirrorUpdate?.(message.update);
-        return;
-      }
-
-      const pending = pendingRequests.get(message.requestId);
-      if (!pending) return;
-
-      if (message.type === "error") {
-        pendingRequests.delete(message.requestId);
-        pending.reject(new Error(message.error));
-        return;
-      }
-
-      pendingRequests.delete(message.requestId);
-      pending.resolve(message);
-    };
-  }
-
-  function sendRequest(
-    request: CsvWorkerRequestPayload,
-  ): Promise<CsvWorkerResponse> {
-    if (!tableWorker) {
-      return Promise.reject(new Error("CSV table worker is not ready"));
-    }
-
-    const requestId = ++nextRequestId;
-    const payload = { ...request, requestId } as CsvWorkerRequest;
-
-    return new Promise((resolve, reject) => {
-      pendingRequests.set(requestId, { resolve, reject });
-      tableWorker!.postMessage(payload);
-    });
-  }
-
   function resetReplayState(baseText: string): void {
     lastSyncedContent = baseText;
     onMirrorReset?.(baseText);
   }
 
   export async function flushToTextHistory(): Promise<CsvTableFlushResult> {
-    const response = await sendRequest({ type: "flush-text" });
-    if (response.type !== "flushed-text") {
-      throw new Error("Unexpected CSV flush response");
-    }
-
-    snapshot = { ...snapshot, version: response.version };
-    lastSyncedContent = response.text;
-    content = response.text;
-    return {
-      text: response.text,
-      version: response.version,
-    };
+    const text = await invokeText("csv_flush_text");
+    const version = snapshot.version;
+    snapshot = { ...snapshot, version };
+    lastSyncedContent = text;
+    content = text;
+    return { text, version };
   }
 
   function getVisibleRow(index: number): string[] | undefined {
@@ -314,27 +226,33 @@
     }
 
     const token = ++latestRowWindowToken;
-    const response = await sendRequest({ type: "get-rows", start, end });
-    if (response.type !== "rows") return;
+    const window = await invoke<CsvRowWindow>("csv_get_rows", { start, end });
     if (token !== latestRowWindowToken) return;
-    if (response.window.version !== snapshot.version) return;
-    rowWindow = response.window;
+    if (window.version !== snapshot.version) return;
+    rowWindow = window;
   }
 
   async function applyMutationResponse(
-    response: CsvWorkerResponse,
+    response: CsvMutationResponse,
   ): Promise<boolean> {
-    if (response.type !== "mutation-applied") {
-      return false;
-    }
-
     if (!response.applied) {
       return false;
     }
 
-    snapshot = response.snapshot;
+    // Forward mirror text to EditorWrapper before updating snapshot,
+    // so the mirror queue receives the update before viewport refresh.
+    if (response.mirrorText != null && response.mirrorUserEvent) {
+      const update: CsvMirrorTextUpdate = {
+        text: response.mirrorText,
+        userEvent: response.mirrorUserEvent,
+        version: response.snapshot.version,
+      };
+      onMirrorUpdate?.(update);
+    }
 
-    rowWindow = { ...EMPTY_ROW_WINDOW, version: snapshot.version };
+    snapshot = response.snapshot;
+    // Do NOT clear rowWindow here — the stale rows stay visible while the
+    // new viewport window is fetched via IPC, preventing a flash to empty.
     await refreshViewportRows(true);
     return true;
   }
@@ -351,19 +269,21 @@
       if (rowIndex === -1) {
         return snapshot.headers[colIndex] ?? "";
       }
-      const response = await sendRequest({ type: "get-cell", rowIndex, colIndex });
-      return response.type === "cell" ? response.value : "";
+      return invoke<string>("csv_get_cell", { rowIndex, colIndex });
     },
     async runMutation(mutation, userEvent) {
-      const response = await sendRequest({ type: "mutate", mutation, userEvent });
+      const response = await invoke<CsvMutationResponse>("csv_mutate", {
+        mutation,
+        userEvent,
+      });
       return applyMutationResponse(response);
     },
     async undo() {
-      const response = await sendRequest({ type: "undo" });
+      const response = await invoke<CsvMutationResponse>("csv_undo");
       return applyMutationResponse(response);
     },
     async redo() {
-      const response = await sendRequest({ type: "redo" });
+      const response = await invoke<CsvMutationResponse>("csv_redo");
       return applyMutationResponse(response);
     },
   };
@@ -384,16 +304,24 @@
       refreshing = true;
     }
 
-    createTableWorker();
+    // Dispose any previous session before creating a new one.
+    disposeSession();
 
     try {
-      const response = await sendRequest({ type: "initialize", text });
-      if (response.type !== "initialized") {
-        throw new Error("Unexpected CSV initialization response");
-      }
+      const progressChannel = new Channel<{ type: string; parsedRows: number }>();
+      progressChannel.onmessage = (event) => {
+        if (event.type === "progress" && initialLoading) {
+          editorState.loader.subMessage = formatRowCount(event.parsedRows);
+        }
+      };
+
+      const initSnapshot = await invoke<CsvTableSnapshot>("csv_initialize", {
+        text,
+        onEvent: progressChannel,
+      });
 
       resetReplayState(text);
-      snapshot = response.snapshot;
+      snapshot = initSnapshot;
       rowWindow = { ...EMPTY_ROW_WINDOW, version: snapshot.version };
       latestRowWindowToken += 1;
       await refreshViewportRows(true);
@@ -423,7 +351,7 @@
         initialLoading = false;
       }
       refreshing = false;
-      console.error("CSV table worker initialization error:", error);
+      console.error("CSV table initialization error:", error);
     }
   }
 
@@ -569,8 +497,7 @@
     return () => {
       stopLoaderTicker();
       hideEditorLoader();
-      resetPendingRequests("CSV table worker disposed");
-      disposeTableWorker();
+      disposeSession();
       releaseLargeTableState();
     };
   });
