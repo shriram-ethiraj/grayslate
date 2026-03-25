@@ -38,7 +38,7 @@
     {:else}
       <div class="flex items-center gap-2 h-full px-2 cursor-default">
         <span>Length {documentLength}, Lines {lineCount}</span>
-        <span class="text-border/80">|</span>
+        <span class="text-muted-foreground">|</span>
         <button
           type="button"
           title="Go to line"
@@ -52,7 +52,7 @@
         {/if}
       </div>
     {/if}
-    <span class="text-border/80">|</span>
+    <span class="text-muted-foreground">|</span>
     <LanguagePicker bind:language {detectedLanguage} />
   </div>
 </div>

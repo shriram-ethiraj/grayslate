@@ -145,7 +145,7 @@
                 <Button
                     variant="ghost"
                     size="sm"
-                    class="gap-1.5 px-2 text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                    class="gap-1.5 px-2 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                     aria-label="Clear search"
                     title="Clear search and reset options"
                     onclick={() => {
@@ -162,7 +162,7 @@
             <Button
                 variant="ghost"
                 size="icon-sm"
-                class="text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                class="text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                 aria-label="Refresh recent files"
                 title="Refresh recent files"
                 onclick={onRefresh}
@@ -179,14 +179,14 @@
                 bind:ref={searchInput}
                 bind:value={query}
                 placeholder="Search library..."
-                class="border-sidebar-border bg-sidebar pe-[5.75rem] ps-9 text-sm shadow-none placeholder:text-sidebar-foreground/45 focus-visible:border-sidebar-ring focus-visible:ring-sidebar-ring"
+                class="border-sidebar-border bg-sidebar pe-[5.75rem] ps-9 text-sm shadow-none placeholder:text-muted-foreground focus-visible:border-sidebar-ring focus-visible:ring-sidebar-ring"
             />
             <div class="absolute right-1.5 top-1/2 z-10 flex -translate-y-1/2 items-center gap-0.5">
                 <button
                     type="button"
                     class="inline-flex size-6 items-center justify-center rounded-sm transition-colors {searchOptions.caseSensitive
                         ? 'text-sidebar-primary bg-sidebar-primary/15'
-                        : 'text-sidebar-foreground/75 hover:bg-sidebar-foreground/[0.07]'}"
+                        : 'text-muted-foreground hover:bg-sidebar-foreground/[0.07]'}"
                     aria-pressed={searchOptions.caseSensitive}
                     title="Match Case"
                     onclick={() => { searchOptions.caseSensitive = !searchOptions.caseSensitive; }}
@@ -197,7 +197,7 @@
                     type="button"
                     class="inline-flex size-6 items-center justify-center rounded-sm transition-colors {searchOptions.wholeWord
                         ? 'text-sidebar-primary bg-sidebar-primary/15'
-                        : 'text-sidebar-foreground/75 hover:bg-sidebar-foreground/[0.07]'}"
+                        : 'text-muted-foreground hover:bg-sidebar-foreground/[0.07]'}"
                     aria-pressed={searchOptions.wholeWord}
                     title="Match Whole Word"
                     onclick={() => { searchOptions.wholeWord = !searchOptions.wholeWord; }}
@@ -208,7 +208,7 @@
                     type="button"
                     class="inline-flex size-6 items-center justify-center rounded-sm transition-colors {searchOptions.useRegex
                         ? 'text-sidebar-primary bg-sidebar-primary/15'
-                        : 'text-sidebar-foreground/75 hover:bg-sidebar-foreground/[0.07]'}"
+                        : 'text-muted-foreground hover:bg-sidebar-foreground/[0.07]'}"
                     aria-pressed={searchOptions.useRegex}
                     title="Use Regular Expression"
                     onclick={() => { searchOptions.useRegex = !searchOptions.useRegex; }}
@@ -252,7 +252,7 @@
                 {@const Icon = option.icon}
                 <Tabs.Trigger
                     value={option.value}
-                    class="min-w-0 gap-1 overflow-hidden px-2 text-xs text-sidebar-foreground/75 data-[state=active]:bg-sidebar data-[state=active]:text-sidebar-foreground"
+                    class="min-w-0 gap-1 overflow-hidden px-2 text-xs text-muted-foreground data-[state=active]:bg-sidebar data-[state=active]:text-sidebar-foreground"
                     title={option.title}
                 >
                     <Icon class="size-3.5" />

@@ -138,7 +138,7 @@
 
   .cm-tooltip-autocomplete .cm-autocomplete-option-icon {
     @apply !flex !h-5 !w-5 !shrink-0 !items-center !justify-center;
-    opacity: 0.7;
+    color: var(--muted-foreground);
   }
 
   .cm-tooltip-autocomplete .cm-autocomplete-option-icon svg {
@@ -152,7 +152,7 @@
 
   .cm-tooltip-autocomplete .cm-completionDetail {
     @apply !text-sm;
-    opacity: 0.8;
+    color: var(--muted-foreground);
   }
 
   .cm-tooltip-autocomplete .cm-completionMatchedText {

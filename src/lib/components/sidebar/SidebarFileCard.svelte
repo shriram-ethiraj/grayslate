@@ -127,7 +127,7 @@
                         <Item.Media
                             variant="icon"
                             title={fileLanguageLabel}
-                            class="mt-0.5 {isActive ? 'border-sidebar-ring/40 bg-sidebar-foreground/[0.04] text-sidebar-foreground' : isHighlighted ? 'border-sidebar-background/60 bg-sidebar/80 text-sidebar-accent-foreground' : 'border-sidebar-border/70 bg-sidebar-accent/45 text-sidebar-foreground/75 group-data-[state=open]:border-sidebar-background/60 group-data-[state=open]:bg-sidebar/80 group-data-[state=open]:text-sidebar-accent-foreground'}"
+                            class="mt-0.5 {isActive ? 'border-sidebar-ring/40 bg-sidebar-foreground/[0.04] text-sidebar-foreground' : isHighlighted ? 'border-sidebar-background/60 bg-sidebar/80 text-sidebar-accent-foreground' : 'border-sidebar-border/70 bg-sidebar-accent/45 text-muted-foreground group-data-[state=open]:border-sidebar-background/60 group-data-[state=open]:bg-sidebar/80 group-data-[state=open]:text-sidebar-accent-foreground'}"
                         >
                             {#if FileIcon}
                                 <FileIcon class="size-4.5" />
@@ -159,14 +159,14 @@
                                     </Item.Actions>
                                 {:else if searchResult && searchResult.match_count > 0}
                                     <Item.Actions class="pt-0.5">
-                                        <span class="shrink-0 whitespace-nowrap text-xs tabular-nums {isActive ? 'text-black/60 dark:text-white/65' : 'text-sidebar-foreground/50'}">
+                                        <span class="shrink-0 whitespace-nowrap text-xs tabular-nums text-muted-foreground">
                                             {searchResult.match_count} {searchResult.match_count === 1 ? "hit" : "hits"}
                                         </span>
                                     </Item.Actions>
                                 {/if}
                             </div>
 
-                            <div class="flex min-w-0 flex-nowrap items-center gap-2 overflow-hidden text-xs {isActive ? 'text-black/70 dark:text-white/74' : isHighlighted ? 'text-sidebar-accent-foreground/72' : 'text-sidebar-foreground/55 group-data-[state=open]:text-sidebar-accent-foreground/72'}">
+                            <div class="flex min-w-0 flex-nowrap items-center gap-2 overflow-hidden text-xs {isActive ? 'text-muted-foreground' : isHighlighted ? 'text-sidebar-accent-foreground' : 'text-muted-foreground group-data-[state=open]:text-sidebar-accent-foreground'}">
                                 {#if fileSize}
                                     <span class="truncate whitespace-nowrap">{fileSize}</span>
                                     <span aria-hidden="true" class="shrink-0">•</span>
@@ -186,7 +186,7 @@
                                         {...dotProps}
                                         type="button"
                                         title="File options"
-                                        class="absolute right-1.5 top-1/2 -translate-y-1/2 flex size-6 items-center justify-center rounded transition-opacity data-[state=open]:opacity-100 hover:bg-sidebar-foreground/10 text-sidebar-foreground/50 hover:text-sidebar-foreground {isActive || isHighlighted ? 'opacity-100' : 'opacity-0 group-data-[state=open]:opacity-100'}"
+                                        class="absolute right-1.5 top-1/2 -translate-y-1/2 flex size-6 items-center justify-center rounded transition-opacity data-[state=open]:opacity-100 hover:bg-sidebar-foreground/10 text-muted-foreground hover:text-sidebar-foreground {isActive || isHighlighted ? 'opacity-100' : 'opacity-0 group-data-[state=open]:opacity-100'}"
                                     >
                                         <Ellipsis class="size-3.5" />
                                     </button>
@@ -268,8 +268,8 @@
                             title="Go to line {hit.line_number}"
                             onclick={() => onOpen(recentFile.path, recentFile.source, hit.line_number)}
                         >
-                            <span class="shrink-0 select-none tabular-nums text-xs text-sidebar-foreground/40">{hit.line_number}</span>
-                            <span class="min-w-0 truncate font-mono text-[0.8rem] leading-relaxed {isActive ? 'text-black/70 dark:text-white/70' : 'text-sidebar-foreground/65'}">
+                            <span class="shrink-0 select-none tabular-nums text-xs text-disabled-foreground">{hit.line_number}</span>
+                            <span class="min-w-0 truncate font-mono text-[0.8rem] leading-relaxed text-muted-foreground">
                                 {#each hit.fragments as fragment}
                                     {#if fragment.is_match}<mark class="bg-[var(--selection-match-bg)] text-inherit rounded-sm px-0.5 ring-1 ring-inset ring-[var(--selection-match-border)]">{fragment.text}</mark>{:else}{fragment.text}{/if}
                                 {/each}
@@ -280,7 +280,7 @@
                         <div
                             role="button"
                             tabindex="-1"
-                            class="cursor-pointer px-1.5 py-1 text-xs text-sidebar-foreground/35"
+                            class="cursor-pointer px-1.5 py-1 text-xs text-disabled-foreground"
                             onclick={() => onOpen(recentFile.path, recentFile.source)}
                             onkeydown={(e) => { if (e.key === 'Enter') onOpen(recentFile.path, recentFile.source); }}
                         >

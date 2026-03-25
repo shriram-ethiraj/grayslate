@@ -84,8 +84,8 @@
             </div>
 
         {:else if activeResults.length === 0}
-            <div class="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-sidebar-border/70 px-4 py-10 text-center text-sm text-sidebar-foreground/65">
-                <Files class="size-5 text-sidebar-foreground/45" />
+            <div class="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-sidebar-border/70 px-4 py-10 text-center text-sm text-muted-foreground">
+                <Files class="size-5 text-muted-foreground" />
                 <div>
                     {isSearchMode ? "No files match this search." : "No recent files yet."}
                 </div>
@@ -97,11 +97,11 @@
                     <section class="space-y-2">
                         {#if section.label}
                             <div class="flex items-center gap-3 px-2 pt-1">
-                                <span class="truncate whitespace-nowrap text-xs font-semibold uppercase tracking-[0.12em] text-sidebar-foreground/70">
+                                <span class="truncate whitespace-nowrap text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
                                     {section.label}
                                 </span>
                                 <div class="h-px flex-1 bg-sidebar-border/70"></div>
-                                <span class="shrink-0 whitespace-nowrap text-xs text-sidebar-foreground/60">
+                                <span class="shrink-0 whitespace-nowrap text-xs text-muted-foreground">
                                     {section.items.length}
                                 </span>
                             </div>

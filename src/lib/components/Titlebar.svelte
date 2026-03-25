@@ -484,7 +484,7 @@
   <!-- Centered file name: pointer-events-none so drag-region below remains active -->
   <div class="pointer-events-none absolute inset-0 z-5 flex items-center justify-center">
     <span
-      class="max-w-[40%] truncate text-xs font-medium text-foreground/80"
+      class="max-w-[40%] truncate text-xs font-medium text-foreground"
       title={editorState.currentFilePath ?? currentFileName}
     >{currentFileName}</span>
   </div>
