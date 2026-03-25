@@ -27,7 +27,7 @@
   import CodIconReplaceAll from "~icons/codicon/replace-all";
   import LucideCaseSensitive from "~icons/lucide/case-sensitive";
   import LucideWholeWord from "~icons/lucide/whole-word";
-  import LucideRegex from "~icons/lucide/regex";
+  import CodiconRegex from '~icons/codicon/regex';
 
   let findText = $state("");
   let replaceText = $state("");
@@ -361,7 +361,7 @@
             title="Use Regular Expression"
             onclick={() => { fr.useRegex = !fr.useRegex; }}
           >
-            <LucideRegex class="size-[1.1rem]" />
+            <CodiconRegex class="size-[1.1rem]" />
           </button>
           <span
             class="text-sm pointer-events-none inline-flex shrink-0 items-center justify-center whitespace-nowrap px-1 min-w-[4.5rem] {fr.searchError ? 'text-destructive' : 'text-foreground'}"

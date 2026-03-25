@@ -22,7 +22,7 @@
     import LucideHardDrive from "~icons/lucide/hard-drive";
     import LucideCaseSensitive from "~icons/lucide/case-sensitive";
     import LucideWholeWord from "~icons/lucide/whole-word";
-    import LucideRegex from "~icons/lucide/regex";
+    import CodiconRegex from '~icons/codicon/regex';
 
     interface Props {
         query: string;
@@ -213,7 +213,7 @@
                     title="Use Regular Expression"
                     onclick={() => { searchOptions.useRegex = !searchOptions.useRegex; }}
                 >
-                    <LucideRegex class="size-[1.1rem]" />
+                    <CodiconRegex class="size-[1.1rem]" />
                 </button>
             </div>
         </div>
