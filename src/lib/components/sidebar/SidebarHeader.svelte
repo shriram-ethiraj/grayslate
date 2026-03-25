@@ -145,7 +145,7 @@
                 <Button
                     variant="ghost"
                     size="sm"
-                    class="gap-1.5 px-2 text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                    class="gap-1.5 px-2 text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                     aria-label="Clear search"
                     title="Clear search and reset options"
                     onclick={() => {
@@ -163,7 +163,7 @@
             <Button
                 variant="ghost"
                 size="icon-sm"
-                class="text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                class="text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                 aria-label="Refresh recent files"
                 title="Refresh recent files"
                 onclick={onRefresh}
@@ -185,9 +185,9 @@
             <div class="absolute right-1.5 top-1/2 z-10 flex -translate-y-1/2 items-center gap-0.5">
                 <button
                     type="button"
-                    class="inline-flex size-6 items-center justify-center rounded-sm transition-colors text-sidebar-foreground {searchOptions.caseSensitive
-                        ? 'bg-sidebar-foreground/[0.13]'
-                        : 'hover:bg-sidebar-foreground/[0.07]'}"
+                    class="inline-flex size-6 items-center justify-center rounded-sm transition-colors {searchOptions.caseSensitive
+                        ? 'text-sidebar-primary bg-sidebar-primary/15'
+                        : 'text-sidebar-foreground/75 hover:bg-sidebar-foreground/[0.07]'}"
                     aria-pressed={searchOptions.caseSensitive}
                     title="Match Case"
                     onclick={() => { searchOptions.caseSensitive = !searchOptions.caseSensitive; }}
@@ -196,9 +196,9 @@
                 </button>
                 <button
                     type="button"
-                    class="inline-flex size-6 items-center justify-center rounded-sm transition-colors text-sidebar-foreground {searchOptions.wholeWord
-                        ? 'bg-sidebar-foreground/[0.13]'
-                        : 'hover:bg-sidebar-foreground/[0.07]'}"
+                    class="inline-flex size-6 items-center justify-center rounded-sm transition-colors {searchOptions.wholeWord
+                        ? 'text-sidebar-primary bg-sidebar-primary/15'
+                        : 'text-sidebar-foreground/75 hover:bg-sidebar-foreground/[0.07]'}"
                     aria-pressed={searchOptions.wholeWord}
                     title="Match Whole Word"
                     onclick={() => { searchOptions.wholeWord = !searchOptions.wholeWord; }}
@@ -207,9 +207,9 @@
                 </button>
                 <button
                     type="button"
-                    class="inline-flex size-6 items-center justify-center rounded-sm transition-colors text-sidebar-foreground {searchOptions.useRegex
-                        ? 'bg-sidebar-foreground/[0.13]'
-                        : 'hover:bg-sidebar-foreground/[0.07]'}"
+                    class="inline-flex size-6 items-center justify-center rounded-sm transition-colors {searchOptions.useRegex
+                        ? 'text-sidebar-primary bg-sidebar-primary/15'
+                        : 'text-sidebar-foreground/75 hover:bg-sidebar-foreground/[0.07]'}"
                     aria-pressed={searchOptions.useRegex}
                     title="Use Regular Expression"
                     onclick={() => { searchOptions.useRegex = !searchOptions.useRegex; }}

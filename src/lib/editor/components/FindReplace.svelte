@@ -332,9 +332,9 @@
         <div class="flex items-center gap-0.5 self-stretch border-l pl-1.5">
           <button
             type="button"
-            class="inline-flex size-6 items-center justify-center rounded-sm transition-colors text-foreground {fr.caseSensitive
-              ? 'bg-foreground/[0.13]'
-              : 'hover:bg-foreground/[0.07]'}"
+            class="inline-flex size-6 items-center justify-center rounded-sm transition-colors {fr.caseSensitive
+              ? 'text-foreground bg-foreground/[0.13]'
+              : 'text-foreground/75 hover:bg-foreground/[0.07]'}"
             aria-pressed={fr.caseSensitive}
             title="Match Case"
             onclick={() => { fr.caseSensitive = !fr.caseSensitive; }}
@@ -343,9 +343,9 @@
           </button>
           <button
             type="button"
-            class="inline-flex size-6 items-center justify-center rounded-sm transition-colors text-foreground {fr.wholeWord
-              ? 'bg-foreground/[0.13]'
-              : 'hover:bg-foreground/[0.07]'}"
+            class="inline-flex size-6 items-center justify-center rounded-sm transition-colors {fr.wholeWord
+              ? 'text-foreground bg-foreground/[0.13]'
+              : 'text-foreground/75 hover:bg-foreground/[0.07]'}"
             aria-pressed={fr.wholeWord}
             title="Match Whole Word"
             onclick={() => { fr.wholeWord = !fr.wholeWord; }}
@@ -354,9 +354,9 @@
           </button>
           <button
             type="button"
-            class="inline-flex size-6 items-center justify-center rounded-sm transition-colors text-foreground {fr.useRegex
-              ? 'bg-foreground/[0.13]'
-              : 'hover:bg-foreground/[0.07]'}"
+            class="inline-flex size-6 items-center justify-center rounded-sm transition-colors {fr.useRegex
+              ? 'text-foreground bg-foreground/[0.13]'
+              : 'text-foreground/75 hover:bg-foreground/[0.07]'}"
             aria-pressed={fr.useRegex}
             title="Use Regular Expression"
             onclick={() => { fr.useRegex = !fr.useRegex; }}

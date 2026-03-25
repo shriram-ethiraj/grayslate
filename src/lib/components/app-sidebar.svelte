@@ -61,8 +61,8 @@
     // while they are browsing or navigating via the sidebar.
     //
     // When active (`suppressReorder = true`):
-    //   • The derived `visibleRecentFiles` skips re-sorting.
     //   • RECENT_FILES_UPDATED_EVENT refreshes are silently deferred.
+    //   • The sort is still applied so the user's selected sort mode is respected.
     //
     // Activated by:
     //   • Opening a file from the sidebar (`openRecentFile`).
@@ -131,12 +131,6 @@
         const filteredRecentFiles = recentFiles.filter((recentFile) =>
             filterMode === "unified" || recentFile.source === filterMode
         );
-
-        // Skip re-sorting while the list is frozen so the order doesn't jump
-        // mid-session when the user has just opened a file.
-        if (suppressReorder && !isSearchMode) {
-            return filteredRecentFiles;
-        }
 
         filteredRecentFiles.sort((left, right) => compareRecentFiles(left, right, sortMode));
         return filteredRecentFiles;
@@ -343,7 +337,6 @@
 
     function activateLibrarySearch(): void {
         filterMode = DEFAULT_FILTER_MODE;
-        sortMode = DEFAULT_SORT_MODE;
         query = "";
         searchOptions = { ...DEFAULT_SEARCH_OPTIONS };
         navigator.reset();
