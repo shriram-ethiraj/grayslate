@@ -60,6 +60,7 @@ tree-sitter-c = "0.23.4"
 tree-sitter-cpp = "0.23.4"
 pulldown-cmark = "0.12"
 ammonia = "4"
+tokio = { version = "1", features = ["time"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"

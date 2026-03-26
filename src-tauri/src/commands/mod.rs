@@ -1,3 +1,4 @@
+pub mod autosave;
 pub mod csv;
 pub mod detection;
 pub mod file;

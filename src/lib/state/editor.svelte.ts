@@ -1,4 +1,5 @@
 import type { EditorView } from "codemirror";
+import type { RecentFileSource } from "$lib/files/recentFiles";
 
 export const DEFAULT_EDITOR_FONT_SIZE = 15;
 export const MIN_EDITOR_FONT_SIZE = 10;
@@ -68,6 +69,8 @@ export const editorState = $state<{
     isDirty: boolean;
     /** Absolute path of the file currently open in the editor, or undefined for untitled documents. */
     currentFilePath: string | undefined;
+    /** Source classification of the current file: `"slates"` (managed notes directory) or `"local"` (external). */
+    currentFileSource: RecentFileSource | undefined;
     currentDocumentLength: number;
     currentSelectionSize: number;
     fileType: FileType;
@@ -113,6 +116,7 @@ export const editorState = $state<{
     isUntitledDocument: true,
     isDirty: false,
     currentFilePath: undefined,
+    currentFileSource: undefined,
     currentDocumentLength: 0,
     currentSelectionSize: 0,
     fileType: "text",

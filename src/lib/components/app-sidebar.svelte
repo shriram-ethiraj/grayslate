@@ -296,7 +296,7 @@
         });
 
         const { emit } = await import("@tauri-apps/api/event");
-        await emit(OPEN_FILE_PATH_EVENT, { path, lineNumber } satisfies OpenFilePathPayload);
+        await emit(OPEN_FILE_PATH_EVENT, { path, source, lineNumber } satisfies OpenFilePathPayload);
     }
 
     async function handleDuplicateRecentFile(file: RecentFileRecord): Promise<void> {

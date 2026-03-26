@@ -11,8 +11,10 @@
     import Copy from "~icons/lucide/copy";
     import Check from "~icons/lucide/check";
     import Zap from "~icons/lucide/zap";
+    import Save from "~icons/lucide/save";
     import { editorCopySelectionOrAll } from "$lib/editor/core/actions";
     import { copyMarkdownPreviewSelectionOrAll } from "$lib/editor/components/markdown/previewActions";
+    import { emit } from "@tauri-apps/api/event";
 
     const COPY_SUCCESS_DURATION_MS = 1200;
 
@@ -158,6 +160,21 @@
         }}
     >
         <Eye class="size-4 transition-all" />
+    </Button>
+{/if}
+
+{#if editorState.currentFileSource === "local"}
+    <Button
+        variant="ghost"
+        size="icon"
+        aria-label="Save file"
+        title="Save (Ctrl+S)"
+        disabled={editorState.loader.visible || !editorState.isDirty}
+        onclick={() => {
+            void emit("menu://save-file");
+        }}
+    >
+        <Save class="size-4 transition-all" />
     </Button>
 {/if}
 

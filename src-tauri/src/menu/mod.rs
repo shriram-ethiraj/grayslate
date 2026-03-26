@@ -3,6 +3,7 @@
 #[cfg(target_os = "macos")]
 struct MacOsMenuState {
     word_wrap_item: std::sync::Mutex<tauri::menu::CheckMenuItem<tauri::Wry>>,
+    save_file_item: std::sync::Mutex<tauri::menu::MenuItem<tauri::Wry>>,
 }
 
 /// Build the macOS-native menu bar (File + Edit + View).
@@ -22,6 +23,10 @@ pub fn build_native_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::M
         .item(&MenuItemBuilder::with_id("about", "About Grayslate").build(app)?)
         .build()?;
 
+    let save_file_item = MenuItemBuilder::with_id("save-file", "Save")
+        .accelerator("CmdOrCtrl+S")
+        .build(app)?;
+
     let file_menu = SubmenuBuilder::new(app, "File")
         .item(
             &MenuItemBuilder::with_id("new-file", "New Slate")
@@ -34,11 +39,7 @@ pub fn build_native_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::M
                 .build(app)?,
         )
         .separator()
-        .item(
-            &MenuItemBuilder::with_id("save-file", "Save")
-                .accelerator("CmdOrCtrl+S")
-                .build(app)?,
-        )
+        .item(&save_file_item)
         .item(
             &MenuItemBuilder::with_id("save-file-as", "Save As...")
                 .accelerator("CmdOrCtrl+Shift+S")
@@ -57,6 +58,7 @@ pub fn build_native_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::M
     // toggle it directly without going through the non-recursive menu.get().
     app.manage(MacOsMenuState {
         word_wrap_item: std::sync::Mutex::new(word_wrap_item.clone()),
+        save_file_item: std::sync::Mutex::new(save_file_item),
     });
 
     let edit_menu = SubmenuBuilder::new(app, "Edit")
@@ -233,7 +235,24 @@ pub fn handle_macos_menu_event(app: &tauri::AppHandle, event: tauri::menu::MenuE
     }
 }
 
-/// Tauri command called from Svelte whenever `editorState.wordWrap` changes.
+/// Tauri command called from Svelte whenever `editorState.isDirty` changes.
+///
+/// On macOS it enables or disables the native "Save" menu item to match the
+/// editor's dirty state. On other platforms this is a no-op.
+#[tauri::command]
+pub fn set_menu_save_enabled(app: tauri::AppHandle, enabled: bool) {
+    #[cfg(target_os = "macos")]
+    {
+        use tauri::Manager;
+        if let Some(state) = app.try_state::<MacOsMenuState>() {
+            if let Ok(item) = state.save_file_item.lock() {
+                let _ = item.set_enabled(enabled);
+            }
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = (app, enabled);
+}
 ///
 /// On macOS it updates the native `CheckMenuItem` so the system menu bar
 /// checkmark stays in sync with the in-app context menu and keyboard shortcut.

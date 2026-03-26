@@ -43,6 +43,7 @@ export interface SidebarSearchResult extends RecentFileRecord {
 
 export interface OpenFilePathPayload {
   path: string;
+  source?: RecentFileSource;
   lineNumber?: number;
 }
 

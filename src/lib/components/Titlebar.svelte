@@ -55,7 +55,12 @@
   const currentFileName = $derived.by(() => {
     if (!editorState.currentFilePath) return "New Slate";
     const parts = editorState.currentFilePath.split(/[\\/]/);
-    return parts[parts.length - 1] || "New Slate";
+    const name = parts[parts.length - 1] || "New Slate";
+    // Show dirty indicator only for local (non-slate) files
+    if (editorState.isDirty && editorState.currentFileSource === "local") {
+      return `${name} *`;
+    }
+    return name;
   });
   /** Redo shortcut differs between platforms */
   const redoShortcut = $derived(
@@ -353,6 +358,12 @@
     if (!isMac) return;
     invoke("set_menu_word_wrap", { checked: editorState.wordWrap });
   });
+
+  // Keep the macOS native "Save" menu item enabled state in sync with isDirty.
+  $effect(() => {
+    if (!isMac) return;
+    invoke("set_menu_save_enabled", { enabled: editorState.isDirty });
+  });
 </script>
 
 {#snippet appMenubar()}
@@ -373,7 +384,7 @@
           <Menubar.Shortcut>{formatForDisplay("Mod+O")}</Menubar.Shortcut>
         </Menubar.Item>
         <Menubar.Separator />
-        <Menubar.Item onclick={handleSave}>
+        <Menubar.Item onclick={handleSave} disabled={!editorState.isDirty}>
           Save
           <Menubar.Shortcut>{formatForDisplay("Mod+S")}</Menubar.Shortcut>
         </Menubar.Item>

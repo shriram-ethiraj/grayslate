@@ -65,6 +65,7 @@
   import {
     OPEN_FILE_PATH_EVENT,
     type OpenFilePathPayload,
+    type RecentFileSource,
   } from "$lib/files/recentFiles";
   import {
     type ExecuteTransformationResponse,
@@ -75,7 +76,7 @@
     type TransformationChannelEvent,
   } from "$lib/transformations/actions";
 
-  type SavedDocumentSource = "file";
+  type SavedDocumentSource = "slates" | "local";
 
   type ActiveDocument =
     | {
@@ -83,6 +84,7 @@
         key: string;
         createdAt: number;
         lastSavedValue: string;
+        source: "slates";
       }
     | {
         kind: "saved";
@@ -143,6 +145,7 @@
       key: `untitled:${now}`,
       createdAt: now,
       lastSavedValue: "",
+      source: "slates",
     };
   }
 
@@ -199,6 +202,10 @@
   });
 
   $effect(() => {
+    editorState.currentFileSource = activeDocument.source;
+  });
+
+  $effect(() => {
     if (editorState.activeSurface === "markdown-preview") {
       return;
     }
@@ -221,6 +228,104 @@
   // Watch the `value` and run language detection when it changes
   $effect(() => {
     checkLanguage(value);
+  });
+
+  // -----------------------------------------------------------------------
+  // Backend-driven autosave integration
+  //
+  // For slate files, Rust owns save scheduling. The frontend's role:
+  //   1. Send lightweight `autosave_notify_changed(generation)` on edits
+  //   2. Respond to `autosave://request-content` with serialized content
+  //   3. Send content before file switches via `autosave_flush_before_switch`
+  //   4. Handle `autosave://document-created` for untitled→saved transitions
+  // -----------------------------------------------------------------------
+
+  let autosaveGeneration = 0;
+  let previousAutosaveValue = "";
+
+  // Notify Rust when the editor content changes (piggybacked on VALUE_SYNC).
+  // This is lightweight — only a u64 generation crosses IPC, no content.
+  $effect(() => {
+    // Reading `value` creates the reactive subscription.
+    const currentValue = value;
+    if (currentValue !== previousAutosaveValue) {
+      previousAutosaveValue = currentValue;
+      if (activeDocument.source === "slates") {
+        autosaveGeneration += 1;
+        invoke("autosave_notify_changed", { generation: autosaveGeneration }).catch(() => {});
+      }
+    }
+  });
+
+  // Register/unregister the document with the autosave system.
+  $effect(() => {
+    const path = activeDocument.kind === "saved" ? activeDocument.path : "";
+    const source = activeDocument.source;
+    const languageHint = language;
+
+    invoke("autosave_register", { path, source, languageHint }).catch(() => {});
+  });
+
+  // Listen for autosave events from Rust.
+  $effect(() => {
+    const unlistenPromise = import("@tauri-apps/api/event").then(
+      async ({ listen }) => {
+        // Rust requests content when it decides to save
+        const unlistenRequestContent = await listen<{ requestId: number }>(
+          "autosave://request-content",
+          async (event) => {
+            const content = editorSession.state?.doc.toString() ?? value;
+            invoke("autosave_submit_content", {
+              requestId: event.payload.requestId,
+              generation: autosaveGeneration,
+              content,
+            }).catch((err) => console.error("Autosave submit failed:", err));
+          },
+        );
+
+        // Rust created a new file for an untitled slate
+        const unlistenDocumentCreated = await listen<{
+          path: string;
+          detectedLanguage: string;
+        }>("autosave://document-created", async (event) => {
+          const { path, detectedLanguage: lang } = event.payload;
+          await syncLanguageFromPath(path);
+          if (language === "auto" && lang) {
+            detectedLanguage = lang;
+          }
+          activeDocument = {
+            kind: "saved",
+            path,
+            source: "slates",
+            lastSavedValue: value,
+          };
+          flushPendingValueSync(editorSession);
+        });
+
+        // Rust asks FE to flush before window close
+        const unlistenFlushClose = await listen<{ requestId: number }>(
+          "autosave://flush-before-close",
+          async () => {
+            const content = editorSession.state?.doc.toString() ?? value;
+            invoke("autosave_submit_content", {
+              requestId: 0,
+              generation: autosaveGeneration,
+              content,
+            }).catch(() => {});
+          },
+        );
+
+        return () => {
+          unlistenRequestContent();
+          unlistenDocumentCreated();
+          unlistenFlushClose();
+        };
+      },
+    );
+
+    return () => {
+      unlistenPromise.then((fn) => fn()).catch(() => {});
+    };
   });
 
   let editorView = $state<EditorView | undefined>(undefined);
@@ -595,6 +700,16 @@
     nextLanguage = "auto",
     nextDetectedLanguage = "text",
   ): void {
+    // Flush unsaved slate content to Rust before switching documents.
+    if (activeDocument.source === "slates") {
+      const content = editorSession.state?.doc.toString() ?? value;
+      const gen = autosaveGeneration;
+      invoke("autosave_flush_before_switch", {
+        content,
+        generation: gen,
+      }).catch((err) => console.error("Autosave flush on switch failed:", err));
+    }
+
     checkLanguage.cancel();
     clearCsvMirrorState();
     clearRetainedEditorState();
@@ -616,6 +731,10 @@
     detectedLanguage = nextDetectedLanguage;
     editorState.csv.showTable = false;
     editorState.activeSurface = "editor";
+
+    // Reset autosave generation for the new document
+    autosaveGeneration = 0;
+    previousAutosaveValue = nextValue;
   }
 
   async function createNewFile(): Promise<void> {
@@ -645,7 +764,7 @@
   // picker, then invoke read_file_content on the Rust side which enforces
   // the current 200 MB size limit before returning the text.
   // -----------------------------------------------------------------------
-  async function openFileAtPath(filePath: string, lineNumber?: number): Promise<void> {
+  async function openFileAtPath(filePath: string, lineNumber?: number, fileSource?: RecentFileSource): Promise<void> {
     // Fast path: the file is already loaded — avoid a full reload and just
     // navigate to the requested line directly.
     if (editorState.currentFilePath === filePath && editorView) {
@@ -665,7 +784,7 @@
 
     setPendingSidebarOpenFile({
       path: filePath,
-      source: preservesPendingMetadata ? existingPendingFile.source : "local",
+      source: preservesPendingMetadata ? existingPendingFile.source : (fileSource ?? "local"),
       requestId: requestVersion,
       revealInRecentList: preservesPendingMetadata
         ? existingPendingFile.revealInRecentList
@@ -714,12 +833,28 @@
       const nextLanguage = detected;
       const nextDetectedLanguage = detected;
 
+      // Resolve the document source for save policy.
+      // Prefer: explicit parameter → pending sidebar state → backend classification.
+      let resolvedSource: SavedDocumentSource = fileSource ?? "local";
+      if (!fileSource) {
+        const pending = librarySidebarState.pendingOpenFile;
+        if (pending?.path === filePath) {
+          resolvedSource = pending.source;
+        } else {
+          try {
+            resolvedSource = (await invoke<string>("classify_source", { path: filePath })) as SavedDocumentSource;
+          } catch {
+            resolvedSource = "local";
+          }
+        }
+      }
+
       resetEditorDocument(
         content,
         {
           kind: "saved",
           path: filePath,
-          source: "file",
+          source: resolvedSource,
           lastSavedValue: content,
         },
         nextLanguage,
@@ -795,10 +930,19 @@
   async function writeDocumentToPath(path: string, content: string): Promise<void> {
     await invoke("write_file_content", { path, content });
     await syncLanguageFromPath(path);
+
+    // Classify the source from the new path (Save As may change source).
+    let newSource: SavedDocumentSource;
+    try {
+      newSource = (await invoke<string>("classify_source", { path })) as SavedDocumentSource;
+    } catch {
+      newSource = activeDocument.source === "slates" ? "slates" : "local";
+    }
+
     activeDocument = {
       kind: "saved",
       path,
-      source: "file",
+      source: newSource,
       lastSavedValue: content,
     };
     // Flush any pending debounced value sync so that `isDirty`
@@ -851,7 +995,7 @@
       activeDocument = {
         kind: "saved",
         path: savePath,
-        source: "file",
+        source: "slates",
         lastSavedValue: content,
       };
       flushPendingValueSync(editorSession);
@@ -916,7 +1060,7 @@
         });
         const unlistenOpenFilePath = await listen<OpenFilePathPayload>(OPEN_FILE_PATH_EVENT, (event) => {
           if (event.payload?.path) {
-            void openFileAtPath(event.payload.path, event.payload.lineNumber);
+            void openFileAtPath(event.payload.path, event.payload.lineNumber, event.payload.source);
           }
         });
         const unlistenSaveFile = await listen("menu://save-file", () => {
@@ -958,6 +1102,9 @@
     if (showTable === editorState.csv.showTable) {
       return;
     }
+
+    // Notify autosave backend of CSV mode changes
+    invoke("autosave_set_csv_mode", { active: showTable }).catch(() => {});
 
     if (showTable) {
       editorState.csv.showTable = true;

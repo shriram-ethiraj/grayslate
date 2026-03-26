@@ -1,5 +1,6 @@
 use tauri::Manager;
 
+pub mod autosave;
 pub mod commands;
 pub mod csv;
 pub mod detection;
@@ -54,6 +55,11 @@ pub fn run() {
             app.manage(commands::findstats::EditorFindState::default());
             app.manage(commands::markdown::MarkdownPreviewState::default());
             app.manage(commands::csv::CsvSessionRegistry::default());
+            app.manage(autosave::AutosaveRegistry::default());
+
+            // Spawn the background autosave timer thread.
+            let timer_handle = app.handle().clone();
+            std::thread::spawn(move || autosave::run_timer_loop(timer_handle));
 
             #[cfg(not(any(target_os = "android", target_os = "ios")))]
             app.handle()
@@ -62,6 +68,21 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             window::apply_macos_window_styling(app);
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                let registry = window.app_handle().state::<autosave::AutosaveRegistry>();
+                let label = window.label().to_string();
+
+                if registry.has_unsaved_changes(&label) {
+                    api.prevent_close();
+                    let window_handle = window.clone();
+                    tauri::async_runtime::spawn(async move {
+                        flush_on_close(&window_handle).await;
+                        let _ = window_handle.close();
+                    });
+                }
+            }
         })
         .invoke_handler(tauri::generate_handler![
             commands::file::cancel_file_read,
@@ -103,8 +124,81 @@ pub fn run() {
             commands::transform::execute_transformation,
             commands::update::check_for_updates,
             commands::update::install_available_update,
+            commands::autosave::autosave_register,
+            commands::autosave::autosave_notify_changed,
+            commands::autosave::autosave_submit_content,
+            commands::autosave::autosave_flush_before_switch,
+            commands::autosave::autosave_set_csv_mode,
+            commands::autosave::classify_source,
             menu::set_menu_word_wrap,
+            menu::set_menu_save_enabled,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+// ---------------------------------------------------------------------------
+// Close-request flush logic
+// ---------------------------------------------------------------------------
+
+/// Flush pending autosave changes before the window closes.
+///
+/// For CSV table mode, serializes directly from `CsvSession`.
+/// For text mode, emits a flush event to the frontend and waits for the
+/// FE to respond by calling `autosave_submit_content`.  If the FE doesn't
+/// respond within 3 seconds, allow the close anyway.
+async fn flush_on_close(window: &tauri::Window) {
+    use tauri::Emitter;
+
+    let label = window.label().to_string();
+    let app = window.app_handle();
+    let registry = app.state::<autosave::AutosaveRegistry>();
+
+    let doc_info = match registry.get_document_info(&label) {
+        Some(info) => info,
+        None => return,
+    };
+
+    if !doc_info.is_dirty || !matches!(doc_info.source, storage::FileSource::Slates) {
+        return;
+    }
+
+    if doc_info.csv_table_active {
+        // CSV: serialize directly from CsvSession and write
+        let csv_registry = app.state::<commands::csv::CsvSessionRegistry>();
+        if let Some((_, content)) = csv_registry.try_flush_for_autosave(&label) {
+            if let Some(path) = &doc_info.path {
+                let path = path.clone();
+                let _ = tauri::async_runtime::spawn_blocking(move || {
+                    autosave::autosave_write_to_disk(&path, &content)
+                })
+                .await;
+            }
+        }
+    } else {
+        // Text: ask FE for content, wait with timeout
+        let _ = window.emit(
+            autosave::AUTOSAVE_FLUSH_BEFORE_CLOSE_EVENT,
+            autosave::ContentRequestPayload { request_id: 0 },
+        );
+
+        // Wait up to 3 seconds for the FE to call autosave_submit_content.
+        // The submit_content command will complete the save; we just need to
+        // wait long enough for it to finish.
+        let start = std::time::Instant::now();
+        let timeout = std::time::Duration::from_secs(3);
+        loop {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            if !registry.has_unsaved_changes(&label) {
+                break;
+            }
+            if start.elapsed() >= timeout {
+                eprintln!(
+                    "Autosave: close-flush timed out for window '{}'; accepting potential data loss.",
+                    label
+                );
+                break;
+            }
+        }
+    }
 }

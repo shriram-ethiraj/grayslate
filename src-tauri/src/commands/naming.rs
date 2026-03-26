@@ -59,16 +59,25 @@ pub async fn save_untitled_slate(
     content: String,
     language_hint: String,
 ) -> Result<SaveResult, String> {
-    // Resolve the configured notes root (same logic as the existing save flow).
-    let notes_root = resolve_notes_root_path(&app, storage.inner())?;
+    save_new_slate_to_disk(&app, storage.inner(), &content, &language_hint).await
+}
 
-    // Derive a smart stem from the content, auto-detecting language if needed.
-    let (stem, effective_language) = suggest_stem_auto(&content, &language_hint, None);
+/// Core logic for saving untitled content as a new slate file.
+/// Shared between `save_untitled_slate` (explicit Save) and autosave's
+/// first-save-of-untitled flow.
+pub async fn save_new_slate_to_disk(
+    app: &tauri::AppHandle,
+    storage: &AppStorage,
+    content: &str,
+    language_hint: &str,
+) -> Result<SaveResult, String> {
+    let notes_root = resolve_notes_root_path(app, storage)?;
+
+    let (stem, effective_language) = suggest_stem_auto(content, language_hint, None);
     let stem = stem.unwrap_or_else(fallback_stem);
 
     let extension = language_to_extension(&effective_language);
 
-    // Build a collision-free path inside notes_root.
     let base_name = if extension.is_empty() {
         stem
     } else {
@@ -77,9 +86,8 @@ pub async fn save_untitled_slate(
     let base_name = sanitize_filename(&base_name);
     let target_path = unique_path_in_dir(&notes_root, &base_name);
 
-    // Write the file (create parent dirs just in case).
     let path_for_write = target_path.clone();
-    let content_for_write = content.clone();
+    let content_for_write = content.to_string();
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
         if let Some(parent) = path_for_write.parent() {
             std::fs::create_dir_all(parent)
@@ -91,8 +99,7 @@ pub async fn save_untitled_slate(
     .await
     .map_err(|e| format!("Failed to join file write task: {}", e))??;
 
-    // Record the save event in storage (mirrors write_file_content behaviour).
-    let source = classify_file_source(&app, storage.inner(), &target_path)?;
+    let source = classify_file_source(app, storage, &target_path)?;
     storage.record_file_event(&target_path, source, FileEventType::Save)?;
     let _ = app.emit(RECENT_FILES_UPDATED_EVENT, ());
 

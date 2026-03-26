@@ -37,6 +37,18 @@ impl CsvSessionRegistry {
         Ok(f(session))
     }
 
+    /// Autosave helper: flush the CSV session's serialized text and version
+    /// without going through the normal command flow. Returns `None` if no
+    /// session exists for this window.
+    pub fn try_flush_for_autosave(&self, window_label: &str) -> Option<(u64, String)> {
+        let mut sessions = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
+        sessions.get_mut(window_label).map(|session| {
+            let version = session.version;
+            let text = session.flush_text();
+            (version, text)
+        })
+    }
+
     fn insert(&self, window_label: &str, session: CsvSession) {
         let mut sessions = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
         sessions.insert(window_label.to_string(), session);
