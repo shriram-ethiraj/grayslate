@@ -81,8 +81,11 @@ REPO_ROOT = SCRIPT_DIR.parent.parent  # tools/naming-audit → tools → repo ro
 # Cloned repos are cached here so repeat runs skip re-cloning.
 REPOS_CACHE_DIR = SCRIPT_DIR / "repos"
 
-# Search order: release → debug (Windows adds .exe)
+# Search order: workspace root target → src-tauri target (release → debug).
+# Since the crates were extracted to workspace root, cargo builds to target/.
 _BINARY_STEMS = [
+    REPO_ROOT / "target" / "release" / "name_file",
+    REPO_ROOT / "target" / "debug" / "name_file",
     REPO_ROOT / "src-tauri" / "target" / "release" / "name_file",
     REPO_ROOT / "src-tauri" / "target" / "debug" / "name_file",
 ]
@@ -297,8 +300,8 @@ def _process_file(args: tuple) -> dict | None:
     """
     Worker unit: read one file and query the binary.
 
-    Accepts a (rel_path, abs_path, binary) tuple so it can be dispatched
-    via executor.map() without needing a closure.
+    Accepts a (rel_path, abs_path, binary) tuple so it can be dispatched via
+    executor.map() without needing a closure.
     Returns a result dict on success, or None if the file cannot be read.
     """
     rel_path, abs_path, binary = args
@@ -569,7 +572,7 @@ def main() -> None:
 
     print(f"Repos  : {len(entries)} entries in {repos_file.name}\n")
 
-    # ── Process each entry ────────────────────────────────────────────────────
+    # ── Process each entry ────────────────────────────────────────────────
     for entry in entries:
         repo_name = repo_name_from_entry(entry)
         is_github = "github.com" in entry

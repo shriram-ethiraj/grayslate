@@ -10,14 +10,10 @@
 /// Writes a single JSON object to stdout:
 ///
 ///   {
-///     "content_detected_lang": "python",   // language detected from content alone
-///     "content_suggested_ext": "py",        // canonical extension for that language
-///     "suggested_name":        "my-module" // naming result, or "" on fallback
+///     "content_detected_lang": "python",
+///     "content_suggested_ext": "py",
+///     "suggested_name":        "my-module"
 ///   }
-///
-/// This binary is intended for use by audit_repos.py to evaluate how well the
-/// Grayslate detection and naming pipelines handle content without any filename
-/// context — the primary path for paste/untitled documents.
 use std::io::{self, Read};
 
 use grayslate_lib::{detection, naming};

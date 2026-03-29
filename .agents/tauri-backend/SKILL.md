@@ -42,7 +42,7 @@ Current implementation notes:
 - File reads are validated in Rust before returning content to the frontend.
 - `read_file_content` is cancellable per window and returns raw UTF-8 bytes via `tauri::ipc::Response`.
 - The enforced file-open limit is currently 200 MB.
-- `detect_language` now runs the family-first v2 pipeline, with the legacy heuristic scorer retained as fallback when v2 abstains.
+- `detect_language` runs the family-first detection pipeline: extension → shebang → strong structural → family classification → family-gated scoring → disambiguation, abstaining when no confident match is found.
 - macOS native menu wiring is handled in Rust; Windows and Linux use the in-window menu implementation.
 - The app builder uses Tauri v2 plugins for window state, OS info, opener, dialog, and clipboard.
 

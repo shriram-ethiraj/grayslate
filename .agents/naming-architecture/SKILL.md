@@ -14,8 +14,7 @@ Use this skill when changing language detection, filename suggestion, canonical 
 - `src-tauri/src/detection/family.rs`
 - `src-tauri/src/detection/scoring.rs`
 - `src-tauri/src/detection/disambiguation.rs`
-- `src-tauri/src/detection/heuristic.rs`
-- `src-tauri/src/detection/treesitter.rs`
+- `src-tauri/src/detection/structural.rs`
 - `src-tauri/src/detection/languages/mod.rs`
 - `src-tauri/src/detection/languages/*.rs`
 - `src-tauri/src/naming/mod.rs`
@@ -49,7 +48,7 @@ The frontend keeps only thin synchronous maps for immediate UI behavior:
 - `languageExtensions.ts` for CodeMirror language support
 - `languageIconMap.ts` for sidebar/status-bar labels and icons
 
-Do not move content-based detection or naming heuristics back into Svelte.
+Do not move content-based detection or naming logic back into Svelte.
 
 ## Detection Architecture
 
@@ -63,10 +62,10 @@ Ordered phases:
 2. shebang
 3. strong structural detection
 4. content family classification
-5. family-gated candidate scoring
-6. rival disambiguation
-7. confidence gate
-8. legacy heuristic fallback when v2 abstains
+5. soft structural detection (family-gated)
+6. family-gated candidate scoring
+7. superset/rival disambiguation
+8. confidence gate (abstain if unsure)
 
 The key architectural change is that content is classified into broad families before language-specific scoring runs:
 
@@ -106,27 +105,28 @@ This stage is deterministic and rule-based. There is no ML model here.
 
 `src-tauri/src/detection/scoring.rs` only scores languages whose `content_families` intersect the chosen family set.
 
-Each language now carries new v2 metadata in `LanguageDefinition`:
+Each language carries v2 metadata in `LanguageDefinition`:
 
 - `content_families`
 - `anchors` — strong, near-exclusive signals
 - `hints` — weaker supporting signals
-- `rivals` — nearest neighboring languages
-- `differentiators` — patterns used only in head-to-head disambiguation
+- `keywords` — language-specific keyword tokens for fingerprinting
+- `builtins` — language-specific builtin tokens for fingerprinting
 - `disqualifiers` — hard rule-outs
 
-Legacy fields (`patterns`, `anti_patterns`, `keywords`, `builtins`, `exclusive_patterns`) still exist because the v2 pipeline intentionally falls back to the legacy scorer when it abstains.
+The scoring function awards anchor + hint + keyword/builtin bonus (gated on anchor evidence). Minimum threshold (`ANCHOR_THRESHOLD = 4`) required for candidacy.
 
 ### Rival disambiguation
 
 `disambiguation.rs` resolves close competitors such as:
 
 - JavaScript vs TypeScript
+- Angular vs TypeScript/JavaScript
 - Java vs Kotlin vs Scala
 - C vs C++
 - Python vs Ruby / Perl
 
-It uses `rivals` + `differentiators` first, then tree-sitter error ratios where grammars exist.
+It uses superset pair relationships and score-gap analysis to break ties between ambiguous candidates.
 
 ## First-class prose languages
 
@@ -140,7 +140,7 @@ Detection files:
 Both live in `ContentFamily::Prose`, which means:
 
 - they do not compete with code families unless the family classifier is already wrong
-- email vs prompt ambiguity is resolved with prose-specific anchors and differentiators
+- email vs prompt ambiguity is resolved with prose-specific anchors and disqualifiers
 
 Examples:
 
@@ -152,15 +152,15 @@ Examples:
 1. Create `src-tauri/src/detection/languages/<lang>.rs`
 2. Export `definition() -> LanguageDefinition`
 3. Register the module and `definition()` in `src-tauri/src/detection/languages/mod.rs`
-4. Populate both:
-   - deterministic / legacy fields as needed
-   - v2 family fields (`content_families`, `anchors`, `hints`, `rivals`, `differentiators`)
+4. Populate:
+   - deterministic fields: `extensions`, `filenames`, `shebangs`
+   - family-gated fields: `content_families`, `anchors`, `hints`, `keywords`, `builtins`, `disqualifiers`
 5. Add tests for:
    - positive detection
    - nearby-rival disambiguation
    - prose / mixed-content rejection where relevant
 
-Do not assume the old global heuristic loop is the primary architecture anymore.
+The family-first pipeline is the sole detection architecture. There is no legacy fallback.
 
 ## Naming Architecture
 
@@ -350,7 +350,7 @@ Current notable behavior:
 
 - Keep Rust as the source of truth for content-based detection and naming
 - Preserve the distinction between detection aliases and canonical save extension
-- When adding languages, populate `content_families`, `anchors`, `hints`, and `rivals`
+- When adding languages, populate `content_families`, `anchors`, `hints`, `keywords`, `builtins`, and `disqualifiers`
 - Keep `email` / `prompt` suffix behavior intact
 - Do not trust the current filename extension inside `suggest_name_for_file`
 - Do not reintroduce frontend-only recent-files refresh emits for read/save flows

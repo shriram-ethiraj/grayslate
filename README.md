@@ -23,7 +23,7 @@
 ## ✨ Key Features
 
 - **🚀 Fast Data Viewing**: High-performance CSV table view that can open large files without breaking a sweat.
-- **🔍 Automatic Language Detection**: Automatically detects 15+ languages (like JSON, Python, and CSV) using smart heuristics.
+- **🔍 Automatic Language Detection**: Automatically detects 40+ languages using extension, shebang, structural patterns, and family-based content analysis.
 - **🎨 Clean UI**: A tidy, distraction-free interface built with **Tailwind CSS v4** and **Shadcn**. Includes a beautiful dark mode.
 - **🛠️ Robust Editor**: Powered by **CodeMirror 6** for a solid, modern editing experience.
 - **📦 Cross-Platform**: Runs on macOS, Windows, and Linux as a dedicated desktop application using **Tauri 2.0**.

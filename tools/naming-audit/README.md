@@ -118,14 +118,19 @@ tools/naming-audit/
 ├── audit_repos.py          # Main audit script — produces per-repo CSVs
 ├── metrics.py              # Aggregate per-language accuracy summary
 ├── filter_failures.py      # Extract failure rows into analysis subdirs
+├── compare_runs.py         # Compare two audit runs (before vs after)
 ├── repos.txt               # List of repos to audit (edit this)
 ├── repos/                  # Cached git clones (gitignored, auto-created)
 │   └── <repo-name>/
 ├── output/                 # Raw per-repo CSVs (gitignored)
 │   └── <repo-name>.csv
+├── output-with-treesitter/ # Backed-up baseline from tree-sitter era (gitignored)
+│   └── <repo-name>.csv
 └── analysis/               # Generated analysis outputs (gitignored)
     ├── metrics/
     │   └── metrics.csv             # Per-language accuracy summary
+    ├── comparison.csv              # Before vs after per-language delta
+    ├── diff-files.csv              # Files where detection/naming changed
     ├── content_match_negatives/    # Rows where content_ext_match = no
     │   └── <repo-name>.csv
     └── name_fallback_positives/    # Rows where is_name_fallback = yes
@@ -147,6 +152,11 @@ python metrics.py
 python filter_failures.py
 # → analysis/content_match_negatives/<repo>.csv  (detection mismatches)
 # → analysis/name_fallback_positives/<repo>.csv  (naming fallbacks)
+
+# 3. Compare against a previous baseline (e.g. output-with-treesitter)
+python compare_runs.py --before output-with-treesitter --after output
+# → analysis/comparison.csv  (per-language detection & naming deltas)
+# → analysis/diff-files.csv  (individual files that changed)
 ```
 
 The `content_match_negatives/` files are the primary input for improving detection accuracy — each row shows exactly what the system guessed vs. what the actual extension was.
@@ -155,12 +165,14 @@ The `content_match_negatives/` files are the primary input for improving detecti
 
 The `name_file` binary receives content on stdin with **no filename argument**. It runs two steps:
 
-1. **Content-only detection** — the full 4-phase pipeline without any extension hint:
-   - Phase 2: Shebang line (`#!/usr/bin/env python3`)
-   - Phase 3: Structural signals (JSON, YAML, TOML, HTML, CSV, Markdown)
-   - Phase 4: Heuristic scoring across 20+ language signatures
-   - Phase 4a: Tree-sitter tiebreak for ambiguous results
+1. **Content-only detection** — the full pipeline without any extension hint:
+   - Phase 0: Deterministic anchors (extension, shebang, strong structural)
+   - Phase 1: Content family classification
+   - Phase 2: Family-gated candidate scoring
+   - Phase 3: Neighbor disambiguation
+   - Phase 4: Confidence gate
 
 2. **Naming** — runs the language-appropriate extractor (code symbols, headings, keys, etc.) on the detected language.
 
 This is the exact code path triggered when a user pastes content into an untitled Grayslate slate.
+

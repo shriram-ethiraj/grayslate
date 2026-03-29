@@ -1,0 +1,13 @@
+[package]
+name = "grayslate-langnaming"
+version = "0.1.0"
+edition = "2021"
+description = "Smart filename stem suggestion from source code content. Extracts meaningful names from 43+ programming languages using pattern-based heuristics."
+license = "MIT"
+readme = "README.md"
+keywords = ["naming", "filename", "code-analysis", "programming-language"]
+categories = ["text-processing", "development-tools"]
+
+[dependencies]
+regex = "1"
+yake-rust = { version = "1", default-features = false, features = ["en"] }

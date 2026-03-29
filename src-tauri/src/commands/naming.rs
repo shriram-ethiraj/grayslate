@@ -177,8 +177,8 @@ pub fn suggest_name_for_file(path: String) -> Result<String, String> {
         .and_then(|mut f| f.by_ref().take(READ_LIMIT).read_to_end(&mut raw_bytes));
     let content = String::from_utf8_lossy(&raw_bytes);
 
-    // "auto" triggers the same content-detection cascade as the untitled save:
-    // shebang → structural → heuristic scoring → correct language & extension.
+    // "auto" triggers the family-first detection pipeline:
+    // extension → shebang → structural → family → scoring → disambiguation.
     Ok(build_suggested_name(&content, "auto").0)
 }
 

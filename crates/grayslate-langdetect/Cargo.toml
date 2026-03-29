@@ -1,0 +1,12 @@
+[package]
+name = "grayslate-langdetect"
+version = "0.1.0"
+edition = "2021"
+description = "Content-based programming language detection. Identifies 43+ languages from source code, filenames, shebangs, and structural patterns using a multi-phase pipeline."
+license = "MIT"
+readme = "README.md"
+keywords = ["language-detection", "programming-language", "code-analysis"]
+categories = ["text-processing", "development-tools"]
+
+[dependencies]
+regex = "1"
