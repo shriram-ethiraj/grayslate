@@ -31,6 +31,7 @@
         listHotkeys?: HotkeyBinding[];
         onDuplicate: (file: RecentFileRecord) => void;
         onDuplicateAsSlate: (file: RecentFileRecord) => void;
+        onUnlink: (file: RecentFileRecord) => void;
     }
 
     let {
@@ -49,6 +50,7 @@
         listHotkeys = [],
         onDuplicate,
         onDuplicateAsSlate,
+        onUnlink,
     }: Props = $props();
 
     /**
@@ -117,6 +119,7 @@
                                     onHover={() => onHighlight(recentFile.path)}
                                     {onDuplicate}
                                     {onDuplicateAsSlate}
+                                    {onUnlink}
                                 />
                             {/each}
                         </Item.Group>

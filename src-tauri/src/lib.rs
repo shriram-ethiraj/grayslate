@@ -88,6 +88,7 @@ pub fn run() {
             commands::file::cancel_file_read,
             commands::file::delete_file,
             commands::file::duplicate_file,
+            commands::file::untrack_local_file,
             commands::file::duplicate_local_file_as_slate,
             commands::file::get_app_setting,
             commands::file::get_recent_files,

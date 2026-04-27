@@ -115,3 +115,8 @@ export async function duplicateFile(path: string): Promise<string> {
 export async function duplicateLocalFileAsSlate(path: string): Promise<string> {
   return invoke<string>("duplicate_local_file_as_slate", { path });
 }
+
+/** Remove a local (external) file from sidebar tracking without deleting it from disk. */
+export async function untrackLocalFile(path: string): Promise<void> {
+  return invoke<void>("untrack_local_file", { path });
+}

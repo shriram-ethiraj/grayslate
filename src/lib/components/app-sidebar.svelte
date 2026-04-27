@@ -20,6 +20,7 @@
         cancelSidebarSearch,
         duplicateFile,
         duplicateLocalFileAsSlate,
+        untrackLocalFile,
     } from "$lib/files/recentFiles";
     import {
         buildRecencySections,
@@ -321,6 +322,26 @@
         }
     }
 
+    async function handleUnlink(file: RecentFileRecord): Promise<void> {
+        // Optimistically remove from both lists before awaiting the backend so
+        // the card disappears immediately without a visible delay.
+        const prevRecentFiles = recentFiles;
+        const prevSearchResults = searchResults;
+        recentFiles = recentFiles.filter((f) => f.path !== file.path);
+        searchResults = searchResults.filter((f) => f.path !== file.path);
+
+        try {
+            await untrackLocalFile(file.path);
+            toast.success(`"${file.file_name}" unlinked from sidebar.`);
+        } catch (err) {
+            // Restore both lists so the card reappears on failure.
+            recentFiles = prevRecentFiles;
+            searchResults = prevSearchResults;
+            const msg = err instanceof Error ? err.message : String(err);
+            toast.error(`Failed to unlink: ${msg}`);
+        }
+    }
+
     function handleRefresh(): void {
         clearReorderSuppression();
         navigator.reset();
@@ -601,5 +622,6 @@
         listHotkeys={navigator.listHotkeys}
         onDuplicate={handleDuplicateRecentFile}
         onDuplicateAsSlate={handleDuplicateLocalFileAsSlate}
+        onUnlink={handleUnlink}
     />
 </div>

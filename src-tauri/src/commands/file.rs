@@ -442,6 +442,28 @@ fn require_slate_file(
     Ok(())
 }
 
+/// Remove a local (external) file from sidebar tracking without deleting
+/// it from disk.  Returns an error if the path is a managed slate file.
+#[tauri::command]
+pub fn untrack_local_file(
+    app: tauri::AppHandle,
+    storage: tauri::State<'_, AppStorage>,
+    path: String,
+) -> Result<(), String> {
+    let target = PathBuf::from(&path);
+    if !target.is_absolute() {
+        return Err("File path must be absolute.".to_string());
+    }
+    let source = classify_file_source(&app, storage.inner(), &target)?;
+    if source == FileSource::Slates {
+        return Err("Cannot untrack a Grayslate slate file. Use Delete instead.".to_string());
+    }
+
+    storage.delete_tracked_file(&target)?;
+    let _ = app.emit(RECENT_FILES_UPDATED_EVENT, ());
+    Ok(())
+}
+
 /// Permanently delete a slate file from disk and remove it from tracking.
 /// Returns an error if `path` is not a managed slate file.
 #[tauri::command]

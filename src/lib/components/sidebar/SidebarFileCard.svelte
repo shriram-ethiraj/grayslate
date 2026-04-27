@@ -32,6 +32,7 @@
     import CopyPlus from "~icons/lucide/copy-plus";
     import Pencil from "~icons/lucide/pencil";
     import Trash2 from "~icons/lucide/trash-2";
+    import LucideUnlink2 from '~icons/lucide/unlink-2';
     import FileWarning from "~icons/lucide/file-warning";
     import Ellipsis from "~icons/lucide/ellipsis";
 
@@ -47,9 +48,11 @@
         onDuplicate?: (file: RecentFileRecord) => void;
         /** Provided only for local files — omit for slate files. */
         onDuplicateAsSlate?: (file: RecentFileRecord) => void;
+        /** Provided only for local files — unlink from sidebar without deleting from disk. */
+        onUnlink?: (file: RecentFileRecord) => void;
     }
 
-    const { recentFile, isActive, isHighlighted = false, onOpen, onHover, onDuplicate, onDuplicateAsSlate }: Props = $props();
+    const { recentFile, isActive, isHighlighted = false, onOpen, onHover, onDuplicate, onDuplicateAsSlate, onUnlink }: Props = $props();
 
     // ---------------------------------------------------------------------------
     // Language / display helpers
@@ -227,6 +230,15 @@
                                             <CopyPlus class="size-4" />
                                             <span>Duplicate as Slate</span>
                                         </DropdownMenuPrimitive.Item>
+                                        {#if onUnlink}
+                                            <DropdownMenuPrimitive.Item
+                                                class={ddItemClass}
+                                                onclick={() => { onUnlink(recentFile as RecentFileRecord); }}
+                                            >
+                                                <LucideUnlink2 class="size-4" />
+                                                <span>Unlink</span>
+                                            </DropdownMenuPrimitive.Item>
+                                        {/if}
                                     {/if}
                                     {#if recentFile.source === "slates" && onDuplicate}
                                         <DropdownMenuPrimitive.Separator class={ddSepClass} />
@@ -312,6 +324,12 @@
                 <CopyPlus class="size-4" />
                 <span>Duplicate as Slate</span>
             </ContextMenu.Item>
+            {#if onUnlink}
+                <ContextMenu.Item onclick={() => onUnlink(recentFile as RecentFileRecord)}>
+                    <LucideUnlink2 class="size-4" />
+                    <span>Unlink</span>
+                </ContextMenu.Item>
+            {/if}
         {/if}
 
         {#if recentFile.source === "slates" && onDuplicate}
