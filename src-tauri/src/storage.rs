@@ -653,6 +653,7 @@ impl AppStorage {
                 path TEXT NOT NULL,
                 file_name TEXT NOT NULL,
                 extension TEXT,
+                language TEXT,
                 source TEXT NOT NULL CHECK (source IN ('slates', 'local')),
                 exists_on_disk INTEGER NOT NULL DEFAULT 1,
                 size_bytes INTEGER,
@@ -667,7 +668,7 @@ impl AppStorage {
 
             INSERT INTO tracked_files_new
             SELECT
-                id, path_key, path, file_name, extension,
+                id, path_key, path, file_name, extension, language,
                 CASE source
                     WHEN 'external' THEN 'local'
                     WHEN 'internal' THEN 'slates'

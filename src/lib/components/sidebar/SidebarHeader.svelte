@@ -178,7 +178,7 @@
             <Input
                 bind:ref={searchInput}
                 bind:value={query}
-                placeholder="Search library..."
+                placeholder="Search library"
                 class="border-sidebar-border bg-sidebar pe-[5.75rem] ps-9 text-sm shadow-none placeholder:text-muted-foreground focus-visible:border-sidebar-ring focus-visible:ring-sidebar-ring"
             />
             <div class="absolute right-1.5 top-1/2 z-10 flex -translate-y-1/2 items-center gap-0.5">
