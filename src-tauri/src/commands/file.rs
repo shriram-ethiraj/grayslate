@@ -15,7 +15,7 @@ use crate::filesystem::{
     classify_file_source, resolve_default_notes_root_path, resolve_notes_root_path,
     sanitize_filename, unique_path_in_dir,
 };
-use crate::storage::{AppStorage, FileEventType, FileSource, RecentFileRecord, SETTING_NOTES_ROOT};
+use crate::storage::{AppStorage, FileEventType, FileSource, RecentFileRecord, SETTING_NOTES_ROOT, normalize_path_key};
 
 use super::RECENT_FILES_UPDATED_EVENT;
 
@@ -264,6 +264,12 @@ pub fn get_recent_files(
     limit: Option<usize>,
 ) -> Result<Vec<RecentFileRecord>, String> {
     let limit = clamp_recent_files_limit(limit);
+
+    // Keep the tracking table in sync with the filesystem before returning
+    // results so newly-added / externally-deleted slates files are reflected
+    // in the sidebar immediately.
+    sync_notes_tracking(&app, storage.inner());
+
     let recent_files = storage.list_recent_files(limit)?;
 
     for recent_file in &recent_files {
@@ -284,6 +290,109 @@ pub fn get_recent_files(
         }
     }
     Ok(result)
+}
+
+// ---------------------------------------------------------------------------
+// Notes-directory sync helpers
+// ---------------------------------------------------------------------------
+
+/// Lists only top-level regular files in `root`.  Skips hidden files (names
+/// starting with `.`) and silently ignores entry-level errors so a single
+/// unreadable or broken item never aborts the scan.
+fn list_top_level_files(root: &Path) -> Vec<PathBuf> {
+    let entries = match std::fs::read_dir(root) {
+        Ok(e) => e,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut files = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = match path.file_name().and_then(|n| n.to_str()) {
+            Some(n) => n,
+            None => continue,
+        };
+
+        // Skip hidden files (.git, .DS_Store, .env, etc.)
+        if name.starts_with('.') {
+            continue;
+        }
+
+        if entry.file_type().map_or(false, |ft| ft.is_file()) {
+            files.push(path);
+        }
+    }
+    files
+}
+
+/// Diff the notes directory against the `tracked_files` table and reconcile
+/// the two: add newly-discovered files, remove entries for files that were
+/// deleted from disk, and refresh metadata for files that still exist.
+///
+/// Only touches rows whose `source` is `'slates'` — local (external) files
+/// are left unchanged.
+///
+/// This function is intentionally infallible: individual errors are logged
+/// (via `eprintln!`) and ignored so the sync never causes the sidebar to
+/// show an error.
+fn sync_notes_tracking(app: &tauri::AppHandle, storage: &AppStorage) {
+    let notes_root = match resolve_notes_root_path(app, storage) {
+        Ok(root) => root,
+        Err(e) => {
+            eprintln!("sync_notes_tracking: failed to resolve notes root: {}", e);
+            return;
+        }
+    };
+
+    // Fresh install — the notes directory hasn't been created yet.
+    if !notes_root.exists() {
+        return;
+    }
+
+    let disk_files = list_top_level_files(&notes_root);
+
+    let mut tracked_map = match storage.list_slates_path_map() {
+        Ok(map) => map,
+        Err(e) => {
+            eprintln!("sync_notes_tracking: failed to read tracked files: {}", e);
+            return;
+        }
+    };
+
+    for disk_file in &disk_files {
+        let path_key = match normalize_path_key(disk_file) {
+            Ok(key) => key,
+            Err(e) => {
+                eprintln!(
+                    "sync_notes_tracking: failed to normalize path '{}': {}",
+                    disk_file.display(),
+                    e
+                );
+                continue;
+            }
+        };
+        if !tracked_map.contains_key(&path_key) {
+            if let Err(e) = storage.upsert_slates_file_for_sync(disk_file) {
+                eprintln!(
+                    "sync_notes_tracking: failed to upsert '{}': {}",
+                    disk_file.display(),
+                    e
+                );
+            }
+        }
+        tracked_map.remove(&path_key);
+    }
+
+    // Entries still in the map exist in the DB but not on disk — remove them.
+    for (_key, path) in &tracked_map {
+        if let Err(e) = storage.delete_tracked_file(Path::new(path)) {
+            eprintln!(
+                "sync_notes_tracking: failed to delete tracked file '{}': {}",
+                path,
+                e
+            );
+        }
+    }
 }
 
 #[tauri::command]

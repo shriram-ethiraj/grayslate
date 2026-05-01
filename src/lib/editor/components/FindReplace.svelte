@@ -25,8 +25,8 @@
   import Scaling from "~icons/lucide/scaling";
   import CodIconReplace from "~icons/codicon/replace";
   import CodIconReplaceAll from "~icons/codicon/replace-all";
-  import LucideCaseSensitive from "~icons/lucide/case-sensitive";
-  import LucideWholeWord from "~icons/lucide/whole-word";
+  import MaterialSymbolsMatchWordRounded from '~icons/material-symbols/match-word-rounded';
+  import MaterialSymbolsMatchCaseRounded from '~icons/material-symbols/match-case-rounded';
   import CodiconRegex from '~icons/codicon/regex';
 
   let findText = $state("");
@@ -339,7 +339,7 @@
             title="Match Case"
             onclick={() => { fr.caseSensitive = !fr.caseSensitive; }}
           >
-            <LucideCaseSensitive class="size-[1.1rem]" />
+            <MaterialSymbolsMatchCaseRounded class="size-[1.2rem]" />
           </button>
           <button
             type="button"
@@ -350,7 +350,7 @@
             title="Match Whole Word"
             onclick={() => { fr.wholeWord = !fr.wholeWord; }}
           >
-            <LucideWholeWord class="size-[1.1rem]" />
+            <MaterialSymbolsMatchWordRounded class="size-[1.2rem]" />
           </button>
           <button
             type="button"

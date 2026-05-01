@@ -20,8 +20,8 @@
     import ArrowUpNarrowWide from "~icons/lucide/arrow-up-narrow-wide";
     import RiCodeBoxLine from "~icons/ri/code-box-line";
     import LucideHardDrive from "~icons/lucide/hard-drive";
-    import LucideCaseSensitive from "~icons/lucide/case-sensitive";
-    import LucideWholeWord from "~icons/lucide/whole-word";
+    import MaterialSymbolsMatchWordRounded from '~icons/material-symbols/match-word-rounded';
+    import MaterialSymbolsMatchCaseRounded from '~icons/material-symbols/match-case-rounded';
     import CodiconRegex from '~icons/codicon/regex';
 
     interface Props {
@@ -191,7 +191,7 @@
                     title="Match Case"
                     onclick={() => { searchOptions.caseSensitive = !searchOptions.caseSensitive; }}
                 >
-                    <LucideCaseSensitive class="size-[1.1rem]" />
+                    <MaterialSymbolsMatchCaseRounded class="size-[1.2rem]" />
                 </button>
                 <button
                     type="button"
@@ -202,7 +202,7 @@
                     title="Match Whole Word"
                     onclick={() => { searchOptions.wholeWord = !searchOptions.wholeWord; }}
                 >
-                    <LucideWholeWord class="size-[1.1rem]" />
+                    <MaterialSymbolsMatchWordRounded class="size-[1.2rem]" />
                 </button>
                 <button
                     type="button"

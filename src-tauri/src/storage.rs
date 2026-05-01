@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -464,6 +465,92 @@ impl AppStorage {
         transaction
             .commit()
             .map_err(|e| format!("Failed to commit rename transaction: {}", e))
+    }
+
+    /// Returns a map of `path_key → path` for every tracked file whose source is
+    /// `Slates`.  Used by the notes-directory sync to quickly determine which
+    /// on-disk files are already known to the tracker.
+    pub fn list_slates_path_map(&self) -> Result<HashMap<String, String>, String> {
+        let connection = self.open_connection()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT path_key, path FROM tracked_files WHERE source = 'slates'",
+            )
+            .map_err(|error| format!("Failed to prepare slates path map query: {}", error))?;
+
+        let rows = statement
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|error| format!("Failed to execute slates path map query: {}", error))?;
+
+        let mut map = HashMap::new();
+        for row in rows {
+            let (key, path) = row
+                .map_err(|error| format!("Failed to parse slates path map row: {}", error))?;
+            map.insert(key, path);
+        }
+
+        Ok(map)
+    }
+
+    /// Inserts or updates a tracked-file row for a file discovered during a
+    /// sync scan of the notes directory.  Unlike `record_file_event`, this
+    /// method does **not** create a `file_access_events` row and leaves
+    /// `last_opened_at` / `last_saved_at` untouched so the sync scan does
+    /// not pollute open/save-based ordering.
+    pub fn upsert_slates_file_for_sync(&self, path: &Path) -> Result<(), String> {
+        let snapshot = build_file_snapshot(path)?;
+        let language = detect_file_language(path);
+        let now = current_time_ms();
+
+        let connection = self.open_connection()?;
+        connection
+            .execute(
+                "
+                INSERT INTO tracked_files (
+                    path_key,
+                    path,
+                    file_name,
+                    extension,
+                    source,
+                    exists_on_disk,
+                    size_bytes,
+                    last_seen_at,
+                    last_modified_at,
+                    language,
+                    created_at,
+                    updated_at
+                )
+                VALUES (?1, ?2, ?3, ?4, 'slates', ?5, ?6, ?7, ?8, ?9, ?10, ?10)
+                ON CONFLICT(path_key) DO UPDATE SET
+                    path             = excluded.path,
+                    file_name        = excluded.file_name,
+                    extension        = excluded.extension,
+                    source           = 'slates',
+                    exists_on_disk   = excluded.exists_on_disk,
+                    size_bytes       = excluded.size_bytes,
+                    last_seen_at     = excluded.last_seen_at,
+                    last_modified_at = excluded.last_modified_at,
+                    language         = COALESCE(excluded.language, tracked_files.language),
+                    updated_at       = excluded.updated_at
+                ",
+                params![
+                    snapshot.path_key,
+                    snapshot.path,
+                    snapshot.file_name,
+                    snapshot.extension,
+                    snapshot.exists_on_disk as i64,
+                    snapshot.size_bytes.map(|value| value as i64),
+                    snapshot.last_seen_at,
+                    snapshot.last_modified_at,
+                    language,
+                    now,
+                ],
+            )
+            .map_err(|error| format!("Failed to upsert slates file for sync: {}", error))?;
+
+        Ok(())
     }
 
     pub fn list_tracked_files(&self) -> Result<Vec<RecentFileRecord>, String> {
