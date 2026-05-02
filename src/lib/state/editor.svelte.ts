@@ -28,6 +28,7 @@ export type FileType =
     | "shell"
     | "cmd"
     | "dockerfile"
+    | "sql"
     | "auto";
 
 export type EditorSurface = "editor" | "markdown-preview";

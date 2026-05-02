@@ -28,6 +28,7 @@ tauri-plugin-prevent-default = "4"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 dprint-plugin-jsonc = "0.7.4"
+dprint-plugin-sql = "0.2.0"
 jsonc-parser = { version = "0.29.0", features = ["serde"] }
 serde_yaml = "0.9"
 tauri-plugin-os = "2"

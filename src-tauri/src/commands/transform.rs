@@ -2,6 +2,9 @@ use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use dprint_plugin_jsonc::{
     configuration::Configuration as JsoncFormatConfiguration, format_text as format_jsonc_text,
 };
+use dprint_plugin_sql::{
+    configuration::Configuration as SqlFormatConfiguration, format_text as format_sql_text,
+};
 use heck::{AsKebabCase, AsLowerCamelCase, AsSnakeCase, AsTitleCase};
 use jsonc_parser::{
     ast::{ObjectPropName, Value as JsonAstValue},
@@ -11,6 +14,7 @@ use jsonc_parser::{
 use serde::{Deserialize, Serialize};
 use std::cell::Cell;
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::LazyLock;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -37,6 +41,17 @@ static JSONC_FORMAT_CONFIG: LazyLock<JsoncFormatConfiguration> = LazyLock::new(|
         "commentLine.forceSpaceAfterSlashes": false,
     }))
     .expect("built-in JSON formatter configuration must be valid")
+});
+
+static SQL_FORMAT_CONFIG: LazyLock<SqlFormatConfiguration> = LazyLock::new(|| {
+    serde_json::from_value(serde_json::json!({
+        "useTabs": false,
+        "indentWidth": 2,
+        "newLineKind": "auto",
+        "uppercase": true,
+        "linesBetweenQueries": 1,
+    }))
+    .expect("built-in SQL formatter configuration must be valid")
 });
 
 fn validate_jsonc(text: &str) -> Result<(), String> {
@@ -237,6 +252,9 @@ pub enum TransformationActionId {
     JsonMinify,
     #[serde(rename = "json.validate")]
     JsonValidate,
+
+    #[serde(rename = "sql.format")]
+    SqlFormat,
 
     // ── JSON key case ────────────────────────────────────────────────────
     #[serde(rename = "json.keys-camel-case")]
@@ -1732,6 +1750,17 @@ fn dispatch_transformation(
                     TransformationMessageLevel::Success,
                 )),
                 Err(error) => Ok((error, TransformationMessageLevel::Error)),
+            })
+        }
+        TransformationActionId::SqlFormat => {
+            ctx.run_replace_text("Formatted SQL.", "SQL is already formatted.", |ctx| {
+                let formatted = format_sql_text(
+                    Path::new("query.sql"),
+                    ctx.text(),
+                    &SQL_FORMAT_CONFIG,
+                )
+                .map_err(|error| format!("Invalid SQL: {}", error))?;
+                Ok(formatted.unwrap_or_else(|| ctx.text().to_string()))
             })
         }
         TransformationActionId::TextTrimTrailingWhitespace => ctx.run_replace_text(

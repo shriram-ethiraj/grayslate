@@ -38,6 +38,8 @@ export type JsonTransformationActionId =
 
 export type CsvTransformationActionId = "csv.to-json";
 
+export type SqlTransformationActionId = "sql.format";
+
 export type YamlTransformationActionId = "yaml.to-json";
 
 export type TextTransformationActionId =
@@ -87,6 +89,7 @@ export type StatsTransformationActionId =
 export type TransformationActionId =
     | JsonTransformationActionId
     | CsvTransformationActionId
+    | SqlTransformationActionId
     | YamlTransformationActionId
     | TextTransformationActionId
     | UrlTransformationActionId
@@ -182,6 +185,16 @@ export const transformationActions: TransformationActionDefinition[] = [
         fileTypes: ["json"],
         supportsSelection: true,
         icon: LucideListCheck,
+    },
+    {
+        id: "sql.format",
+        title: "Format SQL",
+        description: "Pretty-print SQL queries with consistent indentation and uppercase keywords.",
+        category: "SQL",
+        keywords: ["sql", "format", "pretty", "indent", "query"],
+        fileTypes: ["sql"],
+        supportsSelection: true,
+        icon: FluentCodeText20Filled,
     },
     // ── JSON Key Case Conversion ─────────────────────────────────────────────
     {
