@@ -36,7 +36,8 @@ export type EditorPopupId =
     | "find-replace"
     | "go-to-line"
     | "language-picker"
-    | "transformations";
+    | "transformations"
+    | "indentation-picker";
 
 export type EditorPopupOpenRequest =
     | {
@@ -51,6 +52,9 @@ export type EditorPopupOpenRequest =
     }
     | {
         id: "transformations";
+    }
+    | {
+        id: "indentation-picker";
     };
 
 type EditorPopupController = {

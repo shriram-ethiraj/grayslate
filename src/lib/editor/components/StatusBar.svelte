@@ -1,5 +1,6 @@
 <script lang="ts">
   import LanguagePicker from "./LanguagePicker.svelte";
+  import { IndentMode } from "./IndentationPicker.svelte";
 
   let {
     documentLength = 0,
@@ -12,8 +13,21 @@
     activeLanguage = "text",
     isCsvTableActive = false,
     csvInfo = { rows: 0, cols: 0, delimiter: "", errors: 0 },
+    indentMode = IndentMode.Default,
+    indentSize = 2,
     onGoToLine = () => {},
+    onOpenIndentPicker = () => {},
   } = $props();
+
+  const indentLabel = $derived.by(() => {
+    switch (indentMode) {
+      case IndentMode.Detect: return "Auto Detect";
+      case IndentMode.Default: return "Spaces: 2";
+      case IndentMode.Spaces: return `Spaces: ${indentSize}`;
+      case IndentMode.Tab: return "Tab";
+      default: return "Spaces: 2";
+    }
+  });
 </script>
 
 <div
@@ -50,6 +64,15 @@
         {#if selectionSize > 0}
           <span>({selectionSize} selected)</span>
         {/if}
+        <span class="text-muted-foreground">|</span>
+        <button
+          type="button"
+          title="Select Indentation"
+          class="hover:bg-muted/50 hover:text-foreground h-full px-1.5 transition-colors cursor-pointer"
+          onclick={() => onOpenIndentPicker()}
+        >
+          {indentLabel}
+        </button>
       </div>
     {/if}
     <span class="text-muted-foreground">|</span>
