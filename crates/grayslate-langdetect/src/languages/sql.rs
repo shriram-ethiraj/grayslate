@@ -153,7 +153,7 @@ pub fn definition() -> LanguageDefinition {
         // ── Family-gated fields ──────────────────────────────
         content_families: &[ContentFamily::Code],
         anchors: &[
-            wp!(r"(?mi)^\s*SELECT\s+(DISTINCT\s+)?\*", 5),
+            wp!(r"(?mi)^\s*SELECT\s+(DISTINCT\s+)?(\*|\w+)", 5),
             wp!(r"(?i)\bCREATE\s+(TABLE|INDEX|VIEW|DATABASE|PROCEDURE|FUNCTION)\b", 5),
             wp!(r"(?i)\bINSERT\s+INTO\s+\w+", 4),
             wp!(r"(?i)\bALTER\s+TABLE\s+\w+", 5),
@@ -162,6 +162,7 @@ pub fn definition() -> LanguageDefinition {
             wp!(r"(?i)\bBEGIN\s+(TRANSACTION|WORK)\b", 4),
         ],
         hints: &[
+            wp!(r"(?i)\bSELECT\s+\w+", 2),
             wp!(r"(?i)\bWHERE\s+\w+", 3),
             wp!(r"(?i)\bGROUP\s+BY\b", 3),
             wp!(r"(?i)\bORDER\s+BY\b", 2),

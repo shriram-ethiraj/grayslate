@@ -1,4 +1,4 @@
-/// Neighbor disambiguation (Phase 3 of new pipeline).
+/// Neighbor disambiguation (Phase 3 of pipeline).
 ///
 /// When multiple candidates survive family-gated scoring, this module
 /// picks a winner using score gap, superset relationships, and
@@ -25,35 +25,59 @@ pub fn disambiguate(
     candidates: &[ScoredCandidate],
 ) -> Option<&'static str> {
     if candidates.is_empty() {
+        if cfg!(debug_assertions) {
+            eprintln!("[Lang Detect] [Phase 3] Disambiguation: No candidates to disambiguate");
+        }
         return None;
     }
 
     if candidates.len() == 1 {
+        if cfg!(debug_assertions) {
+            eprintln!("[Lang Detect] [Phase 3] Disambiguation: Only 1 candidate \"{}\" — picking it", candidates[0].name);
+        }
         return Some(candidates[0].name);
     }
 
     let first = &candidates[0];
     let second = &candidates[1];
 
+    if cfg!(debug_assertions) {
+        eprintln!(
+            "[Lang Detect]   [Phase 3] Top: \"{}\" (score={}) vs Runner-up: \"{}\" (score={}) | Gap = {}",
+            first.name, first.total_score,
+            second.name, second.total_score,
+            first.total_score - second.total_score,
+        );
+    }
+
     // Superset check FIRST — must run before the score-gap shortcut.
-    // A superset language (e.g., TypeScript) shares ALL syntax of its base
-    // (e.g., JavaScript), so its base will always score well on superset content.
-    // The superset only needs anchor evidence (its own unique syntax) to win.
     if let Some(winner) = resolve_superset(first, second) {
+        if cfg!(debug_assertions) {
+            eprintln!("[Lang Detect]   [Phase 3] \"{}\" is a superset of the other language — \"{}\" wins ✓", winner, winner);
+        }
         return Some(winner);
     }
 
     // If the first candidate has a significant score lead, no need to disambiguate
     if first.total_score > second.total_score + 3 {
+        if cfg!(debug_assertions) {
+            eprintln!("[Lang Detect]   [Phase 3] Large score gap (>3 points) — \"{}\" wins ✓", first.name);
+        }
         return Some(first.name);
     }
 
     // Fall back to score-based winner
     if first.total_score > second.total_score {
+        if cfg!(debug_assertions) {
+            eprintln!("[Lang Detect]   [Phase 3] Narrow score lead — \"{}\" wins ✓", first.name);
+        }
         return Some(first.name);
     }
 
     // Truly tied — abstain
+    if cfg!(debug_assertions) {
+        eprintln!("[Lang Detect]   [Phase 3] Scores tied — cannot decide, abstaining");
+    }
     None
 }
 

@@ -1,4 +1,4 @@
-/// Family-gated candidate scoring (Phase 2 of new pipeline).
+/// Family-gated candidate scoring (Phase 2b of new pipeline).
 ///
 /// Only languages matching the classified content family enter scoring.
 /// Each language is scored by its anchors + hints + keyword fingerprint,
@@ -56,6 +56,18 @@ pub fn score_candidates(
     // Tokenize once for keyword fingerprinting across all candidates
     let tokens = tokenize(content);
 
+    if cfg!(debug_assertions) {
+        let fam_str: Vec<&str> = families.iter().map(|f| match f {
+            ContentFamily::Prose => "Prose",
+            ContentFamily::Code => "Code",
+            ContentFamily::StructuredData => "Data",
+            ContentFamily::Markup => "Markup",
+            ContentFamily::ShellScript => "Shell",
+            ContentFamily::Config => "Config",
+        }).collect();
+        eprintln!("[Lang Detect]   [Phase 2b] Scoring language candidates (allowed families: [{}])", fam_str.join(","));
+    }
+
     for lang in COMPILED_FAMILY.iter() {
         // Family gate: only score languages matching the classified family
         if !lang.content_families.iter().any(|f| families.contains(f)) {
@@ -69,6 +81,16 @@ pub fn score_candidates(
 
     // Sort by total score descending
     candidates.sort_by(|a, b| b.total_score.cmp(&a.total_score));
+
+    if cfg!(debug_assertions) {
+        if candidates.is_empty() {
+            eprintln!("[Lang Detect]   [Phase 2b] No candidates passed the minimum threshold — nothing to disambiguate");
+        } else {
+            let cand_str: Vec<String> = candidates.iter().map(|c| format!("\"{}\" (score={})", c.name, c.total_score)).collect();
+            eprintln!("[Lang Detect]   [Phase 2b] {} candidate(s) passed: {}", candidates.len(), cand_str.join(", "));
+        }
+    }
+
     candidates
 }
 
@@ -83,6 +105,11 @@ fn score_language(
     // Check disqualifiers first — any match immediately rules out this language
     for dq in &lang.disqualifiers {
         if dq.regex.is_match(content) {
+            if cfg!(debug_assertions) {
+                eprintln!("[Lang Detect]   [Phase 2b] ─── \"{}\" ──────────", lang.name);
+                eprintln!("[Lang Detect]   [Phase 2b]   [disqualifiers]");
+                eprintln!("[Lang Detect]   [Phase 2b]     ✓ {}  (w={})  ← DISQUALIFIED", dq.regex.as_str(), dq.weight);
+            }
             return None;
         }
     }
@@ -117,6 +144,91 @@ fn score_language(
     };
 
     let total_score = anchor_score + hint_score + keyword_score;
+
+    if cfg!(debug_assertions) {
+        // ── Header: announce this language ──────────────────────────
+        eprintln!("[Lang Detect]   [Phase 2b] ─── \"{}\" ──────────", lang.name);
+
+        // ── Disqualifiers ───────────────────────────────────────────
+        eprintln!("[Lang Detect]   [Phase 2b]   [disqualifiers]");
+        if lang.disqualifiers.is_empty() {
+            eprintln!("[Lang Detect]   [Phase 2b]     (none)");
+        } else {
+            for dq in &lang.disqualifiers {
+                let hit = dq.regex.is_match(content);
+                let pat = dq.regex.as_str();
+                if hit {
+                    eprintln!("[Lang Detect]   [Phase 2b]     ✓ {}  (w={})", pat, dq.weight);
+                } else {
+                    eprintln!("[Lang Detect]   [Phase 2b]     ✗ {}", pat);
+                }
+            }
+        }
+
+        // ── Anchors ─────────────────────────────────────────────────
+        eprintln!("[Lang Detect]   [Phase 2b]   [anchors] score={}", anchor_score);
+        if lang.anchors.is_empty() {
+            eprintln!("[Lang Detect]   [Phase 2b]     (none)");
+        } else {
+            for a in &lang.anchors {
+                let hit = a.regex.is_match(content);
+                let pat = a.regex.as_str();
+                if hit {
+                    eprintln!("[Lang Detect]   [Phase 2b]     ✓ {}  (w={})", pat, a.weight);
+                } else {
+                    eprintln!("[Lang Detect]   [Phase 2b]     ✗ {}", pat);
+                }
+            }
+        }
+
+        // ── Hints ───────────────────────────────────────────────────
+        eprintln!(
+            "[Lang Detect]   [Phase 2b]   [hints] score={} (raw={}, max_cap={})",
+            hint_score, raw_hint_score, HINT_SCORE_CAP,
+        );
+        if lang.hints.is_empty() {
+            eprintln!("[Lang Detect]   [Phase 2b]     (none)");
+        } else {
+            for h in &lang.hints {
+                let hit = h.regex.is_match(content);
+                let pat = h.regex.as_str();
+                if hit {
+                    eprintln!("[Lang Detect]   [Phase 2b]     ✓ {}  (w={})", pat, h.weight);
+                } else {
+                    eprintln!("[Lang Detect]   [Phase 2b]     ✗ {}", pat);
+                }
+            }
+        }
+
+        // ── Keywords ────────────────────────────────────────────────
+        eprintln!(
+            "[Lang Detect]   [Phase 2b]   [keywords] hits={} (kw={}, bi={}) | need≥{} & anchor>0={} → bonus={}",
+            total_hits, kw_hits, bi_hits,
+            KEYWORD_MIN_HITS,
+            if anchor_score > 0 { "✓" } else { "✗" },
+            keyword_score,
+        );
+        if !lang.keywords.is_empty() {
+            let kw_detail: Vec<String> = lang.keywords.iter().map(|kw| {
+                if tokens.contains(*kw) { format!("✓{}", kw) } else { format!("✗{}", kw) }
+            }).collect();
+            eprintln!("[Lang Detect]   [Phase 2b]     keywords: {}", kw_detail.join("  "));
+        }
+        if !lang.builtins.is_empty() {
+            let bi_detail: Vec<String> = lang.builtins.iter().map(|bi| {
+                if tokens.contains(*bi) { format!("✓{}", bi) } else { format!("✗{}", bi) }
+            }).collect();
+            eprintln!("[Lang Detect]   [Phase 2b]     builtins: {}", bi_detail.join("  "));
+        }
+
+        // ── Summary ─────────────────────────────────────────────────
+        let passes = total_score >= ANCHOR_THRESHOLD;
+        eprintln!(
+            "[Lang Detect]   [Phase 2b]   [result] a={} + h={} + k={} = {}  ≥ {}  {}",
+            anchor_score, hint_score, keyword_score, total_score, ANCHOR_THRESHOLD,
+            if passes { "✓ PASSES" } else { "✗ FAILS" },
+        );
+    }
 
     // Minimum threshold: need at least some anchor evidence
     if anchor_score < ANCHOR_THRESHOLD && total_score < ANCHOR_THRESHOLD {

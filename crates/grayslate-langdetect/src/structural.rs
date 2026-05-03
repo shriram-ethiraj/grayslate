@@ -6,7 +6,7 @@
 ///   JSON(5) → PHP(10) → Svelte(20) → Vue(30) → HTML(40) → XML(50)
 ///   → Dockerfile(60) → CSV(70)
 ///
-/// **Soft detectors** (Phase 2) run AFTER the family classifier and are
+/// **Soft detectors** (Phase 2a) run AFTER the family classifier and are
 /// gated by content family. This prevents, e.g., markdown from eating code
 /// files that start with `# comments`, or YAML from matching prose.
 ///
@@ -22,13 +22,20 @@ use super::languages::{STRONG_STRUCTURAL, SOFT_STRUCTURAL};
 pub fn detect_strong_structural(trimmed: &str, was_sliced: bool) -> Option<&'static str> {
     for entry in STRONG_STRUCTURAL.iter() {
         if (entry.detect)(trimmed, was_sliced) {
+            if cfg!(debug_assertions) {
+                eprintln!("[Lang Detect]   [Phase 0c] Strong probe: \"{}\" matched ✓", entry.name);
+            }
             return Some(entry.name);
         }
+    }
+    if cfg!(debug_assertions) {
+        let names: Vec<&str> = STRONG_STRUCTURAL.iter().map(|e| e.name).collect();
+        eprintln!("[Lang Detect]   [Phase 0c] Strong probes checked: [{}] — none matched", names.join(", "));
     }
     None
 }
 
-/// Phase 2 — soft structural probes (family-gated).
+/// Phase 2a — soft structural probes (family-gated).
 ///
 /// Only fires detectors whose declared content families overlap with
 /// the families the classifier identified. Returns `None` if no soft
@@ -38,18 +45,55 @@ pub fn detect_soft_structural(
     was_sliced: bool,
     families: &[ContentFamily],
 ) -> Option<&'static str> {
+    if cfg!(debug_assertions) {
+        let fam_str: Vec<&str> = families.iter().map(|f| match f {
+            ContentFamily::Prose => "Prose",
+            ContentFamily::Code => "Code",
+            ContentFamily::StructuredData => "Data",
+            ContentFamily::Markup => "Markup",
+            ContentFamily::ShellScript => "Shell",
+            ContentFamily::Config => "Config",
+        }).collect();
+        eprintln!("[Lang Detect]   [Phase 2a] Scanning soft structural signals (allowed families: [{}])", fam_str.join(","));
+    }
+
     for entry in SOFT_STRUCTURAL.iter() {
         // Family gate: skip detectors that don't match the classified families.
         // When families is empty (classifier abstained), allow all detectors.
-        if !families.is_empty()
-            && !entry.content_families.iter().any(|f| families.contains(f))
-        {
+        let gated = !families.is_empty()
+            && !entry.content_families.iter().any(|f| families.contains(f));
+
+            if cfg!(debug_assertions) {
+                let entry_fams: Vec<&str> = entry.content_families.iter().map(|f| match f {
+                    ContentFamily::Prose => "Prose",
+                    ContentFamily::Code => "Code",
+                    ContentFamily::StructuredData => "Data",
+                    ContentFamily::Markup => "Markup",
+                    ContentFamily::ShellScript => "Shell",
+                    ContentFamily::Config => "Config",
+                }).collect();
+                if gated {
+                    eprintln!(
+                        "[Lang Detect]   [Phase 2a] \"{}\": skipped (needs family [{}], current content doesn't match)",
+                        entry.name, entry_fams.join(","),
+                    );
+                }
+            }
+
+        if gated {
             continue;
         }
+
         if (entry.detect)(trimmed, was_sliced) {
+            if cfg!(debug_assertions) {
+                eprintln!("[Lang Detect]   [Phase 2a] \"{}\" ✓ matched", entry.name);
+            }
             return Some(entry.name);
+        } else if cfg!(debug_assertions) {
+            eprintln!("[Lang Detect]   [Phase 2a] \"{}\" ✗ no match", entry.name);
         }
     }
+
     None
 }
 

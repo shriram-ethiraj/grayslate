@@ -77,6 +77,30 @@ pub fn classify_family(features: &ContentFeatures) -> FamilyResult {
     let shell_score = score_shell(features);
     let config_score = score_config(features);
 
+    if cfg!(debug_assertions) {
+        let f = features;
+        let yn = |b: bool| -> &str { if b { "1" } else { "0" } };
+        eprintln!(
+            "[Lang Detect]   Step 4 — Content Features: stopwords={:.3} contractions={} questions={:.3} words/line={:.2} greeting={} closing={} pronouns={:.3}",
+            f.stopword_ratio, f.contraction_count, f.question_ratio, f.avg_words_per_line,
+            yn(f.greeting_present), yn(f.closing_present), f.pronoun_ratio,
+        );
+        eprintln!(
+            "[Lang Detect]     Code signals: semicolons={:.3} braces={:.3} imports={} func_defs={} operators={:.3} func_calls={} block_ends={} sql={:.3}",
+            f.semicolon_ratio, f.brace_ratio, f.import_line_count, f.function_def_count,
+            f.operator_density, f.call_expression_count, f.block_end_count, f.sql_code_density,
+        );
+        eprintln!(
+            "[Lang Detect]     Structure signals: key:value={:.3} nesting={} balanced_brackets={} sections={} tags={:.3} pipes={} redirects={} env_vars={}",
+            f.kv_ratio, f.nesting_depth, yn(f.bracket_balance),
+            f.section_header_count, f.tag_ratio, f.pipe_count, f.redirect_count, f.env_expansion_count,
+        );
+        eprintln!(
+            "[Lang Detect]     Family scores → Prose={:.3}  Code={:.3}  Data={:.3}  Markup={:.3}  Shell={:.3}  Config={:.3}",
+            prose_score, code_score, data_score, markup_score, shell_score, config_score,
+        );
+    }
+
     if prose_score > 0.0 {
         scores.push((ContentFamily::Prose, prose_score));
     }
@@ -99,12 +123,33 @@ pub fn classify_family(features: &ContentFeatures) -> FamilyResult {
     // Sort by confidence (descending)
     scores.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
-    FamilyResult {
+    let result = FamilyResult {
         scores: scores
             .into_iter()
             .map(|(family, confidence)| FamilyScore { family, confidence })
             .collect(),
+    };
+
+    if cfg!(debug_assertions) {
+        if let Some(s) = result.top() {
+            let families: Vec<&str> = result.scores.iter().map(|fs| match fs.family {
+                ContentFamily::Prose => "Prose",
+                ContentFamily::Code => "Code",
+                ContentFamily::StructuredData => "Data",
+                ContentFamily::Markup => "Markup",
+                ContentFamily::ShellScript => "Shell",
+                ContentFamily::Config => "Config",
+            }).collect();
+            eprintln!(
+                "[Lang Detect]     Winner: {:?} (confidence={:.3}) | Confident={} | All families=[{}]",
+                s.family, s.confidence, result.is_confident(), families.join(","),
+            );
+        } else {
+            eprintln!("[Lang Detect]   Step 4 — Content Family: No family scored high enough (abstaining)");
+        }
     }
+
+    result
 }
 
 // ── Per-family scoring functions ────────────────────────────────────────
@@ -191,11 +236,19 @@ fn score_prose(f: &ContentFeatures) -> f64 {
 
 /// Score how code-like the content is.
 fn score_code(f: &ContentFeatures) -> f64 {
-    if f.non_empty_lines < 2 {
-        return 0.0;
+    let mut score: f64 = 0.0;
+
+    // SQL code lines — evaluated first because SQL has no imports/braces/func defs
+    // and may be as short as a single line (e.g. `SELECT name FROM t WHERE x = 1;`).
+    if f.sql_code_density > 0.35 {
+        score += 0.2;
+    } else if f.sql_code_density > 0.15 {
+        score += 0.12;
     }
 
-    let mut score: f64 = 0.0;
+    if f.non_empty_lines < 2 && score < 0.01 {
+        return 0.0;
+    }
 
     // Import lines — strong code signal
     if f.import_line_count >= 3 {

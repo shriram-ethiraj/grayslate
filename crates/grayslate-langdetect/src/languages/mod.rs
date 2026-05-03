@@ -81,7 +81,7 @@ pub struct LanguageDefinition {
     /// Canonical language name (e.g. "python", "typescript").
     pub name: &'static str,
 
-    // ── Phase 1: Extension & filename detection ──────────────
+    // ── Phase 0a: Extension & filename detection ─────────────
 
     /// File extensions that map to this language (with leading dot).
     /// E.g. `&[".py", ".pyi", ".pyw"]`.
@@ -95,13 +95,13 @@ pub struct LanguageDefinition {
     /// E.g. `&[r"^nginx.*\.conf$"]` for nginx config files.
     pub filename_patterns: &'static [&'static str],
 
-    // ── Phase 2: Shebang detection ───────────────────────────
+    // ── Phase 0b: Shebang detection ──────────────────────────
 
     /// Regex patterns matched against the `#!` line.
     /// E.g. `&[r"\bpython[23w]?\b"]`.
     pub shebangs: &'static [&'static str],
 
-    // ── Phase 3: Structural detection ────────────────────────
+    // ── Phase 0c + 2a: Structural detection ──────────────────
 
     /// Priority for structural detection (lower = checked first).
     /// `None` means this language has no structural detector.
@@ -117,7 +117,7 @@ pub struct LanguageDefinition {
     /// Only called when `structural_priority` is `Some`.
     pub structural_detect: Option<fn(&str, bool) -> bool>,
 
-    // ── Phase 4: Family-gated scoring ────────────────────────
+    // ── Phase 2b: Family-gated scoring ───────────────────────
 
     /// Reserved keywords unique or nearly unique to this language.
     /// Matched as whole words via `\b<keyword>\b` against tokenized content.

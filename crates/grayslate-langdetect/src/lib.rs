@@ -1,20 +1,19 @@
-/// detection/mod.rs
-///
 /// Content-based language detection for Grayslate.
 ///
-/// Fully synchronous, deterministic pipeline ported from the frontend
-/// `languageDetector.ts`.
+/// Fully synchronous, deterministic pipeline.
 ///
-/// Detection cascade (ordered by priority & reliability):
-/// ┌────────┬──────────────────────────────────────────────────┐
-/// │ Phase 1│ File extension      (instant, deterministic)     │
-/// │ Phase 2│ Shebang line        (instant, deterministic)     │
-/// │ Phase 3│ Structural signals  (fast, high confidence)      │
-/// │ Phase 4│ Heuristic scoring   (fast, medium confidence)    │
-/// └────────┴──────────────────────────────────────────────────┘
+/// Detection flow (all phases operate on at most MAX_DETECTION_BYTES):
 ///
-/// All phases operate on at most MAX_DETECTION_BYTES of the document
-/// to keep detection fast (<10ms) even for very large files.
+///   Phase 0a — File extension / filename                  (early return)
+///   Phase 0b — Shebang line                               (early return)
+///   Phase 0c — Strong structural probes                   (early return)
+///              (priority ≤ 70; runs before family classifier)
+///   ─────────────────────────────────────────────────────────
+///   Phase 1  — Content family classification              (prose/code/data/…)
+///   Phase 2a — Soft structural probes                     (family-gated; priority > 70)
+///   Phase 2b — Family-gated candidate scoring             (anchors + hints + keywords)
+///   Phase 3  — Neighbor disambiguation                    (superset pairs + score gap)
+///   Phase 4  — Confidence gate                            (abstain if unsure)
 pub mod disambiguation;
 pub mod extension;
 pub mod family;
@@ -36,13 +35,192 @@ pub(crate) use languages::SUPPORTED_LANGUAGES;
 /// Returns a language ID string (e.g. "python", "json", "rust") or `None`
 /// when detection is uncertain.
 ///
-/// Uses the family-first detection pipeline.
+/// Pipeline phases:
+///   Phase 0a — File extension / filename                    (early return if match)
+///   Phase 0b — Shebang line                                  (early return if match)
+///   Phase 0c — Strong structural probes                      (early return if match; priority ≤ 70)
+///   Phase 1  — Content family classification                 (prose/code/data/markup/shell/config)
+///   Phase 2a — Soft structural probes                        (family-gated; priority > 70)
+///   Phase 2b — Family-gated candidate scoring                (anchors + hints + keywords)
+///   Phase 3  — Neighbor disambiguation                       (superset pairs + score gap)
+///   Phase 4  — Confidence gate                               (abstain if unsure)
+///
+/// Returns None (abstains) when no confident match is found.
 ///
 /// # Arguments
 /// * `content` — The document text to analyse (can be empty for extension-only)
 /// * `filename` — Optional filename or full path (e.g. "Dockerfile", "config.yml")
 pub fn detect_language(content: &str, filename: Option<&str>) -> Option<&'static str> {
-    detect_language_v2(content, filename)
+    if cfg!(debug_assertions) {
+        let preview: String = content.chars().take(80).collect::<String>().replace('\n', "\\n");
+        eprintln!("[Lang Detect] ── Starting detection ──");
+        eprintln!("[Lang Detect]   File: {:?} | Content size: {} bytes", filename, content.len());
+        eprintln!("[Lang Detect]   Preview (first 80 chars): \"{}\"", preview);
+    }
+    let _start = std::time::Instant::now();
+
+    // Phase 0a — file extension / filename (same as v1)
+    if let Some(fname) = filename {
+        if let Some(result) = extension::detect_by_filename(fname) {
+            if cfg!(debug_assertions) {
+                eprintln!("[Lang Detect] [Phase 0a] File extension: {:?} → Detected as \"{}\" ✓", fname, result);
+                eprintln!("[Lang Detect] ⏱ Total detection time: {:?}", _start.elapsed());
+            }
+            return Some(result);
+        }
+    }
+    if cfg!(debug_assertions) {
+        eprintln!("[Lang Detect] [Phase 0a] File extension: No match found (will check content)");
+    }
+
+    let trimmed_check = content.trim();
+    if trimmed_check.is_empty() {
+        if cfg!(debug_assertions) {
+            eprintln!("[Lang Detect] [Phase 0a] ⚠ Aborting: Content is empty — nothing to detect");
+            eprintln!("[Lang Detect] ⏱ Total detection time: {:?}", _start.elapsed());
+        }
+        return None;
+    }
+
+    let (bounded, was_sliced) = bound_content(content);
+    let trimmed = bounded
+        .strip_prefix('\u{FEFF}')
+        .unwrap_or(&*bounded)
+        .trim();
+    if trimmed.is_empty() {
+        if cfg!(debug_assertions) {
+            eprintln!("[Lang Detect] [Phase 0a] ⚠ Aborting: Content is only whitespace (after removing BOM marker)");
+            eprintln!("[Lang Detect] ⏱ Total detection time: {:?}", _start.elapsed());
+        }
+        return None;
+    }
+
+    // Phase 0b — shebang (same as v1)
+    if let Some(first_line) = trimmed.lines().next() {
+        if first_line.starts_with("#!") {
+            let sbl = first_line.trim();
+            if let Some(result) = shebang::detect_by_shebang(sbl) {
+                if cfg!(debug_assertions) {
+                    eprintln!("[Lang Detect] [Phase 0b] Shebang: \"{}\" → Detected as \"{}\" ✓", sbl, result);
+                    eprintln!("[Lang Detect] ⏱ Total detection time: {:?}", _start.elapsed());
+                }
+                return Some(result);
+            }
+            if cfg!(debug_assertions) {
+                eprintln!("[Lang Detect] [Phase 0b] Shebang: \"{}\" present but didn't match any known language", sbl);
+            }
+        } else if cfg!(debug_assertions) {
+            eprintln!("[Lang Detect] [Phase 0b] No shebang found at start of content");
+        }
+    } else if cfg!(debug_assertions) {
+        eprintln!("[Lang Detect] [Phase 0b] Content has no lines to check");
+    }
+
+    // Phase 0c — strong structural probes (near-deterministic)
+    // These have very low false-positive rates: JSON, PHP, Svelte, Vue,
+    // HTML, XML, Dockerfile, CSV. They fire before the family classifier.
+    if let Some(result) = structural::detect_strong_structural(trimmed, was_sliced) {
+        if cfg!(debug_assertions) {
+            eprintln!("[Lang Detect] [Phase 0c] Strong structural: Detected as \"{}\" ✓", result);
+            eprintln!("[Lang Detect] ⏱ Total detection time: {:?}", _start.elapsed());
+        }
+        return Some(result);
+    }
+    if cfg!(debug_assertions) {
+        eprintln!("[Lang Detect] [Phase 0c] No strong structural match found");
+    }
+
+    // Phase 1 — content family classification
+    let feats = features::extract_features(trimmed);
+    let family_result = family::classify_family(&feats);
+
+    if cfg!(debug_assertions) {
+        let top_family = family_result.top()
+            .map(|s| format!("{:?} (confidence={})", s.family, s.confidence))
+            .unwrap_or_else(|| "none".to_string());
+        eprintln!("[Lang Detect] [Phase 1] Content family: {}", top_family);
+    }
+
+    // Phase 2 — family gate (routes to 2a + 2b)
+    let families: Vec<family::ContentFamily> = if family_result.is_confident() {
+        // Confident: use only the top family
+        family_result.top().map(|s| vec![s.family]).unwrap_or_default()
+    } else {
+        // Ambiguous: use all families with non-zero scores.
+        // When the classifier can't decide, don't restrict by family.
+        family_result.scores.iter().map(|s| s.family).collect()
+    };
+
+    if cfg!(debug_assertions) {
+        let fam_str: Vec<&str> = families.iter().map(|f| match f {
+            family::ContentFamily::Prose => "Prose",
+            family::ContentFamily::Code => "Code",
+            family::ContentFamily::StructuredData => "Data",
+            family::ContentFamily::Markup => "Markup",
+            family::ContentFamily::ShellScript => "Shell",
+            family::ContentFamily::Config => "Config",
+        }).collect();
+        eprintln!("[Lang Detect] [Phase 2] Gate: families=[{}]", fam_str.join(","));
+    }
+
+    // Phase 2a — soft structural probes (family-gated).
+    // These detectors (Markdown, YAML, SQL, TOML, SCSS, Sass, Prompt)
+    // have higher false-positive rates, so they only fire when the
+    // family classifier agrees. E.g., markdown won't fire on Code content.
+    // When families is empty (classifier abstained), all soft detectors
+    // are allowed — the classifier has no opinion to gate with.
+    if let Some(result) = structural::detect_soft_structural(trimmed, was_sliced, &families) {
+        if cfg!(debug_assertions) {
+            eprintln!("[Lang Detect] [Phase 2a] Soft structural: Detected as \"{}\" ✓", result);
+            eprintln!("[Lang Detect] ⏱ Total detection time: {:?}", _start.elapsed());
+        }
+        return Some(result);
+    }
+    if cfg!(debug_assertions) {
+        eprintln!("[Lang Detect] [Phase 2a] Soft structural: No match found");
+    }
+
+    // Phase 2b — family-gated language scoring
+    if !families.is_empty() {
+        let candidates = scoring::score_candidates(trimmed, &families);
+
+        if !candidates.is_empty() {
+            // Phase 3 — neighbor disambiguation
+            if let Some(winner) = disambiguation::disambiguate(trimmed, &candidates) {
+                let result = ensure_supported(winner);
+                if cfg!(debug_assertions) {
+                    eprintln!("[Lang Detect] [Phase 3] Disambiguation: \"{}\" wins ✓", result);
+                    eprintln!("[Lang Detect] ⏱ Total detection time: {:?}", _start.elapsed());
+                }
+                return Some(result);
+            }
+            if cfg!(debug_assertions) {
+                eprintln!("[Lang Detect] [Phase 3] Disambiguation: Candidates were too close, abstaining");
+            }
+        } else if cfg!(debug_assertions) {
+            eprintln!("[Lang Detect] [Phase 2b] Language scoring: No candidates passed the minimum score threshold");
+        }
+
+        // If the top family is Prose and no language candidates matched,
+        // the content is natural language — return None (abstain).
+        if families.first() == Some(&family::ContentFamily::Prose) {
+            if cfg!(debug_assertions) {
+                eprintln!("[Lang Detect] [Phase 4] Prose content with no language match — abstaining");
+                eprintln!("[Lang Detect] ⏱ Total detection time: {:?}", _start.elapsed());
+            }
+            return None;
+        }
+    } else if cfg!(debug_assertions) {
+        eprintln!("[Lang Detect] [Phase 2b] Language scoring: Skipped (family classifier couldn't determine content type)");
+    }
+
+    // New pipeline abstained — return None.
+    // Prose family is intentionally abstained when no candidates match.
+    if cfg!(debug_assertions) {
+        eprintln!("[Lang Detect] [Phase 4] No confident match found — abstaining");
+        eprintln!("[Lang Detect] ⏱ Total detection time: {:?}", _start.elapsed());
+    }
+    None
 }
 
 /// Slice content to MAX_DETECTION_BYTES for safe analysis.
@@ -70,106 +248,11 @@ fn ensure_supported(lang: &str) -> &str {
     }
 }
 
-/// Family-first detection pipeline (v2).
-///
-/// Pipeline phases:
-///   Phase 0 — Deterministic anchors (extension, shebang, strong structural)
-///   Phase 1 — Content family classification (prose/code/data/markup/shell/config)
-///   Phase 2 — Family-gated candidate scoring (anchors + hints)
-///   Phase 3 — Neighbor disambiguation (superset pairs + score gap)
-///   Phase 4 — Confidence gate (abstain if unsure)
-///
-/// Returns None (abstains) when no confident match is found.
-pub fn detect_language_v2(content: &str, filename: Option<&str>) -> Option<&'static str> {
-    // Phase 0a — file extension / filename (same as v1)
-    if let Some(fname) = filename {
-        if let Some(result) = extension::detect_by_filename(fname) {
-            return Some(result);
-        }
-    }
-
-    let trimmed_check = content.trim();
-    if trimmed_check.is_empty() {
-        return None;
-    }
-
-    let (bounded, was_sliced) = bound_content(content);
-    let trimmed = bounded
-        .strip_prefix('\u{FEFF}')
-        .unwrap_or(&*bounded)
-        .trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-
-    // Phase 0b — shebang (same as v1)
-    if let Some(first_line) = trimmed.lines().next() {
-        if first_line.starts_with("#!") {
-            if let Some(result) = shebang::detect_by_shebang(first_line) {
-                return Some(result);
-            }
-        }
-    }
-
-    // Phase 0c — strong structural probes (near-deterministic)
-    // These have very low false-positive rates: JSON, PHP, Svelte, Vue,
-    // HTML, XML, Dockerfile, CSV. They fire before the family classifier.
-    if let Some(result) = structural::detect_strong_structural(trimmed, was_sliced) {
-        return Some(result);
-    }
-
-    // Phase 1 — content family classification
-    let feats = features::extract_features(trimmed);
-    let family_result = family::classify_family(&feats);
-
-    // Phase 2 — family-gated candidate scoring
-    let families: Vec<family::ContentFamily> = if family_result.is_confident() {
-        // Confident: use only the top family
-        family_result.top().map(|s| vec![s.family]).unwrap_or_default()
-    } else {
-        // Ambiguous: use all families with non-zero scores.
-        // When the classifier can't decide, don't restrict by family.
-        family_result.scores.iter().map(|s| s.family).collect()
-    };
-
-    // Phase 2a — soft structural probes (family-gated).
-    // These detectors (Markdown, YAML, SQL, TOML, SCSS, Sass, Prompt)
-    // have higher false-positive rates, so they only fire when the
-    // family classifier agrees. E.g., markdown won't fire on Code content.
-    // When families is empty (classifier abstained), all soft detectors
-    // are allowed — the classifier has no opinion to gate with.
-    if let Some(result) = structural::detect_soft_structural(trimmed, was_sliced, &families) {
-        return Some(result);
-    }
-
-    // Phase 2b — family-gated language scoring
-    if !families.is_empty() {
-        let candidates = scoring::score_candidates(trimmed, &families);
-
-        if !candidates.is_empty() {
-            // Phase 3 — neighbor disambiguation
-            if let Some(winner) = disambiguation::disambiguate(trimmed, &candidates) {
-                return Some(ensure_supported(winner));
-            }
-        }
-
-        // If the top family is Prose and no language candidates matched,
-        // the content is natural language — return None (abstain).
-        if families.first() == Some(&family::ContentFamily::Prose) {
-            return None;
-        }
-    }
-
-    // New pipeline abstained — return None.
-    // Prose family is intentionally abstained when no candidates match.
-    None
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    // ── Phase 1: Extension / Filename ────────────────────────
+    // ── Phase 0a: Extension / Filename ────────────────────────
 
     #[test]
     fn detect_by_extension_json() {
@@ -191,7 +274,7 @@ mod tests {
         assert_eq!(detect_language("", Some(".bashrc")), Some("shell"));
     }
 
-    // ── Phase 2: Shebang ─────────────────────────────────────
+    // ── Phase 0b: Shebang ─────────────────────────────────────
 
     #[test]
     fn detect_python_shebang() {
@@ -209,7 +292,7 @@ mod tests {
         );
     }
 
-    // ── Phase 3: Structural ──────────────────────────────────
+    // ── Phase 0c + 2a: Structural ────────────────────────────
 
     #[test]
     fn detect_json_object() {
@@ -265,7 +348,7 @@ mod tests {
         assert_eq!(detect_language(content, None), Some("toml"));
     }
 
-    // ── Phase 4: Heuristic ───────────────────────────────────
+    // ── Phase 2b: Heuristic (family-gated scoring) ───────────
 
     #[test]
     fn detect_python_content() {
@@ -546,6 +629,18 @@ CREATE TABLE users (
 
 CREATE INDEX idx_users_email ON users(email);
 "#;
+        assert_eq!(detect_language(content, None), Some("sql"));
+    }
+
+    #[test]
+    fn sql_multi_line_select() {
+        let content = "SELECT    \n  first_name,\n  last_name,\n  salary\nFROM\n  employees\nWHERE\n  salary > 70000\nORDER BY\n  salary DESC;";
+        assert_eq!(detect_language(content, None), Some("sql"));
+    }
+
+    #[test]
+    fn sql_single_line_select() {
+        let content = "SELECT name, email FROM users WHERE active = true;";
         assert_eq!(detect_language(content, None), Some("sql"));
     }
 
@@ -1389,14 +1484,14 @@ Alice";
 
     #[test]
     fn v2_extension_still_works() {
-        assert_eq!(detect_language_v2("", Some("data.json")), Some("json"));
-        assert_eq!(detect_language_v2("", Some("app.py")), Some("python"));
+        assert_eq!(detect_language("", Some("data.json")), Some("json"));
+        assert_eq!(detect_language("", Some("app.py")), Some("python"));
     }
 
     #[test]
     fn v2_shebang_still_works() {
         assert_eq!(
-            detect_language_v2("#!/usr/bin/env python3\nprint('hello')", None),
+            detect_language("#!/usr/bin/env python3\nprint('hello')", None),
             Some("python")
         );
     }
@@ -1405,7 +1500,7 @@ Alice";
     fn v2_structural_still_works() {
         // JSON structural detection
         assert_eq!(
-            detect_language_v2("{\"name\": \"test\", \"version\": \"1.0\"}", None),
+            detect_language("{\"name\": \"test\", \"version\": \"1.0\"}", None),
             Some("json")
         );
     }
@@ -1418,7 +1513,7 @@ Alice";
                       currently using extension + heuristics, but failing for mixed \
                       content files (yaml with embedded json/bash). How would you \
                       design a robust detection pipeline?";
-        let result = detect_language_v2(prose, None);
+        let result = detect_language(prose, None);
         // Should either be None or "prompt" — never a code language
         assert!(
             result.is_none() || result == Some("prompt"),
@@ -1432,7 +1527,7 @@ Alice";
         let email = "Hi John,\n\nI've been thinking about the project and I'm not sure \
                       if we should proceed. The naming consistency is off and YAML detection \
                       still seems flaky.\n\nLet's discuss when you're free.\n\nThanks,\nSarah";
-        let result = detect_language_v2(email, None);
+        let result = detect_language(email, None);
         assert!(
             result.is_none() || result == Some("email") || result == Some("prompt"),
             "v2: email should not be detected as a code language, got {:?}",
@@ -1457,7 +1552,7 @@ def main():
 if __name__ == "__main__":
     main()
 "#;
-        let result = detect_language_v2(python, None);
+        let result = detect_language(python, None);
         assert_eq!(result, Some("python"), "v2: Python should be detected via family scoring");
     }
 
@@ -1478,7 +1573,7 @@ pub fn process(config: &Config) -> Result<(), String> {
     Ok(())
 }
 "#;
-        let result = detect_language_v2(rust, None);
+        let result = detect_language(rust, None);
         assert_eq!(result, Some("rust"), "v2: Rust should be detected via family scoring");
     }
 
@@ -1497,7 +1592,7 @@ func main() {
     fmt.Println(result)
 }
 "#;
-        let result = detect_language_v2(go, None);
+        let result = detect_language(go, None);
         assert_eq!(result, Some("go"), "v2: Go should be detected via family scoring");
     }
 
@@ -1516,7 +1611,7 @@ const getUser = async (id: number): Promise<User> => {
     return { name: "Alice", age: 30, active: true };
 };
 "#;
-        let result = detect_language_v2(ts, None);
+        let result = detect_language(ts, None);
         assert_eq!(result, Some("typescript"), "v2: TypeScript should be detected via family scoring");
     }
 
@@ -1534,7 +1629,7 @@ public class Main {
     }
 }
 "#;
-        let result = detect_language_v2(java, None);
+        let result = detect_language(java, None);
         assert_eq!(result, Some("java"), "v2: Java should be detected via family scoring");
     }
 
@@ -1552,7 +1647,7 @@ fun main() {
         .forEach { println(it.name) }
 }
 "#;
-        let result = detect_language_v2(kotlin, None);
+        let result = detect_language(kotlin, None);
         assert_eq!(result, Some("kotlin"), "v2: Kotlin should be detected via family scoring");
     }
 
@@ -1571,7 +1666,7 @@ object Main extends App {
     users.sorted.foreach(println)
 }
 "#;
-        let result = detect_language_v2(scala, None);
+        let result = detect_language(scala, None);
         assert_eq!(result, Some("scala"), "v2: Scala should be detected via family scoring");
     }
 
@@ -1597,7 +1692,7 @@ int main() {
     return 0;
 }
 "#;
-        let result = detect_language_v2(cpp, None);
+        let result = detect_language(cpp, None);
         assert_eq!(result, Some("cpp"), "v2: C++ should be detected via family scoring");
     }
 
@@ -1619,7 +1714,7 @@ app.get('/', (req, res) => {
 
 module.exports = app;
 "#;
-        let result = detect_language_v2(js, None);
+        let result = detect_language(js, None);
         assert_eq!(result, Some("javascript"), "v2: JS with require/exports should detect as JS, not TS");
     }
 
@@ -1643,7 +1738,7 @@ declare module 'express' {
 
 const config: Config = { port: 3000, host: "localhost", debug: true };
 "#;
-        let result = detect_language_v2(ts, None);
+        let result = detect_language(ts, None);
         assert_eq!(result, Some("typescript"), "v2: TS with interface/type/declare should detect as TS");
     }
 
@@ -1669,7 +1764,7 @@ int main(int argc, char* argv[]) {
     return 0;
 }
 "#;
-        let result = detect_language_v2(c, None);
+        let result = detect_language(c, None);
         assert!(
             result == Some("c") || result == Some("cpp"),
             "v2: Pure C should detect as C (or C++), got {:?}", result
@@ -1703,7 +1798,7 @@ private:
 
 }  // namespace mylib
 "#;
-        let result = detect_language_v2(cpp, None);
+        let result = detect_language(cpp, None);
         assert_eq!(result, Some("cpp"), "v2: C++ with templates/std::/cout should detect as C++");
     }
 
@@ -1731,7 +1826,7 @@ public class UserService {
     }
 }
 "#;
-        let result = detect_language_v2(java, None);
+        let result = detect_language(java, None);
         assert_eq!(result, Some("java"), "v2: Java with System.out/@Override should detect as Java");
     }
 
@@ -1763,7 +1858,7 @@ class UserService {
     }
 }
 "#;
-        let result = detect_language_v2(kotlin, None);
+        let result = detect_language(kotlin, None);
         assert_eq!(result, Some("kotlin"), "v2: Kotlin with fun/companion/data class should detect as Kotlin");
     }
 
@@ -1786,7 +1881,7 @@ object Main extends App {
     }
 }
 "#;
-        let result = detect_language_v2(scala, None);
+        let result = detect_language(scala, None);
         assert_eq!(result, Some("scala"), "v2: Scala with case class/sealed trait/implicit should detect as Scala");
     }
 
@@ -1811,7 +1906,7 @@ public class UserController {
     }
 }
 "#;
-        let result = detect_language_v2(java, None);
+        let result = detect_language(java, None);
         assert_eq!(result, Some("java"), "v2: Spring @RestController with import org.springframework should be Java");
     }
 
@@ -1834,7 +1929,7 @@ public class ThreadSafeCache<K, V> {
     public static final int MAX_SIZE = 1000;
 }
 "#;
-        let result = detect_language_v2(java, None);
+        let result = detect_language(java, None);
         assert_eq!(result, Some("java"), "v2: Java with synchronized/diamond/instanceof/public static final");
     }
 
@@ -1857,7 +1952,7 @@ class Repository {
     }
 }
 "#;
-        let result = detect_language_v2(kotlin, None);
+        let result = detect_language(kotlin, None);
         assert_eq!(result, Some("kotlin"), "v2: Kotlin with lateinit/import kotlin/kotlinx/@JvmStatic");
     }
 
@@ -1877,7 +1972,7 @@ extension (c: Config)
   val config = Config("localhost", 8080)
   println(config.toUrl)
 "#;
-        let result = detect_language_v2(scala, None);
+        let result = detect_language(scala, None);
         assert_eq!(result, Some("scala"), "v2: Scala 3 with given/extension/@main should be Scala");
     }
 
@@ -1904,7 +1999,7 @@ object Greeter {
     }
 }
 "#;
-        let result = detect_language_v2(scala, None);
+        let result = detect_language(scala, None);
         assert_eq!(result, Some("scala"), "v2: Scala with Akka imports/sealed trait/case class/match");
     }
 
@@ -1931,7 +2026,7 @@ fun UserList(users: List<User>) {
     }
 }
 "#;
-        let result = detect_language_v2(kotlin, None);
+        let result = detect_language(kotlin, None);
         assert_eq!(result, Some("kotlin"), "v2: Kotlin with @Composable/fun/val by/lambda");
     }
 
@@ -1963,7 +2058,7 @@ int main(int argc, char *argv[]) {
     return 0;
 }
 "#;
-        let result = detect_language_v2(c, None);
+        let result = detect_language(c, None);
         assert_eq!(result, Some("c"), "v2: Pure C with stdio.h/stdlib.h/typedef struct/malloc/printf");
     }
 
@@ -2002,7 +2097,7 @@ int main() {
     return 0;
 }
 "#;
-        let result = detect_language_v2(cpp, None);
+        let result = detect_language(cpp, None);
         assert_eq!(result, Some("cpp"), "v2: Modern C++ with templates/auto/lambda/std::/unique_ptr");
     }
 
@@ -2023,7 +2118,7 @@ namespace util {
     };
 }
 "#;
-        let result = detect_language_v2(cpp, None);
+        let result = detect_language(cpp, None);
         assert_eq!(result, Some("cpp"), "v2: C++ with namespace/class/std::/std::move beats C");
     }
 
@@ -2050,7 +2145,7 @@ namespace util {
 
 @end
 "#;
-        let result = detect_language_v2(objc, None);
+        let result = detect_language(objc, None);
         assert_eq!(result, Some("objectivec"), "v2: ObjC with @interface/@implementation/#import/NSLog");
     }
 
@@ -2075,7 +2170,7 @@ int main() {
     print(std::string("hello"));
 }
 "#;
-        let result = detect_language_v2(cpp, None);
+        let result = detect_language(cpp, None);
         assert_eq!(result, Some("cpp"), "v2: C++20 with concepts/requires");
     }
 
@@ -2103,7 +2198,7 @@ module_init(my_init);
 module_exit(my_exit);
 MODULE_LICENSE("GPL");
 "#;
-        let result = detect_language_v2(c, None);
+        let result = detect_language(c, None);
         // C or cpp are both acceptable for kernel code (macros are c-family)
         assert!(
             result == Some("c") || result == Some("cpp"),
@@ -2149,7 +2244,7 @@ mod tests {
     }
 }
 "#;
-        let result = detect_language_v2(rust, None);
+        let result = detect_language(rust, None);
         assert_eq!(result, Some("rust"), "v2: Rust with use std::/crate::/#[derive]/#[cfg(test)]/impl/Result<>");
     }
 
@@ -2193,7 +2288,7 @@ func init() {
     log.SetFlags(log.LstdFlags | log.Lshortfile)
 }
 "#;
-        let result = detect_language_v2(go, None);
+        let result = detect_language(go, None);
         assert_eq!(result, Some("go"), "v2: Go with package/func/method receiver/go func/if err != nil/context");
     }
 
@@ -2237,7 +2332,7 @@ actor DataManager {
     }
 }
 "#;
-        let result = detect_language_v2(swift, None);
+        let result = detect_language(swift, None);
         assert_eq!(result, Some("swift"), "v2: Swift with @main/SwiftUI/actor/async throws/@State/@Published");
     }
 
@@ -2283,7 +2378,7 @@ class _TodoListState extends State<TodoList> {
   }
 }
 "#;
-        let result = detect_language_v2(dart, None);
+        let result = detect_language(dart, None);
         assert_eq!(result, Some("dart"), "v2: Dart/Flutter with import package:/dart:/StatefulWidget/setState/Widget build");
     }
 
@@ -2315,7 +2410,7 @@ impl Repository for InMemoryRepo {
     }
 }
 "#;
-        let result = detect_language_v2(rust, None);
+        let result = detect_language(rust, None);
         assert_eq!(result, Some("rust"), "v2: Rust with trait/impl/derive/use std::/Option/Result beats Go");
     }
 
@@ -2345,7 +2440,7 @@ struct UserService {
     }
 }
 "#;
-        let result = detect_language_v2(swift, None);
+        let result = detect_language(swift, None);
         assert_eq!(result, Some("swift"), "v2: Swift with guard let/if let/weak var/deinit");
     }
 
@@ -2381,7 +2476,7 @@ class UserController < ApplicationController
   end
 end
 "#;
-        let result = detect_language_v2(ruby, None);
+        let result = detect_language(ruby, None);
         assert_eq!(result, Some("ruby"), "v2: Ruby with do..end/@ vars should detect as Ruby");
     }
 
@@ -2416,7 +2511,7 @@ end
 </body>
 </html>
 "#;
-        let result = detect_language_v2(html, None);
+        let result = detect_language(html, None);
         assert_eq!(result, Some("html"), "v2: Full HTML page should detect as html");
     }
 
@@ -2447,7 +2542,7 @@ end
 
 {@html '<strong>Raw HTML</strong>'}
 "#;
-        let result = detect_language_v2(svelte, None);
+        let result = detect_language(svelte, None);
         assert_eq!(result, Some("svelte"), "v2: Svelte 5 with runes/$state/$derived/$effect");
     }
 
@@ -2487,7 +2582,7 @@ onMounted(async () => {
 })
 </script>
 "#;
-        let result = detect_language_v2(vue, None);
+        let result = detect_language(vue, None);
         assert_eq!(result, Some("vue"), "v2: Vue 3 with Composition API/v-for/v-model/Teleport");
     }
 
@@ -2520,7 +2615,7 @@ onMounted(async () => {
 </div>
 {% endblock %}
 "#;
-        let result = detect_language_v2(jinja, None);
+        let result = detect_language(jinja, None);
         assert_eq!(result, Some("jinja"), "v2: Django/Jinja template with extends/load/csrf_token/url");
     }
 
@@ -2545,7 +2640,7 @@ onMounted(async () => {
     </dependencies>
 </project>
 "#;
-        let result = detect_language_v2(xml, None);
+        let result = detect_language(xml, None);
         assert_eq!(result, Some("xml"), "v2: Maven POM XML with namespaces");
     }
 
@@ -2567,7 +2662,7 @@ onMounted(async () => {
   <p>No items yet</p>
 {/if}
 "#;
-        let result = detect_language_v2(svelte, None);
+        let result = detect_language(svelte, None);
         assert_eq!(result, Some("svelte"), "v2: Svelte blocks should not misdetect as Vue");
     }
 
@@ -2601,7 +2696,7 @@ class UserService:
             users = cached + await self.db.query("SELECT * FROM users OFFSET %s", len(cached))
         return users
 "#;
-        let result = detect_language_v2(py, None);
+        let result = detect_language(py, None);
         assert_eq!(result, Some("python"), "v2: Python with __init__/decorators/typing/walrus");
     }
 
@@ -2634,7 +2729,7 @@ describe UserService do
   end
 end
 "#;
-        let result = detect_language_v2(rb, None);
+        let result = detect_language(rb, None);
         assert_eq!(result, Some("ruby"), "v2: Ruby with RSpec/class<<self/rescue/unless");
     }
 
@@ -2670,7 +2765,7 @@ sub process_input {
 
 __END__
 "#;
-        let result = detect_language_v2(pl, None);
+        let result = detect_language(pl, None);
         assert_eq!(result, Some("perl"), "v2: Perl with POD/Moose/package/my $/foreach my");
     }
 
@@ -2707,7 +2802,7 @@ class UserController extends Controller
     }
 }
 "#;
-        let result = detect_language_v2(php, None);
+        let result = detect_language(php, None);
         assert_eq!(result, Some("php"), "v2: PHP with namespace\\backslash/use/match/nullsafe");
     }
 
@@ -2734,7 +2829,7 @@ class DataProcessor:
             except ValueError as e:
                 print(f"Skipping {item}: {e}")
 "#;
-        let result = detect_language_v2(py, None);
+        let result = detect_language(py, None);
         assert_eq!(result, Some("python"), "v2: Python should not misdetect as Ruby");
     }
 
@@ -2764,7 +2859,7 @@ class User
   end
 end
 "#;
-        let result = detect_language_v2(rb, None);
+        let result = detect_language(rb, None);
         assert_eq!(result, Some("ruby"), "v2: Ruby should not misdetect as Python");
     }
 
@@ -2794,7 +2889,7 @@ spec:
             - name: DATABASE_URL
               value: postgres://db:5432/app
 "#;
-        let result = detect_language_v2(yaml, None);
+        let result = detect_language(yaml, None);
         assert_eq!(result, Some("yaml"), "v2: Kubernetes YAML deployment manifest");
     }
 
@@ -2818,7 +2913,7 @@ path = "src/main.rs"
 opt-level = 3
 lto = true
 "#;
-        let result = detect_language_v2(toml, None);
+        let result = detect_language(toml, None);
         assert_eq!(result, Some("toml"), "v2: Cargo.toml with sections/array-tables/key-value");
     }
 
@@ -2849,7 +2944,7 @@ See the [API documentation](https://example.com/docs) for more details about set
 
 If you run into issues, check the [FAQ](https://example.com/faq) or open an issue.
 "#;
-        let result = detect_language_v2(md, None);
+        let result = detect_language(md, None);
         assert_eq!(result, Some("markdown"), "v2: README with headings/lists/links/bold/blockquote");
     }
 
@@ -2879,7 +2974,7 @@ On Mon, 27 Mar 2026, Bob wrote:
 > Best,
 > Bob
 "#;
-        let result = detect_language_v2(email, None);
+        let result = detect_language(email, None);
         assert_eq!(result, Some("email"), "v2: Email reply thread with RFC headers/greeting/closing/quotes");
     }
 
@@ -2903,14 +2998,14 @@ Example:
 Input: "Write a function to parse JSON"
 Output: A complete, tested function with error handling
 "#;
-        let result = detect_language_v2(prompt, None);
+        let result = detect_language(prompt, None);
         assert_eq!(result, Some("prompt"), "v2: System prompt with role/instructions/constraints/examples");
     }
 
     #[test]
     fn v2_yaml_not_toml() {
         let yaml = "name: my-service\nversion: 1.0.0\ndependencies:\n  - express\n  - lodash\nscripts:\n  start: node index.js\n  test: jest\n";
-        let result = detect_language_v2(yaml, None);
+        let result = detect_language(yaml, None);
         assert_eq!(result, Some("yaml"), "v2: YAML config should not detect as TOML");
     }
 
@@ -2949,7 +3044,7 @@ namespace MyApp.Controllers
     }
 }
 "#;
-        let result = detect_language_v2(cs, None);
+        let result = detect_language(cs, None);
         assert_eq!(result, Some("csharp"), "v2: C# ASP.NET controller with attributes/properties/LINQ");
     }
 
@@ -2981,7 +3076,7 @@ namespace MyApp.Controllers
   (is (= "AliceBob" (process-items [{:name "Alice" :age 30}
                                      {:name "Bob" :age 25}]))))
 "#;
-        let result = detect_language_v2(clj, None);
+        let result = detect_language(clj, None);
         assert_eq!(result, Some("clojure"), "v2: Clojure with defprotocol/defrecord/defmacro/threading");
     }
 
@@ -3015,7 +3110,7 @@ GRANT SELECT ON users TO readonly_role;
 
 COMMIT;
 "#;
-        let result = detect_language_v2(sql, None);
+        let result = detect_language(sql, None);
         assert_eq!(result, Some("sql"), "v2: Complex SQL with DDL/DML/JOIN/GRANT/transaction");
     }
 
@@ -3037,7 +3132,7 @@ VOLUME ["/var/log/nginx"]
 USER nginx
 ENTRYPOINT ["nginx", "-g", "daemon off;"]
 "#;
-        let result = detect_language_v2(dockerfile, None);
+        let result = detect_language(dockerfile, None);
         assert_eq!(result, Some("dockerfile"), "v2: Multi-stage Dockerfile with HEALTHCHECK/VOLUME/USER");
     }
 
@@ -3076,7 +3171,7 @@ http {
     }
 }
 "#;
-        let result = detect_language_v2(nginx, None);
+        let result = detect_language(nginx, None);
         assert_eq!(result, Some("nginx"), "v2: Nginx with upstream/ssl/proxy_pass/try_files");
     }
 
@@ -3100,7 +3195,7 @@ namespace Models
     }
 }
 "#;
-        let result = detect_language_v2(cs, None);
+        let result = detect_language(cs, None);
         assert_eq!(result, Some("csharp"), "v2: C# with get;set;/attributes should not detect as Java");
     }
 
@@ -3147,7 +3242,7 @@ namespace Models
     src: url('/fonts/custom.woff2') format('woff2');
 }
 "#;
-        let result = detect_language_v2(css, None);
+        let result = detect_language(css, None);
         assert_eq!(result, Some("css"), "v2: Modern CSS with custom properties/grid/@keyframes/@font-face");
     }
 
@@ -3188,7 +3283,7 @@ $breakpoints: (sm: 576px, md: 768px, lg: 992px);
     }
 }
 "#;
-        let result = detect_language_v2(scss, None);
+        let result = detect_language(scss, None);
         assert_eq!(result, Some("scss"), "v2: SCSS with @use/@mixin/nesting/interpolation/map-get");
     }
 
@@ -3210,7 +3305,7 @@ case "$1" in
     *)     echo "Usage: $0 {start|stop}" ;;
 esac
 "#;
-        let result = detect_language_v2(bash, None);
+        let result = detect_language(bash, None);
         assert_eq!(result, Some("shell"), "v2: Bash with fi/done/esac should not detect as PowerShell");
     }
 
@@ -3233,7 +3328,7 @@ $results = $files | Where-Object { $_.Extension -eq '.log' } |
 $env:APP_NAME = "MyService"
 Write-Host "Processed $($results.Count) files for $env:APP_NAME"
 "#;
-        let result = detect_language_v2(ps, None);
+        let result = detect_language(ps, None);
         assert_eq!(result, Some("powershell"), "v2: PowerShell with cmdlets/pipeline should not detect as bash");
     }
 
@@ -3260,7 +3355,7 @@ if defined BACKUP_DIR (
 )
 endlocal
 "#;
-        let result = detect_language_v2(batch, None);
+        let result = detect_language(batch, None);
         assert_eq!(result, Some("cmd"), "v2: CMD with %VAR%/setlocal/for /R should not detect as bash");
     }
 
@@ -3290,7 +3385,7 @@ endlocal
     .btn-primary { width: 100%; }
 }
 "#;
-        let result = detect_language_v2(css, None);
+        let result = detect_language(css, None);
         assert_eq!(result, Some("css"), "v2: Pure CSS should not misdetect as Kotlin/Java");
     }
 
@@ -3313,7 +3408,7 @@ for service in $(cat services.txt); do
 done
 echo "All services deployed."
 "#;
-        let result = detect_language_v2(shell, None);
+        let result = detect_language(shell, None);
         assert_eq!(result, Some("shell"), "v2: bash script should detect as shell");
     }
 
@@ -3334,7 +3429,7 @@ foreach ($item in $items) {
 
 Write-Output "Done processing $($items.Count) scripts"
 "#;
-        let result = detect_language_v2(ps, None);
+        let result = detect_language(ps, None);
         assert_eq!(result, Some("powershell"), "v2: PowerShell script should detect as powershell");
     }
 
@@ -3362,7 +3457,7 @@ goto :eof
 :cleanup
 endlocal
 "#;
-        let result = detect_language_v2(cmd, None);
+        let result = detect_language(cmd, None);
         assert_eq!(result, Some("cmd"), "v2: CMD batch should detect as cmd");
     }
 
@@ -3375,7 +3470,7 @@ endlocal
                      I want to define the scope and select the right approach for our class of problems. \
                      We need to consider if this is the right time to make these changes and how \
                      we can implement them without breaking existing functionality.";
-        let result = detect_language_v2(prose, None);
+        let result = detect_language(prose, None);
         assert!(
             result.is_none() || result == Some("email") || result == Some("prompt"),
             "v2: prose with code keywords should not detect as code, got {:?}",
@@ -3386,7 +3481,7 @@ endlocal
     #[test]
     fn v2_short_question_rejected() {
         let q = "what does this function do and should I refactor it?";
-        let result = detect_language_v2(q, None);
+        let result = detect_language(q, None);
         assert!(
             result.is_none() || result == Some("prompt"),
             "v2: short question should not detect as code, got {:?}",
@@ -3408,7 +3503,7 @@ endlocal
                      - review PR #456 (who's handling this?)\n\
                      - update architecture docs - they're outdated\n\
                      - set up monitoring dashboards";
-        let result = detect_language_v2(notes, None);
+        let result = detect_language(notes, None);
         assert_ne!(result, Some("yaml"), "v2: meeting notes with contractions should not be YAML, got {:?}", result);
     }
 

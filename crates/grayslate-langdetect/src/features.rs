@@ -91,6 +91,13 @@ static CODE_OPERATOR: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(==|!=|>=|<=|&&|\|\||->|=>|::|\+=|-=|\*=|/=|%=)").unwrap()
 });
 
+/// Lines starting with SQL clause-level keywords.
+/// Used as a code-family signal: SQL has no imports, braces, or function defs
+/// but its distinctive clause-per-line structure is strongly code-like.
+static SQL_CODE_LINE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)^\s*(SELECT|FROM|WHERE|ORDER\s+BY|GROUP\s+BY|HAVING|INSERT\s+INTO|UPDATE\s+.*SET|DELETE\s+FROM|CREATE\s+(TABLE|INDEX|VIEW|DATABASE|SCHEMA)|ALTER\s+(TABLE|INDEX|VIEW|DATABASE|SCHEMA)|DROP\s+(TABLE|INDEX|VIEW|DATABASE|SCHEMA)|TRUNCATE|EXPLAIN|DESCRIBE|WITH\s+\w+\s+AS|MERGE)\b").unwrap()
+});
+
 /// Word-like tokens for counting.
 static WORD_TOKEN: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"[a-zA-Z']+").unwrap());
@@ -122,6 +129,8 @@ pub struct ContentFeatures {
     pub pronoun_ratio: f64,
 
     // ── Code signals ─────────────────────────────────────────
+    /// Fraction of non-empty lines where SQL clause-level keywords start the line.
+    pub sql_code_density: f64,
     /// Fraction of non-empty lines ending with `;`.
     pub semicolon_ratio: f64,
     /// Fraction of non-empty lines containing `{` or `}`.
@@ -218,6 +227,13 @@ pub fn extract_features(content: &str) -> ContentFeatures {
     };
 
     // ── Code signals ─────────────────────────────────────────
+    let sql_code_lines = non_empty.iter().filter(|l| SQL_CODE_LINE.is_match(l)).count();
+    let sql_code_density = if non_empty_count > 0 {
+        sql_code_lines as f64 / non_empty_count as f64
+    } else {
+        0.0
+    };
+
     let semicolon_lines = non_empty
         .iter()
         .filter(|l| l.trim().ends_with(';'))
@@ -299,6 +315,7 @@ pub fn extract_features(content: &str) -> ContentFeatures {
         greeting_present,
         closing_present,
         pronoun_ratio,
+        sql_code_density,
         semicolon_ratio,
         brace_ratio,
         import_line_count,
