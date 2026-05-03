@@ -1,3 +1,8 @@
+---
+name: memory-management
+description: Memory reclamation strategy for file switching, GC pressure trick, and Rust sysinfo integration.
+---
+
 # Memory Management & GC Pressure Strategy
 
 This document outlines the approach used in Grayslate to ensure memory is reclaimed promptly when switching between files.

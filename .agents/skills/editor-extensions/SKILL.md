@@ -1,5 +1,5 @@
 ---
-name: Editor Extensions
+name: editor-extensions
 description: Documentation for custom CodeMirror extensions and editor utilities.
 ---
 

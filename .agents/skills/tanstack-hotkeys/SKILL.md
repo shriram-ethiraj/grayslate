@@ -1,5 +1,5 @@
 ---
-name: TanStack Hotkeys Integration
+name: tanstack-hotkeys
 description: Complete reference for @tanstack/hotkeys v0.3.1 — how the library works internally, the Svelte wrapper, key pitfalls, and all patterns used in Grayslate.
 ---
 

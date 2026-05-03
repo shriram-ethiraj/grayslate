@@ -1,5 +1,5 @@
 ---
-name: Grayslate Code Review Playbook
+name: code-review
 description: Reusable review checklist for auditing Grayslate's Svelte 5, TypeScript, CodeMirror, CSV worker, and Tauri backend changes.
 ---
 

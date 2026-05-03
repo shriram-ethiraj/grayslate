@@ -22,19 +22,19 @@ Welcome to the Grayslate project. This document serves as a "production-grade" r
 
 Keep this file compact. Detailed implementation notes belong in the skill files.
 
-- Frontend patterns: `.agents/svelte-frontend/SKILL.md`
-- Code review playbook: `.agents/code-review/SKILL.md`
-- CodeMirror session model: `.agents/codemirror-core/SKILL.md`
-- Editor extension patterns: `.agents/editor-extensions/SKILL.md`
-- CSV table architecture: `.agents/csv-architecture/SKILL.md`
-- Naming and SQL naming architecture: `.agents/naming-architecture/SKILL.md`
-- Transformation architecture: `.agents/transformations/SKILL.md`
-- Sidebar search architecture: `.agents/search-architecture/SKILL.md`
-- Hotkeys: `.agents/tanstack-hotkeys/SKILL.md`
-- Memory reclamation: `.agents/memory-management/SKILL.md`
-- Tauri backend: `.agents/tauri-backend/SKILL.md`
-- Layout safety rules: `.agents/layout-chain/SKILL.md`
-- Typography & spacing: `.agents/typography/SKILL.md`
+- Frontend patterns: `.agents/skills/svelte-frontend/SKILL.md`
+- Code review playbook: `.agents/skills/code-review/SKILL.md`
+- CodeMirror session model: `.agents/skills/codemirror-core/SKILL.md`
+- Editor extension patterns: `.agents/skills/editor-extensions/SKILL.md`
+- CSV table architecture: `.agents/skills/csv-architecture/SKILL.md`
+- Naming and SQL naming architecture: `.agents/skills/naming-architecture/SKILL.md`
+- Transformation architecture: `.agents/skills/transformations/SKILL.md`
+- Sidebar search architecture: `.agents/skills/search-architecture/SKILL.md`
+- Hotkeys: `.agents/skills/tanstack-hotkeys/SKILL.md`
+- Memory reclamation: `.agents/skills/memory-management/SKILL.md`
+- Tauri backend: `.agents/skills/tauri-backend/SKILL.md`
+- Layout safety rules: `.agents/skills/layout-chain/SKILL.md`
+- Typography & spacing: `.agents/skills/typography/SKILL.md`
 
 ## 🔎 Current High-Level Reality
 
@@ -53,7 +53,7 @@ Keep this file compact. Detailed implementation notes belong in the skill files.
 
 ### 1. Frontend (Svelte 5 & TypeScript)
 
-**> To know more about this topic, YOU MUST READ the `.agents/svelte-frontend/SKILL.md` file.**
+**> To know more about this topic, YOU MUST READ the `.agents/skills/svelte-frontend/SKILL.md` file.**
 
 - **Embrace Svelte 5 Runes:** Exclusively use modern Svelte 5 signals (`$state`, `$derived`, `$effect`, `$props`). Avoid Svelte 4 legacy features.
 - **Strong Typing:** Do not use `any`. Use strict TypeScript interfaces.
@@ -62,8 +62,8 @@ Keep this file compact. Detailed implementation notes belong in the skill files.
 
 ### 2. Editor Integration (CodeMirror 6)
 
-**> To know more about core integration, YOU MUST READ the `.agents/codemirror-core/SKILL.md` file.**
-**> To know more about custom extensions, YOU MUST READ the `.agents/editor-extensions/SKILL.md` file.**
+**> To know more about core integration, YOU MUST READ the `.agents/skills/codemirror-core/SKILL.md` file.**
+**> To know more about custom extensions, YOU MUST READ the `.agents/skills/editor-extensions/SKILL.md` file.**
 
 - Keep `EditorState` separate from Svelte's `$state` to avoid reactivity loops.
 - Perform updates via `Transaction`s.
@@ -73,7 +73,7 @@ Keep this file compact. Detailed implementation notes belong in the skill files.
 
 ### 3. Desktop / Backend (Tauri v2 & Rust)
 
-**> To know more about backend rules, YOU MUST READ the `.agents/tauri-backend/SKILL.md` file.**
+**> To know more about backend rules, YOU MUST READ the `.agents/skills/tauri-backend/SKILL.md` file.**
 
 - Ensure usage of Tauri **v2** APIs.
 - Use `Result<T, E>` and `serde::Serialize` for returning Rust errors to Svelte.
@@ -81,7 +81,7 @@ Keep this file compact. Detailed implementation notes belong in the skill files.
 
 ### 4. Layout & CSS — Critical Rules
 
-**> To know more about layout issues and fixes, YOU MUST READ the `.agents/layout-chain/SKILL.md` file.**
+**> To know more about layout issues and fixes, YOU MUST READ the `.agents/skills/layout-chain/SKILL.md` file.**
 
 > **⚠️ Breaking these rules causes catastrophic virtualizer failures (CPU/memory spikes, app crash).**
 
@@ -91,10 +91,10 @@ Keep this file compact. Detailed implementation notes belong in the skill files.
 
 ### 5. Application Features & Core Libraries
 
-**> To know more about the CSV architecture and virtualizer, YOU MUST READ the `.agents/csv-architecture/SKILL.md` file.**
-**> To know more about built-in transformations and large-text transport, YOU MUST READ the `.agents/transformations/SKILL.md` file.**
-**> To know more about keyboard shortcut management (hotkeys), YOU MUST READ the `.agents/tanstack-hotkeys/SKILL.md` file.**
-**> To know more about memory management and GC pressure, YOU MUST READ the `.agents/memory-management/SKILL.md` file.**
+**> To know more about the CSV architecture and virtualizer, YOU MUST READ the `.agents/skills/csv-architecture/SKILL.md` file.**
+**> To know more about built-in transformations and large-text transport, YOU MUST READ the `.agents/skills/transformations/SKILL.md` file.**
+**> To know more about keyboard shortcut management (hotkeys), YOU MUST READ the `.agents/skills/tanstack-hotkeys/SKILL.md` file.**
+**> To know more about memory management and GC pressure, YOU MUST READ the `.agents/skills/memory-management/SKILL.md` file.**
 
 - **Language Detection:** Uses a Rust-side family-first pipeline in `src-tauri/src/detection/`: extension / filename → shebang → strong structural probes → content family classification → family-gated scoring → rival disambiguation / superset tiebreak, abstaining when no confident match is found. The FE retains only thin sync UI maps (`languageExtensions.ts`, `languageIconMap.ts`) while all content-based detection still goes through IPC.
 - **Naming:** Uses a per-language `NamingDefinition` registry in `src-tauri/src/naming/languages/` for canonical save extensions and extractor routing. `suggest_stem_auto()` returns the effective detected language, and `email` / `prompt` are first-class naming kinds that force `-email` / `-prompt` suffixes.

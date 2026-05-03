@@ -1,5 +1,5 @@
 ---
-name: Tauri and Rust Backend Guidelines
+name: tauri-backend
 description: Rules for using Tauri v2 APIs safely and effectively with Rust in Grayslate.
 ---
 

@@ -1,3 +1,8 @@
+---
+name: typography
+description: Design system tokens for font sizes, icon sizes, control heights, and spacing. No arbitrary Tailwind values.
+---
+
 # Typography & Spacing — Design System
 
 > Canonical reference for font sizes, icon sizes, control heights, and spacing.
