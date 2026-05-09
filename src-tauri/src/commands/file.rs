@@ -15,7 +15,7 @@ use crate::filesystem::{
     classify_file_source, resolve_default_notes_root_path, resolve_notes_root_path,
     sanitize_filename, unique_path_in_dir,
 };
-use crate::storage::{AppStorage, FileEventType, FileSource, RecentFileRecord, SETTING_NOTES_ROOT, normalize_path_key};
+use crate::storage::{AppStorage, FileSource, RecentFileRecord, SETTING_NOTES_ROOT, normalize_path_key};
 
 use super::RECENT_FILES_UPDATED_EVENT;
 
@@ -191,7 +191,7 @@ pub async fn read_file_content(
         ensure_read_not_cancelled(cancellation_flag.as_ref())?;
 
        if let Ok(source) = classify_file_source(&app, storage.inner(), &path_buf) {
-            let _ = storage.record_file_event(&path_buf, source, FileEventType::Open);
+            let _ = storage.record_file_event(&path_buf, source);
         }
         let _ = app.emit(RECENT_FILES_UPDATED_EVENT, ());
 
@@ -403,7 +403,7 @@ pub fn prepare_file_open(
 ) -> Result<RecentFileRecord, String> {
     let path_buf = PathBuf::from(&path);
     let source = classify_file_source(&app, storage.inner(), &path_buf)?;
-    storage.record_file_event(&path_buf, source, FileEventType::Open)?;
+    storage.record_file_event(&path_buf, source)?;
     storage
         .get_tracked_file(&path_buf)?
         .ok_or_else(|| "Failed to resolve prepared file entry.".to_string())
@@ -435,7 +435,7 @@ pub async fn write_file_content(
     .map_err(|error| format!("Failed to join file write task: {}", error))??;
 
     let source = classify_file_source(&app, storage.inner(), &target_path)?;
-    storage.record_file_event(&target_path, source, FileEventType::Save)?;
+    storage.record_file_event(&target_path, source)?;
     let _ = app.emit(RECENT_FILES_UPDATED_EVENT, ());
     Ok(())
 }
@@ -690,11 +690,7 @@ pub async fn duplicate_local_file_as_slate(
     .await
     .map_err(|e| format!("Duplicate task failed: {}", e))??;
 
-    storage.record_file_event(
-        &dest,
-        crate::storage::FileSource::Slates,
-        FileEventType::Open,
-    )?;
+    storage.record_file_event(&dest, crate::storage::FileSource::Slates)?;
     let _ = app.emit(RECENT_FILES_UPDATED_EVENT, ());
 
     Ok(dest_str)
@@ -745,7 +741,7 @@ pub async fn duplicate_file(
     .map_err(|e| format!("Duplicate task failed: {}", e))??;
 
     let source = classify_file_source(&app, storage.inner(), &dest)?;
-    storage.record_file_event(&dest, source, FileEventType::Open)?;
+    storage.record_file_event(&dest, source)?;
     let _ = app.emit(RECENT_FILES_UPDATED_EVENT, ());
 
     Ok(dest_str)

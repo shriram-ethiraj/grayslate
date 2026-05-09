@@ -52,16 +52,14 @@
   const isMac = $derived(platformState.osType === "macos");
   const isLinux = $derived(platformState.osType === "linux");
 
-  const currentFileName = $derived.by(() => {
+  const displayName = $derived.by(() => {
     if (!editorState.currentFilePath) return "New Slate";
     const parts = editorState.currentFilePath.split(/[\\/]/);
-    const name = parts[parts.length - 1] || "New Slate";
-    // Show dirty indicator only for local (non-slate) files
-    if (editorState.isDirty && editorState.currentFileSource === "local") {
-      return `${name} *`;
-    }
-    return name;
+    return parts[parts.length - 1] || "New Slate";
   });
+  const showDirtyIndicator = $derived(
+    editorState.isDirty && editorState.currentFileSource === "local",
+  );
   /** Redo shortcut differs between platforms */
   const redoShortcut = $derived(
     isMac ? formatForDisplay("Mod+Shift+Z") : formatForDisplay("Mod+Y"),
@@ -494,10 +492,17 @@
 
   <!-- Centered file name: pointer-events-none so drag-region below remains active -->
   <div class="pointer-events-none absolute inset-0 z-5 flex items-center justify-center">
-    <span
-      class="max-w-[40%] truncate text-xs font-medium text-foreground"
-      title={editorState.currentFilePath ?? currentFileName}
-    >{currentFileName}</span>
+    <div class="relative max-w-[40%]">
+      <span
+        class="block truncate text-xs font-medium text-foreground pr-3"
+        title={editorState.currentFilePath ?? displayName}
+      >
+        {displayName}
+      </span>
+      {#if showDirtyIndicator}
+        <span class="absolute right-0 top-0 bottom-0 flex items-center text-xs font-medium">*</span>
+      {/if}
+    </div>
   </div>
 
   {#if isMac}

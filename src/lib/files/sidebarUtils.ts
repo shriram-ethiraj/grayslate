@@ -152,12 +152,11 @@ export function formatSize(value: number | null): string {
 
 /**
  * Returns the most relevant recency timestamp for a record.
- * Priority: last_opened_at → last_saved_at → last_seen_at.
+ * Priority: file_modified_app_at → updated_at.
  */
 export function getRecencyTimestamp(recentFile: LibraryFileRecord): number | null {
-    return recentFile.last_opened_at
-        ?? recentFile.last_saved_at
-        ?? recentFile.last_seen_at;
+    return recentFile.file_modified_app_at
+        ?? recentFile.updated_at;
 }
 
 /**

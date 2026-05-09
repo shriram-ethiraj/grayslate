@@ -12,10 +12,9 @@ export interface RecentFileRecord {
   language: string;
   source: RecentFileSource;
   size_bytes: number | null;
-  last_opened_at: number | null;
-  last_saved_at: number | null;
-  last_seen_at: number | null;
-  last_modified_at: number | null;
+  file_modified_app_at: number | null;
+  file_modified_disk_at: number | null;
+  updated_at: number;
 }
 
 export interface HighlightFragment {

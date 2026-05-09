@@ -127,10 +127,10 @@ fn build_candidates(
             .as_ref()
             .map(|value| value.len())
             .or(tracked.as_ref().and_then(|value| value.size_bytes));
-        let last_modified_at = metadata
+        let file_modified_disk_at = metadata
             .and_then(|value| value.modified().ok())
             .and_then(system_time_to_unix_ms)
-            .or(tracked.as_ref().and_then(|value| value.last_modified_at));
+            .or(tracked.as_ref().and_then(|value| value.file_modified_disk_at));
 
         candidates.insert(
             path_key,
@@ -143,10 +143,8 @@ fn build_candidates(
                     .map(|value| value.source.clone())
                     .unwrap_or_else(|| "slates".to_string()),
                 size_bytes,
-                last_opened_at: tracked.as_ref().and_then(|value| value.last_opened_at),
-                last_saved_at: tracked.as_ref().and_then(|value| value.last_saved_at),
-                last_seen_at: tracked.as_ref().and_then(|value| value.last_seen_at),
-                last_modified_at,
+                file_modified_app_at: tracked.as_ref().and_then(|value| value.file_modified_app_at),
+                file_modified_disk_at,
                 content,
                 document_length: size_bytes.unwrap_or(0).max(1) as f32,
             },

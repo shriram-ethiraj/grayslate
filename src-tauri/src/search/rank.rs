@@ -39,12 +39,8 @@ pub fn rank_candidate(
         return None;
     }
 
-    let freshness_score = score_freshness(candidate.last_modified_at);
-    let usage_score = score_usage(
-        candidate.last_opened_at,
-        candidate.last_saved_at,
-        candidate.last_seen_at,
-    );
+    let freshness_score = score_freshness(candidate.file_modified_disk_at);
+    let usage_score = score_usage(candidate.file_modified_app_at);
     let final_score = filename_score * 1.6
         + content_score * 1.0
         + freshness_score * 0.15
@@ -56,10 +52,8 @@ pub fn rank_candidate(
         extension: candidate.extension.clone(),
         source: candidate.source.clone(),
         size_bytes: candidate.size_bytes,
-        last_opened_at: candidate.last_opened_at,
-        last_saved_at: candidate.last_saved_at,
-        last_seen_at: candidate.last_seen_at,
-        last_modified_at: candidate.last_modified_at,
+        file_modified_app_at: candidate.file_modified_app_at,
+        file_modified_disk_at: candidate.file_modified_disk_at,
         matched_lines: candidate
             .content
             .previews
@@ -290,26 +284,18 @@ fn score_content(candidate: &FileSearchCandidate, context: &RankContext<'_>) -> 
         .sum::<f32>()
 }
 
-fn score_freshness(last_modified_at: Option<i64>) -> f32 {
-    let Some(last_modified_at) = last_modified_at else {
+fn score_freshness(file_modified_disk_at: Option<i64>) -> f32 {
+    let Some(file_modified_disk_at) = file_modified_disk_at else {
         return 0.0;
     };
 
-    let age_ms = (crate::search::types::current_time_ms() - last_modified_at).max(0) as f32;
+    let age_ms = (crate::search::types::current_time_ms() - file_modified_disk_at).max(0) as f32;
     let age_days = age_ms / 86_400_000.0;
     1.0 / (1.0 + (age_days / 7.0))
 }
 
-fn score_usage(
-    last_opened_at: Option<i64>,
-    last_saved_at: Option<i64>,
-    last_seen_at: Option<i64>,
-) -> f32 {
-    let recency = [last_opened_at, last_saved_at, last_seen_at]
-        .into_iter()
-        .flatten()
-        .max();
-    let Some(recency) = recency else {
+fn score_usage(file_modified_app_at: Option<i64>) -> f32 {
+    let Some(recency) = file_modified_app_at else {
         return 0.0;
     };
 

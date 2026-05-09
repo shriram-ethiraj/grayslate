@@ -16,7 +16,7 @@
 use crate::{
     filesystem::{classify_file_source, resolve_notes_root_path, sanitize_filename, unique_path_in_dir},
     naming::{fallback_stem, language_to_extension, suggest_stem_auto},
-    storage::{AppStorage, FileEventType},
+    storage::{AppStorage},
 };
 
 use tauri::Emitter;
@@ -100,7 +100,7 @@ pub async fn save_new_slate_to_disk(
     .map_err(|e| format!("Failed to join file write task: {}", e))??;
 
     let source = classify_file_source(app, storage, &target_path)?;
-    storage.record_file_event(&target_path, source, FileEventType::Save)?;
+    storage.record_file_event(&target_path, source)?;
     let _ = app.emit(RECENT_FILES_UPDATED_EVENT, ());
 
     target_path
