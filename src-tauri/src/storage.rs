@@ -10,8 +10,6 @@ use tauri::{path::BaseDirectory, AppHandle, Manager};
 pub const SETTING_NOTES_ROOT: &str = "notes_root";
 
 const DATABASE_FILENAME: &str = "grayslate.sqlite3";
-const EVENT_OPEN: &str = "open";
-const EVENT_SAVE: &str = "save";
 
 #[derive(Clone)]
 pub struct AppStorage {
@@ -39,15 +37,6 @@ pub enum FileEventType {
     Save,
 }
 
-impl FileEventType {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Open => EVENT_OPEN,
-            Self::Save => EVENT_SAVE,
-        }
-    }
-}
-
 #[derive(Clone, Serialize)]
 pub struct RecentFileRecord {
     pub path: String,
@@ -55,13 +44,11 @@ pub struct RecentFileRecord {
     pub extension: Option<String>,
     pub language: String,
     pub source: String,
-    pub exists_on_disk: bool,
     pub size_bytes: Option<u64>,
     pub last_opened_at: Option<i64>,
     pub last_saved_at: Option<i64>,
     pub last_seen_at: Option<i64>,
     pub last_modified_at: Option<i64>,
-    pub pinned: bool,
 }
 
 struct FileMetadataSnapshot {
@@ -69,7 +56,6 @@ struct FileMetadataSnapshot {
     path_key: String,
     file_name: String,
     extension: Option<String>,
-    exists_on_disk: bool,
     size_bytes: Option<u64>,
     last_seen_at: i64,
     last_modified_at: Option<i64>,
@@ -141,12 +127,9 @@ impl AppStorage {
         let last_opened_at = matches!(event_type, FileEventType::Open).then_some(now);
         let last_saved_at = matches!(event_type, FileEventType::Save).then_some(now);
 
-        let mut connection = self.open_connection()?;
-        let transaction = connection
-            .transaction()
-            .map_err(|error| format!("Failed to start file event transaction: {}", error))?;
+        let connection = self.open_connection()?;
 
-        transaction
+        connection
             .execute(
                 "
                 INSERT INTO tracked_files (
@@ -155,7 +138,6 @@ impl AppStorage {
                     file_name,
                     extension,
                     source,
-                    exists_on_disk,
                     size_bytes,
                     last_seen_at,
                     last_modified_at,
@@ -165,13 +147,12 @@ impl AppStorage {
                     created_at,
                     updated_at
                 )
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?13)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?12)
                 ON CONFLICT(path_key) DO UPDATE SET
                     path = excluded.path,
                     file_name = excluded.file_name,
                     extension = excluded.extension,
                     source = excluded.source,
-                    exists_on_disk = excluded.exists_on_disk,
                     size_bytes = excluded.size_bytes,
                     last_seen_at = excluded.last_seen_at,
                     last_modified_at = excluded.last_modified_at,
@@ -186,7 +167,6 @@ impl AppStorage {
                     snapshot.file_name,
                     snapshot.extension,
                     source.as_str(),
-                    snapshot.exists_on_disk as i64,
                     snapshot.size_bytes.map(|value| value as i64),
                     snapshot.last_seen_at,
                     snapshot.last_modified_at,
@@ -198,27 +178,7 @@ impl AppStorage {
             )
             .map_err(|error| format!("Failed to upsert tracked file: {}", error))?;
 
-        let file_id: i64 = transaction
-            .query_row(
-                "SELECT id FROM tracked_files WHERE path_key = ?1",
-                params![snapshot.path_key],
-                |row| row.get(0),
-            )
-            .map_err(|error| format!("Failed to resolve tracked file id: {}", error))?;
-
-        transaction
-            .execute(
-                "
-                INSERT INTO file_access_events (file_id, event_type, occurred_at)
-                VALUES (?1, ?2, ?3)
-                ",
-                params![file_id, event_type.as_str(), now],
-            )
-            .map_err(|error| format!("Failed to insert file access event: {}", error))?;
-
-        transaction
-            .commit()
-            .map_err(|error| format!("Failed to commit file event transaction: {}", error))
+        Ok(())
     }
 
     pub fn refresh_tracked_file(&self, path: &Path, source: FileSource) -> Result<(), String> {
@@ -235,12 +195,11 @@ impl AppStorage {
                     file_name = ?3,
                     extension = ?4,
                     source = ?5,
-                    exists_on_disk = ?6,
-                    size_bytes = ?7,
-                    last_seen_at = ?8,
-                    last_modified_at = ?9,
-                    language = COALESCE(?10, language),
-                    updated_at = ?8
+                    size_bytes = ?6,
+                    last_seen_at = ?7,
+                    last_modified_at = ?8,
+                    language = COALESCE(?9, language),
+                    updated_at = ?7
                 WHERE path_key = ?1
                 ",
                 params![
@@ -249,7 +208,6 @@ impl AppStorage {
                     snapshot.file_name,
                     snapshot.extension,
                     source.as_str(),
-                    snapshot.exists_on_disk as i64,
                     snapshot.size_bytes.map(|value| value as i64),
                     snapshot.last_seen_at,
                     snapshot.last_modified_at,
@@ -272,16 +230,13 @@ impl AppStorage {
                     extension,
                     language,
                     source,
-                    exists_on_disk,
                     size_bytes,
                     last_opened_at,
                     last_saved_at,
                     last_seen_at,
-                    last_modified_at,
-                    pinned
+                    last_modified_at
                 FROM tracked_files
                 ORDER BY
-                    pinned DESC,
                     COALESCE(last_opened_at, last_saved_at, last_seen_at, 0) DESC,
                     updated_at DESC
                 LIMIT ?1
@@ -297,13 +252,11 @@ impl AppStorage {
                     extension: row.get(2)?,
                     language: row.get(3)?,
                     source: row.get(4)?,
-                    exists_on_disk: row.get::<_, i64>(5)? != 0,
-                    size_bytes: row.get::<_, Option<i64>>(6)?.map(|value| value as u64),
-                    last_opened_at: row.get(7)?,
-                    last_saved_at: row.get(8)?,
-                    last_seen_at: row.get(9)?,
-                    last_modified_at: row.get(10)?,
-                    pinned: row.get::<_, i64>(11)? != 0,
+                    size_bytes: row.get::<_, Option<i64>>(5)?.map(|value| value as u64),
+                    last_opened_at: row.get(6)?,
+                    last_saved_at: row.get(7)?,
+                    last_seen_at: row.get(8)?,
+                    last_modified_at: row.get(9)?,
                 })
             })
             .map_err(|error| format!("Failed to execute recent files query: {}", error))?;
@@ -330,13 +283,11 @@ impl AppStorage {
                     extension,
                     language,
                     source,
-                    exists_on_disk,
                     size_bytes,
                     last_opened_at,
                     last_saved_at,
                     last_seen_at,
-                    last_modified_at,
-                    pinned
+                    last_modified_at
                 FROM tracked_files
                 WHERE path_key = ?1
                 ",
@@ -348,13 +299,11 @@ impl AppStorage {
                         extension: row.get(2)?,
                         language: row.get(3)?,
                         source: row.get(4)?,
-                        exists_on_disk: row.get::<_, i64>(5)? != 0,
-                        size_bytes: row.get::<_, Option<i64>>(6)?.map(|value| value as u64),
-                        last_opened_at: row.get(7)?,
-                        last_saved_at: row.get(8)?,
-                        last_seen_at: row.get(9)?,
-                        last_modified_at: row.get(10)?,
-                        pinned: row.get::<_, i64>(11)? != 0,
+                        size_bytes: row.get::<_, Option<i64>>(5)?.map(|value| value as u64),
+                        last_opened_at: row.get(6)?,
+                        last_saved_at: row.get(7)?,
+                        last_seen_at: row.get(8)?,
+                        last_modified_at: row.get(9)?,
                     })
                 },
             )
@@ -374,84 +323,63 @@ impl AppStorage {
         Ok(())
     }
 
-    /// Rename a tracked file in the database, preserving its id so that all
-    /// `file_access_events` foreign-key references remain intact.  The
-    /// `last_opened_at`, `last_saved_at`, `pinned`, `source`, and `created_at`
-    /// columns are carried over from the old row.
+    /// Rename a tracked file in the database.
+    /// Uses the old path_key to find the row and updates it with the new path
+    /// and metadata. If no row exists, inserts a fresh one.
     pub fn rename_tracked_file(&self, old_path: &Path, new_path: &Path) -> Result<(), String> {
         let old_key = normalize_path_key(old_path)?;
         let new_snapshot = build_file_snapshot(new_path)?;
         let language = detect_file_language(new_path);
         let now = current_time_ms();
 
-        let mut connection = self.open_connection()?;
-        let transaction = connection
-            .transaction()
-            .map_err(|e| format!("Failed to start rename transaction: {}", e))?;
+        let connection = self.open_connection()?;
 
-        // Look up the existing row id so we can update in-place, preserving all
-        // foreign-key references from file_access_events.
-        let old_id: Option<i64> = transaction
-            .query_row(
-                "SELECT id FROM tracked_files WHERE path_key = ?1",
-                params![old_key],
-                |row| row.get(0),
+        let updated = connection
+            .execute(
+                "
+                UPDATE tracked_files SET
+                    path_key = ?2,
+                    path     = ?3,
+                    file_name = ?4,
+                    extension = ?5,
+                    size_bytes = ?6,
+                    last_seen_at = ?7,
+                    last_modified_at = ?8,
+                    language = ?9,
+                    updated_at = ?10
+                WHERE path_key = ?1
+                ",
+                params![
+                    old_key,
+                    new_snapshot.path_key,
+                    new_snapshot.path,
+                    new_snapshot.file_name,
+                    new_snapshot.extension,
+                    new_snapshot.size_bytes.map(|v| v as i64),
+                    new_snapshot.last_seen_at,
+                    new_snapshot.last_modified_at,
+                    language,
+                    now,
+                ],
             )
-            .optional()
-            .map_err(|e| format!("Failed to look up old tracked file: {}", e))?;
+            .map_err(|e| format!("Failed to update renamed file row: {}", e))?;
 
-        if let Some(id) = old_id {
-            // Update the existing row in-place — keeps the id, timestamps, pinned,
-            // and source columns untouched.
-            transaction
-                .execute(
-                    "
-                    UPDATE tracked_files SET
-                        path_key = ?2,
-                        path     = ?3,
-                        file_name = ?4,
-                        extension = ?5,
-                        exists_on_disk = ?6,
-                        size_bytes = ?7,
-                        last_seen_at = ?8,
-                        last_modified_at = ?9,
-                        language = ?10,
-                        updated_at = ?11
-                    WHERE id = ?1
-                    ",
-                    params![
-                        id,
-                        new_snapshot.path_key,
-                        new_snapshot.path,
-                        new_snapshot.file_name,
-                        new_snapshot.extension,
-                        new_snapshot.exists_on_disk as i64,
-                        new_snapshot.size_bytes.map(|v| v as i64),
-                        new_snapshot.last_seen_at,
-                        new_snapshot.last_modified_at,
-                        language,
-                        now,
-                    ],
-                )
-                .map_err(|e| format!("Failed to update renamed file row: {}", e))?;
-        } else {
-            // No prior tracking record — insert a fresh one.
-            transaction
+        if updated == 0 {
+            connection
                 .execute(
                     "
                     INSERT INTO tracked_files (
                         path_key, path, file_name, extension, source,
-                        exists_on_disk, size_bytes, last_seen_at, last_modified_at,
+                        size_bytes, last_seen_at, last_modified_at,
                         language, created_at, updated_at
                     )
-                    VALUES (?1, ?2, ?3, ?4, 'slates', ?5, ?6, ?7, ?8, ?9, ?10, ?10)
+                    VALUES (?1, ?2, ?3, ?4, 'slates', ?5, ?6, ?7, ?8, ?9, ?9)
                     ",
                     params![
                         new_snapshot.path_key,
                         new_snapshot.path,
                         new_snapshot.file_name,
                         new_snapshot.extension,
-                        new_snapshot.exists_on_disk as i64,
                         new_snapshot.size_bytes.map(|v| v as i64),
                         new_snapshot.last_seen_at,
                         new_snapshot.last_modified_at,
@@ -462,9 +390,7 @@ impl AppStorage {
                 .map_err(|e| format!("Failed to insert renamed file row: {}", e))?;
         }
 
-        transaction
-            .commit()
-            .map_err(|e| format!("Failed to commit rename transaction: {}", e))
+        Ok(())
     }
 
     /// Returns a map of `path_key → path` for every tracked file whose source is
@@ -514,7 +440,6 @@ impl AppStorage {
                     file_name,
                     extension,
                     source,
-                    exists_on_disk,
                     size_bytes,
                     last_seen_at,
                     last_modified_at,
@@ -522,13 +447,12 @@ impl AppStorage {
                     created_at,
                     updated_at
                 )
-                VALUES (?1, ?2, ?3, ?4, 'slates', ?5, ?6, ?7, ?8, ?9, ?10, ?10)
+                VALUES (?1, ?2, ?3, ?4, 'slates', ?5, ?6, ?7, ?8, ?9, ?9)
                 ON CONFLICT(path_key) DO UPDATE SET
                     path             = excluded.path,
                     file_name        = excluded.file_name,
                     extension        = excluded.extension,
                     source           = 'slates',
-                    exists_on_disk   = excluded.exists_on_disk,
                     size_bytes       = excluded.size_bytes,
                     last_seen_at     = excluded.last_seen_at,
                     last_modified_at = excluded.last_modified_at,
@@ -540,7 +464,6 @@ impl AppStorage {
                     snapshot.path,
                     snapshot.file_name,
                     snapshot.extension,
-                    snapshot.exists_on_disk as i64,
                     snapshot.size_bytes.map(|value| value as i64),
                     snapshot.last_seen_at,
                     snapshot.last_modified_at,
@@ -564,13 +487,11 @@ impl AppStorage {
                     extension,
                     language,
                     source,
-                    exists_on_disk,
                     size_bytes,
                     last_opened_at,
                     last_saved_at,
                     last_seen_at,
-                    last_modified_at,
-                    pinned
+                    last_modified_at
                 FROM tracked_files
                 ORDER BY updated_at DESC
                 ",
@@ -585,13 +506,11 @@ impl AppStorage {
                     extension: row.get(2)?,
                     language: row.get(3)?,
                     source: row.get(4)?,
-                    exists_on_disk: row.get::<_, i64>(5)? != 0,
-                    size_bytes: row.get::<_, Option<i64>>(6)?.map(|value| value as u64),
-                    last_opened_at: row.get(7)?,
-                    last_saved_at: row.get(8)?,
-                    last_seen_at: row.get(9)?,
-                    last_modified_at: row.get(10)?,
-                    pinned: row.get::<_, i64>(11)? != 0,
+                    size_bytes: row.get::<_, Option<i64>>(5)?.map(|value| value as u64),
+                    last_opened_at: row.get(6)?,
+                    last_saved_at: row.get(7)?,
+                    last_seen_at: row.get(8)?,
+                    last_modified_at: row.get(9)?,
                 })
             })
             .map_err(|error| format!("Failed to execute tracked files query: {}", error))?;
@@ -634,20 +553,17 @@ impl AppStorage {
                 );
 
                 CREATE TABLE IF NOT EXISTS tracked_files (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    path_key TEXT NOT NULL UNIQUE,
+                    path_key TEXT PRIMARY KEY,
                     path TEXT NOT NULL,
                     file_name TEXT NOT NULL,
                     extension TEXT,
                     language TEXT,
                     source TEXT NOT NULL CHECK (source IN ('slates', 'local')),
-                    exists_on_disk INTEGER NOT NULL DEFAULT 1,
                     size_bytes INTEGER,
                     last_opened_at INTEGER,
                     last_saved_at INTEGER,
                     last_seen_at INTEGER,
                     last_modified_at INTEGER,
-                    pinned INTEGER NOT NULL DEFAULT 0,
                     created_at INTEGER NOT NULL,
                     updated_at INTEGER NOT NULL
                 );
@@ -657,48 +573,6 @@ impl AppStorage {
 
                 CREATE INDEX IF NOT EXISTS idx_tracked_files_modified
                     ON tracked_files(last_modified_at DESC, updated_at DESC);
-
-                CREATE TABLE IF NOT EXISTS file_access_events (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    file_id INTEGER NOT NULL,
-                    event_type TEXT NOT NULL CHECK (event_type IN ('open', 'save')),
-                    occurred_at INTEGER NOT NULL,
-                    FOREIGN KEY(file_id) REFERENCES tracked_files(id) ON DELETE CASCADE
-                );
-
-                CREATE INDEX IF NOT EXISTS idx_file_access_events_file_time
-                    ON file_access_events(file_id, occurred_at DESC);
-
-                CREATE TABLE IF NOT EXISTS transformations (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    key TEXT NOT NULL UNIQUE,
-                    label TEXT NOT NULL,
-                    category TEXT,
-                    created_at INTEGER NOT NULL,
-                    updated_at INTEGER NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS transformation_events (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    transformation_id INTEGER NOT NULL,
-                    file_id INTEGER,
-                    file_extension TEXT,
-                    succeeded INTEGER NOT NULL DEFAULT 1,
-                    duration_ms INTEGER,
-                    error_message TEXT,
-                    occurred_at INTEGER NOT NULL,
-                    FOREIGN KEY(transformation_id) REFERENCES transformations(id) ON DELETE CASCADE,
-                    FOREIGN KEY(file_id) REFERENCES tracked_files(id) ON DELETE SET NULL
-                );
-
-                CREATE INDEX IF NOT EXISTS idx_transformation_events_recent
-                    ON transformation_events(occurred_at DESC);
-
-                CREATE INDEX IF NOT EXISTS idx_transformation_events_file
-                    ON transformation_events(file_id, occurred_at DESC);
-
-                CREATE INDEX IF NOT EXISTS idx_transformation_events_extension
-                    ON transformation_events(file_extension, occurred_at DESC);
                 ",
             )
             .map_err(|error| format!("Failed to run SQLite migrations: {}", error))?;
@@ -735,34 +609,31 @@ impl AppStorage {
             BEGIN;
 
             CREATE TABLE tracked_files_new (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                path_key TEXT NOT NULL UNIQUE,
+                path_key TEXT PRIMARY KEY,
                 path TEXT NOT NULL,
                 file_name TEXT NOT NULL,
                 extension TEXT,
                 language TEXT,
                 source TEXT NOT NULL CHECK (source IN ('slates', 'local')),
-                exists_on_disk INTEGER NOT NULL DEFAULT 1,
                 size_bytes INTEGER,
                 last_opened_at INTEGER,
                 last_saved_at INTEGER,
                 last_seen_at INTEGER,
                 last_modified_at INTEGER,
-                pinned INTEGER NOT NULL DEFAULT 0,
                 created_at INTEGER NOT NULL,
                 updated_at INTEGER NOT NULL
             );
 
             INSERT INTO tracked_files_new
             SELECT
-                id, path_key, path, file_name, extension, language,
+                path_key, path, file_name, extension, language,
                 CASE source
                     WHEN 'external' THEN 'local'
                     WHEN 'internal' THEN 'slates'
                     ELSE source
                 END,
-                exists_on_disk, size_bytes, last_opened_at, last_saved_at,
-                last_seen_at, last_modified_at, pinned, created_at, updated_at
+                size_bytes, last_opened_at, last_saved_at,
+                last_seen_at, last_modified_at, created_at, updated_at
             FROM tracked_files;
 
             DROP TABLE tracked_files;
@@ -843,7 +714,6 @@ fn build_file_snapshot(path: &Path) -> Result<FileMetadataSnapshot, String> {
         path_key,
         file_name,
         extension,
-        exists_on_disk: metadata.is_some(),
         size_bytes: metadata.as_ref().map(|value| value.len()),
         last_seen_at: current_time_ms(),
         last_modified_at: metadata

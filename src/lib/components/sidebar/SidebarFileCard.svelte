@@ -33,7 +33,6 @@
     import Pencil from "~icons/lucide/pencil";
     import Trash2 from "~icons/lucide/trash-2";
     import LucideUnlink2 from '~icons/lucide/unlink-2';
-    import FileWarning from "~icons/lucide/file-warning";
     import Ellipsis from "~icons/lucide/ellipsis";
 
     interface Props {
@@ -153,14 +152,7 @@
                                     </Item.Title>
                                 </div>
 
-                                {#if !recentFile.exists_on_disk}
-                                    <Item.Actions class="pt-0.5">
-                                        <span class="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-amber-500/25 bg-amber-500/10 px-2 py-1 text-xs font-medium uppercase tracking-[0.12em] text-amber-600 dark:text-amber-300">
-                                            <FileWarning class="size-4" />
-                                            Missing
-                                        </span>
-                                    </Item.Actions>
-                                {:else if searchResult && searchResult.match_count > 0}
+                                {#if searchResult && searchResult.match_count > 0}
                                     <Item.Actions class="pt-0.5">
                                         <span class="shrink-0 whitespace-nowrap text-xs tabular-nums text-muted-foreground">
                                             {searchResult.match_count} {searchResult.match_count === 1 ? "hit" : "hits"}

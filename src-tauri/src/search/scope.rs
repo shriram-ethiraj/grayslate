@@ -41,7 +41,7 @@ pub fn resolve_search_scope(
     let local_files = if include_local {
         tracked_files
             .into_iter()
-            .filter(|record| record.source == "local" && record.exists_on_disk)
+            .filter(|record| record.source == "local")
             .map(|record| PathBuf::from(record.path))
             .collect()
     } else {

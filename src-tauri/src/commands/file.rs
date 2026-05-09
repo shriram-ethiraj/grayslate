@@ -282,10 +282,10 @@ pub fn get_recent_files(
     let refreshed = storage.list_recent_files(limit)?;
     let mut result = Vec::new();
     for file in refreshed {
-        if file.exists_on_disk {
+        let path = PathBuf::from(&file.path);
+        if path.exists() {
             result.push(file);
         } else {
-            let path = PathBuf::from(&file.path);
             let _ = storage.delete_tracked_file(&path);
         }
     }

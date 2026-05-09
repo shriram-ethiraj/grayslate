@@ -112,7 +112,6 @@ fn build_candidates(
             .ok_or_else(|| format!("Failed to resolve search result path: {}", path_key))?;
 
         let metadata = fs::metadata(&resolved_path).ok();
-        let exists_on_disk = metadata.is_some();
         let file_name = resolved_path
             .file_name()
             .map(|value| value.to_string_lossy().into_owned())
@@ -143,13 +142,11 @@ fn build_candidates(
                     .as_ref()
                     .map(|value| value.source.clone())
                     .unwrap_or_else(|| "slates".to_string()),
-                exists_on_disk,
                 size_bytes,
                 last_opened_at: tracked.as_ref().and_then(|value| value.last_opened_at),
                 last_saved_at: tracked.as_ref().and_then(|value| value.last_saved_at),
                 last_seen_at: tracked.as_ref().and_then(|value| value.last_seen_at),
                 last_modified_at,
-                pinned: tracked.as_ref().map(|value| value.pinned).unwrap_or(false),
                 content,
                 document_length: size_bytes.unwrap_or(0).max(1) as f32,
             },

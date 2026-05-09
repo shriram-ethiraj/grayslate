@@ -11,13 +11,11 @@ export interface RecentFileRecord {
   extension: string | null;
   language: string;
   source: RecentFileSource;
-  exists_on_disk: boolean;
   size_bytes: number | null;
   last_opened_at: number | null;
   last_saved_at: number | null;
   last_seen_at: number | null;
   last_modified_at: number | null;
-  pinned: boolean;
 }
 
 export interface HighlightFragment {

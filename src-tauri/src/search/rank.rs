@@ -45,25 +45,21 @@ pub fn rank_candidate(
         candidate.last_saved_at,
         candidate.last_seen_at,
     );
-    let pinned_boost = if candidate.pinned { 0.35 } else { 0.0 };
     let final_score = filename_score * 1.6
         + content_score * 1.0
         + freshness_score * 0.15
-        + usage_score * 0.1
-        + pinned_boost;
+        + usage_score * 0.1;
 
     Some(SearchResultRecord {
         path: candidate.path.clone(),
         file_name: candidate.file_name.clone(),
         extension: candidate.extension.clone(),
         source: candidate.source.clone(),
-        exists_on_disk: candidate.exists_on_disk,
         size_bytes: candidate.size_bytes,
         last_opened_at: candidate.last_opened_at,
         last_saved_at: candidate.last_saved_at,
         last_seen_at: candidate.last_seen_at,
         last_modified_at: candidate.last_modified_at,
-        pinned: candidate.pinned,
         matched_lines: candidate
             .content
             .previews
