@@ -32,27 +32,43 @@ static JSONC_PARSE_OPTIONS: LazyLock<ParseOptions> = LazyLock::new(|| ParseOptio
     allow_unary_plus_numbers: false,
 });
 
-static JSONC_FORMAT_CONFIG: LazyLock<JsoncFormatConfiguration> = LazyLock::new(|| {
+/// Resolve formatting indentation from the frontend-supplied params.
+/// Returns `(use_tabs, indent_width)`.
+/// Absent params, "default", and "detect" modes all fall back to 2 spaces.
+fn resolve_format_indent(params: &Option<TransformationParams>) -> (bool, u32) {
+    match params
+        .as_ref()
+        .and_then(|p| p.indent_config.as_ref())
+    {
+        Some(cfg) if cfg.indent_mode == "tab" => (true, 1),
+        Some(cfg) if cfg.indent_mode == "spaces" => {
+            (false, cfg.indent_size.unwrap_or(2).max(1))
+        }
+        _ => (false, 2),
+    }
+}
+
+fn jsonc_format_config(use_tabs: bool, indent_width: u32) -> JsoncFormatConfiguration {
     serde_json::from_value(serde_json::json!({
         "lineWidth": 120,
-        "useTabs": false,
-        "indentWidth": 2,
+        "useTabs": use_tabs,
+        "indentWidth": indent_width,
         "newLineKind": "auto",
         "commentLine.forceSpaceAfterSlashes": false,
     }))
     .expect("built-in JSON formatter configuration must be valid")
-});
+}
 
-static SQL_FORMAT_CONFIG: LazyLock<SqlFormatConfiguration> = LazyLock::new(|| {
+fn sql_format_config(use_tabs: bool, indent_width: u32) -> SqlFormatConfiguration {
     serde_json::from_value(serde_json::json!({
-        "useTabs": false,
-        "indentWidth": 2,
+        "useTabs": use_tabs,
+        "indentWidth": indent_width,
         "newLineKind": "auto",
         "uppercase": true,
         "linesBetweenQueries": 1,
     }))
     .expect("built-in SQL formatter configuration must be valid")
-});
+}
 
 fn validate_jsonc(text: &str) -> Result<(), String> {
     match parse_to_value(text, &JSONC_PARSE_OPTIONS) {
@@ -387,6 +403,20 @@ impl TransformationCancellationRegistry {
     }
 }
 
+#[derive(Debug, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct IndentConfig {
+    pub indent_mode: String,
+    #[serde(default)]
+    pub indent_size: Option<u32>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TransformationParams {
+    pub indent_config: Option<IndentConfig>,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExecuteTransformationRequest {
@@ -396,6 +426,9 @@ pub struct ExecuteTransformationRequest {
     /// look up the cancellation flag via [`TransformationCancellationRegistry`].
     #[serde(default)]
     pub request_id: u64,
+    /// Action-specific parameters (e.g. indentation config for formatting).
+    #[serde(default)]
+    pub params: Option<TransformationParams>,
 }
 
 #[derive(Debug, Serialize)]
@@ -436,6 +469,8 @@ const LINE_CANCEL_CHECK_INTERVAL: usize = 512;
 struct TransformationContext<'a> {
     original: &'a str,
     cancelled: &'a AtomicBool,
+    /// Action-specific parameters sent from the frontend (e.g. indentation config).
+    params: &'a Option<TransformationParams>,
     /// Called with `(current, total)` at natural progress checkpoints.
     /// Both values use the same unit (bytes or rows) for the active operation.
     /// Defaults to a no-op so callers that don't need progress (e.g. tests)
@@ -447,11 +482,14 @@ struct TransformationContext<'a> {
     last_emitted: Cell<u32>,
 }
 
+static NO_TRANSFORM_PARAMS: Option<TransformationParams> = None;
+
 impl<'a> TransformationContext<'a> {
     fn new(original: &'a str, cancelled: &'a AtomicBool) -> Self {
         Self {
             original,
             cancelled,
+            params: &NO_TRANSFORM_PARAMS,
             progress_fn: Box::new(|_, _| {}),
             last_emitted: Cell::new(0),
         }
@@ -460,6 +498,12 @@ impl<'a> TransformationContext<'a> {
     /// Attach a progress reporter to this context (builder-style).
     fn with_progress<F: Fn(u32, u32) + Send + Sync + 'static>(mut self, f: F) -> Self {
         self.progress_fn = Box::new(f);
+        self
+    }
+
+    /// Attach action-specific parameters to this context (builder-style).
+    fn with_params(mut self, params: &'a Option<TransformationParams>) -> Self {
+        self.params = params;
         self
     }
 
@@ -478,6 +522,10 @@ impl<'a> TransformationContext<'a> {
 
     fn text(&self) -> &'a str {
         self.original
+    }
+
+    fn params(&self) -> &Option<TransformationParams> {
+        self.params
     }
 
     #[inline]
@@ -1708,7 +1756,8 @@ fn execute_transformation_blocking(
     cancelled: &AtomicBool,
 ) -> Result<ExecuteTransformationResponse, String> {
     let action_id = request.action_id;
-    let ctx = TransformationContext::new(&request.text, cancelled);
+    let params = &request.params;
+    let ctx = TransformationContext::new(&request.text, cancelled).with_params(params);
     dispatch_transformation(&ctx, action_id)
 }
 
@@ -1720,7 +1769,10 @@ fn execute_transformation_blocking_with_progress(
     progress_fn: Box<dyn Fn(u32, u32) + Send + Sync + 'static>,
 ) -> Result<ExecuteTransformationResponse, String> {
     let action_id = request.action_id;
-    let ctx = TransformationContext::new(&request.text, cancelled).with_progress(progress_fn);
+    let params = &request.params;
+    let ctx = TransformationContext::new(&request.text, cancelled)
+        .with_progress(progress_fn)
+        .with_params(params);
     dispatch_transformation(&ctx, action_id)
 }
 
@@ -1732,7 +1784,9 @@ fn dispatch_transformation(
     match action_id {
         TransformationActionId::JsonFormat => {
             ctx.run_replace_text("Formatted JSON.", "JSON is already formatted.", |ctx| {
-                let formatted = format_jsonc_text(ctx.text(), &JSONC_FORMAT_CONFIG)
+                let (use_tabs, indent_width) = resolve_format_indent(ctx.params());
+                let config = jsonc_format_config(use_tabs, indent_width);
+                let formatted = format_jsonc_text(ctx.text(), &config)
                     .map_err(|error| format!("Invalid JSON: {}", error))?;
                 Ok(formatted)
             })
@@ -1754,12 +1808,10 @@ fn dispatch_transformation(
         }
         TransformationActionId::SqlFormat => {
             ctx.run_replace_text("Formatted SQL.", "SQL is already formatted.", |ctx| {
-                let formatted = format_sql_text(
-                    Path::new("query.sql"),
-                    ctx.text(),
-                    &SQL_FORMAT_CONFIG,
-                )
-                .map_err(|error| format!("Invalid SQL: {}", error))?;
+                let (use_tabs, indent_width) = resolve_format_indent(ctx.params());
+                let config = sql_format_config(use_tabs, indent_width);
+                let formatted = format_sql_text(Path::new("query.sql"), ctx.text(), &config)
+                    .map_err(|error| format!("Invalid SQL: {}", error))?;
                 Ok(formatted.unwrap_or_else(|| ctx.text().to_string()))
             })
         }
@@ -2136,6 +2188,7 @@ mod tests {
                 action_id: TransformationActionId::JsonValidate,
                 text: "{\n  \"ok\": true\n}".to_string(),
                 request_id: 0,
+                params: None,
             },
             &nc,
         )
@@ -2158,6 +2211,7 @@ mod tests {
                 action_id: TransformationActionId::TextTrimTrailingWhitespace,
                 text: "hello  \nworld\t".to_string(),
                 request_id: 0,
+                params: None,
             },
             &nc,
         )
@@ -2185,6 +2239,7 @@ mod tests {
                 action_id: TransformationActionId::JsonFormat,
                 text: "not json".to_string(),
                 request_id: 0,
+                params: None,
             },
             &nc,
         )
@@ -2202,6 +2257,7 @@ mod tests {
                 action_id: TransformationActionId::JsonKeysCamelCase,
                 text: json.to_string(),
                 request_id: 0,
+                params: None,
             },
             &nc,
         )
@@ -2228,6 +2284,7 @@ mod tests {
                 action_id: TransformationActionId::JsonKeysCamelCase,
                 text: json.to_string(),
                 request_id: 0,
+                params: None,
             },
             &nc,
         )
@@ -2259,6 +2316,7 @@ mod tests {
                 action_id: TransformationActionId::CsvToJson,
                 text: csv.to_string(),
                 request_id: 0,
+                params: None,
             },
             &nc,
         )
@@ -2288,6 +2346,7 @@ mod tests {
                 action_id: TransformationActionId::CsvToJson,
                 text: csv.to_string(),
                 request_id: 0,
+                params: None,
             },
             &nc,
         )
@@ -2312,6 +2371,7 @@ mod tests {
                 action_id: TransformationActionId::CsvToJson,
                 text: "   ".to_string(),
                 request_id: 0,
+                params: None,
             },
             &nc,
         )
@@ -2336,6 +2396,7 @@ mod tests {
                 action_id: TransformationActionId::JsonToCsv,
                 text: json.to_string(),
                 request_id: 0,
+                params: None,
             },
             &nc,
         )
@@ -2362,6 +2423,7 @@ mod tests {
                 action_id: TransformationActionId::JsonToCsv,
                 text: json.to_string(),
                 request_id: 0,
+                params: None,
             },
             &nc,
         )
@@ -2387,6 +2449,7 @@ mod tests {
                 action_id: TransformationActionId::JsonToCsv,
                 text: "[]".to_string(),
                 request_id: 0,
+                params: None,
             },
             &nc,
         )
@@ -2408,6 +2471,7 @@ mod tests {
                 action_id: TransformationActionId::JsonToCsv,
                 text: r#"{"key":"value"}"#.to_string(),
                 request_id: 0,
+                params: None,
             },
             &nc,
         )
@@ -2424,6 +2488,7 @@ mod tests {
                 action_id: TransformationActionId::JsonToCsv,
                 text: "not json".to_string(),
                 request_id: 0,
+                params: None,
             },
             &nc,
         )
@@ -2447,6 +2512,7 @@ mod tests {
                 action_id: TransformationActionId::JsonToYaml,
                 text: json.to_string(),
                 request_id: 0,
+                params: None,
             },
             &nc,
         )
@@ -2472,6 +2538,7 @@ mod tests {
                 action_id: TransformationActionId::YamlToJson,
                 text: yaml.to_string(),
                 request_id: 0,
+                params: None,
             },
             &nc,
         )
@@ -2498,6 +2565,7 @@ mod tests {
                 action_id: TransformationActionId::YamlToJson,
                 text: "name: [unterminated".to_string(),
                 request_id: 0,
+                params: None,
             },
             &nc,
         )
@@ -2682,6 +2750,7 @@ mod tests {
                     action_id,
                     text,
                     request_id: 0,
+                    params: None,
                 },
                 cancelled.as_ref(),
             )
@@ -3243,6 +3312,7 @@ mod tests {
                 action_id: TransformationActionId::StatsCountCharacters,
                 text: "hello".to_string(),
                 request_id: 0,
+                params: None,
             },
             &nc,
         )
@@ -3264,6 +3334,7 @@ mod tests {
                 action_id: TransformationActionId::StatsCountCharacters,
                 text: "x".to_string(),
                 request_id: 0,
+                params: None,
             },
             &nc,
         )
@@ -3284,6 +3355,7 @@ mod tests {
                 action_id: TransformationActionId::StatsCountLines,
                 text: "a\nb\nc\n".to_string(),
                 request_id: 0,
+                params: None,
             },
             &nc,
         )
@@ -3304,6 +3376,7 @@ mod tests {
                 action_id: TransformationActionId::StatsCountWords,
                 text: "  the quick   brown fox  ".to_string(),
                 request_id: 0,
+                params: None,
             },
             &nc,
         )

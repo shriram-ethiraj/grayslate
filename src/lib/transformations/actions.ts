@@ -1,6 +1,7 @@
 import type { Component } from "svelte";
 import type { FileType } from "$lib/state/editor.svelte";
 import type { ChunkedTextEvent } from "$lib/ipc";
+import type { IndentConfig } from "$lib/editor/components/IndentationPicker.svelte";
 import CarbonUrl from '~icons/carbon/url';
 import CarbonSecurity from '~icons/carbon/security';
 import LucideCaseUpper from '~icons/lucide/case-upper';
@@ -123,6 +124,10 @@ export type ExecuteTransformationRequest = {
     text: string;
     /** Per-invocation ID used to cancel the request via `cancel_transformation`. */
     requestId: number;
+    /** Action-specific parameters (e.g. indentation config for formatting transforms). */
+    params?: {
+        indentConfig?: IndentConfig;
+    };
 };
 
 /** Progress update sent by Rust during long-running transformations via the IPC channel. */

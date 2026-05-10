@@ -7,6 +7,11 @@
   } as const;
 
   export type IndentMode = (typeof IndentMode)[keyof typeof IndentMode];
+
+  export type IndentConfig = {
+    indentMode: string;
+    indentSize?: number;
+  };
 </script>
 
 <script lang="ts">
@@ -15,12 +20,10 @@
 
   let {
     open = $bindable(false),
-    indentMode = $bindable<IndentMode>(IndentMode.Default),
-    indentSize = $bindable(2),
+    indentConfig = $bindable<IndentConfig>({ indentMode: IndentMode.Default, indentSize: 2 }),
   }: {
     open: boolean;
-    indentMode: IndentMode;
-    indentSize: number;
+    indentConfig: IndentConfig;
   } = $props();
 
   const indentOptions = [
@@ -35,14 +38,14 @@
     label: String(i + 1),
   }));
 
-  let sizeValue = $state(String(indentSize));
+  let sizeValue = $state(String(indentConfig.indentSize ?? 2));
 
   $effect(() => {
-    indentSize = Number(sizeValue);
+    indentConfig.indentSize = Number(sizeValue);
   });
 
   const activeModeLabel = $derived(
-    indentOptions.find((o) => o.value === indentMode)?.label ?? "Default (Spaces: 2)",
+    indentOptions.find((o) => o.value === indentConfig.indentMode)?.label ?? "Default (Spaces: 2)",
   );
 </script>
 
@@ -53,7 +56,7 @@
         <label class="text-sm font-medium text-foreground" for="indent-mode-select">
           Indentation
         </label>
-        <Select.Root type="single" bind:value={indentMode}>
+        <Select.Root type="single" bind:value={indentConfig.indentMode}>
           <Select.Trigger class="w-full" id="indent-mode-select">
             {activeModeLabel}
           </Select.Trigger>
@@ -67,7 +70,7 @@
         </Select.Root>
       </div>
 
-      {#if indentMode === IndentMode.Spaces}
+      {#if indentConfig.indentMode === IndentMode.Spaces}
         <div class="grid gap-2">
           <label class="text-sm font-medium text-foreground" for="indent-size-select">
             Tab Size

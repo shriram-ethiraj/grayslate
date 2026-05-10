@@ -5,7 +5,7 @@
   import StatusBar from "$lib/editor/components/StatusBar.svelte";
   import EditorLoader from "$lib/editor/components/EditorLoader.svelte";
   import GoToLineDialog from "$lib/editor/components/GoToLineDialog.svelte";
-  import IndentationPicker, { IndentMode } from "$lib/editor/components/IndentationPicker.svelte";
+  import IndentationPicker, { IndentMode, type IndentConfig } from "$lib/editor/components/IndentationPicker.svelte";
   import TransformationsPalette from "$lib/editor/components/TransformationsPalette.svelte";
   import {
     ResizablePaneGroup,
@@ -103,8 +103,7 @@
   let language = $state("auto");
   let detectedLanguage = $state("text");
   let goToLineOpen = $state(false);
-  let indentMode = $state<IndentMode>(IndentMode.Default);
-  let indentSize = $state(2);
+  let indentConfig = $state<IndentConfig>({ indentMode: IndentMode.Default, indentSize: 2 });
   let indentPickerOpen = $state(false);
 
   function countDocumentLines(text: string): number {
@@ -417,10 +416,12 @@
       : editorSession.state.doc.toString();
 
     const requestId = ++transformationRequestCounter;
+    const isFormatAction = actionId.endsWith(".format");
     const request: ExecuteTransformationRequest = {
       actionId,
       text: sourceText,
       requestId,
+      ...(isFormatAction ? { params: { indentConfig } } : {}),
     };
 
     // Track whether the user explicitly cancelled so we suppress the error toast.
@@ -1242,7 +1243,7 @@
 
 <div class="flex flex-1 flex-col min-h-0 min-w-0">
   <GoToLineDialog bind:open={goToLineOpen} {editorView} {line} {lineCount} />
-  <IndentationPicker bind:open={indentPickerOpen} bind:indentMode bind:indentSize />
+  <IndentationPicker bind:open={indentPickerOpen} bind:indentConfig />
   <TransformationsPalette executeAction={executeTransformation} />
 
   <div class="flex flex-1 min-h-0 min-w-0 relative">
@@ -1366,8 +1367,7 @@
     {activeLanguage}
     {isCsvTableActive}
     {csvInfo}
-    {indentMode}
-    {indentSize}
+    {indentConfig}
     onGoToLine={openGoToLinePanel}
     onOpenIndentPicker={openIndentPicker}
   />

@@ -1,6 +1,6 @@
 <script lang="ts">
   import LanguagePicker from "./LanguagePicker.svelte";
-  import { IndentMode } from "./IndentationPicker.svelte";
+  import { IndentMode, type IndentConfig } from "./IndentationPicker.svelte";
 
   let {
     documentLength = 0,
@@ -13,17 +13,32 @@
     activeLanguage = "text",
     isCsvTableActive = false,
     csvInfo = { rows: 0, cols: 0, delimiter: "", errors: 0 },
-    indentMode = IndentMode.Default,
-    indentSize = 2,
+    indentConfig = { indentMode: IndentMode.Default, indentSize: 2 },
     onGoToLine = () => {},
     onOpenIndentPicker = () => {},
+  }: {
+    documentLength?: number;
+    lineCount?: number;
+    line: number;
+    col: number;
+    selectionSize?: number;
+    language?: string;
+    detectedLanguage?: string;
+    activeLanguage?: string;
+    isCsvTableActive?: boolean;
+    csvInfo?: { rows: number; cols: number; delimiter: string; errors: number };
+    indentConfig: IndentConfig;
+    indentMode?: never;
+    indentSize?: never;
+    onGoToLine?: () => void;
+    onOpenIndentPicker?: () => void;
   } = $props();
 
   const indentLabel = $derived.by(() => {
-    switch (indentMode) {
+    switch (indentConfig.indentMode) {
       case IndentMode.Detect: return "Auto Detect";
       case IndentMode.Default: return "Spaces: 2";
-      case IndentMode.Spaces: return `Spaces: ${indentSize}`;
+      case IndentMode.Spaces: return `Spaces: ${indentConfig.indentSize ?? 2}`;
       case IndentMode.Tab: return "Tab";
       default: return "Spaces: 2";
     }
