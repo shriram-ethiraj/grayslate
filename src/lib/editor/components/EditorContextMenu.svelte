@@ -22,7 +22,7 @@
     editorPaste,
     editorSelectAll,
   } from "$lib/editor/core/actions";
-  import { editorState } from "$lib/state/editor.svelte";
+  import { editorState, setEditorWordWrap } from "$lib/state/editor.svelte";
   import { registerHotkey } from "$lib/hotkeys";
   import { formatForDisplay } from "@tanstack/hotkeys";
 
@@ -162,7 +162,7 @@
 
   function handleToggleWordWrap() {
     close();
-    editorState.wordWrap = !editorState.wordWrap;
+    setEditorWordWrap(!editorState.wordWrap);
   }
 </script>
 

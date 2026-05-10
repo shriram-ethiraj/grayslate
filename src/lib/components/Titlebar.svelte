@@ -16,6 +16,7 @@
     openGoToLinePanel,
     openTransformationsPalette,
     resetEditorFontSize,
+    setEditorWordWrap,
   } from "$lib/state/editor.svelte";
   import AboutDialog from "$lib/components/AboutDialog.svelte";
   import DeleteFileDialog from "$lib/components/DeleteFileDialog.svelte";
@@ -123,7 +124,7 @@
       unlistenWordWrap = await listen<boolean>(
         "menu://word-wrap-state",
         (event) => {
-          editorState.wordWrap = event.payload;
+          setEditorWordWrap(event.payload);
         },
       );
 
@@ -295,7 +296,7 @@
         callback: (e) => {
           if (isMac) return;
           e.preventDefault();
-          editorState.wordWrap = !editorState.wordWrap;
+          setEditorWordWrap(!editorState.wordWrap);
         },
         options: { ignoreInputs: false },
       },
@@ -435,7 +436,10 @@
           ></Menubar.Item
         >
         <Menubar.Separator />
-        <Menubar.CheckboxItem bind:checked={editorState.wordWrap}>
+        <Menubar.CheckboxItem
+          bind:checked={editorState.wordWrap}
+          onclick={() => setEditorWordWrap(editorState.wordWrap)}
+        >
           <div class="flex items-center gap-2">
             Word Wrap
             {#if editorState.wordWrap}

@@ -1,5 +1,6 @@
 import type { EditorView } from "codemirror";
 import type { RecentFileSource } from "$lib/files/recentFiles";
+import { saveSetting } from "$lib/state/appSettings.svelte";
 
 export const DEFAULT_EDITOR_FONT_SIZE = 15;
 export const MIN_EDITOR_FONT_SIZE = 10;
@@ -274,6 +275,7 @@ export function openTransformationsPalette(): boolean {
 
 export function setEditorFontSize(fontSize: number): void {
     editorState.fontSize = clampEditorFontSize(fontSize);
+    saveSetting("font_size", String(editorState.fontSize));
 }
 
 export function increaseEditorFontSize(): void {
@@ -286,6 +288,12 @@ export function decreaseEditorFontSize(): void {
 
 export function resetEditorFontSize(): void {
     editorState.fontSize = DEFAULT_EDITOR_FONT_SIZE;
+    saveSetting("font_size", String(DEFAULT_EDITOR_FONT_SIZE));
+}
+
+export function setEditorWordWrap(wrap: boolean): void {
+    editorState.wordWrap = wrap;
+    saveSetting("word_wrap", String(wrap));
 }
 
 /** Show the editor-area loader overlay with optional sub-message and progress. */

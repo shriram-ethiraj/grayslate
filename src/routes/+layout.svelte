@@ -11,6 +11,7 @@
 		openFindReplacePanel,
 		openGoToLinePanel,
 	} from "$lib/state/editor.svelte";
+	import { uiState, setSidebarWidth, setSidebarOpen } from "$lib/state/ui.svelte";
 	import {
 		ResizablePaneGroup,
 		ResizablePane,
@@ -21,6 +22,7 @@
 	import EditorActions from "$lib/editor/components/EditorActions.svelte";
 	import { registerHotkeys } from "$lib/hotkeys";
 	import { initPlatformState, platformState } from "$lib/state/platform.svelte";
+	import { loadAllSettings, applyTheme } from "$lib/state/appSettings.svelte";
 	import LucideFilePlusCorner from '~icons/lucide/file-plus-corner';
 	import "./layout.css";
 
@@ -40,10 +42,8 @@
 	 * presses the keyboard shortcut (Ctrl+B). Animates the pane.
 	 */
 	function handleOpenChange(newOpen: boolean) {
+		setSidebarOpen(newOpen);
 		animating = true;
-
-		// Wait one tick so the animating class reaches the DOM,
-		// then perform the collapse/expand with the CSS transition active.
 		tick().then(() => {
 			if (newOpen) {
 				// Restore to the last known width rather than the default.
@@ -64,17 +64,20 @@
 	function handlePaneResize(size: number) {
 		if (size > 0 && !animating) {
 			lastExpandedSize = size;
+			setSidebarWidth(size);
 		}
 	}
 
 	/** Pane collapsed via drag or programmatic collapse → sync sidebar UI state. */
 	function handlePaneCollapse() {
 		sidebarOpen = false;
+		setSidebarOpen(false);
 	}
 
 	/** Pane expanded via drag or programmatic expand → sync sidebar UI state. */
 	function handlePaneExpand() {
 		sidebarOpen = true;
+		setSidebarOpen(true);
 	}
 
 	async function handleNewFile() {
@@ -94,7 +97,38 @@
 
 	onMount(() => {
 		void initPlatformState();
+		void initAppSettings();
 	});
+
+	async function initAppSettings() {
+		try {
+			const settings = await loadAllSettings();
+
+			editorState.fontSize = settings.fontSize;
+			editorState.wordWrap = settings.wordWrap;
+			uiState.sidebar.width = settings.sidebarWidth;
+			lastExpandedSize = settings.sidebarWidth;
+			uiState.sidebar.open = settings.sidebarOpen;
+
+			// Reconcile theme: SQLite is authoritative over localStorage.
+			const isDark = settings.theme === "dark";
+			if (document.documentElement.classList.contains("dark") !== isDark) {
+				applyTheme(isDark);
+			}
+
+			// Expand sidebar if the saved state says it should be open.
+			if (settings.sidebarOpen) {
+				animating = true;
+				await tick();
+				sidebarPane?.resize(settings.sidebarWidth);
+				setTimeout(() => {
+					animating = false;
+				}, 210);
+			}
+		} catch (error) {
+			console.warn("[AppSettings] Failed to load settings:", error);
+		}
+	}
 
 	$effect(() => {
 		return registerHotkeys([

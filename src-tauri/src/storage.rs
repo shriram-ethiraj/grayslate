@@ -8,6 +8,22 @@ use serde::Serialize;
 use tauri::{path::BaseDirectory, AppHandle, Manager};
 
 pub const SETTING_NOTES_ROOT: &str = "notes_root";
+pub const SETTING_THEME: &str = "theme";
+pub const SETTING_FONT_SIZE: &str = "font_size";
+pub const SETTING_WORD_WRAP: &str = "word_wrap";
+pub const SETTING_SIDEBAR_WIDTH: &str = "sidebar_width";
+pub const SETTING_SIDEBAR_OPEN: &str = "sidebar_open";
+
+/// All app setting keys that the app validates/converts at the command layer.
+/// Used for batch-loading at startup so the frontend doesn't need to hardcode them.
+pub const ALL_SETTING_KEYS: &[&str] = &[
+    SETTING_NOTES_ROOT,
+    SETTING_THEME,
+    SETTING_FONT_SIZE,
+    SETTING_WORD_WRAP,
+    SETTING_SIDEBAR_WIDTH,
+    SETTING_SIDEBAR_OPEN,
+];
 
 const DATABASE_FILENAME: &str = "grayslate.sqlite3";
 
@@ -105,6 +121,31 @@ impl AppStorage {
         };
 
         Ok(())
+    }
+
+    pub fn get_all_settings(&self) -> Result<std::collections::HashMap<String, String>, String> {
+        let connection = self.open_connection()?;
+        let mut statement = connection
+            .prepare("SELECT key, value FROM app_settings")
+            .map_err(|error| format!("Failed to prepare all settings query: {}", error))?;
+
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                ))
+            })
+            .map_err(|error| format!("Failed to execute all settings query: {}", error))?;
+
+        let mut map = std::collections::HashMap::new();
+        for row in rows {
+            let (key, value) =
+                row.map_err(|error| format!("Failed to parse setting row: {}", error))?;
+            map.insert(key, value);
+        }
+
+        Ok(map)
     }
 
     pub fn record_file_event(

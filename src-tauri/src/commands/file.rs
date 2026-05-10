@@ -15,7 +15,11 @@ use crate::filesystem::{
     classify_file_source, resolve_default_notes_root_path, resolve_notes_root_path,
     sanitize_filename, unique_path_in_dir,
 };
-use crate::storage::{AppStorage, FileSource, RecentFileRecord, SETTING_NOTES_ROOT, normalize_path_key};
+use crate::storage::{
+    normalize_path_key, AppStorage, FileSource, RecentFileRecord, SETTING_FONT_SIZE,
+    SETTING_NOTES_ROOT, SETTING_SIDEBAR_OPEN, SETTING_SIDEBAR_WIDTH, SETTING_THEME,
+    SETTING_WORD_WRAP,
+};
 
 use super::RECENT_FILES_UPDATED_EVENT;
 
@@ -240,18 +244,72 @@ pub fn get_app_setting(
 }
 
 #[tauri::command]
+pub fn get_all_settings(
+    storage: tauri::State<'_, AppStorage>,
+) -> Result<std::collections::HashMap<String, String>, String> {
+    storage.get_all_settings()
+}
+
+#[tauri::command]
 pub fn set_app_setting(
     storage: tauri::State<'_, AppStorage>,
     key: String,
     value: Option<String>,
 ) -> Result<(), String> {
-    if key == SETTING_NOTES_ROOT {
-        if let Some(ref configured_path) = value {
-            let configured_path = PathBuf::from(configured_path);
-            if !configured_path.is_absolute() {
-                return Err("Configured notes root must be an absolute path.".to_string());
+    match key.as_str() {
+        SETTING_NOTES_ROOT => {
+            if let Some(ref configured_path) = value {
+                let configured_path = PathBuf::from(configured_path);
+                if !configured_path.is_absolute() {
+                    return Err("Configured notes root must be an absolute path.".to_string());
+                }
             }
         }
+        SETTING_THEME => {
+            if let Some(ref theme) = value {
+                if theme != "dark" && theme != "light" {
+                    return Err("Theme must be \"dark\" or \"light\".".to_string());
+                }
+            }
+        }
+        SETTING_FONT_SIZE => {
+            if let Some(ref size) = value {
+                let parsed: i32 = size.parse().map_err(|_| {
+                    format!("Font size must be a number, got \"{}\".", size)
+                })?;
+                if !(10..=24).contains(&parsed) {
+                    return Err(format!("Font size must be between 10 and 24, got {}.", parsed));
+                }
+            }
+        }
+        SETTING_WORD_WRAP => {
+            if let Some(ref wrap) = value {
+                if wrap != "true" && wrap != "false" {
+                    return Err("Word wrap must be \"true\" or \"false\".".to_string());
+                }
+            }
+        }
+        SETTING_SIDEBAR_WIDTH => {
+            if let Some(ref width) = value {
+                let parsed: i32 = width.parse().map_err(|_| {
+                    format!("Sidebar width must be a number, got \"{}\".", width)
+                })?;
+                if !(15..=30).contains(&parsed) {
+                    return Err(format!(
+                        "Sidebar width must be between 15 and 30, got {}.",
+                        parsed
+                    ));
+                }
+            }
+        }
+        SETTING_SIDEBAR_OPEN => {
+            if let Some(ref open) = value {
+                if open != "true" && open != "false" {
+                    return Err("Sidebar open must be \"true\" or \"false\".".to_string());
+                }
+            }
+        }
+        _ => {}
     }
 
     storage.set_setting(&key, value.as_deref())

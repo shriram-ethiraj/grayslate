@@ -1,16 +1,28 @@
 <!doctype html>
-<html lang="en" class="dark">
-
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <link rel="icon" type="image/png" href="%sveltekit.assets%/logo.png" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="description" content="Grayslate — a modern, lightweight developer scratchpad." />
   <title>Grayslate</title>
+  <script>
+    // Apply saved theme instantly to prevent flash of wrong theme.
+    // This runs before Svelte mounts — localStorage is the fast synchronous
+    // cache for the theme class, while SQLite (loaded async) is authoritative.
+    // On first visit with no localStorage entry, falls back to OS preference.
+    (function () {
+      var theme = localStorage.getItem("theme");
+      var dark = theme
+        ? theme === "dark"
+        : window.matchMedia("(prefers-color-scheme: dark)").matches;
+      document.documentElement.classList[dark ? "add" : "remove"]("dark");
+    })();
+  </script>
   %sveltekit.head%
 </head>
 
-<body data-sveltekit-preload-data="hover" style="background-color: #1b1e26;">
+<body data-sveltekit-preload-data="hover">
   <div style="display: contents">%sveltekit.body%</div>
 </body>
 

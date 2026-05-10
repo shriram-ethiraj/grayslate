@@ -1,18 +1,10 @@
-/**
- * UI preferences state — persists sidebar width and other layout preferences.
- *
- * The sidebar width is stored as a percentage of the total horizontal space
- * (matching paneforge's sizing model). The `open` flag tracks whether the
- * sidebar pane is currently expanded so we can restore the last-used width
- * on toggle.
- */
+import { debouncedSaveSetting, saveSetting } from "$lib/state/appSettings.svelte";
 
-const DEFAULT_SIDEBAR_WIDTH = 20; // percentage of total width
+const DEFAULT_SIDEBAR_WIDTH = 20;
 
 export const uiState = $state<{
     sidebar: {
         open: boolean;
-        /** Last user-set width as a percentage (paneforge units). */
         width: number;
     };
 }>({
@@ -21,3 +13,14 @@ export const uiState = $state<{
         width: DEFAULT_SIDEBAR_WIDTH,
     },
 });
+
+export function setSidebarWidth(width: number): void {
+    const clamped = Math.max(15, Math.min(30, Math.round(width)));
+    uiState.sidebar.width = clamped;
+    debouncedSaveSetting("sidebar_width", String(clamped));
+}
+
+export function setSidebarOpen(open: boolean): void {
+    uiState.sidebar.open = open;
+    saveSetting("sidebar_open", String(open));
+}
