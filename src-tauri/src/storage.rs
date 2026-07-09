@@ -209,7 +209,58 @@ impl AppStorage {
     pub fn refresh_tracked_file(&self, path: &Path, source: FileSource) -> Result<(), String> {
         let snapshot = build_file_snapshot(path)?;
         let language = detect_file_language(path);
+        let path_key = &snapshot.path_key;
         let connection = self.open_connection()?;
+
+        // Only bump updated_at when something material actually changed.
+        // This prevents the "recently opened" sort from jittering on every
+        // refresh just because we re-stamped the row bookkeeping timestamp.
+        let existing: Option<RecentFileRecord> = connection
+            .query_row(
+                "
+                SELECT
+                    path,
+                    file_name,
+                    extension,
+                    language,
+                    source,
+                    size_bytes,
+                    file_modified_app_at,
+                    file_modified_disk_at,
+                    updated_at
+                FROM tracked_files
+                WHERE path_key = ?1
+                ",
+                params![path_key],
+                |row| {
+                    Ok(RecentFileRecord {
+                        path: row.get(0)?,
+                        file_name: row.get(1)?,
+                        extension: row.get(2)?,
+                        language: row.get(3)?,
+                        source: row.get(4)?,
+                        size_bytes: row.get::<_, Option<i64>>(5)?.map(|value| value as u64),
+                        file_modified_app_at: row.get(6)?,
+                        file_modified_disk_at: row.get(7)?,
+                        updated_at: row.get(8)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(|error| format!("Failed to read tracked file for refresh: {}", error))?;
+
+        if let Some(existing) = existing {
+            let unchanged = existing.path == snapshot.path
+                && existing.file_name == snapshot.file_name
+                && existing.extension == snapshot.extension
+                && existing.source == source.as_str()
+                && existing.size_bytes == snapshot.size_bytes
+                && existing.file_modified_disk_at == snapshot.file_modified_disk_at
+                && existing.language == language;
+            if unchanged {
+                return Ok(());
+            }
+        }
 
         let now = current_time_ms();
         connection
@@ -228,7 +279,7 @@ impl AppStorage {
                 WHERE path_key = ?1
                 ",
                 params![
-                    snapshot.path_key,
+                    path_key,
                     snapshot.path,
                     snapshot.file_name,
                     snapshot.extension,
@@ -261,8 +312,9 @@ impl AppStorage {
                     updated_at
                 FROM tracked_files
                 ORDER BY
-                    COALESCE(file_modified_app_at, updated_at, 0) DESC,
-                    updated_at DESC
+                    COALESCE(file_modified_app_at, file_modified_disk_at, 0) DESC,
+                    file_name ASC,
+                    path_key ASC
                 LIMIT ?1
                 ",
             )
@@ -443,12 +495,63 @@ impl AppStorage {
     /// method does **not** create a `file_access_events` row and leaves
     /// `file_modified_app_at` untouched so the sync scan does
     /// not pollute open/save-based ordering.
+    ///
+    /// When the row already exists and its material metadata is unchanged,
+    /// `updated_at` is left alone so refreshes do not re-order the sidebar.
     pub fn upsert_slates_file_for_sync(&self, path: &Path) -> Result<(), String> {
         let snapshot = build_file_snapshot(path)?;
         let language = detect_file_language(path);
-        let now = current_time_ms();
-
+        let path_key = &snapshot.path_key;
         let connection = self.open_connection()?;
+
+        let existing: Option<RecentFileRecord> = connection
+            .query_row(
+                "
+                SELECT
+                    path,
+                    file_name,
+                    extension,
+                    language,
+                    source,
+                    size_bytes,
+                    file_modified_app_at,
+                    file_modified_disk_at,
+                    updated_at
+                FROM tracked_files
+                WHERE path_key = ?1
+                ",
+                params![path_key],
+                |row| {
+                    Ok(RecentFileRecord {
+                        path: row.get(0)?,
+                        file_name: row.get(1)?,
+                        extension: row.get(2)?,
+                        language: row.get(3)?,
+                        source: row.get(4)?,
+                        size_bytes: row.get::<_, Option<i64>>(5)?.map(|value| value as u64),
+                        file_modified_app_at: row.get(6)?,
+                        file_modified_disk_at: row.get(7)?,
+                        updated_at: row.get(8)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(|error| format!("Failed to read tracked file for sync: {}", error))?;
+
+        if let Some(existing) = existing {
+            let unchanged = existing.path == snapshot.path
+                && existing.file_name == snapshot.file_name
+                && existing.extension == snapshot.extension
+                && existing.source == "slates"
+                && existing.size_bytes == snapshot.size_bytes
+                && existing.file_modified_disk_at == snapshot.file_modified_disk_at
+                && existing.language == language;
+            if unchanged {
+                return Ok(());
+            }
+        }
+
+        let now = current_time_ms();
         connection
             .execute(
                 "
@@ -476,7 +579,7 @@ impl AppStorage {
                     updated_at           = excluded.updated_at
                 ",
                 params![
-                    snapshot.path_key,
+                    path_key,
                     snapshot.path,
                     snapshot.file_name,
                     snapshot.extension,
@@ -584,6 +687,9 @@ impl AppStorage {
 
                 CREATE INDEX IF NOT EXISTS idx_tracked_files_modified
                     ON tracked_files(file_modified_disk_at DESC, updated_at DESC);
+
+                CREATE INDEX IF NOT EXISTS idx_tracked_files_recency
+                    ON tracked_files(COALESCE(file_modified_app_at, file_modified_disk_at, 0) DESC, file_name ASC, path_key ASC);
                 ",
             )
             .map_err(|error| format!("Failed to run SQLite migrations: {}", error))
@@ -675,4 +781,174 @@ fn detect_file_language(path: &Path) -> String {
         .and_then(|n| n.to_str())
         .and_then(|n| crate::detection::extension::detect_by_filename(n));
     lang.unwrap_or("text").to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static TEST_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    fn temp_storage() -> (AppStorage, PathBuf) {
+        let pid = std::process::id();
+        let counter = TEST_DIR_COUNTER.fetch_add(1, Ordering::SeqCst);
+        let dir = std::env::temp_dir().join(format!("grayslate-storage-test-{}-{}", pid, counter));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let storage = AppStorage {
+            db_path: dir.join("test.sqlite3"),
+        };
+        storage.run_migrations().expect("run migrations");
+        (storage, dir)
+    }
+
+    fn write_file(path: &Path, content: &[u8]) {
+        let mut file = std::fs::File::create(path).expect("create file");
+        file.write_all(content).expect("write file");
+    }
+
+    #[test]
+    fn list_recent_files_is_stable_across_refreshes_for_synced_files() {
+        let (storage, dir) = temp_storage();
+
+        let alpha = dir.join("alpha.txt");
+        let beta = dir.join("beta.txt");
+        let gamma = dir.join("gamma.txt");
+        write_file(&alpha, b"alpha");
+        write_file(&beta, b"beta");
+        write_file(&gamma, b"gamma");
+
+        // All synced (never opened in-app).
+        storage.upsert_slates_file_for_sync(&alpha).unwrap();
+        storage.upsert_slates_file_for_sync(&beta).unwrap();
+        storage.upsert_slates_file_for_sync(&gamma).unwrap();
+
+        let order1: Vec<String> = storage
+            .list_recent_files(10)
+            .unwrap()
+            .into_iter()
+            .map(|record| record.path)
+            .collect();
+
+        // Simulate repeated refreshes; nothing has changed, so order must not jitter.
+        for _ in 0..5 {
+            storage.refresh_tracked_file(&alpha, FileSource::Slates).unwrap();
+            storage.refresh_tracked_file(&beta, FileSource::Slates).unwrap();
+            storage.refresh_tracked_file(&gamma, FileSource::Slates).unwrap();
+            storage.upsert_slates_file_for_sync(&alpha).unwrap();
+            storage.upsert_slates_file_for_sync(&beta).unwrap();
+            storage.upsert_slates_file_for_sync(&gamma).unwrap();
+        }
+
+        let order2: Vec<String> = storage
+            .list_recent_files(10)
+            .unwrap()
+            .into_iter()
+            .map(|record| record.path)
+            .collect();
+
+        assert_eq!(
+            order1, order2,
+            "recent-files order must stay constant across no-op refreshes"
+        );
+
+        // All three files are present and accounted for.
+        let expected = [
+            alpha.to_string_lossy().to_string(),
+            beta.to_string_lossy().to_string(),
+            gamma.to_string_lossy().to_string(),
+        ];
+        assert_eq!(order1.len(), 3);
+        for path in &expected {
+            assert!(order1.contains(path), "missing {}", path);
+        }
+    }
+
+    #[test]
+    fn refresh_tracked_file_is_noop_when_nothing_changed() {
+        let (storage, dir) = temp_storage();
+        let path = dir.join("noop.txt");
+        write_file(&path, b"hello");
+
+        storage
+            .record_file_event(&path, FileSource::Slates)
+            .unwrap();
+        let before = storage.get_tracked_file(&path).unwrap().unwrap();
+
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        storage
+            .refresh_tracked_file(&path, FileSource::Slates)
+            .unwrap();
+
+        let after = storage.get_tracked_file(&path).unwrap().unwrap();
+        assert_eq!(before.updated_at, after.updated_at);
+        assert_eq!(before.size_bytes, after.size_bytes);
+    }
+
+    #[test]
+    fn refresh_tracked_file_bumps_updated_at_on_real_change() {
+        let (storage, dir) = temp_storage();
+        let path = dir.join("change.txt");
+        write_file(&path, b"hello");
+
+        storage
+            .record_file_event(&path, FileSource::Slates)
+            .unwrap();
+        let before = storage.get_tracked_file(&path).unwrap().unwrap();
+
+        // Wait long enough to guarantee a different ms timestamp.
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        write_file(&path, b"hello, world!");
+        storage
+            .refresh_tracked_file(&path, FileSource::Slates)
+            .unwrap();
+
+        let after = storage.get_tracked_file(&path).unwrap().unwrap();
+        assert!(after.updated_at > before.updated_at);
+        assert_ne!(before.size_bytes, after.size_bytes);
+    }
+
+    #[test]
+    fn upsert_slates_file_for_sync_is_noop_when_nothing_changed() {
+        let (storage, dir) = temp_storage();
+        let path = dir.join("slate-noop.txt");
+        write_file(&path, b"synced");
+
+        storage.upsert_slates_file_for_sync(&path).unwrap();
+        let before = storage.get_tracked_file(&path).unwrap().unwrap();
+
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        storage.upsert_slates_file_for_sync(&path).unwrap();
+
+        let after = storage.get_tracked_file(&path).unwrap().unwrap();
+        assert_eq!(before.updated_at, after.updated_at);
+    }
+
+    #[test]
+    fn recency_order_uses_app_at_then_disk_at() {
+        let (storage, dir) = temp_storage();
+
+        let opened = dir.join("opened.txt");
+        let untouched = dir.join("untouched.txt");
+        write_file(&opened, b"opened");
+        write_file(&untouched, b"untouched");
+
+        // Insert both via sync first (no app timestamp).
+        storage.upsert_slates_file_for_sync(&opened).unwrap();
+        storage.upsert_slates_file_for_sync(&untouched).unwrap();
+
+        // Now record an open event for one file. Its app timestamp should
+        // push it to the top regardless of disk mtime.
+        storage
+            .record_file_event(&opened, FileSource::Slates)
+            .unwrap();
+
+        let recent = storage.list_recent_files(10).unwrap();
+        assert_eq!(recent.len(), 2);
+        assert_eq!(recent[0].path, opened.to_string_lossy().to_string());
+        assert_eq!(recent[1].path, untouched.to_string_lossy().to_string());
+        assert!(recent[0].file_modified_app_at.is_some());
+        assert!(recent[1].file_modified_app_at.is_none());
+    }
 }

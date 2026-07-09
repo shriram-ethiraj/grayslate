@@ -174,7 +174,7 @@
             void emit("menu://save-file");
         }}
     >
-        <Save class="size-4 transition-all" />
+        <Save class="size-4" />
     </Button>
 {/if}
 

@@ -216,7 +216,7 @@ impl AutosaveRegistry {
             let since_last_save_ms = doc
                 .last_saved_at
                 .map(|t| now.duration_since(t).as_millis() as u64)
-                .unwrap_or(MAX_LATENCY_MS + 1); // Trigger immediately if never saved
+                .unwrap_or(0); // New/untitled documents wait for the idle debounce first
 
             let should_save = idle_ms >= IDLE_DEBOUNCE_MS || since_last_save_ms >= MAX_LATENCY_MS;
 
@@ -609,6 +609,37 @@ mod tests {
         let actions = registry.check_and_trigger_saves();
         assert_eq!(actions.len(), 1);
         assert!(matches!(&actions[0], SaveAction::RequestContent { window_label, request_id: 1 } if window_label == "main"));
+    }
+
+    #[test]
+    fn test_new_untitled_slate_waits_for_idle_debounce() {
+        let registry = AutosaveRegistry::default();
+
+        // A brand-new untitled slate has never been saved and just received
+        // its first keystroke. It should NOT be named/saved until the user
+        // pauses long enough to exceed IDLE_DEBOUNCE_MS.
+        registry.register("main", None, FileSource::Slates, "auto".into());
+        registry.notify_changed("main", 1);
+
+        let actions = registry.check_and_trigger_saves();
+        assert!(
+            actions.is_empty(),
+            "recently edited untitled slate should wait for idle debounce"
+        );
+
+        // Simulate the user having stopped typing for longer than the debounce.
+        {
+            let mut map = registry.inner.lock().unwrap();
+            let doc = map.get_mut("main").unwrap();
+            doc.last_notified_at = Some(Instant::now() - Duration::from_secs(5));
+        }
+
+        let actions = registry.check_and_trigger_saves();
+        assert_eq!(actions.len(), 1);
+        assert!(
+            matches!(&actions[0], SaveAction::RequestContent { window_label, request_id: 1 } if window_label == "main"),
+            "untitled slate should trigger once idle debounce expires"
+        );
     }
 
     #[test]

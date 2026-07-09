@@ -77,6 +77,8 @@ export const editorState = $state<{
     currentFilePath: string | undefined;
     /** Source classification of the current file: `"slates"` (managed notes directory) or `"local"` (external). */
     currentFileSource: RecentFileSource | undefined;
+    /** Callback used by the unsaved-changes guard to save the current document. */
+    requestSaveCurrentDocument?: () => Promise<boolean>;
     currentDocumentLength: number;
     currentSelectionSize: number;
     fileType: FileType;

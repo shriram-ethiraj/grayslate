@@ -328,18 +328,21 @@ pub fn get_recent_files(
     // in the sidebar immediately.
     sync_notes_tracking(&app, storage.inner());
 
-    let recent_files = storage.list_recent_files(limit)?;
-
-    for recent_file in &recent_files {
-        let path = PathBuf::from(&recent_file.path);
+    // Refresh metadata for every tracked file before the final query so
+    // disk-side changes (including local files outside the notes root) are
+    // reflected in the ordering. With the conditional-update logic in
+    // refresh_tracked_file this is a no-op for unchanged rows.
+    let tracked = storage.list_tracked_files()?;
+    for file in &tracked {
+        let path = PathBuf::from(&file.path);
         let source = classify_file_source(&app, storage.inner(), &path)?;
         storage.refresh_tracked_file(&path, source)?;
     }
 
     // Prune entries that no longer exist on disk so the sidebar stays clean.
-    let refreshed = storage.list_recent_files(limit)?;
+    let rows = storage.list_recent_files(limit)?;
     let mut result = Vec::new();
-    for file in refreshed {
+    for file in rows {
         let path = PathBuf::from(&file.path);
         if path.exists() {
             result.push(file);

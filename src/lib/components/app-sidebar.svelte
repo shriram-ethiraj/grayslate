@@ -6,6 +6,7 @@
         librarySidebarState,
         setPendingSidebarOpenFile,
     } from "$lib/state/librarySidebar.svelte";
+    import { confirmBeforeLeavingDocument } from "$lib/state/unsavedChangesGuard.svelte";
     import {
         getRecentFiles,
         OPEN_FILE_PATH_EVENT,
@@ -281,6 +282,8 @@
     // ---------------------------------------------------------------------------
 
     async function openRecentFile(path: string, source: RecentFileSource, lineNumber?: number): Promise<void> {
+        if (!(await confirmBeforeLeavingDocument())) return;
+
         // Freeze the list order so opening a file doesn't immediately re-sort
         // the sidebar, which would be jarring for sequential file navigation.
         suppressReorder = true;

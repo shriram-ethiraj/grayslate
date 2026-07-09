@@ -152,11 +152,12 @@ export function formatSize(value: number | null): string {
 
 /**
  * Returns the most relevant recency timestamp for a record.
- * Priority: file_modified_app_at → updated_at.
+ * Priority: file_modified_app_at → file_modified_disk_at.
+ * updated_at is intentionally ignored; it tracks row maintenance, not file activity.
  */
 export function getRecencyTimestamp(recentFile: LibraryFileRecord): number | null {
     return recentFile.file_modified_app_at
-        ?? recentFile.updated_at;
+        ?? recentFile.file_modified_disk_at;
 }
 
 /**

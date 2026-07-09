@@ -21,10 +21,12 @@
   import AboutDialog from "$lib/components/AboutDialog.svelte";
   import DeleteFileDialog from "$lib/components/DeleteFileDialog.svelte";
   import RenameFileDialog from "$lib/components/RenameFileDialog.svelte";
+  import UnsavedChangesDialog from "$lib/components/UnsavedChangesDialog.svelte";
   import {
     checkForAppUpdates,
     openAboutDialog,
   } from "$lib/state/appMenu.svelte";
+  import { confirmBeforeLeavingDocument } from "$lib/state/unsavedChangesGuard.svelte";
   import {
     editorUndo,
     editorRedo,
@@ -49,6 +51,7 @@
 
   let isMaximized = $state(false);
   let unlistenResize: (() => void) | undefined;
+  let unlistenCloseRequested: (() => void) | undefined;
 
   const isMac = $derived(platformState.osType === "macos");
   const isLinux = $derived(platformState.osType === "linux");
@@ -98,6 +101,14 @@
       isMaximized = await appWindow.isMaximized();
     });
 
+    // Guard window close when there are unsaved local-file changes.
+    unlistenCloseRequested = await appWindow.onCloseRequested(async (event) => {
+      const canClose = await confirmBeforeLeavingDocument();
+      if (!canClose) {
+        event.preventDefault();
+      }
+    });
+
     // On macOS, the in-window Menubar is hidden and the system menu bar is
     // used instead. Forward native menu edit events to the same handlers
     // used by the custom Menubar on Windows/Linux.
@@ -141,6 +152,7 @@
     unlistenWordWrap?.();
     unlistenViewAction?.();
     unlistenResize?.();
+    unlistenCloseRequested?.();
   });
 
   async function handleAbout() {
@@ -604,3 +616,4 @@
 <AboutDialog />
 <DeleteFileDialog />
 <RenameFileDialog />
+<UnsavedChangesDialog />

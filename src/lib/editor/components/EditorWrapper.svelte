@@ -63,6 +63,7 @@
     clearPendingSidebarOpenFile,
     setPendingSidebarOpenFile,
   } from "$lib/state/librarySidebar.svelte";
+  import { confirmBeforeLeavingDocument } from "$lib/state/unsavedChangesGuard.svelte";
   import {
     OPEN_FILE_PATH_EVENT,
     type OpenFilePathPayload,
@@ -206,6 +207,13 @@
 
   $effect(() => {
     editorState.currentFileSource = activeDocument.source;
+  });
+
+  $effect(() => {
+    editorState.requestSaveCurrentDocument = saveFile;
+    return () => {
+      editorState.requestSaveCurrentDocument = undefined;
+    };
   });
 
   $effect(() => {
@@ -744,6 +752,8 @@
   }
 
   async function createNewFile(): Promise<void> {
+    if (!(await confirmBeforeLeavingDocument())) return;
+
     invalidatePendingFileOpen();
 
     const previousSession = editorSession;
@@ -904,6 +914,8 @@
   }
 
   async function openFile(): Promise<void> {
+    if (!(await confirmBeforeLeavingDocument())) return;
+
     const selected = await openFilePicker({
       multiple: false,
       directory: false,
@@ -980,18 +992,18 @@
     return result.path;
   }
 
-  async function saveFile(): Promise<void> {
+  async function saveFile(): Promise<boolean> {
     try {
       const content = await getContentForSave();
 
       if (activeDocument.kind === "saved") {
         if (content === activeDocument.lastSavedValue) {
-          return;
+          return true;
         }
 
         await writeDocumentToPath(activeDocument.path, content);
         editorView?.focus();
-        return;
+        return true;
       }
 
       const savePath = await saveUntitledSlate(content);
@@ -1010,9 +1022,11 @@
       // for Svelte to mount the new EditorView before focusing.
       await new Promise<void>((resolve) => setTimeout(resolve, 10));
       editorView?.focus();
+      return true;
     } catch (err: unknown) {
       const msg = typeof err === "string" ? err : "Failed to save file.";
       toast.error(msg);
+      return false;
     }
   }
 
