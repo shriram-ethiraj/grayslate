@@ -32,10 +32,74 @@ static JSONC_PARSE_OPTIONS: LazyLock<ParseOptions> = LazyLock::new(|| ParseOptio
     allow_unary_plus_numbers: false,
 });
 
+/// Maximum number of lines scanned for indentation detection. Bounds cost on
+/// very large documents while still capturing a representative sample.
+const DETECT_INDENT_MAX_LINES: usize = 1000;
+
+/// Detect the dominant indentation style from document content.
+///
+/// Scans up to [`DETECT_INDENT_MAX_LINES`] non-blank, non-comment lines and
+/// tallies leading-whitespace runs:
+/// - lines whose leading whitespace is entirely `\t` count toward tabs
+/// - lines whose leading whitespace is entirely ` ` count toward spaces, and
+///   the run length is recorded as a candidate indent width
+///
+/// Returns `(use_tabs, indent_width)`. Tabs win ties so a document with a
+/// single tab-indented line and no space-indented lines becomes tab-formatted.
+/// Falls back to `(false, 2)` when no indentation is found (e.g. minified
+/// input or a document with only top-level keys).
+fn detect_indentation(text: &str) -> (bool, u32) {
+    let mut tab_lines = 0usize;
+    // Space-indent run length -> number of lines using it.
+    let mut space_counts: HashMap<u32, usize> = HashMap::new();
+
+    for line in text.lines().take(DETECT_INDENT_MAX_LINES) {
+        // Skip blank lines and ones whose first non-whitespace content is a
+        // comment marker — their leading whitespace is not semantic indent.
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with("//") || trimmed.starts_with("/*") {
+            continue;
+        }
+
+        let indent_len = line.len() - trimmed.len();
+        if indent_len == 0 {
+            continue;
+        }
+
+        let indent = &line[..indent_len];
+        if indent.bytes().all(|b| b == b'\t') {
+            tab_lines += 1;
+        } else if indent.bytes().all(|b| b == b' ') {
+            // Only record run lengths that look like real indent steps (>= 2).
+            // A single leading space is usually proseMarkdown quote-style noise,
+            // not a JSON indent unit.
+            let width = indent_len as u32;
+            if width >= 2 {
+                *space_counts.entry(width).or_insert(0) += 1;
+            }
+        }
+        // Mixed tab+space leading whitespace is ambiguous; skip it rather
+        // than letting it skew the tally either way.
+    }
+
+    let total_space_lines: usize = space_counts.values().sum();
+
+    if tab_lines > 0 && tab_lines >= total_space_lines {
+        return (true, 1);
+    }
+
+    if let Some((&width, _)) = space_counts.iter().max_by_key(|(_, &v)| v) {
+        return (false, width.max(1));
+    }
+
+    (false, 2)
+}
+
 /// Resolve formatting indentation from the frontend-supplied params.
 /// Returns `(use_tabs, indent_width)`.
-/// Absent params, "default", and "detect" modes all fall back to 2 spaces.
-fn resolve_format_indent(params: &Option<TransformationParams>) -> (bool, u32) {
+/// "detect" mode analyses `text` to pick the dominant indentation style;
+/// absent params and "default" mode fall back to 2 spaces.
+fn resolve_format_indent(params: &Option<TransformationParams>, text: &str) -> (bool, u32) {
     match params
         .as_ref()
         .and_then(|p| p.indent_config.as_ref())
@@ -44,6 +108,7 @@ fn resolve_format_indent(params: &Option<TransformationParams>) -> (bool, u32) {
         Some(cfg) if cfg.indent_mode == "spaces" => {
             (false, cfg.indent_size.unwrap_or(2).max(1))
         }
+        Some(cfg) if cfg.indent_mode == "detect" => detect_indentation(text),
         _ => (false, 2),
     }
 }
@@ -1784,7 +1849,7 @@ fn dispatch_transformation(
     match action_id {
         TransformationActionId::JsonFormat => {
             ctx.run_replace_text("Formatted JSON.", "JSON is already formatted.", |ctx| {
-                let (use_tabs, indent_width) = resolve_format_indent(ctx.params());
+                let (use_tabs, indent_width) = resolve_format_indent(ctx.params(), ctx.text());
                 let config = jsonc_format_config(use_tabs, indent_width);
                 let formatted = format_jsonc_text(ctx.text(), &config)
                     .map_err(|error| format!("Invalid JSON: {}", error))?;
@@ -1808,7 +1873,7 @@ fn dispatch_transformation(
         }
         TransformationActionId::SqlFormat => {
             ctx.run_replace_text("Formatted SQL.", "SQL is already formatted.", |ctx| {
-                let (use_tabs, indent_width) = resolve_format_indent(ctx.params());
+                let (use_tabs, indent_width) = resolve_format_indent(ctx.params(), ctx.text());
                 let config = sql_format_config(use_tabs, indent_width);
                 let formatted = format_sql_text(Path::new("query.sql"), ctx.text(), &config)
                     .map_err(|error| format!("Invalid SQL: {}", error))?;
@@ -3386,6 +3451,133 @@ mod tests {
                 assert_eq!(message, "4 words");
             }
             other => panic!("expected ShowMessage, got {:?}", other),
+        }
+    }
+
+    // ── indentation detection ─────────────────────────────────────────────
+
+    fn indent_cfg(mode: &str, size: Option<u32>) -> Option<TransformationParams> {
+        Some(TransformationParams {
+            indent_config: Some(IndentConfig {
+                indent_mode: mode.to_string(),
+                indent_size: size,
+            }),
+        })
+    }
+
+    #[test]
+    fn detect_indentation_picks_tabs_when_tab_indented() {
+        let text = "{\n\t\"a\": 1\n}";
+        assert_eq!(detect_indentation(text), (true, 1));
+    }
+
+    #[test]
+    fn detect_indentation_picks_two_spaces_when_space_indented() {
+        let text = "{\n  \"a\": 1,\n  \"b\": 2\n}";
+        assert_eq!(detect_indentation(text), (false, 2));
+    }
+
+    #[test]
+    fn detect_indentation_picks_four_spaces() {
+        let text = "{\n    \"a\": {\n        \"b\": 1\n    }\n}";
+        assert_eq!(detect_indentation(text), (false, 4));
+    }
+
+    #[test]
+    fn detect_indentation_falls_back_to_two_spaces_when_no_indent() {
+        assert_eq!(detect_indentation("{\"a\":1}"), (false, 2));
+        assert_eq!(detect_indentation(""), (false, 2));
+    }
+
+    #[test]
+    fn detect_indentation_ignores_comment_lines() {
+        let text = "// header\n{\n\t\"a\": 1\n}";
+        assert_eq!(detect_indentation(text), (true, 1));
+    }
+
+    #[test]
+    fn json_format_detect_mode_preserves_tab_indentation() {
+        let nc = not_cancelled();
+        let tab_json = "{\n\t\"a\": 1\n}";
+        let response = execute_transformation_blocking(
+            ExecuteTransformationRequest {
+                action_id: TransformationActionId::JsonFormat,
+                text: tab_json.to_string(),
+                request_id: 0,
+                params: indent_cfg("detect", None),
+            },
+            &nc,
+        )
+        .expect("format should succeed");
+
+        match response {
+            ExecuteTransformationResponse::ReplaceText { text, .. } => {
+                assert!(
+                    text.contains('\t'),
+                    "formatted output should preserve tabs, got: {:?}",
+                    text
+                );
+            }
+            other => panic!("expected ReplaceText, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn json_format_detect_mode_preserves_four_space_indentation() {
+        let nc = not_cancelled();
+        let space_json = "{\n    \"a\": 1\n}";
+        let response = execute_transformation_blocking(
+            ExecuteTransformationRequest {
+                action_id: TransformationActionId::JsonFormat,
+                text: space_json.to_string(),
+                request_id: 0,
+                params: indent_cfg("detect", None),
+            },
+            &nc,
+        )
+        .expect("format should succeed");
+
+        match response {
+            ExecuteTransformationResponse::ReplaceText { text, .. } => {
+                assert!(
+                    text.contains("    \"a\""),
+                    "formatted output should preserve 4-space indent, got: {:?}",
+                    text
+                );
+            }
+            other => panic!("expected ReplaceText, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn json_format_detect_mode_falls_back_to_two_spaces_for_minified() {
+        let nc = not_cancelled();
+        let minified = "{\"a\":1,\"b\":2}";
+        let response = execute_transformation_blocking(
+            ExecuteTransformationRequest {
+                action_id: TransformationActionId::JsonFormat,
+                text: minified.to_string(),
+                request_id: 0,
+                params: indent_cfg("detect", None),
+            },
+            &nc,
+        )
+        .expect("format should succeed");
+
+        match response {
+            ExecuteTransformationResponse::ReplaceText { text, .. } => {
+                // dprint collapses short objects onto a single line within the
+                // 120-char line width. We only assert that the fallback did
+                // NOT pick tabs and that the output is valid JSON.
+                assert!(
+                    !text.contains('\t'),
+                    "minified input should not fall back to tabs, got: {:?}",
+                    text
+                );
+                // Round-trip through the validator to confirm validity.
+                validate_jsonc(&text).expect("formatted output must be valid JSON");
+            }
+            other => panic!("expected ReplaceText, got {:?}", other),
         }
     }
 }
