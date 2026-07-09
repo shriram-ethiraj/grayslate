@@ -9,21 +9,28 @@ Use this skill when changing language detection, filename suggestion, canonical 
 
 ## Primary Files
 
-- `src-tauri/src/detection/mod.rs`
-- `src-tauri/src/detection/features.rs`
-- `src-tauri/src/detection/family.rs`
-- `src-tauri/src/detection/scoring.rs`
-- `src-tauri/src/detection/disambiguation.rs`
-- `src-tauri/src/detection/structural.rs`
-- `src-tauri/src/detection/languages/mod.rs`
-- `src-tauri/src/detection/languages/*.rs`
-- `src-tauri/src/naming/mod.rs`
-- `src-tauri/src/naming/model.rs`
-- `src-tauri/src/naming/prose.rs`
-- `src-tauri/src/naming/shared.rs`
-- `src-tauri/src/naming/languages/mod.rs`
-- `src-tauri/src/naming/languages/*.rs`
+Detection and naming logic live in dedicated workspace crates, not directly under `src-tauri/src/`. `src-tauri/src/detection.rs` and `src-tauri/src/naming.rs` are thin shims: `detection.rs` is a `pub use grayslate_langdetect::*;` re-export, and `naming.rs` re-exports `grayslate_langnaming` plus the `suggest_stem_auto` glue function that combines naming with detection. Tauri commands call through those shims via `crate::detection::*` / `crate::naming::*`.
+
+- `crates/grayslate-langdetect/src/lib.rs` (entry point / `detect_language()`)
+- `crates/grayslate-langdetect/src/features.rs`
+- `crates/grayslate-langdetect/src/family.rs`
+- `crates/grayslate-langdetect/src/scoring.rs`
+- `crates/grayslate-langdetect/src/disambiguation.rs`
+- `crates/grayslate-langdetect/src/structural.rs`
+- `crates/grayslate-langdetect/src/extension.rs`
+- `crates/grayslate-langdetect/src/shebang.rs`
+- `crates/grayslate-langdetect/src/languages/mod.rs`
+- `crates/grayslate-langdetect/src/languages/*.rs`
+- `crates/grayslate-langnaming/src/lib.rs` (public naming API surface)
+- `crates/grayslate-langnaming/src/model.rs`
+- `crates/grayslate-langnaming/src/prose.rs`
+- `crates/grayslate-langnaming/src/shared.rs`
+- `crates/grayslate-langnaming/src/languages/mod.rs`
+- `crates/grayslate-langnaming/src/languages/*.rs`
+- `src-tauri/src/detection.rs` (shim)
+- `src-tauri/src/naming.rs` (shim + `suggest_stem_auto`)
 - `src-tauri/src/commands/naming.rs`
+- `src-tauri/src/commands/detection.rs`
 - `src/lib/components/RenameFileDialog.svelte`
 - `src/lib/editor/components/EditorWrapper.svelte`
 - `src/lib/editor/config/languageExtensions.ts`
@@ -54,7 +61,7 @@ Do not move content-based detection or naming logic back into Svelte.
 
 ## Family-first pipeline
 
-`src-tauri/src/detection/mod.rs::detect_language()` now delegates to the v2 family-first pipeline.
+`crates/grayslate-langdetect/src/lib.rs::detect_language()` runs the v2 family-first pipeline. `src-tauri/src/detection.rs` re-exports it unchanged, so callers inside `src-tauri` use `crate::detection::detect_language(...)`.
 
 Ordered phases:
 
@@ -82,9 +89,9 @@ That family gate dramatically reduces cross-family false positives. Prose should
 
 ### Deterministic phases
 
-- extension / filename: `extension.rs`
-- shebang: `shebang.rs`
-- strong structural detectors: `structural.rs` plus language-local structural functions
+- extension / filename: `crates/grayslate-langdetect/src/extension.rs`
+- shebang: `crates/grayslate-langdetect/src/shebang.rs`
+- strong structural detectors: `crates/grayslate-langdetect/src/structural.rs` plus language-local structural functions
 
 These still short-circuit early for highly reliable cases like JSON, HTML, XML, Dockerfile, etc.
 
@@ -103,7 +110,7 @@ This stage is deterministic and rule-based. There is no ML model here.
 
 ### Family-gated language scoring
 
-`src-tauri/src/detection/scoring.rs` only scores languages whose `content_families` intersect the chosen family set.
+`crates/grayslate-langdetect/src/scoring.rs` only scores languages whose `content_families` intersect the chosen family set.
 
 Each language carries v2 metadata in `LanguageDefinition`:
 
@@ -130,12 +137,12 @@ It uses superset pair relationships and score-gap analysis to break ties between
 
 ## First-class prose languages
 
-`email` and `prompt` are now real languages in detection, not just prose side-signals.
+`email` and `prompt` are real languages in detection, not just prose side-signals.
 
 Detection files:
 
-- `src-tauri/src/detection/languages/email.rs`
-- `src-tauri/src/detection/languages/prompt.rs`
+- `crates/grayslate-langdetect/src/languages/email.rs`
+- `crates/grayslate-langdetect/src/languages/prompt.rs`
 
 Both live in `ContentFamily::Prose`, which means:
 
@@ -149,9 +156,9 @@ Examples:
 
 ## Adding a new detection language
 
-1. Create `src-tauri/src/detection/languages/<lang>.rs`
+1. Create `crates/grayslate-langdetect/src/languages/<lang>.rs`
 2. Export `definition() -> LanguageDefinition`
-3. Register the module and `definition()` in `src-tauri/src/detection/languages/mod.rs`
+3. Register the module and `definition()` in `crates/grayslate-langdetect/src/languages/mod.rs`
 4. Populate:
    - deterministic fields: `extensions`, `filenames`, `shebangs`
    - family-gated fields: `content_families`, `anchors`, `hints`, `keywords`, `builtins`, `disqualifiers`
@@ -170,9 +177,9 @@ Naming no longer routes through the old `language_profile()/ExtractorGroup` map.
 
 Current architecture:
 
-- each language lives in `src-tauri/src/naming/languages/*.rs`
+- each language lives in `crates/grayslate-langnaming/src/languages/*.rs`
 - each file exports `definition() -> NamingDefinition`
-- `src-tauri/src/naming/languages/mod.rs` compiles them into `NAMING_MAP`
+- `crates/grayslate-langnaming/src/languages/mod.rs` compiles them into `NAMING_MAP`
 
 `NamingDefinition` is intentionally small:
 
@@ -189,13 +196,13 @@ The canonical save extension now lives directly on `NamingDefinition.extension`.
 
 ## Public naming API
 
-`src-tauri/src/naming/mod.rs` is the stable surface:
+`crates/grayslate-langnaming/src/lib.rs` is the stable surface:
 
-- `suggest_stem_auto(content, language_hint, filename)`
 - `suggest_stem(content, language_hint)`
 - `language_to_extension(language_hint)`
-- `fallback_stem()`
-- `slugify(raw)`
+- `fallback_stem()` / `slugify(raw)` (re-exported from `shared.rs`)
+
+`suggest_stem_auto(content, language_hint, filename)` lives one layer up, in `src-tauri/src/naming.rs` — it is not part of the `grayslate-langnaming` crate itself because it needs to call into `grayslate-langdetect` too, and crate boundaries keep detection and naming decoupled.
 
 ### `suggest_stem_auto`
 
@@ -225,16 +232,16 @@ That explicit `StemKind` routing is important: once detection returns `"email"` 
 
 ## Prose naming
 
-`src-tauri/src/naming/prose.rs` remains the prose fallback cascade:
+`crates/grayslate-langnaming/src/prose.rs` remains the prose fallback cascade:
 
 1. email extraction
 2. prompt extraction
 3. YAKE fallback
 
-The new naming language files:
+The naming language files:
 
-- `src-tauri/src/naming/languages/email.rs`
-- `src-tauri/src/naming/languages/prompt.rs`
+- `crates/grayslate-langnaming/src/languages/email.rs`
+- `crates/grayslate-langnaming/src/languages/prompt.rs`
 
 both delegate to that prose extractor, but they preserve distinct language IDs and therefore distinct suffix behavior.
 
@@ -338,11 +345,11 @@ Current notable behavior:
 
 ## Adding a New Language End-to-End
 
-1. Add detection definition in `src-tauri/src/detection/languages/`
-2. Register it in `detection/languages/mod.rs`
+1. Add detection definition in `crates/grayslate-langdetect/src/languages/`
+2. Register it in `crates/grayslate-langdetect/src/languages/mod.rs`
 3. Populate v2 family fields
-4. Add naming definition in `src-tauri/src/naming/languages/`
-5. Register it in `naming/languages/mod.rs`
+4. Add naming definition in `crates/grayslate-langnaming/src/languages/`
+5. Register it in `crates/grayslate-langnaming/src/languages/mod.rs`
 6. Add CodeMirror/icon support if user-visible
 7. Add tests near the changed modules
 
@@ -355,5 +362,5 @@ Current notable behavior:
 - Do not trust the current filename extension inside `suggest_name_for_file`
 - Do not reintroduce frontend-only recent-files refresh emits for read/save flows
 - Re-run:
-  - `cargo test --manifest-path src-tauri/Cargo.toml`
+  - `cargo test --manifest-path src-tauri/Cargo.toml` (runs the whole workspace, including `grayslate-langdetect` and `grayslate-langnaming`)
   - `pnpm run check`

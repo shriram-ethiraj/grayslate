@@ -15,7 +15,7 @@ Primary files:
 - `src-tauri/src/commands/naming.rs`
 - `src-tauri/src/commands/search.rs`
 - `src-tauri/src/commands/memory.rs`
-- `src-tauri/src/detection/mod.rs`
+- `src-tauri/src/detection.rs` (re-export shim over `crates/grayslate-langdetect/`)
 - `src-tauri/src/menu/mod.rs`
 - `src-tauri/src/window/mod.rs`
 
@@ -92,8 +92,8 @@ Important behavior:
 
 Keep command handlers thin:
 
-- naming logic belongs in `src-tauri/src/naming/`
-- detection logic belongs in `src-tauri/src/detection/`
+- naming logic belongs in `crates/grayslate-langnaming/` (see `src-tauri/src/naming.rs` shim)
+- detection logic belongs in `crates/grayslate-langdetect/` (see `src-tauri/src/detection.rs` shim)
 - command modules should orchestrate I/O, storage updates, and event emission
 
 ## Core Principles

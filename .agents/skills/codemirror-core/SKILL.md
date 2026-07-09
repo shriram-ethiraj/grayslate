@@ -5,7 +5,7 @@ description: Rules for integrating CodeMirror 6 with Svelte, managing performanc
 
 # CodeMirror Core Integration
 
-This document outlines the core integration patterns for CodeMirror 6 inside Grayslate. For specific editor extensions (like hover tooltips or autocomplete), see `.agents/editor-extensions/SKILL.md`.
+This document outlines the core integration patterns for CodeMirror 6 inside Grayslate. For specific editor extensions (like hover tooltips or autocomplete), see `.agents/skills/editor-extensions/SKILL.md`.
 
 ## Integration Guidelines
 
@@ -48,38 +48,40 @@ For the main CodeMirror editor surface in this repo:
 - Treat them as profiling-sensitive knobs because they can interact badly with WebKitGTK repaint/compositing behavior and make editor rendering harder to reason about.
 - If performance tuning is revisited later, do it from a measured profile and test Linux explicitly with large files and scrollbar dragging.
 
-## Find and replace worker flow
+## Find and replace scan flow
 
 The in-editor find/replace UI is a custom Svelte panel, not CodeMirror's built-in search panel.
+
+There is no JS Web Worker in this flow (there used to be a planned `workers/findStats.worker.ts` — it was never built; the design landed as a Rust/Tauri IPC command instead). Do not go looking for a `workers/` directory under `src/lib/editor/` — it doesn't exist.
 
 ### Current split of responsibilities
 
 - `src/lib/editor/components/FindReplace.svelte` owns the popup UI, local input state, debounce timing, and flush-before-navigate / replace behavior.
-- `src/lib/editor/core/actions.ts` owns the main-thread CodeMirror integration for `setSearchQuery`, highlights, next/previous navigation, replace actions, and worker request dispatch.
-- `src/lib/editor/workers/findStats.worker.ts` owns the expensive full-document scan for `matchCount` and `currentMatch`.
-- `src/lib/editor/workers/findStatsProtocol.ts` is the shared message contract and should be updated together with worker/frontend changes.
+- `src/lib/editor/core/actions.ts` owns the main-thread CodeMirror integration for `setSearchQuery`, highlights, next/previous navigation, replace actions, and dispatches the async scan to Rust.
+- `src-tauri/src/commands/findstats.rs` exposes the Tauri commands `editor_find_scan`, `editor_find_selection`, `cancel_editor_find`.
+- `src-tauri/src/findstats.rs` owns the actual scan logic (`matchCount` / `currentMatch` computation) called by those commands, and has its own `#[test]` coverage.
 
 ### Important architecture rule
 
 - Keep CodeMirror search state on the main thread.
-- Keep expensive counting and current-match computation off the main thread in the worker.
-- Do not move `findNext`, `findPrevious`, `replaceNext`, or `replaceAll` into the worker because they need the live `EditorView`.
+- Keep expensive counting and current-match computation off the main thread — in Rust, invoked via `invoke("editor_find_scan", ...)` / `invoke("editor_find_selection", ...)`, not in a browser worker.
+- Do not move `findNext`, `findPrevious`, `replaceNext`, or `replaceAll` into Rust because they need the live `EditorView`.
 
 ### Important update-flow rule
 
 `setSearchQuery` by itself does not count as a document change or selection change.
 
-That means a pure search-query dispatch will not reliably flow through the managed-session `onViewUpdate` path that is used for document/selection synchronization. In this repo, `editorSetSearchQuery()` must explicitly call `updateSearchStats(view)` after dispatching the new `SearchQuery`, otherwise the worker can miss query changes and the visible count can go stale.
+That means a pure search-query dispatch will not reliably flow through the managed-session `onViewUpdate` path that is used for document/selection synchronization. In this repo, `editorSetSearchQuery()` must explicitly call `updateSearchStats(view)` after dispatching the new `SearchQuery`, otherwise a stale scan can miss query changes and the visible count can go stale.
 
 ### UX behavior to preserve
 
 - Opening find from a selection should seed the find field from the current selection.
 - Closing find should clear the seeded or previously typed find text.
-- While a new worker result is in flight, keep showing the previous resolved count instead of replacing it with a flashing loader or placeholder text.
+- While a new scan result is in flight, keep showing the previous resolved count instead of replacing it with a flashing loader or placeholder text.
 - Navigation and replace actions should flush any pending debounced query update first so the action uses the text currently visible in the input.
 
-### Worker lifecycle guidance
+### Scan lifecycle guidance (`updateSearchStats` in `actions.ts`)
 
-- Clear worker state when the panel closes or when the search becomes empty.
-- Ignore stale worker responses by request ID so older scans cannot overwrite newer results.
-- Be careful with `doc.toString()` on large documents: the worker removes the scan cost from the UI thread, but main-thread serialization is still real work and should not be duplicated unnecessarily.
+- `clearSearchStatsCache()` resets local scan state and calls `invoke("cancel_editor_find")` — call it when the panel closes or the search becomes empty.
+- Every scan carries an incrementing `requestId`; `performScan()` drops any response where `result.requestId !== latestSearchStatsRequestId`, so older in-flight scans cannot overwrite newer results.
+- Be careful with `view.state.doc.toString()` on large documents: it still runs on the main thread before the `invoke()` call, even though the scan itself runs in Rust — don't duplicate that serialization unnecessarily.

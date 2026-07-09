@@ -1,6 +1,6 @@
 ---
 name: code-review
-description: Reusable review checklist for auditing Grayslate's Svelte 5, TypeScript, CodeMirror, CSV worker, and Tauri backend changes.
+description: Reusable review checklist for auditing Grayslate's Svelte 5, TypeScript, CodeMirror, CSV table, and Tauri backend changes.
 ---
 
 # Grayslate Code Review Playbook
@@ -13,7 +13,7 @@ Catch issues that would materially affect:
 
 - security at the Tauri boundary
 - editor/session correctness
-- CSV table correctness and worker lifecycle
+- CSV table correctness, virtualizer lifecycle, and Rust `CsvSession` IPC correctness
 - markdown preview correctness and main-thread performance
 - Svelte 5 rune usage and TypeScript safety
 - layout safety for flex + virtualizer chains
@@ -22,14 +22,14 @@ Catch issues that would materially affect:
 
 Before reviewing non-trivial changes, read:
 
-- `agents.md`
-- `.agents/svelte-frontend/SKILL.md`
-- `.agents/codemirror-core/SKILL.md`
-- `.agents/editor-extensions/SKILL.md`
-- `.agents/csv-architecture/SKILL.md`
-- `.agents/memory-management/SKILL.md`
-- `.agents/tauri-backend/SKILL.md`
-- `.agents/layout-chain/SKILL.md`
+- `CLAUDE.md`
+- `.agents/skills/svelte-frontend/SKILL.md`
+- `.agents/skills/codemirror-core/SKILL.md`
+- `.agents/skills/editor-extensions/SKILL.md`
+- `.agents/skills/csv-architecture/SKILL.md`
+- `.agents/skills/memory-management/SKILL.md`
+- `.agents/skills/tauri-backend/SKILL.md`
+- `.agents/skills/layout-chain/SKILL.md`
 
 ## High-Risk Review Areas
 
@@ -76,12 +76,12 @@ Hot files:
 
 ### 3. CSV table mode
 
-CSV mode is worker-driven and has special undo/mirroring rules.
+CSV mode is Rust-backed (a `CsvSession` in `src-tauri/src/csv/`, driven via Tauri IPC) with a main-thread scroll virtualizer, and has special undo/mirroring rules. There is no JS Web Worker in this flow — don't assume one exists.
 
 Check for:
 
-- worker lifecycle leaks (`Worker`, pending request maps, missing `onerror`)
-- race conditions between worker restarts and pending async responses
+- IPC lifecycle leaks (dangling `CsvSession` handles, missing cleanup on unmount/file-switch)
+- race conditions between session restarts and pending async `invoke()` responses
 - incorrect live-mirror behavior around the `100_000` row threshold
 - large clone/copy behavior that can blow up memory
 - virtualizer math or selection logic that can break under large tables
@@ -92,7 +92,7 @@ Hot files:
 - `src/lib/editor/components/csv/CsvTableView.svelte`
 - `src/lib/editor/components/csv/useCsvEditorState.svelte.ts`
 - `src/lib/editor/components/csv/useScrollVirtualizer.svelte.ts`
-- `src/lib/editor/workers/csvTable.worker.ts`
+- `src-tauri/src/csv/mod.rs`
 - `src/lib/editor/components/EditorWrapper.svelte`
 
 ### 4. Markdown preview
