@@ -73,6 +73,7 @@
     type ExecuteTransformationResponse,
     type ExecuteTransformationRequest,
     getTransformationAction,
+    hasFormatActionForFileType,
     type TransformationActionId,
     type TransformationMessageLevel,
     type TransformationChannelEvent,
@@ -180,6 +181,7 @@
   let activeLanguage = $derived(
     language === "auto" ? detectedLanguage : language,
   );
+  let canFormatCurrentFile = $derived(hasFormatActionForFileType(activeLanguage as FileType));
   let activeDocument = $state.raw<ActiveDocument>(createUntitledDocument());
   let activeFilePath = $derived(getDocumentKey(activeDocument));
   let isDirty = $derived(value !== activeDocument.lastSavedValue);
@@ -1213,7 +1215,7 @@
   });
 
   function openIndentPicker(): boolean {
-    if (isCsvTableActive) return false;
+    if (isCsvTableActive || !canFormatCurrentFile) return false;
     indentPickerOpen = true;
     return true;
   }
@@ -1382,6 +1384,7 @@
     {isCsvTableActive}
     {csvInfo}
     {indentConfig}
+    {canFormatCurrentFile}
     onGoToLine={openGoToLinePanel}
     onOpenIndentPicker={openIndentPicker}
   />

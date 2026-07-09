@@ -14,6 +14,7 @@
     isCsvTableActive = false,
     csvInfo = { rows: 0, cols: 0, delimiter: "", errors: 0 },
     indentConfig = { indentMode: IndentMode.Default, indentSize: 2 },
+    canFormatCurrentFile = true,
     onGoToLine = () => {},
     onOpenIndentPicker = () => {},
   }: {
@@ -30,6 +31,7 @@
     indentConfig: IndentConfig;
     indentMode?: never;
     indentSize?: never;
+    canFormatCurrentFile?: boolean;
     onGoToLine?: () => void;
     onOpenIndentPicker?: () => void;
   } = $props();
@@ -79,15 +81,17 @@
         {#if selectionSize > 0}
           <span>({selectionSize} selected)</span>
         {/if}
-        <span class="text-muted-foreground">|</span>
-        <button
-          type="button"
-          title="Select Indentation"
-          class="hover:bg-muted/50 hover:text-foreground h-full px-1.5 transition-colors cursor-pointer"
-          onclick={() => onOpenIndentPicker()}
-        >
-          {indentLabel}
-        </button>
+        {#if canFormatCurrentFile}
+          <span class="text-muted-foreground">|</span>
+          <button
+            type="button"
+            title="Select Indentation"
+            class="hover:bg-muted/50 hover:text-foreground h-full px-1.5 transition-colors cursor-pointer"
+            onclick={() => onOpenIndentPicker()}
+          >
+            {indentLabel}
+          </button>
+        {/if}
       </div>
     {/if}
     <span class="text-muted-foreground">|</span>

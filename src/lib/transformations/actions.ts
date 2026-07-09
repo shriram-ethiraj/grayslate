@@ -646,6 +646,12 @@ export function hasActionsForFileType(fileType: FileType): boolean {
     return transformationActions.some((action) => action.fileTypes.includes(fileType));
 }
 
+export function hasFormatActionForFileType(fileType: FileType): boolean {
+    return transformationActions.some(
+        (action) => action.id.endsWith(".format") && action.fileTypes.includes(fileType),
+    );
+}
+
 export function getTransformationAction(
     actionId: TransformationActionId,
 ): TransformationActionDefinition | undefined {
