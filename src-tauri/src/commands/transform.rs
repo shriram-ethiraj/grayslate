@@ -39,10 +39,20 @@ const DETECT_INDENT_MAX_LINES: usize = 1000;
 /// Detect the dominant indentation style from document content.
 ///
 /// Scans up to [`DETECT_INDENT_MAX_LINES`] non-blank, non-comment lines and
-/// tallies leading-whitespace runs:
-/// - lines whose leading whitespace is entirely `\t` count toward tabs
-/// - lines whose leading whitespace is entirely ` ` count toward spaces, and
-///   the run length is recorded as a candidate indent width
+/// tallies:
+/// - lines whose leading whitespace is entirely `\t`, toward tabs
+/// - for lines whose leading whitespace is entirely ` `, the *increase* in
+///   column offset relative to the nearest preceding comparable line (i.e.
+///   the indent step between nesting levels), toward a candidate indent
+///   width
+///
+/// Steps are used rather than each line's raw column offset because a line
+/// nested two levels deep already sits at `2 * indent_width` columns; on
+/// documents with more deep lines than shallow ones (e.g. several `WHEN`
+/// clauses inside one `CASE`), tallying absolute offsets would report the
+/// nesting depth itself as the indent width. Re-running detection on that
+/// wider-formatted output would then double it again on every pass. Tallying
+/// the step between levels instead stays stable under repeated formatting.
 ///
 /// Returns `(use_tabs, indent_width)`. Tabs win ties so a document with a
 /// single tab-indented line and no space-indented lines becomes tab-formatted.
@@ -50,8 +60,14 @@ const DETECT_INDENT_MAX_LINES: usize = 1000;
 /// input or a document with only top-level keys).
 fn detect_indentation(text: &str) -> (bool, u32) {
     let mut tab_lines = 0usize;
-    // Space-indent run length -> number of lines using it.
-    let mut space_counts: HashMap<u32, usize> = HashMap::new();
+    // Indent step size -> number of times that step was observed between a
+    // line and the preceding comparable (pure-space-indented) line.
+    let mut space_step_counts: HashMap<u32, usize> = HashMap::new();
+    let mut total_space_lines = 0usize;
+    // Column offset of the previous comparable line. `None` right after a
+    // tab-indented or mixed-indent line, so it never anchors a comparison
+    // across an incompatible indentation style.
+    let mut prev_space_indent: Option<u32> = None;
 
     for line in text.lines().take(DETECT_INDENT_MAX_LINES) {
         // Skip blank lines and ones whose first non-whitespace content is a
@@ -62,34 +78,48 @@ fn detect_indentation(text: &str) -> (bool, u32) {
         }
 
         let indent_len = line.len() - trimmed.len();
-        if indent_len == 0 {
+        let indent = &line[..indent_len];
+
+        if indent_len > 0 && indent.bytes().all(|b| b == b'\t') {
+            tab_lines += 1;
+            prev_space_indent = None;
             continue;
         }
 
-        let indent = &line[..indent_len];
-        if indent.bytes().all(|b| b == b'\t') {
-            tab_lines += 1;
-        } else if indent.bytes().all(|b| b == b' ') {
-            // Only record run lengths that look like real indent steps (>= 2).
-            // A single leading space is usually proseMarkdown quote-style noise,
-            // not a JSON indent unit.
-            let width = indent_len as u32;
-            if width >= 2 {
-                *space_counts.entry(width).or_insert(0) += 1;
+        if indent_len > 0 && !indent.bytes().all(|b| b == b' ') {
+            // Mixed tab+space leading whitespace is ambiguous; skip it rather
+            // than letting it skew the tally either way.
+            prev_space_indent = None;
+            continue;
+        }
+
+        let width = indent_len as u32;
+        if indent_len > 0 && width < 2 {
+            // A single leading space is usually prose/markdown quote-style
+            // noise, not a real indent step. Ignore it without disturbing
+            // the comparison baseline for surrounding lines.
+            continue;
+        }
+
+        if width > 0 {
+            total_space_lines += 1;
+        }
+
+        if let Some(prev) = prev_space_indent {
+            if width > prev {
+                let step = width - prev;
+                *space_step_counts.entry(step).or_insert(0) += 1;
             }
         }
-        // Mixed tab+space leading whitespace is ambiguous; skip it rather
-        // than letting it skew the tally either way.
+        prev_space_indent = Some(width);
     }
-
-    let total_space_lines: usize = space_counts.values().sum();
 
     if tab_lines > 0 && tab_lines >= total_space_lines {
         return (true, 1);
     }
 
-    if let Some((&width, _)) = space_counts.iter().max_by_key(|(_, &v)| v) {
-        return (false, width.max(1));
+    if let Some((&step, _)) = space_step_counts.iter().max_by_key(|(_, &v)| v) {
+        return (false, step.max(1));
     }
 
     (false, 2)
@@ -3484,6 +3514,17 @@ mod tests {
     }
 
     #[test]
+    fn detect_indentation_picks_two_spaces_when_deep_lines_outnumber_shallow_ones() {
+        // Regression test: a 2-space-indented query where lines two levels
+        // deep (4 columns) outnumber lines one level deep (2 columns). A
+        // detector that tallies raw column offsets would wrongly report a
+        // 4-space indent width here, doubling the indentation on every
+        // reformat. The real step between levels is 2.
+        let text = "SELECT\n  CASE\n    WHEN a THEN 1\n    WHEN b THEN 2\n    WHEN c THEN 3\n    WHEN d THEN 4\n  END\nFROM t";
+        assert_eq!(detect_indentation(text), (false, 2));
+    }
+
+    #[test]
     fn detect_indentation_falls_back_to_two_spaces_when_no_indent() {
         assert_eq!(detect_indentation("{\"a\":1}"), (false, 2));
         assert_eq!(detect_indentation(""), (false, 2));
@@ -3546,6 +3587,55 @@ mod tests {
                 );
             }
             other => panic!("expected ReplaceText, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn sql_format_detect_mode_is_idempotent_on_multi_level_query() {
+        // Regression test for the "detect" indentation mode compounding
+        // indentation on every re-format: a query nested deep enough that
+        // the old absolute-column-offset detector would mistake nesting
+        // depth for indent width, widening the indent every pass.
+        let nc = not_cancelled();
+        let query = "SELECT\n  CASE\n    WHEN a THEN 1\n    WHEN b THEN 2\n    WHEN c THEN 3\n    WHEN d THEN 4\n  END\nFROM t";
+
+        let first = execute_transformation_blocking(
+            ExecuteTransformationRequest {
+                action_id: TransformationActionId::SqlFormat,
+                text: query.to_string(),
+                request_id: 0,
+                params: indent_cfg("detect", None),
+            },
+            &nc,
+        )
+        .expect("first format should succeed");
+
+        let first_text = match first {
+            ExecuteTransformationResponse::ReplaceText { text, .. } => text,
+            other => panic!("expected ReplaceText, got {:?}", other),
+        };
+
+        let second = execute_transformation_blocking(
+            ExecuteTransformationRequest {
+                action_id: TransformationActionId::SqlFormat,
+                text: first_text.clone(),
+                request_id: 0,
+                params: indent_cfg("detect", None),
+            },
+            &nc,
+        )
+        .expect("second format should succeed");
+
+        match second {
+            ExecuteTransformationResponse::ShowMessage { message, .. } => {
+                assert_eq!(message, "SQL is already formatted.");
+            }
+            ExecuteTransformationResponse::ReplaceText { text, .. } => {
+                assert_eq!(
+                    text, first_text,
+                    "reformatting already-formatted SQL under detect mode must be a no-op"
+                );
+            }
         }
     }
 

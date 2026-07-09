@@ -1,5 +1,5 @@
 {
   "$schema": "https://opencode.ai/config.json",
   "instructions": [".agents/skills/*/SKILL.md"],
-  "plugin": ["superpowers@git+https://github.com/obra/superpowers.git"]
+  "plugin": []
 }
