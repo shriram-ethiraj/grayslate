@@ -51,6 +51,13 @@ ignore = "0.4"
 pulldown-cmark = "0.12"
 ammonia = "4"
 tokio = { version = "1", features = ["time"] }
+dprint-core = "0.67.4"
+dprint-plugin-typescript = "0.96.1"
+malva = { version = "0.16.0", features = ["config_serde"] }
+markup_fmt = { version = "0.27.3", features = ["config_serde"] }
+pretty_yaml = { version = "0.6.0", features = ["config_serde"] }
+dprint-plugin-markdown = "0.22.1"
+dprint-plugin-toml = "0.7.0"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"

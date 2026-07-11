@@ -1,12 +1,6 @@
-use std::env;
-
 use serde::Serialize;
 use tauri::AppHandle;
 use tauri_plugin_updater::UpdaterExt;
-use url::Url;
-
-const UPDATER_ENDPOINTS_ENV: &str = "GRAYSLATE_UPDATER_ENDPOINTS";
-const UPDATER_PUBKEY_ENV: &str = "GRAYSLATE_UPDATER_PUBKEY";
 
 #[derive(Serialize)]
 #[serde(tag = "status", rename_all = "kebab-case")]
@@ -33,72 +27,12 @@ pub struct UpdateInstallResponse {
     pub message: String,
 }
 
-struct UpdaterConfig {
-    endpoints: Vec<Url>,
-    pubkey: String,
-}
-
 fn current_version(app: &AppHandle) -> String {
     app.package_info().version.to_string()
 }
 
-fn configured_endpoints() -> Result<Vec<Url>, String> {
-    let raw = env::var(UPDATER_ENDPOINTS_ENV).map_err(|_| {
-        format!(
-            "Updates are not configured for this build. Set {} and {} for release builds.",
-            UPDATER_ENDPOINTS_ENV, UPDATER_PUBKEY_ENV
-        )
-    })?;
-
-    let endpoints: Result<Vec<_>, _> = raw
-        .split(';')
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(|value| {
-            Url::parse(value)
-                .map_err(|error| format!("Invalid updater endpoint '{}': {}", value, error))
-        })
-        .collect();
-
-    let endpoints = endpoints?;
-    if endpoints.is_empty() {
-        return Err(format!(
-            "Updates are not configured for this build. Set {} and {} for release builds.",
-            UPDATER_ENDPOINTS_ENV, UPDATER_PUBKEY_ENV
-        ));
-    }
-
-    Ok(endpoints)
-}
-
-fn updater_config() -> Result<UpdaterConfig, String> {
-    let endpoints = configured_endpoints()?;
-    let pubkey = env::var(UPDATER_PUBKEY_ENV).map_err(|_| {
-        format!(
-            "Updates are not configured for this build. Set {} and {} for release builds.",
-            UPDATER_ENDPOINTS_ENV, UPDATER_PUBKEY_ENV
-        )
-    })?;
-
-    if pubkey.trim().is_empty() {
-        return Err(format!(
-            "Updates are not configured for this build. Set {} and {} for release builds.",
-            UPDATER_ENDPOINTS_ENV, UPDATER_PUBKEY_ENV
-        ));
-    }
-
-    Ok(UpdaterConfig { endpoints, pubkey })
-}
-
 fn build_updater(app: &AppHandle) -> Result<tauri_plugin_updater::Updater, String> {
-    let config = updater_config()?;
-    let builder = app
-        .updater_builder()
-        .pubkey(config.pubkey)
-        .endpoints(config.endpoints)
-        .map_err(|error| format!("Failed to configure updater endpoints: {}", error))?;
-
-    builder
+    app.updater_builder()
         .build()
         .map_err(|error| format!("Failed to create updater client: {}", error))
 }

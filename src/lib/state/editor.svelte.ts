@@ -30,6 +30,7 @@ export type FileType =
     | "cmd"
     | "dockerfile"
     | "sql"
+    | "toml"
     | "auto";
 
 export type EditorSurface = "editor" | "markdown-preview";

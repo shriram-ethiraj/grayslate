@@ -41,7 +41,9 @@
   "plugins": {
     "updater": {
       "pubkey": "placeholder",
-      "endpoints": []
+      "endpoints": [
+        "https://grayslate.app/latest.json"
+      ]
     }
   }
 }

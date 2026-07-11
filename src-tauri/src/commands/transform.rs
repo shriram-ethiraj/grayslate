@@ -2,8 +2,19 @@ use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use dprint_plugin_jsonc::{
     configuration::Configuration as JsoncFormatConfiguration, format_text as format_jsonc_text,
 };
+use dprint_plugin_markdown::{
+    configuration::Configuration as MarkdownFormatConfiguration,
+    format_text as format_markdown_text,
+};
 use dprint_plugin_sql::{
     configuration::Configuration as SqlFormatConfiguration, format_text as format_sql_text,
+};
+use dprint_plugin_toml::{
+    configuration::Configuration as TomlFormatConfiguration, format_text as format_toml_text,
+};
+use dprint_plugin_typescript::{
+    configuration::Configuration as TsFormatConfiguration, format_text as format_ts_text,
+    FormatTextOptions,
 };
 use heck::{AsKebabCase, AsLowerCamelCase, AsSnakeCase, AsTitleCase};
 use jsonc_parser::{
@@ -11,6 +22,11 @@ use jsonc_parser::{
     common::Range as JsonRange,
     parse_to_ast, parse_to_serde_value, parse_to_value, CollectOptions, ParseOptions,
 };
+use malva::{config::FormatOptions as CssFormatOptions, format_text as format_css_text, Syntax as CssSyntax};
+use markup_fmt::{
+    config::FormatOptions as HtmlFormatOptions, format_text as format_html_text, Language as HtmlLanguage,
+};
+use pretty_yaml::{config::FormatOptions as YamlFormatOptions, format_text as format_yaml_text};
 use serde::{Deserialize, Serialize};
 use std::cell::Cell;
 use std::collections::HashMap;
@@ -181,6 +197,57 @@ fn sql_format_config(use_tabs: bool, indent_width: u32) -> SqlFormatConfiguratio
         "linesBetweenQueries": 1,
     }))
     .expect("built-in SQL formatter configuration must be valid")
+}
+
+fn ts_format_config(use_tabs: bool, indent_width: u32) -> TsFormatConfiguration {
+    dprint_plugin_typescript::configuration::ConfigurationBuilder::new()
+        .indent_width(indent_width.clamp(1, u8::MAX as u32) as u8)
+        .use_tabs(use_tabs)
+        .line_width(120)
+        .new_line_kind(dprint_core::configuration::NewLineKind::Auto)
+        .build()
+}
+
+fn css_format_config(use_tabs: bool, indent_width: u32) -> CssFormatOptions {
+    serde_json::from_value(serde_json::json!({
+        "useTabs": use_tabs,
+        "indentWidth": indent_width,
+        "printWidth": 120,
+    }))
+    .expect("built-in CSS formatter configuration must be valid")
+}
+
+fn html_format_config(use_tabs: bool, indent_width: u32) -> HtmlFormatOptions {
+    serde_json::from_value(serde_json::json!({
+        "useTabs": use_tabs,
+        "indentWidth": indent_width,
+        "printWidth": 120,
+    }))
+    .expect("built-in HTML formatter configuration must be valid")
+}
+
+fn yaml_format_config(indent_width: u32) -> YamlFormatOptions {
+    serde_json::from_value(serde_json::json!({
+        "indentWidth": indent_width,
+        "printWidth": 120,
+    }))
+    .expect("built-in YAML formatter configuration must be valid")
+}
+
+fn markdown_format_config() -> MarkdownFormatConfiguration {
+    dprint_plugin_markdown::configuration::ConfigurationBuilder::new()
+        .line_width(120)
+        .new_line_kind(dprint_core::configuration::NewLineKind::Auto)
+        .build()
+}
+
+fn toml_format_config(use_tabs: bool, indent_width: u32) -> TomlFormatConfiguration {
+    dprint_plugin_toml::configuration::ConfigurationBuilder::new()
+        .indent_width(indent_width.clamp(1, u8::MAX as u32) as u8)
+        .use_tabs(use_tabs)
+        .line_width(120)
+        .new_line_kind(dprint_core::configuration::NewLineKind::Auto)
+        .build()
 }
 
 fn validate_jsonc(text: &str) -> Result<(), String> {
@@ -384,6 +451,22 @@ pub enum TransformationActionId {
 
     #[serde(rename = "sql.format")]
     SqlFormat,
+
+    // ── Code formatting ─────────────────────────────────────────────────
+    #[serde(rename = "javascript.format")]
+    JavascriptFormat,
+    #[serde(rename = "typescript.format")]
+    TypescriptFormat,
+    #[serde(rename = "css.format")]
+    CssFormat,
+    #[serde(rename = "html.format")]
+    HtmlFormat,
+    #[serde(rename = "yaml.format")]
+    YamlFormat,
+    #[serde(rename = "markdown.format")]
+    MarkdownFormat,
+    #[serde(rename = "toml.format")]
+    TomlFormat,
 
     // ── JSON key case ────────────────────────────────────────────────────
     #[serde(rename = "json.keys-camel-case")]
@@ -1928,6 +2011,92 @@ fn dispatch_transformation(
                 Ok(formatted.unwrap_or_else(|| ctx.text().to_string()))
             })
         }
+        TransformationActionId::JavascriptFormat => {
+            ctx.run_replace_text(
+                "Formatted JavaScript.",
+                "JavaScript is already formatted.",
+                |ctx| {
+                    let (use_tabs, indent_width) = resolve_format_indent(ctx.params(), ctx.text());
+                    let config = ts_format_config(use_tabs, indent_width);
+                    let formatted = format_ts_text(FormatTextOptions {
+                        path: Path::new("file.js"),
+                        extension: None,
+                        text: ctx.text().to_string(),
+                        config: &config,
+                        external_formatter: None,
+                    })
+                    .map_err(|error| format!("Invalid JavaScript: {}", error))?;
+                    Ok(formatted.unwrap_or_else(|| ctx.text().to_string()))
+                },
+            )
+        }
+        TransformationActionId::TypescriptFormat => {
+            ctx.run_replace_text(
+                "Formatted TypeScript.",
+                "TypeScript is already formatted.",
+                |ctx| {
+                    let (use_tabs, indent_width) = resolve_format_indent(ctx.params(), ctx.text());
+                    let config = ts_format_config(use_tabs, indent_width);
+                    let formatted = format_ts_text(FormatTextOptions {
+                        path: Path::new("file.ts"),
+                        extension: None,
+                        text: ctx.text().to_string(),
+                        config: &config,
+                        external_formatter: None,
+                    })
+                    .map_err(|error| format!("Invalid TypeScript: {}", error))?;
+                    Ok(formatted.unwrap_or_else(|| ctx.text().to_string()))
+                },
+            )
+        }
+        TransformationActionId::CssFormat => {
+            ctx.run_replace_text("Formatted CSS.", "CSS is already formatted.", |ctx| {
+                let (use_tabs, indent_width) = resolve_format_indent(ctx.params(), ctx.text());
+                let config = css_format_config(use_tabs, indent_width);
+                format_css_text(ctx.text(), CssSyntax::Css, &config)
+                    .map_err(|error| format!("Invalid CSS: {}", error))
+            })
+        }
+        TransformationActionId::HtmlFormat => {
+            ctx.run_replace_text("Formatted HTML.", "HTML is already formatted.", |ctx| {
+                let (use_tabs, indent_width) = resolve_format_indent(ctx.params(), ctx.text());
+                let config = html_format_config(use_tabs, indent_width);
+                format_html_text(ctx.text(), HtmlLanguage::Html, &config, |code, _hints| {
+                    Ok(code.into())
+                })
+                .map_err(|error| format!("Invalid HTML: {}", error))
+            })
+        }
+        TransformationActionId::YamlFormat => {
+            ctx.run_replace_text("Formatted YAML.", "YAML is already formatted.", |ctx| {
+                let (_, indent_width) = resolve_format_indent(ctx.params(), ctx.text());
+                let config = yaml_format_config(indent_width);
+                format_yaml_text(ctx.text(), &config)
+                    .map_err(|error| format!("Invalid YAML: {}", error))
+            })
+        }
+        TransformationActionId::MarkdownFormat => {
+            ctx.run_replace_text(
+                "Formatted Markdown.",
+                "Markdown is already formatted.",
+                |ctx| {
+                    let config = markdown_format_config();
+                    let formatted =
+                        format_markdown_text(ctx.text(), &config, |_tag, _code, _width| Ok(None))
+                            .map_err(|error| format!("Invalid Markdown: {}", error))?;
+                    Ok(formatted.unwrap_or_else(|| ctx.text().to_string()))
+                },
+            )
+        }
+        TransformationActionId::TomlFormat => {
+            ctx.run_replace_text("Formatted TOML.", "TOML is already formatted.", |ctx| {
+                let (use_tabs, indent_width) = resolve_format_indent(ctx.params(), ctx.text());
+                let config = toml_format_config(use_tabs, indent_width);
+                let formatted = format_toml_text(Path::new("file.toml"), ctx.text(), &config)
+                    .map_err(|error| format!("Invalid TOML: {}", error))?;
+                Ok(formatted.unwrap_or_else(|| ctx.text().to_string()))
+            })
+        }
         TransformationActionId::TextTrimTrailingWhitespace => ctx.run_replace_text(
             "Trimmed trailing whitespace.",
             "No trailing whitespace found.",
@@ -2359,6 +2528,172 @@ mod tests {
         .expect_err("invalid JSON should fail");
 
         assert!(error.starts_with("Invalid JSON:"));
+    }
+
+    fn expect_replace_text(
+        action_id: TransformationActionId,
+        text: &str,
+    ) -> (String, Option<String>) {
+        let nc = not_cancelled();
+        let response = execute_transformation_blocking(
+            ExecuteTransformationRequest {
+                action_id,
+                text: text.to_string(),
+                request_id: 0,
+                params: None,
+            },
+            &nc,
+        )
+        .expect("formatting should succeed");
+
+        match response {
+            ExecuteTransformationResponse::ReplaceText { text, message, .. } => (text, message),
+            other => panic!("expected ReplaceText response, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn javascript_format_reindents_and_reports_success() {
+        let (text, message) =
+            expect_replace_text(TransformationActionId::JavascriptFormat, "const x=1");
+        assert_eq!(text, "const x = 1;\n");
+        assert_eq!(message.as_deref(), Some("Formatted JavaScript."));
+    }
+
+    #[test]
+    fn javascript_format_reports_invalid_syntax() {
+        let nc = not_cancelled();
+        let error = execute_transformation_blocking(
+            ExecuteTransformationRequest {
+                action_id: TransformationActionId::JavascriptFormat,
+                text: "const x = ".to_string(),
+                request_id: 0,
+                params: None,
+            },
+            &nc,
+        )
+        .expect_err("invalid JavaScript should fail");
+
+        assert!(error.starts_with("Invalid JavaScript:"));
+    }
+
+    #[test]
+    fn typescript_format_reindents_and_reports_success() {
+        let (text, message) = expect_replace_text(
+            TransformationActionId::TypescriptFormat,
+            "const x:number=1",
+        );
+        assert_eq!(text, "const x: number = 1;\n");
+        assert_eq!(message.as_deref(), Some("Formatted TypeScript."));
+    }
+
+    #[test]
+    fn typescript_format_reports_invalid_syntax() {
+        let nc = not_cancelled();
+        let error = execute_transformation_blocking(
+            ExecuteTransformationRequest {
+                action_id: TransformationActionId::TypescriptFormat,
+                text: "interface {".to_string(),
+                request_id: 0,
+                params: None,
+            },
+            &nc,
+        )
+        .expect_err("invalid TypeScript should fail");
+
+        assert!(error.starts_with("Invalid TypeScript:"));
+    }
+
+    #[test]
+    fn css_format_reindents_and_reports_success() {
+        let (text, message) =
+            expect_replace_text(TransformationActionId::CssFormat, "a{color:red}");
+        assert_eq!(text, "a {\n  color: red;\n}\n");
+        assert_eq!(message.as_deref(), Some("Formatted CSS."));
+    }
+
+    #[test]
+    fn css_format_reports_invalid_syntax() {
+        let nc = not_cancelled();
+        let error = execute_transformation_blocking(
+            ExecuteTransformationRequest {
+                action_id: TransformationActionId::CssFormat,
+                text: "a{color:".to_string(),
+                request_id: 0,
+                params: None,
+            },
+            &nc,
+        )
+        .expect_err("invalid CSS should fail");
+
+        assert!(error.starts_with("Invalid CSS:"));
+    }
+
+    #[test]
+    fn html_format_reindents_and_reports_success() {
+        let (text, message) =
+            expect_replace_text(TransformationActionId::HtmlFormat, "<div><p>hi</p></div>");
+        assert!(text.contains("<div>"));
+        assert_eq!(message.as_deref(), Some("Formatted HTML."));
+    }
+
+    #[test]
+    fn yaml_format_reindents_and_reports_success() {
+        let (text, message) =
+            expect_replace_text(TransformationActionId::YamlFormat, "a:\n    b: 1\n");
+        assert_eq!(text, "a:\n  b: 1\n");
+        assert_eq!(message.as_deref(), Some("Formatted YAML."));
+    }
+
+    #[test]
+    fn yaml_format_reports_invalid_syntax() {
+        let nc = not_cancelled();
+        let error = execute_transformation_blocking(
+            ExecuteTransformationRequest {
+                action_id: TransformationActionId::YamlFormat,
+                text: "a: [1, 2\n".to_string(),
+                request_id: 0,
+                params: None,
+            },
+            &nc,
+        )
+        .expect_err("unclosed flow sequence should fail");
+
+        assert!(error.starts_with("Invalid YAML:"));
+    }
+
+    #[test]
+    fn markdown_format_reports_success() {
+        let (_, message) = expect_replace_text(
+            TransformationActionId::MarkdownFormat,
+            "# Title\n\n\n\ntext\n",
+        );
+        assert_eq!(message.as_deref(), Some("Formatted Markdown."));
+    }
+
+    #[test]
+    fn toml_format_reindents_and_reports_success() {
+        let (text, message) =
+            expect_replace_text(TransformationActionId::TomlFormat, "a=1\nb=2\n");
+        assert_eq!(text, "a = 1\nb = 2\n");
+        assert_eq!(message.as_deref(), Some("Formatted TOML."));
+    }
+
+    #[test]
+    fn toml_format_reports_invalid_syntax() {
+        let nc = not_cancelled();
+        let error = execute_transformation_blocking(
+            ExecuteTransformationRequest {
+                action_id: TransformationActionId::TomlFormat,
+                text: "a = ".to_string(),
+                request_id: 0,
+                params: None,
+            },
+            &nc,
+        )
+        .expect_err("invalid TOML should fail");
+
+        assert!(error.starts_with("Invalid TOML:"));
     }
 
     #[test]

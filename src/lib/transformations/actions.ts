@@ -41,6 +41,15 @@ export type CsvTransformationActionId = "csv.to-json";
 
 export type SqlTransformationActionId = "sql.format";
 
+export type FormatTransformationActionId =
+    | "javascript.format"
+    | "typescript.format"
+    | "css.format"
+    | "html.format"
+    | "yaml.format"
+    | "markdown.format"
+    | "toml.format";
+
 export type YamlTransformationActionId = "yaml.to-json";
 
 export type TextTransformationActionId =
@@ -91,6 +100,7 @@ export type TransformationActionId =
     | JsonTransformationActionId
     | CsvTransformationActionId
     | SqlTransformationActionId
+    | FormatTransformationActionId
     | YamlTransformationActionId
     | TextTransformationActionId
     | UrlTransformationActionId
@@ -198,6 +208,77 @@ export const transformationActions: TransformationActionDefinition[] = [
         category: "SQL",
         keywords: ["sql", "format", "pretty", "indent", "query"],
         fileTypes: ["sql"],
+        supportsSelection: true,
+        icon: FluentCodeText20Filled,
+    },
+    // ── Code Formatting ────────────────────────────────────────────────────
+    {
+        id: "javascript.format",
+        title: "Format JavaScript",
+        description: "Pretty-print JavaScript with consistent indentation.",
+        category: "JavaScript",
+        keywords: ["javascript", "js", "format", "pretty", "indent"],
+        fileTypes: ["javascript"],
+        supportsSelection: true,
+        icon: FluentCodeText20Filled,
+    },
+    {
+        id: "typescript.format",
+        title: "Format TypeScript",
+        description: "Pretty-print TypeScript with consistent indentation.",
+        category: "TypeScript",
+        keywords: ["typescript", "ts", "format", "pretty", "indent"],
+        fileTypes: ["typescript"],
+        supportsSelection: true,
+        icon: FluentCodeText20Filled,
+    },
+    {
+        id: "css.format",
+        title: "Format CSS",
+        description: "Pretty-print CSS with consistent indentation.",
+        category: "CSS",
+        keywords: ["css", "style", "format", "pretty", "indent"],
+        fileTypes: ["css"],
+        supportsSelection: true,
+        icon: FluentCodeText20Filled,
+    },
+    {
+        id: "html.format",
+        title: "Format HTML",
+        description: "Pretty-print HTML with consistent indentation.",
+        category: "HTML",
+        keywords: ["html", "markup", "format", "pretty", "indent"],
+        fileTypes: ["html"],
+        supportsSelection: true,
+        icon: FluentCodeText20Filled,
+    },
+    {
+        id: "yaml.format",
+        title: "Format YAML",
+        description: "Pretty-print YAML with consistent indentation.",
+        category: "YAML",
+        keywords: ["yaml", "yml", "format", "pretty", "indent"],
+        fileTypes: ["yaml"],
+        supportsSelection: true,
+        icon: FluentCodeText20Filled,
+    },
+    {
+        id: "markdown.format",
+        title: "Format Markdown",
+        description: "Pretty-print Markdown prose with consistent formatting.",
+        category: "Markdown",
+        keywords: ["markdown", "md", "format", "pretty"],
+        fileTypes: ["markdown"],
+        supportsSelection: true,
+        icon: FluentCodeText20Filled,
+    },
+    {
+        id: "toml.format",
+        title: "Format TOML",
+        description: "Pretty-print TOML with consistent indentation.",
+        category: "TOML",
+        keywords: ["toml", "format", "pretty", "indent"],
+        fileTypes: ["toml"],
         supportsSelection: true,
         icon: FluentCodeText20Filled,
     },
