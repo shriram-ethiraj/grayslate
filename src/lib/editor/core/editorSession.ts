@@ -1,5 +1,6 @@
 import { Compartment, EditorState, Transaction, type Annotation } from "@codemirror/state";
-import { isolateHistory, redo } from "@codemirror/commands";
+import { indentLess, indentMore, isolateHistory, redo } from "@codemirror/commands";
+import { indentUnit } from "@codemirror/language";
 import { EditorView, gutters, keymap } from "@codemirror/view";
 import { basicSetup } from "codemirror";
 import { search } from "@codemirror/search";
@@ -16,6 +17,7 @@ import {
     openGoToLinePanel,
 } from "$lib/state/editor.svelte";
 import { getMinimalTextChange, type TextChangeSpec } from "$lib/editor/core/csvCodeMirror";
+import type { IndentConfig } from "$lib/editor/components/IndentationPicker.svelte";
 
 // ---------------------------------------------------------------------------
 // Large-document value-sync debounce
@@ -69,8 +71,23 @@ export type ManagedEditorSession = {
     langCompartment?: Compartment;
     wordWrapCompartment?: Compartment;
     decorationCompartment?: Compartment;
+    indentCompartment?: Compartment;
     bindings?: SessionBindings;
 };
+
+export const DEFAULT_INDENT_CONFIG: IndentConfig = { indentMode: "spaces", indentSize: 2 };
+
+// `indentUnit` controls what the Tab key inserts (see `insertIndentUnit`) and
+// what `indentMore`/`indentLess` add/remove, and is also sent to the backend
+// formatter. `EditorState.tabSize` controls the tab-stop DISPLAY WIDTH of any
+// tab character in the document — in tab mode this is the size the picker
+// exposes; in spaces mode it only affects stray tab chars, matching VSCode.
+// Changing it re-flows how existing tabs render; it never changes document
+// text (VSCode/Sublime/Notepad++ all behave this way).
+function buildIndentExtension(config: IndentConfig) {
+    const unit = config.indentMode === "tab" ? "\t" : " ".repeat(config.indentSize);
+    return [indentUnit.of(unit), EditorState.tabSize.of(config.indentSize)];
+}
 
 function createFontSizeExtension(fontSize: number) {
     // An explicit line-height gives CodeMirror's height-map B-tree a
@@ -140,8 +157,25 @@ function syncBindings(
     }
 }
 
+// VSCode inserts the configured indent unit (spaces by default) at the cursor
+// on Tab when nothing is selected, only falling back to whole-line indent
+// (indentMore) when a selection spans one or more lines.
+function insertIndentUnit(view: EditorView) {
+    if (view.state.selection.ranges.some((range) => !range.empty)) {
+        return indentMore(view);
+    }
+    view.dispatch(
+        view.state.update(view.state.replaceSelection(view.state.facet(indentUnit)), {
+            scrollIntoView: true,
+            userEvent: "input",
+        }),
+    );
+    return true;
+}
+
 function createSearchKeymap() {
     return keymap.of([
+        { key: "Tab", run: insertIndentUnit, shift: indentLess, preventDefault: true },
         { key: "Mod-y", run: redo, preventDefault: true },
         { key: "Mod-Shift-z", run: redo, preventDefault: true },
         {
@@ -200,6 +234,7 @@ export function ensureManagedEditorState(
     session.langCompartment = new Compartment();
     session.wordWrapCompartment = new Compartment();
     session.decorationCompartment = new Compartment();
+    session.indentCompartment = new Compartment();
 
     const isDark = document.documentElement.classList.contains("dark");
     const initialThemeExt = createTheme(
@@ -224,6 +259,7 @@ export function ensureManagedEditorState(
                 editorState.wordWrap ? EditorView.lineWrapping : [],
             ),
             session.decorationCompartment.of(isLargeDoc ? [] : colorHints),
+            session.indentCompartment.of(buildIndentExtension(DEFAULT_INDENT_CONFIG)),
             contextMenuExtension,
             EditorView.contentAttributes.of({ spellcheck: "false" }),
             EditorView.updateListener.of((update) => {
@@ -294,6 +330,19 @@ export function setManagedEditorWordWrap(
     });
 }
 
+export function setManagedEditorIndent(
+    session: ManagedEditorSession,
+    config: IndentConfig,
+) {
+    if (!session.view || !session.indentCompartment) {
+        return;
+    }
+
+    session.view.dispatch({
+        effects: session.indentCompartment.reconfigure(buildIndentExtension(config)),
+    });
+}
+
 export function captureManagedEditorView(
     session: ManagedEditorSession,
     view: EditorView,
@@ -324,6 +373,7 @@ export function disposeManagedEditorSession(session: ManagedEditorSession) {
     session.fontSizeCompartment = undefined;
     session.langCompartment = undefined;
     session.wordWrapCompartment = undefined;
+    session.indentCompartment = undefined;
     session.state = undefined;
 }
 

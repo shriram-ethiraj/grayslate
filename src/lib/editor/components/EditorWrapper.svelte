@@ -5,7 +5,7 @@
   import StatusBar from "$lib/editor/components/StatusBar.svelte";
   import EditorLoader from "$lib/editor/components/EditorLoader.svelte";
   import GoToLineDialog from "$lib/editor/components/GoToLineDialog.svelte";
-  import IndentationPicker, { IndentMode, type IndentConfig } from "$lib/editor/components/IndentationPicker.svelte";
+  import IndentationPicker, { type IndentConfig } from "$lib/editor/components/IndentationPicker.svelte";
   import TransformationsPalette from "$lib/editor/components/TransformationsPalette.svelte";
   import {
     ResizablePaneGroup,
@@ -23,6 +23,8 @@
     disposeManagedEditorSession,
     ensureManagedEditorState,
     flushPendingValueSync,
+    setManagedEditorIndent,
+    DEFAULT_INDENT_CONFIG,
     type ManagedEditorSession,
   } from "$lib/editor/core/editorSession";
   import {
@@ -73,7 +75,6 @@
     type ExecuteTransformationResponse,
     type ExecuteTransformationRequest,
     getTransformationAction,
-    hasFormatActionForFileType,
     type TransformationActionId,
     type TransformationMessageLevel,
     type TransformationChannelEvent,
@@ -105,7 +106,7 @@
   let language = $state("auto");
   let detectedLanguage = $state("text");
   let goToLineOpen = $state(false);
-  let indentConfig = $state<IndentConfig>({ indentMode: IndentMode.Default, indentSize: 2 });
+  let indentConfig = $state<IndentConfig>(DEFAULT_INDENT_CONFIG);
   let indentPickerOpen = $state(false);
 
   function countDocumentLines(text: string): number {
@@ -181,7 +182,6 @@
   let activeLanguage = $derived(
     language === "auto" ? detectedLanguage : language,
   );
-  let canFormatCurrentFile = $derived(hasFormatActionForFileType(activeLanguage as FileType));
   let activeDocument = $state.raw<ActiveDocument>(createUntitledDocument());
   let activeFilePath = $derived(getDocumentKey(activeDocument));
   let isDirty = $derived(value !== activeDocument.lastSavedValue);
@@ -745,6 +745,7 @@
     selectionSize = 0;
     language = nextLanguage;
     detectedLanguage = nextDetectedLanguage;
+    indentConfig = DEFAULT_INDENT_CONFIG;
     editorState.csv.showTable = false;
     editorState.activeSurface = "editor";
 
@@ -1215,7 +1216,7 @@
   });
 
   function openIndentPicker(): boolean {
-    if (isCsvTableActive || !canFormatCurrentFile) return false;
+    if (isCsvTableActive) return false;
     indentPickerOpen = true;
     return true;
   }
@@ -1259,7 +1260,7 @@
 
 <div class="flex flex-1 flex-col min-h-0 min-w-0">
   <GoToLineDialog bind:open={goToLineOpen} {editorView} {line} {lineCount} />
-  <IndentationPicker bind:open={indentPickerOpen} bind:indentConfig />
+  <IndentationPicker bind:open={indentPickerOpen} bind:indentConfig content={value} />
   <TransformationsPalette executeAction={executeTransformation} />
 
   <div class="flex flex-1 min-h-0 min-w-0 relative">
@@ -1296,6 +1297,7 @@
                 language={activeLanguage}
                 bind:editorView
                 session={editorSession}
+                {indentConfig}
               />
             {/key}
           </div>
@@ -1325,6 +1327,7 @@
                   language={activeLanguage}
                   bind:editorView
                   session={editorSession}
+                  {indentConfig}
                 />
               {/key}
             </div>
@@ -1366,6 +1369,7 @@
               language={activeLanguage}
               bind:editorView
               session={editorSession}
+              {indentConfig}
             />
           {/key}
         </div>
@@ -1384,7 +1388,6 @@
     {isCsvTableActive}
     {csvInfo}
     {indentConfig}
-    {canFormatCurrentFile}
     onGoToLine={openGoToLinePanel}
     onOpenIndentPicker={openIndentPicker}
   />

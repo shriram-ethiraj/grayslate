@@ -1,6 +1,7 @@
 <script lang="ts">
   import LanguagePicker from "./LanguagePicker.svelte";
   import { IndentMode, type IndentConfig } from "./IndentationPicker.svelte";
+  import { DEFAULT_INDENT_CONFIG } from "$lib/editor/core/editorSession";
 
   let {
     documentLength = 0,
@@ -13,8 +14,7 @@
     activeLanguage = "text",
     isCsvTableActive = false,
     csvInfo = { rows: 0, cols: 0, delimiter: "", errors: 0 },
-    indentConfig = { indentMode: IndentMode.Default, indentSize: 2 },
-    canFormatCurrentFile = true,
+    indentConfig = DEFAULT_INDENT_CONFIG,
     onGoToLine = () => {},
     onOpenIndentPicker = () => {},
   }: {
@@ -31,18 +31,15 @@
     indentConfig: IndentConfig;
     indentMode?: never;
     indentSize?: never;
-    canFormatCurrentFile?: boolean;
     onGoToLine?: () => void;
     onOpenIndentPicker?: () => void;
   } = $props();
 
   const indentLabel = $derived.by(() => {
     switch (indentConfig.indentMode) {
-      case IndentMode.Detect: return "Auto Detect";
-      case IndentMode.Default: return "Spaces: 2";
-      case IndentMode.Spaces: return `Spaces: ${indentConfig.indentSize ?? 2}`;
-      case IndentMode.Tab: return "Tab";
-      default: return "Spaces: 2";
+      case IndentMode.Tab: return `Tab: ${indentConfig.indentSize}`;
+      case IndentMode.Spaces:
+      default: return `Spaces: ${indentConfig.indentSize}`;
     }
   });
 </script>
@@ -81,17 +78,15 @@
         {#if selectionSize > 0}
           <span>({selectionSize} selected)</span>
         {/if}
-        {#if canFormatCurrentFile}
-          <span class="text-muted-foreground">|</span>
-          <button
-            type="button"
-            title="Select Indentation"
-            class="hover:bg-muted/50 hover:text-foreground h-full px-1.5 transition-colors cursor-pointer"
-            onclick={() => onOpenIndentPicker()}
-          >
-            {indentLabel}
-          </button>
-        {/if}
+        <span class="text-muted-foreground">|</span>
+        <button
+          type="button"
+          title="Select Indentation"
+          class="hover:bg-muted/50 hover:text-foreground h-full px-1.5 transition-colors cursor-pointer"
+          onclick={() => onOpenIndentPicker()}
+        >
+          {indentLabel}
+        </button>
       </div>
     {/if}
     <span class="text-muted-foreground">|</span>

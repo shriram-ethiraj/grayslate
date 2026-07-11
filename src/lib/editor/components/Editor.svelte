@@ -13,9 +13,11 @@
     createManagedEditorSession,
     detachSessionBindings,
     setManagedEditorFontSize,
+    setManagedEditorIndent,
     ensureManagedEditorState,
     setManagedEditorLanguage,
     setManagedEditorWordWrap,
+    DEFAULT_INDENT_CONFIG,
     type ManagedEditorSession,
   } from "$lib/editor/core/editorSession";
 
@@ -29,6 +31,7 @@
     language = $bindable("text"),
     editorView = $bindable<EditorView | undefined>(undefined),
     session = createManagedEditorSession(),
+    indentConfig = DEFAULT_INDENT_CONFIG,
   } = $props();
 
   // $state so the value propagates reactively as a prop to JsonContextMenu.
@@ -114,6 +117,20 @@
     const fontSize = editorState.fontSize;
     if (!view) return;
     setManagedEditorFontSize(session as ManagedEditorSession, fontSize);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Indentation compartment reconfiguration
+  //
+  // Mirrors the word-wrap/font-size effects above: reads `indentConfig` (the
+  // indentation picker's current mode/size) and pushes it into the session's
+  // indentCompartment so Tab-key inserts and indentMore/indentLess reflect
+  // the picker immediately, without remounting the editor.
+  // ---------------------------------------------------------------------------
+  $effect(() => {
+    const config = indentConfig;
+    if (!view) return;
+    setManagedEditorIndent(session as ManagedEditorSession, config);
   });
 
   // ---------------------------------------------------------------------------

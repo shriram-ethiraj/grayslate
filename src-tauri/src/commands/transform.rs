@@ -134,13 +134,31 @@ fn resolve_format_indent(params: &Option<TransformationParams>, text: &str) -> (
         .as_ref()
         .and_then(|p| p.indent_config.as_ref())
     {
-        Some(cfg) if cfg.indent_mode == "tab" => (true, 1),
+        Some(cfg) if cfg.indent_mode == "tab" => (true, cfg.indent_size.unwrap_or(2).max(1)),
         Some(cfg) if cfg.indent_mode == "spaces" => {
             (false, cfg.indent_size.unwrap_or(2).max(1))
         }
         Some(cfg) if cfg.indent_mode == "detect" => detect_indentation(text),
         _ => (false, 2),
     }
+}
+
+/// Result of a one-shot indentation-style detection request from the
+/// frontend's indentation picker.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DetectedIndent {
+    pub use_tabs: bool,
+    pub width: u32,
+}
+
+/// Detect the dominant indentation style of `content` for the indentation
+/// picker's "Detect from content" action. Runs once per user selection, not
+/// continuously — see [`detect_indentation`] for the underlying heuristic.
+#[tauri::command]
+pub fn editor_detect_indent(content: String) -> DetectedIndent {
+    let (use_tabs, width) = detect_indentation(&content);
+    DetectedIndent { use_tabs, width }
 }
 
 fn jsonc_format_config(use_tabs: bool, indent_width: u32) -> JsoncFormatConfiguration {

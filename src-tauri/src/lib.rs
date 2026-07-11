@@ -124,6 +124,7 @@ pub fn run() {
             commands::search::search_sidebar_files,
             commands::transform::cancel_transformation,
             commands::transform::execute_transformation,
+            commands::transform::editor_detect_indent,
             commands::update::check_for_updates,
             commands::update::install_available_update,
             commands::autosave::autosave_register,
