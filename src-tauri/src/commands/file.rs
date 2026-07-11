@@ -16,9 +16,10 @@ use crate::filesystem::{
     sanitize_filename, unique_path_in_dir,
 };
 use crate::storage::{
-    normalize_path_key, AppStorage, FileSource, RecentFileRecord, SETTING_FONT_SIZE,
-    SETTING_NOTES_ROOT, SETTING_SIDEBAR_OPEN, SETTING_SIDEBAR_WIDTH, SETTING_THEME,
-    SETTING_WORD_WRAP,
+    normalize_path_key, AppStorage, FileSource, RecentFileRecord, SETTING_CONFIRM_BEFORE_DELETE,
+    SETTING_DEFAULT_INDENT_MODE, SETTING_DEFAULT_INDENT_SIZE, SETTING_FONT_SIZE,
+    SETTING_NOTES_ROOT, SETTING_SIDEBAR_OPEN, SETTING_SIDEBAR_WIDTH, SETTING_STARTUP_BEHAVIOR,
+    SETTING_THEME, SETTING_WORD_WRAP,
 };
 
 use super::RECENT_FILES_UPDATED_EVENT;
@@ -309,6 +310,41 @@ pub fn set_app_setting(
                 }
             }
         }
+        SETTING_STARTUP_BEHAVIOR => {
+            if let Some(ref behavior) = value {
+                if behavior != "new" && behavior != "last" {
+                    return Err("Startup behavior must be \"new\" or \"last\".".to_string());
+                }
+            }
+        }
+        SETTING_DEFAULT_INDENT_MODE => {
+            if let Some(ref mode) = value {
+                if mode != "spaces" && mode != "tab" {
+                    return Err("Default indent mode must be \"spaces\" or \"tab\".".to_string());
+                }
+            }
+        }
+        SETTING_DEFAULT_INDENT_SIZE => {
+            if let Some(ref size) = value {
+                let parsed: i32 = size.parse().map_err(|_| {
+                    format!("Default indent size must be a number, got \"{}\".", size)
+                })?;
+                if !(1..=8).contains(&parsed) {
+                    return Err(format!(
+                        "Default indent size must be between 1 and 8, got {}.",
+                        parsed
+                    ));
+                }
+            }
+        }
+        SETTING_CONFIRM_BEFORE_DELETE => {
+            if let Some(ref confirm) = value {
+                if confirm != "true" && confirm != "false" {
+                    return Err("Confirm before delete must be \"true\" or \"false\".".to_string());
+                }
+            }
+        }
+        // SETTING_LAST_ACTIVE_FILE: arbitrary path string, no validation (or None to clear).
         _ => {}
     }
 

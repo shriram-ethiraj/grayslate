@@ -13,6 +13,11 @@ pub const SETTING_FONT_SIZE: &str = "font_size";
 pub const SETTING_WORD_WRAP: &str = "word_wrap";
 pub const SETTING_SIDEBAR_WIDTH: &str = "sidebar_width";
 pub const SETTING_SIDEBAR_OPEN: &str = "sidebar_open";
+pub const SETTING_STARTUP_BEHAVIOR: &str = "startup_behavior";
+pub const SETTING_LAST_ACTIVE_FILE: &str = "last_active_file";
+pub const SETTING_DEFAULT_INDENT_MODE: &str = "default_indent_mode";
+pub const SETTING_DEFAULT_INDENT_SIZE: &str = "default_indent_size";
+pub const SETTING_CONFIRM_BEFORE_DELETE: &str = "confirm_before_delete";
 
 /// All app setting keys that the app validates/converts at the command layer.
 /// Used for batch-loading at startup so the frontend doesn't need to hardcode them.
@@ -23,6 +28,11 @@ pub const ALL_SETTING_KEYS: &[&str] = &[
     SETTING_WORD_WRAP,
     SETTING_SIDEBAR_WIDTH,
     SETTING_SIDEBAR_OPEN,
+    SETTING_STARTUP_BEHAVIOR,
+    SETTING_LAST_ACTIVE_FILE,
+    SETTING_DEFAULT_INDENT_MODE,
+    SETTING_DEFAULT_INDENT_SIZE,
+    SETTING_CONFIRM_BEFORE_DELETE,
 ];
 
 const DATABASE_FILENAME: &str = "grayslate.sqlite3";

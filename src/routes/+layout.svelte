@@ -22,7 +22,7 @@
 	import EditorActions from "$lib/editor/components/EditorActions.svelte";
 	import { registerHotkeys } from "$lib/hotkeys";
 	import { initPlatformState, platformState } from "$lib/state/platform.svelte";
-	import { loadAllSettings, applyTheme } from "$lib/state/appSettings.svelte";
+	import { loadAllSettings, applyTheme, hydrateAppSettingsState } from "$lib/state/appSettings.svelte";
 	import LucideFilePlusCorner from '~icons/lucide/file-plus-corner';
 	import "./layout.css";
 
@@ -109,6 +109,10 @@
 			uiState.sidebar.width = settings.sidebarWidth;
 			lastExpandedSize = settings.sidebarWidth;
 			uiState.sidebar.open = settings.sidebarOpen;
+
+			// Populate the user-facing preferences consumed by the Settings dialog,
+			// the editor's default-indent seed, and the delete-confirmation branch.
+			hydrateAppSettingsState(settings);
 
 			// Reconcile theme: SQLite is authoritative over localStorage.
 			const isDark = settings.theme === "dark";

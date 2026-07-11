@@ -17,6 +17,7 @@
   import * as Select from "$lib/components/ui/select/index.js";
   import { invoke } from "@tauri-apps/api/core";
   import { DEFAULT_INDENT_CONFIG } from "$lib/editor/core/editorSession";
+  import { appSettingsState } from "$lib/state/appSettings.svelte";
 
   let {
     open = $bindable(false),
@@ -30,15 +31,18 @@
 
   // "Default" and "Detect from content" are not persisted modes — selecting
   // either resolves immediately into a concrete Spaces/Tab + size pair.
-  // "Default" resets to DEFAULT_INDENT_CONFIG; "Detect" triggers a one-shot
+  // "Default" resets to the user's global default (Settings → General →
+  // Default indentation), keeping this picker's "Default" in lock-step with
+  // the same value that seeds new documents. "Detect" triggers a one-shot
   // backend scan, matching VSCode's one-shot `detectIndentation`.
   const defaultValue = "default";
   const detectValue = "detect";
-  const defaultSizeLabel =
-    DEFAULT_INDENT_CONFIG.indentMode === IndentMode.Tab
-      ? `${DEFAULT_INDENT_CONFIG.indentSize}-wide tab`
-      : `${DEFAULT_INDENT_CONFIG.indentSize} space${DEFAULT_INDENT_CONFIG.indentSize === 1 ? "" : "s"}`;
-  const indentOptions = [
+  const defaultSizeLabel = $derived(
+    appSettingsState.defaultIndentMode === IndentMode.Tab
+      ? `${appSettingsState.defaultIndentSize}-wide tab`
+      : `${appSettingsState.defaultIndentSize} space${appSettingsState.defaultIndentSize === 1 ? "" : "s"}`,
+  );
+  const indentOptions = $derived([
     {
       value: defaultValue,
       label: `Default (${defaultSizeLabel})`,
@@ -46,7 +50,7 @@
     { value: IndentMode.Spaces, label: "Spaces" },
     { value: IndentMode.Tab, label: "Tab" },
     { value: detectValue, label: "Detect from content" },
-  ];
+  ]);
 
   const spaceSizeOptions = Array.from({ length: 8 }, (_, i) => ({
     value: String(i + 1),
@@ -63,8 +67,8 @@
 
   async function handleModeChange(value: string) {
     if (value === defaultValue) {
-      indentConfig.indentMode = DEFAULT_INDENT_CONFIG.indentMode;
-      indentConfig.indentSize = DEFAULT_INDENT_CONFIG.indentSize;
+      indentConfig.indentMode = appSettingsState.defaultIndentMode;
+      indentConfig.indentSize = appSettingsState.defaultIndentSize;
       return;
     }
 

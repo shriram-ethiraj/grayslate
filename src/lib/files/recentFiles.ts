@@ -1,4 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
+import { emit } from "@tauri-apps/api/event";
+import { toast } from "$lib/components/ui/sonner";
+import { editorState } from "$lib/state/editor.svelte";
+import {
+  appSettingsState,
+} from "$lib/state/appSettings.svelte";
+import { openDeleteFileDialog } from "$lib/state/appDialogs.svelte";
 
 export const OPEN_FILE_PATH_EVENT = "files://open-path";
 export const RECENT_FILES_UPDATED_EVENT = "files://recent-updated";
@@ -89,6 +96,38 @@ export async function deleteFile(path: string): Promise<void> {
 }
 
 /**
+ * Delete a file and run the shared post-delete cleanup: if the deleted file was
+ * the one open in the editor, reset to a fresh untitled slate; then surface a
+ * success toast. Throws on failure so the caller can keep its own busy state
+ * (e.g. the confirmation dialog) and decide how to report the error.
+ */
+export async function performFileDelete(file: RecentFileRecord): Promise<void> {
+  const wasCurrentFile = file.path === editorState.currentFilePath;
+  await deleteFile(file.path);
+  if (wasCurrentFile) {
+    // Reset the editor to a new untitled slate via the shared event bus.
+    await emit("menu://new-file");
+  }
+  toast.success(`"${file.file_name}" was deleted.`);
+}
+
+/**
+ * Entry point for every file-delete trigger. Honors the user's
+ * "confirm before deleting" preference: when enabled, opens the confirmation
+ * dialog; when disabled, deletes immediately (still with toast + editor reset).
+ */
+export function requestDeleteFile(file: RecentFileRecord): void {
+  if (appSettingsState.confirmBeforeDelete) {
+    openDeleteFileDialog(file);
+    return;
+  }
+  void performFileDelete(file).catch((err) => {
+    const msg = err instanceof Error ? err.message : String(err);
+    toast.error(`Failed to delete: ${msg}`);
+  });
+}
+
+/**
  * Rename a slate file.  `newName` is the bare filename (no path separators).
  * The backend auto-appends a numeric suffix on collision.
  * Returns the absolute path of the renamed file.
@@ -116,4 +155,20 @@ export async function duplicateLocalFileAsSlate(path: string): Promise<string> {
 /** Remove a local (external) file from sidebar tracking without deleting it from disk. */
 export async function untrackLocalFile(path: string): Promise<void> {
   return invoke<void>("untrack_local_file", { path });
+}
+
+/**
+ * Unlink a local file and run the shared post-unlink cleanup: if the unlinked
+ * file was the one open in the editor, reset to a fresh untitled slate; then
+ * surface a success toast. Throws on failure so the caller can restore its
+ * own optimistic UI state.
+ */
+export async function performFileUnlink(file: RecentFileRecord): Promise<void> {
+  const wasCurrentFile = file.path === editorState.currentFilePath;
+  await untrackLocalFile(file.path);
+  if (wasCurrentFile) {
+    // Reset the editor to a new untitled slate via the shared event bus.
+    await emit("menu://new-file");
+  }
+  toast.success(`"${file.file_name}" unlinked from sidebar.`);
 }

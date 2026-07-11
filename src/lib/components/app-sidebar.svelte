@@ -21,7 +21,7 @@
         cancelSidebarSearch,
         duplicateFile,
         duplicateLocalFileAsSlate,
-        untrackLocalFile,
+        performFileUnlink,
     } from "$lib/files/recentFiles";
     import {
         buildRecencySections,
@@ -334,8 +334,7 @@
         searchResults = searchResults.filter((f) => f.path !== file.path);
 
         try {
-            await untrackLocalFile(file.path);
-            toast.success(`"${file.file_name}" unlinked from sidebar.`);
+            await performFileUnlink(file);
         } catch (err) {
             // Restore both lists so the card reappears on failure.
             recentFiles = prevRecentFiles;

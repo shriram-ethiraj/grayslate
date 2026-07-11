@@ -1,12 +1,11 @@
 <script lang="ts">
-    import { emit } from "@tauri-apps/api/event";
     import { toast } from "$lib/components/ui/sonner";
     import * as Dialog from "$lib/components/ui/dialog/index.js";
     import { Button } from "$lib/components/ui/button/index.js";
     import Trash2 from "~icons/lucide/trash-2";
     import { appDialogsState, closeAppDialog } from "$lib/state/appDialogs.svelte";
     import { editorState } from "$lib/state/editor.svelte";
-    import { deleteFile } from "$lib/files/recentFiles";
+    import { performFileDelete } from "$lib/files/recentFiles";
 
     const isOpen = $derived(appDialogsState.active.type === "delete");
     const file = $derived(
@@ -22,18 +21,9 @@
         if (!file) return;
 
         isDeleting = true;
-        const fileName = file.file_name;
-        const filePath = file.path;
-        const wasCurrentFile = isCurrentFile;
-
         try {
-            await deleteFile(filePath);
+            await performFileDelete(file);
             closeAppDialog();
-            if (wasCurrentFile) {
-                // Reset the editor to a new untitled slate via the shared event bus.
-                await emit("menu://new-file");
-            }
-            toast.success(`"${fileName}" was deleted.`);
         } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
             toast.error(`Failed to delete: ${msg}`);

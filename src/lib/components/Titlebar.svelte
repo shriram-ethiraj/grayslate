@@ -19,6 +19,7 @@
     setEditorWordWrap,
   } from "$lib/state/editor.svelte";
   import AboutDialog from "$lib/components/AboutDialog.svelte";
+  import SettingsDialog from "$lib/components/SettingsDialog.svelte";
   import DeleteFileDialog from "$lib/components/DeleteFileDialog.svelte";
   import RenameFileDialog from "$lib/components/RenameFileDialog.svelte";
   import UnsavedChangesDialog from "$lib/components/UnsavedChangesDialog.svelte";
@@ -26,6 +27,7 @@
     checkForAppUpdates,
     openAboutDialog,
   } from "$lib/state/appMenu.svelte";
+  import { openSettingsAppDialog } from "$lib/state/appDialogs.svelte";
   import { confirmBeforeLeavingDocument } from "$lib/state/unsavedChangesGuard.svelte";
   import {
     editorUndo,
@@ -78,6 +80,7 @@
   // Unlisten callback for the macOS native menu edit-action event.
   let unlistenEditAction: (() => void) | undefined;
   let unlistenAbout: (() => void) | undefined;
+  let unlistenSettings: (() => void) | undefined;
   let unlistenCheckForUpdates: (() => void) | undefined;
   let unlistenWordWrap: (() => void) | undefined;
   let unlistenViewAction: (() => void) | undefined;
@@ -117,6 +120,10 @@
         void handleAbout();
       });
 
+      unlistenSettings = await listen("menu://settings", () => {
+        handleSettings();
+      });
+
       unlistenCheckForUpdates = await listen("menu://check-for-updates", () => {
         void handleCheckForUpdates();
       });
@@ -147,6 +154,7 @@
 
   onDestroy(() => {
     unlistenAbout?.();
+    unlistenSettings?.();
     unlistenCheckForUpdates?.();
     unlistenEditAction?.();
     unlistenWordWrap?.();
@@ -157,6 +165,10 @@
 
   async function handleAbout() {
     await openAboutDialog();
+  }
+
+  function handleSettings() {
+    openSettingsAppDialog();
   }
 
   async function handleCheckForUpdates() {
@@ -304,6 +316,16 @@
         options: { ignoreInputs: false },
       },
       {
+        // On macOS the native menu item owns Cmd+, — this handles Win/Linux.
+        key: "Mod+,",
+        callback: (e) => {
+          if (isMac) return;
+          e.preventDefault();
+          handleSettings();
+        },
+        options: { ignoreInputs: false },
+      },
+      {
         key: "Alt+Z",
         callback: (e) => {
           if (isMac) return;
@@ -402,6 +424,11 @@
         <Menubar.Item onclick={handleSaveAs}>
           Save As...
           <Menubar.Shortcut>{formatForDisplay("Mod+Shift+S")}</Menubar.Shortcut>
+        </Menubar.Item>
+        <Menubar.Separator />
+        <Menubar.Item onclick={handleSettings}>
+          Settings...
+          <Menubar.Shortcut>{formatForDisplay("Mod+,")}</Menubar.Shortcut>
         </Menubar.Item>
       </Menubar.Content>
     </Menubar.Menu>
@@ -614,6 +641,7 @@
 </div>
 
 <AboutDialog />
+<SettingsDialog />
 <DeleteFileDialog />
 <RenameFileDialog />
 <UnsavedChangesDialog />

@@ -16,7 +16,7 @@
     import * as Item from "$lib/components/ui/item/index.js";
     import { DropdownMenu as DropdownMenuPrimitive } from "bits-ui";
     import { getPlatformOsType } from "$lib/state/platform.svelte";
-    import { openDeleteFileDialog, openRenameFileDialog } from "$lib/state/appDialogs.svelte";
+    import { openRenameFileDialog } from "$lib/state/appDialogs.svelte";
     import {
         isSearchResult,
         formatSize,
@@ -25,7 +25,7 @@
         getRecencyTimestamp,
         type LibraryFileRecord,
     } from "$lib/files/sidebarUtils";
-    import type { RecentFileRecord, RecentFileSource } from "$lib/files/recentFiles";
+    import { requestDeleteFile, type RecentFileRecord, type RecentFileSource } from "$lib/files/recentFiles";
     import Files from "~icons/lucide/files";
     import FolderOpen from "~icons/lucide/folder-open";
     import Copy from "~icons/lucide/copy";
@@ -250,7 +250,7 @@
                                         </DropdownMenuPrimitive.Item>
                                         <DropdownMenuPrimitive.Item
                                             class="{ddItemClass} text-destructive data-highlighted:bg-destructive/10 dark:data-highlighted:bg-destructive/20 data-highlighted:text-destructive"
-                                            onclick={() => { openDeleteFileDialog(recentFile as RecentFileRecord); }}
+                                            onclick={() => { requestDeleteFile(recentFile as RecentFileRecord); }}
                                         >
                                             <Trash2 class="size-4" />
                                             <span>Delete</span>
@@ -336,7 +336,7 @@
             </ContextMenu.Item>
             <ContextMenu.Item
                 class="text-destructive focus:text-destructive"
-                onclick={() => openDeleteFileDialog(recentFile as RecentFileRecord)}
+                onclick={() => requestDeleteFile(recentFile as RecentFileRecord)}
             >
                 <Trash2 class="size-4" />
                 <span>Delete</span>

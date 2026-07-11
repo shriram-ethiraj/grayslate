@@ -10,6 +10,7 @@ export type UnsavedChangesChoice = "save" | "discard" | "cancel";
 export type AppDialogState =
     | { type: "none" }
     | { type: "about" }
+    | { type: "settings" }
     | { type: "delete"; file: RecentFileRecord }
     | { type: "rename"; file: RecentFileRecord }
     | { type: "unsaved-changes"; resolve: (choice: UnsavedChangesChoice) => void };
@@ -20,6 +21,10 @@ export const appDialogsState = $state<{ active: AppDialogState }>({
 
 export function openAboutAppDialog(): void {
     appDialogsState.active = { type: "about" };
+}
+
+export function openSettingsAppDialog(): void {
+    appDialogsState.active = { type: "settings" };
 }
 
 export function openDeleteFileDialog(file: RecentFileRecord): void {

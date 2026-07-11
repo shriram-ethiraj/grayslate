@@ -24,7 +24,6 @@
     ensureManagedEditorState,
     flushPendingValueSync,
     setManagedEditorIndent,
-    DEFAULT_INDENT_CONFIG,
     type ManagedEditorSession,
   } from "$lib/editor/core/editorSession";
   import {
@@ -71,6 +70,12 @@
     type OpenFilePathPayload,
     type RecentFileSource,
   } from "$lib/files/recentFiles";
+  import { onMount } from "svelte";
+  import {
+    appSettingsState,
+    loadAllSettings,
+    saveLastActiveFile,
+  } from "$lib/state/appSettings.svelte";
   import {
     type ExecuteTransformationResponse,
     type ExecuteTransformationRequest,
@@ -106,7 +111,19 @@
   let language = $state("auto");
   let detectedLanguage = $state("text");
   let goToLineOpen = $state(false);
-  let indentConfig = $state<IndentConfig>(DEFAULT_INDENT_CONFIG);
+
+  // Seed the indent config for a brand-new/opened document from the user's
+  // global default preference (falls back to DEFAULT_INDENT_CONFIG until
+  // settings hydrate). This is only the starting point — the per-document
+  // IndentationPicker override still takes over once the user changes it.
+  function resolveDefaultIndentConfig(): IndentConfig {
+    return {
+      indentMode: appSettingsState.defaultIndentMode,
+      indentSize: appSettingsState.defaultIndentSize,
+    };
+  }
+
+  let indentConfig = $state<IndentConfig>(resolveDefaultIndentConfig());
   let indentPickerOpen = $state(false);
 
   function countDocumentLines(text: string): number {
@@ -745,7 +762,7 @@
     selectionSize = 0;
     language = nextLanguage;
     detectedLanguage = nextDetectedLanguage;
-    indentConfig = DEFAULT_INDENT_CONFIG;
+    indentConfig = resolveDefaultIndentConfig();
     editorState.csv.showTable = false;
     editorState.activeSurface = "editor";
 
@@ -756,6 +773,11 @@
 
   async function createNewFile(): Promise<void> {
     if (!(await confirmBeforeLeavingDocument())) return;
+
+    // User explicitly started a blank slate — clear the last-active pointer so
+    // "reopen last file" doesn't resurrect the file they just navigated away
+    // from. (Also covers deleting the current file, which routes here.)
+    saveLastActiveFile(null);
 
     invalidatePendingFileOpen();
 
@@ -783,7 +805,12 @@
   // picker, then invoke read_file_content on the Rust side which enforces
   // the current 200 MB size limit before returning the text.
   // -----------------------------------------------------------------------
-  async function openFileAtPath(filePath: string, lineNumber?: number, fileSource?: RecentFileSource): Promise<void> {
+  async function openFileAtPath(
+    filePath: string,
+    lineNumber?: number,
+    fileSource?: RecentFileSource,
+    options?: { silent?: boolean },
+  ): Promise<void> {
     // Fast path: the file is already loaded — avoid a full reload and just
     // navigate to the requested line directly.
     if (editorState.currentFilePath === filePath && editorView) {
@@ -880,6 +907,10 @@
         nextDetectedLanguage,
       );
 
+      // Remember this as the last-active file for the "reopen last file"
+      // startup behavior. Fire-and-forget — best-effort convenience only.
+      saveLastActiveFile(filePath);
+
       // Yield to let Svelte update the DOM and dispose old CodeMirror instance
       await new Promise<void>((r) => setTimeout(r, 10));
 
@@ -899,6 +930,13 @@
       }
 
       if (err === "File read cancelled.") {
+        return;
+      }
+
+      // Startup restoration passes `silent` so a since-deleted last-active file
+      // fails quietly to the default blank slate instead of nagging on launch.
+      if (options?.silent) {
+        console.warn(`[Startup] Could not reopen last file "${filePath}":`, err);
         return;
       }
 
@@ -1019,6 +1057,8 @@
         source: "slates",
         lastSavedValue: content,
       };
+      // A freshly-saved untitled slate is now a real file — track it as last-active.
+      saveLastActiveFile(savePath);
       flushPendingValueSync(editorSession);
       // The {#key activeFilePath} block destroys and remounts <Editor> when
       // the document key changes (untitled key → saved path). Wait a tick
@@ -1070,6 +1110,25 @@
       toast.error(msg);
     }
   }
+
+  // Startup: optionally reopen the last-active file. EditorWrapper owns all
+  // document transitions, so it also owns this one-time restoration decision
+  // rather than coupling to +layout.svelte's settings-load timing. We read the
+  // settings directly (one cheap IPC call) instead of depending on when the
+  // layout's hydrate runs. On any failure we silently keep the default blank
+  // slate that `activeDocument` already initialized to.
+  onMount(async () => {
+    try {
+      const settings = await loadAllSettings();
+      if (settings.startupBehavior === "last" && settings.lastActiveFile) {
+        await openFileAtPath(settings.lastActiveFile, undefined, undefined, {
+          silent: true,
+        });
+      }
+    } catch (err) {
+      console.warn("[Startup] Failed to evaluate startup-file behavior:", err);
+    }
+  });
 
   // Register (and later clean up) the file-menu event listeners.
   $effect(() => {
