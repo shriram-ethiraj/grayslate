@@ -10,6 +10,17 @@
     indentMode: IndentMode;
     indentSize: number;
   };
+
+  // Raw, per-document indentation preference. Unlike `IndentConfig`, this can
+  // hold the literal "default" mode — meaning "follow the global default
+  // indentation setting" — as a real, persisted choice rather than a one-time
+  // copy of concrete values. Callers resolve "default" to a concrete
+  // `IndentConfig` at the point of use (see `effectiveIndentConfig` in
+  // EditorWrapper.svelte).
+  export type IndentSelection = {
+    indentMode: IndentMode | "default";
+    indentSize: number;
+  };
 </script>
 
 <script lang="ts">
@@ -21,11 +32,11 @@
 
   let {
     open = $bindable(false),
-    indentConfig = $bindable<IndentConfig>(DEFAULT_INDENT_CONFIG),
+    indentSelection = $bindable<IndentSelection>(DEFAULT_INDENT_CONFIG),
     content = "",
   }: {
     open: boolean;
-    indentConfig: IndentConfig;
+    indentSelection: IndentSelection;
     content?: string;
   } = $props();
 
@@ -58,22 +69,21 @@
   }));
 
   const activeModeLabel = $derived(
-    indentOptions.find((o) => o.value === indentConfig.indentMode)?.label ?? "Spaces",
+    indentOptions.find((o) => o.value === indentSelection.indentMode)?.label ?? "Spaces",
   );
 
   const sizeLabel = $derived(
-    indentConfig.indentMode === IndentMode.Tab ? "Tab Size" : "Indent Size",
+    indentSelection.indentMode === IndentMode.Tab ? "Tab Size" : "Indent Size",
   );
 
   async function handleModeChange(value: string) {
     if (value === defaultValue) {
-      indentConfig.indentMode = appSettingsState.defaultIndentMode;
-      indentConfig.indentSize = appSettingsState.defaultIndentSize;
+      indentSelection.indentMode = "default";
       return;
     }
 
     if (value !== detectValue) {
-      indentConfig.indentMode = value as IndentMode;
+      indentSelection.indentMode = value as IndentMode;
       return;
     }
 
@@ -82,12 +92,12 @@
     const result = await invoke<{ useTabs: boolean; width: number }>("editor_detect_indent", {
       content,
     });
-    indentConfig.indentMode = result.useTabs ? IndentMode.Tab : IndentMode.Spaces;
-    indentConfig.indentSize = result.width;
+    indentSelection.indentMode = result.useTabs ? IndentMode.Tab : IndentMode.Spaces;
+    indentSelection.indentSize = result.width;
   }
 
   function handleSizeChange(value: string) {
-    indentConfig.indentSize = Number(value);
+    indentSelection.indentSize = Number(value);
   }
 </script>
 
@@ -98,7 +108,7 @@
         <label class="text-sm font-medium text-foreground" for="indent-mode-select">
           Indentation
         </label>
-        <Select.Root type="single" value={indentConfig.indentMode} onValueChange={handleModeChange}>
+        <Select.Root type="single" value={indentSelection.indentMode} onValueChange={handleModeChange}>
           <Select.Trigger class="w-full" id="indent-mode-select">
             {activeModeLabel}
           </Select.Trigger>
@@ -112,18 +122,18 @@
         </Select.Root>
       </div>
 
-      {#if indentConfig.indentMode === IndentMode.Spaces || indentConfig.indentMode === IndentMode.Tab}
+      {#if indentSelection.indentMode === IndentMode.Spaces || indentSelection.indentMode === IndentMode.Tab}
         <div class="grid gap-2">
           <label class="text-sm font-medium text-foreground" for="indent-size-select">
             {sizeLabel}
           </label>
           <Select.Root
             type="single"
-            value={String(indentConfig.indentSize)}
+            value={String(indentSelection.indentSize)}
             onValueChange={handleSizeChange}
           >
             <Select.Trigger class="w-full" id="indent-size-select">
-              {indentConfig.indentSize}
+              {indentSelection.indentSize}
             </Select.Trigger>
             <Select.Content>
               {#each spaceSizeOptions as option (option.value)}

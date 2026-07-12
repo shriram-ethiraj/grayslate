@@ -5,7 +5,7 @@
   import StatusBar from "$lib/editor/components/StatusBar.svelte";
   import EditorLoader from "$lib/editor/components/EditorLoader.svelte";
   import GoToLineDialog from "$lib/editor/components/GoToLineDialog.svelte";
-  import IndentationPicker, { type IndentConfig } from "$lib/editor/components/IndentationPicker.svelte";
+  import IndentationPicker, { type IndentConfig, type IndentSelection } from "$lib/editor/components/IndentationPicker.svelte";
   import TransformationsPalette from "$lib/editor/components/TransformationsPalette.svelte";
   import {
     ResizablePaneGroup,
@@ -113,19 +113,29 @@
   let detectedLanguage = $state("text");
   let goToLineOpen = $state(false);
 
-  // Seed the indent config for a brand-new/opened document from the user's
-  // global default preference (falls back to DEFAULT_INDENT_CONFIG until
-  // settings hydrate). This is only the starting point — the per-document
-  // IndentationPicker override still takes over once the user changes it.
-  function resolveDefaultIndentConfig(): IndentConfig {
+  // Seed the indent selection for a brand-new/opened document as "follow the
+  // global default" — a real, persisted choice (not a one-time copy of
+  // concrete values) so the IndentationPicker can show "Default" as selected
+  // until the user explicitly overrides it.
+  function resolveDefaultIndentConfig(): IndentSelection {
     return {
-      indentMode: appSettingsState.defaultIndentMode,
+      indentMode: "default",
       indentSize: appSettingsState.defaultIndentSize,
     };
   }
 
-  let indentConfig = $state<IndentConfig>(resolveDefaultIndentConfig());
+  let indentSelection = $state<IndentSelection>(resolveDefaultIndentConfig());
   let indentPickerOpen = $state(false);
+
+  // Concrete indentation config for actual consumers (CodeMirror, status
+  // bar). Resolves "default" live from the global setting, so a document set
+  // to "Default" tracks Settings changes made while it's open instead of
+  // freezing whatever value was baked in at open/pick time.
+  const effectiveIndentConfig = $derived<IndentConfig>(
+    indentSelection.indentMode === "default"
+      ? { indentMode: appSettingsState.defaultIndentMode, indentSize: appSettingsState.defaultIndentSize }
+      : { indentMode: indentSelection.indentMode, indentSize: indentSelection.indentSize },
+  );
 
   function countDocumentLines(text: string): number {
     if (text.length === 0) {
@@ -450,7 +460,7 @@
       actionId,
       text: sourceText,
       requestId,
-      ...(isFormatAction ? { params: { indentConfig } } : {}),
+      ...(isFormatAction ? { params: { indentConfig: effectiveIndentConfig } } : {}),
     };
 
     // Track whether the user explicitly cancelled so we suppress the error toast.
@@ -764,7 +774,7 @@
     selectionSize = 0;
     language = nextLanguage;
     detectedLanguage = nextDetectedLanguage;
-    indentConfig = resolveDefaultIndentConfig();
+    indentSelection = resolveDefaultIndentConfig();
     editorState.csv.showTable = false;
     editorState.activeSurface = "editor";
 
@@ -1335,7 +1345,7 @@
 
 <div class="flex flex-1 flex-col min-h-0 min-w-0">
   <GoToLineDialog bind:open={goToLineOpen} {editorView} {line} {lineCount} />
-  <IndentationPicker bind:open={indentPickerOpen} bind:indentConfig content={value} />
+  <IndentationPicker bind:open={indentPickerOpen} bind:indentSelection content={value} />
   <TransformationsPalette executeAction={executeTransformation} />
 
   <div class="flex flex-1 min-h-0 min-w-0 relative">
@@ -1372,7 +1382,7 @@
                 language={activeLanguage}
                 bind:editorView
                 session={editorSession}
-                {indentConfig}
+                indentConfig={effectiveIndentConfig}
               />
             {/key}
           </div>
@@ -1402,7 +1412,7 @@
                   language={activeLanguage}
                   bind:editorView
                   session={editorSession}
-                  {indentConfig}
+                  indentConfig={effectiveIndentConfig}
                 />
               {/key}
             </div>
@@ -1444,7 +1454,7 @@
               language={activeLanguage}
               bind:editorView
               session={editorSession}
-              {indentConfig}
+              indentConfig={effectiveIndentConfig}
             />
           {/key}
         </div>
@@ -1462,7 +1472,7 @@
     {activeLanguage}
     {isCsvTableActive}
     {csvInfo}
-    {indentConfig}
+    indentConfig={effectiveIndentConfig}
     onGoToLine={openGoToLinePanel}
     onOpenIndentPicker={openIndentPicker}
   />
