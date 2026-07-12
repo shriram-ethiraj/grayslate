@@ -658,6 +658,7 @@
     <SidebarFileList
         bind:scrollContainer={resultsScrollContainer}
         sections={recentFileSections}
+        showExternalBadge={filterMode === "unified"}
         {isSearchMode}
         {isLoading}
         {isSearchLoading}

@@ -34,9 +34,12 @@
     import Trash2 from "~icons/lucide/trash-2";
     import LucideUnlink2 from '~icons/lucide/unlink-2';
     import Ellipsis from "~icons/lucide/ellipsis";
+    import LucideHardDrive from "~icons/lucide/hard-drive";
 
     interface Props {
         recentFile: LibraryFileRecord;
+        /** Whether the external-file badge should be shown in the current tab. */
+        showExternalBadge?: boolean;
         isActive: boolean;
         /** Keyboard-navigated highlight (ArrowUp/Down from the search input). */
         isHighlighted?: boolean;
@@ -51,7 +54,17 @@
         onUnlink?: (file: RecentFileRecord) => void;
     }
 
-    const { recentFile, isActive, isHighlighted = false, onOpen, onHover, onDuplicate, onDuplicateAsSlate, onUnlink }: Props = $props();
+    const {
+        recentFile,
+        showExternalBadge = true,
+        isActive,
+        isHighlighted = false,
+        onOpen,
+        onHover,
+        onDuplicate,
+        onDuplicateAsSlate,
+        onUnlink,
+    }: Props = $props();
 
     // ---------------------------------------------------------------------------
     // Language / display helpers
@@ -129,12 +142,21 @@
                         <Item.Media
                             variant="icon"
                             title={fileLanguageLabel}
-                            class="mt-0.5 {isActive ? 'border-sidebar-ring/40 bg-sidebar-foreground/[0.04] text-sidebar-foreground' : isHighlighted ? 'border-sidebar-background/60 bg-sidebar/80 text-sidebar-accent-foreground' : 'border-sidebar-border/70 bg-sidebar-accent/45 text-muted-foreground group-data-[state=open]:border-sidebar-background/60 group-data-[state=open]:bg-sidebar/80 group-data-[state=open]:text-sidebar-accent-foreground'}"
+                            class="relative mt-0.5 {isActive ? 'border-sidebar-ring/40 bg-sidebar-foreground/[0.04] text-sidebar-foreground' : isHighlighted ? 'border-sidebar-background/60 bg-sidebar/80 text-sidebar-accent-foreground' : 'border-sidebar-border/70 bg-sidebar-accent/45 text-muted-foreground group-data-[state=open]:border-sidebar-background/60 group-data-[state=open]:bg-sidebar/80 group-data-[state=open]:text-sidebar-accent-foreground'}"
                         >
                             {#if FileIcon}
                                 <FileIcon class="size-4.5" />
                             {:else}
                                 <Files class="size-4.5" />
+                            {/if}
+                            {#if recentFile.source === "local" && showExternalBadge}
+                                <!-- Corner marker for local files. -->
+                                <span
+                                    aria-hidden="true"
+                                    class="pointer-events-none absolute -bottom-0.5 -right-0.5 z-10 flex size-3.5 items-center justify-center rounded-sm {isActive ? 'file-icon-badge-active' : isHighlighted ? 'file-icon-badge-emphasis' : 'file-icon-badge-inactive'}"
+                                >
+                                    <LucideHardDrive class="!size-3" />
+                                </span>
                             {/if}
                         </Item.Media>
 
@@ -344,3 +366,22 @@
         {/if}
     </ContextMenu.Content>
 </ContextMenu.Root>
+
+<style>
+    /*
+     * The media background uses translucent layers. These opaque equivalents
+     * match the final rendered surface while covering the media border behind
+     * the transparent hard-drive SVG.
+     */
+    .file-icon-badge-active {
+        background-color: color-mix(in srgb, var(--sidebar-foreground) 11%, var(--sidebar));
+    }
+
+    .file-icon-badge-inactive {
+        background-color: color-mix(in srgb, var(--sidebar-accent) 45%, var(--sidebar));
+    }
+
+    .file-icon-badge-emphasis {
+        background-color: color-mix(in srgb, var(--sidebar-accent) 14%, var(--sidebar));
+    }
+</style>
