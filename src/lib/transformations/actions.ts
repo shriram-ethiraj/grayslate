@@ -29,6 +29,10 @@ export type JsonTransformationActionId =
     | "json.format"
     | "json.minify"
     | "json.validate"
+    | "json.lines-to-array"
+    | "json.array-to-lines"
+    | "json.sort-keys"
+    | "json.to-typescript"
     | "json.to-csv"
     | "json.to-yaml"
     | "json.keys-camel-case"
@@ -74,7 +78,11 @@ export type TextTransformationActionId =
     | "text.title-case"
     | "text.sponge-case";
 
-export type UrlTransformationActionId = "url.encode" | "url.decode";
+export type UrlTransformationActionId =
+    | "url.encode"
+    | "url.decode"
+    | "url.query-to-json"
+    | "url.json-to-query";
 
 export type SecurityTransformationActionId =
     | "security.url-defang"
@@ -82,7 +90,36 @@ export type SecurityTransformationActionId =
 
 export type EncodingTransformationActionId =
     | "encoding.base64-encode"
-    | "encoding.base64-decode";
+    | "encoding.base64-decode"
+    | "encoding.base64url-encode"
+    | "encoding.base64url-decode"
+    | "encoding.html-encode"
+    | "encoding.html-decode"
+    | "encoding.gzip-to-base64"
+    | "encoding.gzip-from-base64"
+    | "encoding.jwt-decode";
+
+export type HashTransformationActionId =
+    | "hash.sha-256"
+    | "hash.sha-512"
+    | "hash.sha-1"
+    | "hash.md5"
+    | "checksum.crc32";
+
+export type TimeTransformationActionId =
+    | "time.unix-seconds-to-rfc3339"
+    | "time.unix-milliseconds-to-rfc3339"
+    | "time.rfc3339-to-unix-seconds"
+    | "time.rfc3339-to-unix-milliseconds";
+
+export type XmlTransformationActionId =
+    | "xml.format"
+    | "xml.minify"
+    | "xml.validate";
+
+export type GenerateTransformationActionId =
+    | "generate.uuid-v4"
+    | "generate.uuid-v7";
 
 export type ConvertTransformationActionId =
     | "convert.ascii-to-hex"
@@ -107,6 +144,10 @@ export type TransformationActionId =
     | UrlTransformationActionId
     | SecurityTransformationActionId
     | EncodingTransformationActionId
+    | HashTransformationActionId
+    | TimeTransformationActionId
+    | XmlTransformationActionId
+    | GenerateTransformationActionId
     | ConvertTransformationActionId
     | StatsTransformationActionId;
 
@@ -120,6 +161,8 @@ export type TransformationActionDefinition = {
     keywords: string[];
     fileTypes: FileType[];
     supportsSelection: boolean;
+    /** How a replacement result is applied. Generators insert at the cursor. */
+    applyMode?: "replace" | "insert";
     /** Optional override icon. Falls back to the file-type icon when unset. */
     icon?: Component;
     /**
@@ -201,6 +244,49 @@ export const transformationActions: TransformationActionDefinition[] = [
         fileTypes: ["json"],
         supportsSelection: true,
         icon: LucideListCheck,
+    },
+    {
+        id: "json.lines-to-array",
+        title: "JSON Lines to JSON Array",
+        description: "Parse each nonblank line as JSON and combine the values into one formatted array.",
+        category: "JSON",
+        keywords: ["json", "jsonl", "ndjson", "lines", "array", "convert"],
+        fileTypes: ["json", "text"],
+        supportsSelection: true,
+        outputLanguage: "json",
+        icon: MaterialSymbolsTransformRounded,
+    },
+    {
+        id: "json.array-to-lines",
+        title: "JSON Array to JSON Lines",
+        description: "Convert a top-level JSON array to one compact JSON value per line.",
+        category: "JSON",
+        keywords: ["json", "jsonl", "ndjson", "lines", "array", "convert"],
+        fileTypes: ["json"],
+        supportsSelection: true,
+        outputLanguage: "text",
+        icon: MaterialSymbolsTransformRounded,
+    },
+    {
+        id: "json.sort-keys",
+        title: "Sort JSON Keys",
+        description: "Recursively sort strict-JSON object keys while preserving array order.",
+        category: "JSON",
+        keywords: ["json", "sort", "keys", "canonical", "alphabetical"],
+        fileTypes: ["json"],
+        supportsSelection: true,
+        icon: FluentArrowSort20Filled,
+    },
+    {
+        id: "json.to-typescript",
+        title: "JSON to TypeScript",
+        description: "Infer TypeScript declarations from strict JSON using Root as the top-level name.",
+        category: "Convert",
+        keywords: ["json", "typescript", "interface", "type", "generate", "convert"],
+        fileTypes: ["json"],
+        supportsSelection: true,
+        outputLanguage: "typescript",
+        icon: MaterialSymbolsTransformRounded,
     },
     {
         id: "sql.format",
@@ -292,6 +378,36 @@ export const transformationActions: TransformationActionDefinition[] = [
         fileTypes: ["toml"],
         supportsSelection: true,
         icon: FluentCodeText20Filled,
+    },
+    {
+        id: "xml.format",
+        title: "Format XML",
+        description: "Pretty-print well-formed XML while preserving text and CDATA content.",
+        category: "XML",
+        keywords: ["xml", "format", "pretty", "indent", "markup"],
+        fileTypes: ["xml"],
+        supportsSelection: true,
+        icon: FluentCodeText20Filled,
+    },
+    {
+        id: "xml.minify",
+        title: "Minify XML",
+        description: "Remove formatting-only whitespace from well-formed XML.",
+        category: "XML",
+        keywords: ["xml", "minify", "compact", "compress", "markup"],
+        fileTypes: ["xml"],
+        supportsSelection: true,
+        icon: MaterialSymbolsCompressRounded,
+    },
+    {
+        id: "xml.validate",
+        title: "Validate XML",
+        description: "Check XML well-formedness without resolving DTDs, schemas, or external entities.",
+        category: "XML",
+        keywords: ["xml", "validate", "well formed", "lint", "check"],
+        fileTypes: ["xml"],
+        supportsSelection: true,
+        icon: LucideListCheck,
     },
     // ── JSON Key Case Conversion ─────────────────────────────────────────────
     {
@@ -595,6 +711,28 @@ export const transformationActions: TransformationActionDefinition[] = [
         supportsSelection: true,
         icon: CarbonUrl,
     },
+    {
+        id: "url.query-to-json",
+        title: "Query String to JSON",
+        description: "Convert a URL query string to JSON, preserving repeated keys as arrays.",
+        category: "URL",
+        keywords: ["url", "query", "parameters", "json", "parse", "convert"],
+        fileTypes: ["text"],
+        supportsSelection: true,
+        outputLanguage: "json",
+        icon: CarbonUrl,
+    },
+    {
+        id: "url.json-to-query",
+        title: "JSON to Query String",
+        description: "Convert a flat JSON object of scalar values or scalar arrays to a URL query string.",
+        category: "URL",
+        keywords: ["url", "query", "parameters", "json", "stringify", "convert"],
+        fileTypes: ["json"],
+        supportsSelection: true,
+        outputLanguage: "text",
+        icon: CarbonUrl,
+    },
     // ── Security ─────────────────────────────────────────────────────────────
     {
         id: "security.url-defang",
@@ -634,6 +772,182 @@ export const transformationActions: TransformationActionDefinition[] = [
         keywords: ["encoding", "base64", "decode", "binary"],
         fileTypes: ["text"],
         supportsSelection: true,
+    },
+    {
+        id: "encoding.base64url-encode",
+        title: "Base64URL Encode",
+        description: "Encode UTF-8 text as URL-safe Base64 without padding.",
+        category: "Encoding",
+        keywords: ["encoding", "base64url", "base64", "url safe", "encode"],
+        fileTypes: ["text"],
+        supportsSelection: true,
+    },
+    {
+        id: "encoding.base64url-decode",
+        title: "Base64URL Decode",
+        description: "Decode padded or unpadded URL-safe Base64 to UTF-8 text.",
+        category: "Encoding",
+        keywords: ["encoding", "base64url", "base64", "url safe", "decode"],
+        fileTypes: ["text"],
+        supportsSelection: true,
+    },
+    {
+        id: "encoding.html-encode",
+        title: "HTML Entity Encode",
+        description: "Encode HTML-sensitive characters while preserving other Unicode text.",
+        category: "Encoding",
+        keywords: ["html", "entity", "entities", "encode", "escape"],
+        fileTypes: ["text", "html", "xml"],
+        supportsSelection: true,
+    },
+    {
+        id: "encoding.html-decode",
+        title: "HTML Entity Decode",
+        description: "Decode standard named and numeric HTML entities.",
+        category: "Encoding",
+        keywords: ["html", "entity", "entities", "decode", "unescape"],
+        fileTypes: ["text", "html", "xml"],
+        supportsSelection: true,
+    },
+    {
+        id: "encoding.gzip-to-base64",
+        title: "GZip Text to Base64",
+        description: "Gzip-compress UTF-8 text and return standard Base64.",
+        category: "Encoding",
+        keywords: ["gzip", "compress", "base64", "encoding"],
+        fileTypes: ["text"],
+        supportsSelection: true,
+        icon: MaterialSymbolsCompressRounded,
+    },
+    {
+        id: "encoding.gzip-from-base64",
+        title: "Base64 GZip to Text",
+        description: "Decode Base64, decompress gzip data, and return UTF-8 text.",
+        category: "Encoding",
+        keywords: ["gzip", "decompress", "base64", "decoding"],
+        fileTypes: ["text"],
+        supportsSelection: true,
+        icon: MaterialSymbolsCompressRounded,
+    },
+    {
+        id: "encoding.jwt-decode",
+        title: "Decode JWT (Unverified)",
+        description: "Decode JWT header and payload JSON without verifying the signature.",
+        category: "Encoding",
+        keywords: ["jwt", "token", "decode", "claims", "api", "unverified"],
+        fileTypes: ["text"],
+        supportsSelection: true,
+        outputLanguage: "json",
+        icon: CarbonSecurity,
+    },
+    // ── Hashes and checksums ────────────────────────────────────────────────
+    {
+        id: "hash.sha-256",
+        title: "SHA-256 Hash",
+        description: "Hash the exact UTF-8 input bytes and output lowercase hexadecimal.",
+        category: "Hash",
+        keywords: ["hash", "sha", "sha256", "digest", "checksum"],
+        fileTypes: ["text"],
+        supportsSelection: true,
+        icon: CarbonSecurity,
+    },
+    {
+        id: "hash.sha-512",
+        title: "SHA-512 Hash",
+        description: "Hash the exact UTF-8 input bytes and output lowercase hexadecimal.",
+        category: "Hash",
+        keywords: ["hash", "sha", "sha512", "digest", "checksum"],
+        fileTypes: ["text"],
+        supportsSelection: true,
+        icon: CarbonSecurity,
+    },
+    {
+        id: "checksum.crc32",
+        title: "CRC32 Checksum",
+        description: "Compute CRC32 over the exact UTF-8 input bytes.",
+        category: "Hash",
+        keywords: ["crc", "crc32", "checksum", "integrity"],
+        fileTypes: ["text"],
+        supportsSelection: true,
+        icon: CarbonSecurity,
+    },
+    {
+        id: "hash.sha-1",
+        title: "SHA-1 Hash (Legacy)",
+        description: "Generate a legacy SHA-1 digest for compatibility and non-security integrity checks.",
+        category: "Hash",
+        keywords: ["hash", "sha", "sha1", "legacy", "digest"],
+        fileTypes: ["text"],
+        supportsSelection: true,
+        icon: CarbonSecurity,
+    },
+    {
+        id: "hash.md5",
+        title: "MD5 Hash (Legacy)",
+        description: "Generate a legacy MD5 digest for compatibility and non-security integrity checks.",
+        category: "Hash",
+        keywords: ["hash", "md5", "legacy", "digest", "checksum"],
+        fileTypes: ["text"],
+        supportsSelection: true,
+        icon: CarbonSecurity,
+    },
+    // ── Time ────────────────────────────────────────────────────────────────
+    {
+        id: "time.unix-seconds-to-rfc3339",
+        title: "Unix Seconds to RFC 3339 UTC",
+        description: "Convert one Unix-seconds integer to an unambiguous UTC timestamp.",
+        category: "Time",
+        keywords: ["time", "date", "unix", "epoch", "seconds", "rfc3339", "iso"],
+        fileTypes: ["text"],
+        supportsSelection: true,
+    },
+    {
+        id: "time.unix-milliseconds-to-rfc3339",
+        title: "Unix Milliseconds to RFC 3339 UTC",
+        description: "Convert one Unix-milliseconds integer to an unambiguous UTC timestamp.",
+        category: "Time",
+        keywords: ["time", "date", "unix", "epoch", "milliseconds", "rfc3339", "iso"],
+        fileTypes: ["text"],
+        supportsSelection: true,
+    },
+    {
+        id: "time.rfc3339-to-unix-seconds",
+        title: "RFC 3339 to Unix Seconds",
+        description: "Convert one timezone-qualified RFC 3339 timestamp to Unix seconds.",
+        category: "Time",
+        keywords: ["time", "date", "unix", "epoch", "seconds", "rfc3339", "iso"],
+        fileTypes: ["text"],
+        supportsSelection: true,
+    },
+    {
+        id: "time.rfc3339-to-unix-milliseconds",
+        title: "RFC 3339 to Unix Milliseconds",
+        description: "Convert one timezone-qualified RFC 3339 timestamp to Unix milliseconds.",
+        category: "Time",
+        keywords: ["time", "date", "unix", "epoch", "milliseconds", "rfc3339", "iso"],
+        fileTypes: ["text"],
+        supportsSelection: true,
+    },
+    // ── Generators ──────────────────────────────────────────────────────────
+    {
+        id: "generate.uuid-v4",
+        title: "Insert UUID v4",
+        description: "Replace the selection or insert one random UUID at the cursor.",
+        category: "Generate",
+        keywords: ["generate", "uuid", "guid", "v4", "random", "identifier"],
+        fileTypes: ["text"],
+        supportsSelection: true,
+        applyMode: "insert",
+    },
+    {
+        id: "generate.uuid-v7",
+        title: "Insert UUID v7",
+        description: "Replace the selection or insert one time-ordered UUID at the cursor.",
+        category: "Generate",
+        keywords: ["generate", "uuid", "guid", "v7", "time ordered", "identifier"],
+        fileTypes: ["text"],
+        supportsSelection: true,
+        applyMode: "insert",
     },
     // ── Convert ──────────────────────────────────────────────────────────────
     {

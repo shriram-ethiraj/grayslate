@@ -1,245 +1,193 @@
-# Transformation Gap Analysis — Grayslate
+# Transformation Baseline Roadmap — Grayslate
 
-> **Date:** 2026-05-01
-> **Sources researched:** Boop (4.1k stars), DevToys (31.3k stars), CyberChef (34.7k stars), transform.tools, qToolkit.dev
+> **Updated:** 2026-07-13
 >
-> **Current state:** Grayslate has **46 built-in transformations** across JSON, text, encoding, numeric conversion, and format conversion. No user-definable transformations exist yet.
+> **Current registry:** 82 built-in transformations after Priority 1 implementation
+> **Product boundary:** editor-native text transformations; no secondary input panels or per-action option dialogs
 
----
+## Purpose
 
-## Summary
+Grayslate is a developer scratchpad first. Its built-ins should cover the common jobs that otherwise send developers to small online utilities: format data, inspect API payloads, convert text encodings, generate identifiers, and perform deterministic text conversions locally.
 
-Grayslate already covers ~60% of what a developer scratchpad needs. The biggest gaps are in **hashing**, **HTML entity encoding**, **JWT inspection**, **SQL/XML formatting**, **timestamp conversion**, **code generation from JSON**, and **regex-filtered line operations**. These are nearly universal across competitor tools and would fill clear use cases.
+This roadmap is grounded in the live action registry and informed by the default tools and script collections in [DevToys](https://devtoys.app/), [Boop](https://github.com/IvanMathy/Boop/tree/main/Scripts), [CyberChef](https://github.com/gchq/CyberChef), and transform.tools. Competitor coverage is evidence of recurring use, not a reason to copy tools that do not fit an editor scratchpad.
 
----
+## Corrected Current State
 
-## Proposed New Transformations
+Before this roadmap was implemented, Grayslate registered **55** actions, not the 46 recorded by the previous version of this document. Priority 1 added 27 actions, bringing the live registry to **82**. The shipped set includes:
 
-### Priority Legend
+- JSON/JSONC format, minify, validate, key-case conversion, and JSON/CSV/YAML conversion
+- SQL, JavaScript, TypeScript, CSS, HTML, Svelte, YAML, Markdown, and TOML formatting
+- common plain-text, case, URL, Base64, numeric-base, and statistics actions
+- Rust-backed cancellation, real progress, chunked result delivery, and one-transaction CodeMirror application
 
-- **HIGH** — Present in 3+ competitor tools; addresses a daily developer workflow; fill a visible gap
-- **MEDIUM** — Present in 1–2 competitor tools; useful but narrower audience
-- **LOW** — Niche use case; nice-to-have but not essential for a scratchpad
+Therefore **Format SQL** and **Format TOML** are complete and are not gaps.
 
----
+## Baseline Interaction Contract
 
-## 1. Hash & Checksum Generators
+The first baseline must remain editor-native:
 
-| # | Transformation | Use Case | Competitors That Have It | Priority |
-|---|---------------|----------|--------------------------|----------|
-| 1 | **MD5 Hash** | Quickly generate MD5 checksums for file integrity checks, cache keys, or comparing password hashes. | Boop, DevToys, CyberChef, qToolkit | **HIGH** |
-| 2 | **SHA-1 Hash** | Generate SHA-1 digests for legacy system compatibility or commit hashes. | DevToys, CyberChef, qToolkit | **HIGH** |
-| 3 | **SHA-256 Hash** | Industry-standard cryptographic hash for integrity verification, content fingerprinting. | DevToys, CyberChef, qToolkit | **HIGH** |
-| 4 | **SHA-512 Hash** | Stronger hash for high-security contexts. | DevToys, CyberChef | **MEDIUM** |
-| 5 | **CRC32 Checksum** | Lightweight checksum for quick data integrity checks in streams/transfers. | CyberChef | **MEDIUM** |
+- A replacement transform consumes the non-empty primary selection; otherwise it consumes the whole document.
+- A replacement result replaces exactly that source range as one undoable transaction.
+- A validation action returns a message and never changes the document.
+- No action opens a parameter dialog, reads an inline directive, or asks for a second input.
+- Options are represented as clear fixed actions, such as separate SHA-256 and SHA-512 entries.
+- UUID generators are the only no-input exception: they replace a non-empty primary selection or insert at the primary cursor.
+- Structured full-document results set the known output language immediately.
+- Existing Rust cancellation, natural progress, UTF-8-safe chunking, and CodeMirror rope assembly remain mandatory.
 
-**Value:** Hashing is the most-requested missing feature. Every competitor tool includes it. It's a fundamental developer need: "What's the MD5 of this?" without visiting an untrusted website.
+## Priority 1 — Everyday Developer Baseline (Implemented)
 
-**Implementation note:** Could be a single "Hash" transformation with an algorithm parameter, or discrete entries. The Rust `md5`, `sha1`, `sha2` crates are mature and well-audited.
+These actions are now implemented and registered in the transformation palette.
 
----
+### 1. Hashes and Checksums
 
-## 2. Encoding & Decoding
+| Proposed action ID | Title | Fixed behavior |
+|---|---|---|
+| `hash.sha-256` | SHA-256 Hash | Hash the exact UTF-8 input bytes and output lowercase hexadecimal. |
+| `hash.sha-512` | SHA-512 Hash | Hash the exact UTF-8 input bytes and output lowercase hexadecimal. |
+| `checksum.crc32` | CRC32 Checksum | Compute CRC32 over the exact UTF-8 bytes and output eight lowercase hexadecimal digits. |
+| `hash.sha-1` | SHA-1 Hash (Legacy) | Compatibility/integrity use only; never describe it as secure. |
+| `hash.md5` | MD5 Hash (Legacy) | Compatibility/integrity use only; never recommend it for passwords or security. |
 
-| # | Transformation | Use Case | Competitors That Have It | Priority |
-|---|---------------|----------|--------------------------|----------|
-| 6 | **HTML Entity Encode** | Encode `<`, `>`, `&`, `"` for safe HTML embedding. Essential when pasting code snippets into HTML templates or documentation. | Boop, DevToys, CyberChef, qToolkit | **HIGH** |
-| 7 | **HTML Entity Decode** | Decode `&amp;`, `&lt;`, `&gt;` back to characters. Debugging encoded HTML/XML payloads. | Boop, DevToys, CyberChef, qToolkit | **HIGH** |
-| 8 | **JWT Decoder** | Decode JWT header and payload (Base64URL) to inspect claims without verifying signature. Daily need for API/debugging. | DevToys, qToolkit, CyberChef | **HIGH** |
-| 9 | **Base64URL Encode** | URL-safe Base64 encoding (uses `-` and `_` instead of `+` and `/`, no padding). Used in JWTs, OAuth state params. | CyberChef | **MEDIUM** |
-| 10 | **Base64URL Decode** | Decode URL-safe Base64 back to text. | CyberChef | **MEDIUM** |
-| 11 | **Hex Dump** | View binary data as a hex+ASCII dump (like `xxd`). Useful for inspecting binary payloads, file headers, network packets. | CyberChef | **MEDIUM** |
-| 12 | **GZip Compress** | Compress text to gzip (useful for HTTP debugging, inspecting compressed API payloads). | DevToys, CyberChef | **MEDIUM** |
-| 13 | **GZip Decompress** | Decompress gzip data to readable text. | DevToys, CyberChef | **MEDIUM** |
-| 14 | **Unicode Escape** (`\uXXXX`) | Escape non-ASCII characters to `\u` sequences. Useful for JSON/JS string literal debugging. | Boop, CyberChef | **MEDIUM** |
-| 15 | **Unicode Unescape** | Convert `\uXXXX` back to readable characters. | Boop, CyberChef | **MEDIUM** |
+Hash actions replace their source text with the digest. They do not trim whitespace or hash files from disk.
 
----
+### 2. Web and API Encoding
 
-## 3. Formatters
+| Proposed action ID | Title | Fixed behavior |
+|---|---|---|
+| `encoding.html-encode` | HTML Entity Encode | Encode `&`, `<`, `>`, `"`, and `'`; preserve other Unicode text. |
+| `encoding.html-decode` | HTML Entity Decode | Decode standard named entities and decimal/hex numeric entities. |
+| `encoding.base64url-encode` | Base64URL Encode | Encode UTF-8 without `=` padding. |
+| `encoding.base64url-decode` | Base64URL Decode | Accept padded or unpadded Base64URL and require valid UTF-8 output. |
+| `encoding.gzip-to-base64` | GZip Text to Base64 | Gzip-compress UTF-8 input and return standard Base64 text. |
+| `encoding.gzip-from-base64` | Base64 GZip to Text | Base64-decode, gzip-decompress, and require valid UTF-8 output. |
+| `encoding.jwt-decode` | Decode JWT (Unverified) | Decode a compact three-segment JWT into formatted JSON containing `header`, `payload`, and the encoded `signature`. |
 
-| # | Transformation | Use Case | Competitors That Have It | Priority |
-|---|---------------|----------|--------------------------|----------|
-| 16 | **Format SQL** | Pretty-print SQL queries with consistent indentation. ORM debugging, inline SQL cleanup. | DevToys, qToolkit | **HIGH** |
-| 17 | **Format XML** | Pretty-print XML documents. SOAP responses, config files, SVG cleanup. | Boop, DevToys, qToolkit | **HIGH** |
-| 18 | **Minify XML** | Remove whitespace from XML. Reducing payload size. | CyberChef | **MEDIUM** |
-| 19 | **Validate XML** | Check XML well-formedness and optionally against XSD/DTD. | DevToys | **MEDIUM** |
-| 20 | **Format TOML** | Pretty-print TOML documents. Cargo.toml, pyproject.toml cleanup. | (growing format; transform.tools supports TOML conversion) | **MEDIUM** |
+JWT decoding never verifies a signature and must say so in the action title, description, and completion message. Gzip decompression must stream, remain cancellable, and stop before decompressed output exceeds 200 MB.
 
----
+### 3. Timestamps
 
-## 4. Format Conversion (Cross-Language)
+| Proposed action ID | Title | Fixed behavior |
+|---|---|---|
+| `time.unix-seconds-to-rfc3339` | Unix Seconds to RFC 3339 UTC | Parse one signed integer and output an unambiguous UTC timestamp. |
+| `time.unix-milliseconds-to-rfc3339` | Unix Milliseconds to RFC 3339 UTC | Parse one signed integer and preserve millisecond precision. |
+| `time.rfc3339-to-unix-seconds` | RFC 3339 to Unix Seconds | Require an explicit timezone/offset and output signed epoch seconds. |
+| `time.rfc3339-to-unix-milliseconds` | RFC 3339 to Unix Milliseconds | Require an explicit timezone/offset and output signed epoch milliseconds. |
 
-| # | Transformation | Use Case | Competitors That Have It | Priority |
-|---|---------------|----------|--------------------------|----------|
-| 21 | **XML → JSON** | Convert XML documents to JSON. API integration, data pipeline conversion. | transform.tools, CyberChef | **HIGH** |
-| 22 | **JSON → XML** | Convert JSON to XML. SOAP/microservice interop. | transform.tools | **MEDIUM** |
-| 23 | **JSON → TOML** | Convert JSON config to TOML format. | transform.tools | **MEDIUM** |
-| 24 | **TOML → JSON** | Convert TOML config to JSON. | transform.tools | **MEDIUM** |
-| 25 | **YAML → TOML** | Convert YAML to TOML. | transform.tools | **LOW** |
-| 26 | **TOML → YAML** | Convert TOML to YAML. | transform.tools | **LOW** |
-| 27 | **Markdown → HTML** | Convert Markdown to HTML for embedding/export. (Grayslate has preview; actual conversion to HTML in-editor is different.) | DevToys, transform.tools, qToolkit | **MEDIUM** |
-| 28 | **CSV → Markdown Table** | Convert CSV data to a GitHub-Flavored Markdown table for README/docs. | Boop (community script) | **MEDIUM** |
-| 29 | **TSV → JSON** | Tab-separated values to JSON. Common in data export pipelines. | Boop (community script) | **LOW** |
+The timestamp actions accept one trimmed value. They do not guess seconds versus milliseconds and do not interpret timezone-free local dates.
 
----
+### 4. URL and Structured Data
 
-## 5. Code Generation from JSON
+| Proposed action ID | Title | Fixed behavior |
+|---|---|---|
+| `url.query-to-json` | Query String to JSON | Accept an optional leading `?`; decode form semantics (`+` as space); preserve repeated keys as arrays. |
+| `url.json-to-query` | JSON to Query String | Accept a top-level JSON object whose values are scalar values or arrays of scalar values; reject nested objects. |
+| `json.lines-to-array` | JSON Lines to JSON Array | Parse every nonblank line as strict JSON and output one formatted array. |
+| `json.array-to-lines` | JSON Array to JSON Lines | Require a top-level array and output one compact JSON value per line. |
+| `json.sort-keys` | Sort JSON Keys | Recursively sort strict-JSON object keys, preserve array order, and format with the active indentation. |
+| `json.to-typescript` | JSON to TypeScript | Infer TypeScript from strict JSON using the fixed top-level name `Root`. |
 
-| # | Transformation | Use Case | Competitors That Have It | Priority |
-|---|---------------|----------|--------------------------|----------|
-| 30 | **JSON → TypeScript Interface** | Generate typed TypeScript interfaces from JSON. Extremely popular: save 5–10 minutes per API integration. | transform.tools, qToolkit, DevToys extension | **HIGH** |
-| 31 | **JSON → Rust Struct** (serde) | Generate `#[derive(Serialize, Deserialize)]` Rust structs. Natural fit for a Tauri-based app. | transform.tools, qToolkit | **MEDIUM** |
-| 32 | **JSON → Go Struct** | Generate Go structs with JSON tags. | transform.tools, qToolkit | **MEDIUM** |
-| 33 | **JSON → JSON Schema** | Generate a JSON Schema definition from example JSON. API documentation, validation. | transform.tools, DevToys extension | **MEDIUM** |
-| 34 | **JSON → Python Dataclass** | Generate Python dataclasses or Pydantic models. | transform.tools | **LOW** |
+`json.sort-keys` rejects JSONC rather than silently discarding comments. TypeScript generation uses `export interface Root` for a top-level object and `export type Root = ...` otherwise. It treats observed properties as required, quotes invalid property identifiers, preserves `null`, and unions distinct array element types.
 
----
+### 5. XML Essentials
 
-## 6. Timestamp Utilities
+| Proposed action ID | Title | Fixed behavior |
+|---|---|---|
+| `xml.format` | Format XML | Pretty-print well-formed XML without changing text or CDATA content. |
+| `xml.minify` | Minify XML | Remove formatting-only whitespace while preserving meaningful text and CDATA. |
+| `xml.validate` | Validate XML | Check well-formedness and return a message without changing the document. |
 
-| # | Transformation | Use Case | Competitors That Have It | Priority |
-|---|---------------|----------|--------------------------|----------|
-| 35 | **Unix Timestamp → Human Date** | Convert epoch seconds/millis to readable UTC/local dates. Debugging logs, API responses. | DevToys, qToolkit, Boop, CyberChef | **HIGH** |
-| 36 | **Human Date → Unix Timestamp** | Convert a date string to epoch seconds. Generating timestamps for queries/configs. | DevToys, qToolkit, CyberChef | **HIGH** |
-| 37 | **Date Format Converter** | Convert between date string formats (ISO 8601, RFC 2822, US, EU, etc.). | CyberChef | **MEDIUM** |
+This phase does not perform XSD/DTD validation, load external entities, or convert XML and JSON. XML↔JSON remains deferred until a mapping convention is explicitly approved.
 
----
+### 6. Identifier Generators
 
-## 7. Generators
-
-| # | Transformation | Use Case | Competitors That Have It | Priority |
-|---|---------------|----------|--------------------------|----------|
-| 38 | **UUID v4 Generator** | Generate random UUIDs. Test data, unique identifiers, database seeding. | DevToys, qToolkit | **HIGH** |
-| 39 | **Lorem Ipsum Generator** | Generate placeholder text for UI mockups, testing. | DevToys, qToolkit | **MEDIUM** |
-| 40 | **Password Generator** | Generate cryptographically random passwords with configurable length/character sets. | DevToys | **LOW** |
-
----
-
-## 8. Color Utilities
-
-| # | Transformation | Use Case | Competitors That Have It | Priority |
-|---|---------------|----------|--------------------------|----------|
-| 41 | **HEX ↔ RGB Color Converter** | Convert between `#RRGGBB`, `rgb(r, g, b)`, `rgba()`. Daily CSS/tailwind workflow. | qToolkit, Boop (community) | **MEDIUM** |
-| 42 | **HEX ↔ HSL Color Converter** | Convert between HEX and HSL for design adjustments. | qToolkit | **LOW** |
-
----
-
-## 9. Text Manipulation (Extensions to Existing)
-
-| # | Transformation | Use Case | Competitors That Have It | Priority |
-|---|---------------|----------|--------------------------|----------|
-| 43 | **Filter Lines (Keep Matching Regex)** | Keep only lines that match a regex. Log filtering, data extraction. | CyberChef, DevToys | **HIGH** |
-| 44 | **Filter Lines (Remove Matching Regex)** | Remove lines matching a regex. Clean up logs, strip noise. | CyberChef | **HIGH** |
-| 45 | **Add Line Numbers** | Prefix each line with its line number (e.g., `1: `). Code review, documentation. | CyberChef, DevToys | **MEDIUM** |
-| 46 | **Remove Line Numbers / Strip Prefix** | Strip a fixed-length prefix or line numbers from each line. Cleaning copied code from websites/PDFs. | No direct equivalent, but fills a real need | **MEDIUM** |
-| 47 | **Wrap Lines at Column Width** | Hard-wrap text at a specified character column. Prose formatting, commit messages. | DevToys | **MEDIUM** |
-| 48 | **Indent Lines** | Add N spaces/tabs to the start of every line. Code formatting. | CyberChef | **MEDIUM** |
-| 49 | **Unindent Lines** | Remove N characters/spaces from the start of every line. | CyberChef | **MEDIUM** |
-| 50 | **Sort Lines — Numeric** | Sort lines numerically (not alphabetically). Log analysis. | CyberChef | **MEDIUM** |
-| 51 | **Sort Lines — Reverse** | Sort in descending order. | CyberChef | **LOW** |
-| 52 | **Sort Lines — By Length** | Sort by line length (shortest/longest first). | CyberChef | **LOW** |
-| 53 | **Shuffle Lines** | Randomize line order. Test data generation. | Boop (community), CyberChef | **LOW** |
-| 54 | **Find & Replace (across entire document, with regex)** | Regex-based find & replace. (Grayslate has CodeMirror search; this is a batch text transform.) | DevToys | **MEDIUM** |
-| 55 | **Extract Regex Captures** | Extract all capture groups from a regex into structured output. Data scraping from logs. | CyberChef | **MEDIUM** |
-
----
-
-## 10. Unique-Line Operations
-
-| # | Transformation | Use Case | Competitors That Have It | Priority |
-|---|---------------|----------|--------------------------|----------|
-| 56 | **Unique Lines Only** | Output only lines that appear exactly once (strip all duplicates entirely). Data dedup analysis. | CyberChef | **MEDIUM** |
-| 57 | **Count Line Occurrences** | Count how many times each unique line appears, output `count\tline`. Frequency analysis. | CyberChef | **MEDIUM** |
-| 58 | **Intersection of Lines** | Given two sets of lines, output lines present in both. Set operation. | Boop (LineComparer), CyberChef | **LOW** | *(Requires two-input UI, not a scratchpad fit.)* |
-
----
-
-## 11. Casing (Extensions)
-
-| # | Transformation | Use Case | Competitors That Have It | Priority |
-|---|---------------|----------|--------------------------|----------|
-| 59 | **PascalCase** | Convert text to PascalCase (upper camel). Language convention for class names in C#, Java, TypeScript. | (Grayslate has camelCase already; PascalCase is a natural pair.) | **MEDIUM** |
-| 60 | **Sentence case** | First letter of each sentence capitalized. Prose editing. | DevToys | **LOW** |
-
----
-
-## 12. JSON-Specific Tools
-
-| # | Transformation | Use Case | Competitors That Have It | Priority |
-|---|---------------|----------|--------------------------|----------|
-| 61 | **JSON Diff** | Compare two JSON documents side-by-side and highlight differences. API response comparison, config drift detection. | qToolkit | **MEDIUM** | *(Requires multi-input UI.)* |
-| 62 | **JSONPath Query** | Query/transform JSON using JSONPath expressions. API response filtering. | DevToys | **MEDIUM** |
-| 63 | **Flatten JSON** | Convert nested JSON to flat dot-notation keys. CSV export prep, database mapping. | (unique to data engineering tools) | **LOW** |
-| 64 | **Unflatten JSON** | Convert flat dot-notation keys back to nested JSON. | (unique) | **LOW** |
-
----
-
-## 13. String / Text Utilities
-
-| # | Transformation | Use Case | Competitors That Have It | Priority |
-|---|---------------|----------|--------------------------|----------|
-| 65 | **Count Duplicate Lines** | Count and optionally group duplicate lines. Like `sort | uniq -c`. | (unique) | **MEDIUM** |
-| 66 | **Escape String (C-style)** | Escape `\n`, `\t`, `\\`, `\"` for C/Java/JS string literals. Embedding text in source code. | CyberChef, Boop | **MEDIUM** |
-| 67 | **Unescape String (C-style)** | Convert `\n` → newline, `\t` → tab, etc. Debugging escaped strings from logs/APIs. | CyberChef, Boop | **MEDIUM** |
-| 68 | **ROT47** | Full ASCII rotation cipher (extends ROT13 to all printable ASCII). Light obfuscation. | CyberChef | **LOW** |
-
----
-
-## 14. Character Encoding
-
-| # | Transformation | Use Case | Competitors That Have It | Priority |
-|---|---------------|----------|--------------------------|----------|
-| 69 | **Character Encoding Converter** | Convert between UTF-8, UTF-16LE/BE, Latin-1, Windows-1252. Fixing mojibake, byte-stream debugging. | CyberChef | **LOW** |
-
----
-
-## Quick-Reference: Top 15 by Priority
-
-| Rank | Transformation | Priority | Impact |
-|------|---------------|----------|--------|
-| 1 | **SHA-256 / MD5 / SHA-1 Hash** | HIGH | Fundamental missing feature across all competitors |
-| 2 | **HTML Entity Encode/Decode** | HIGH | 4/4 competitor tools have this |
-| 3 | **Unix Timestamp ↔ Human Date** | HIGH | 5/5 tools have this; daily debugging need |
-| 4 | **JWT Decoder** | HIGH | Universal API debugging need |
-| 5 | **Filter Lines (regex keep/remove)** | HIGH | Powerful text utility; fills real gap |
-| 6 | **Format SQL** | HIGH | ORM/inline SQL debugging |
-| 7 | **Format XML** | HIGH | Major format with no formatting support yet |
-| 8 | **XML → JSON** | HIGH | Common integration/conversion need |
-| 9 | **JSON → TypeScript Interface** | HIGH | Huge time-saver; popular in transform.tools |
-| 10 | **UUID v4 Generator** | HIGH | Test data generation need |
-| 11 | **Unicode Escape/Unescape** | MEDIUM | Debugging multilingual content |
-| 12 | **GZip Compress/Decompress** | MEDIUM | HTTP/debugging use case |
-| 13 | **C-style String Escape/Unescape** | MEDIUM | Embedding text in code |
-| 14 | **JSON → Rust Struct** | MEDIUM | Natural fit for Tauri-based app |
-| 15 | **Add/Remove Line Numbers** | MEDIUM | Code review, cleaning copied text |
-
----
-
-## What Competitor Tools Have That Grayslate Should NOT Add
-
-These exist in competitor tools but don't fit a lightweight scratchpad model:
-
-- **Image compression/conversion** (qToolkit, DevToys) — Requires binary file handling; Grayslate is a text scratchpad.
-- **PDF manipulation** (qToolkit) — Different product category entirely.
-- **AES/DES/RC4 encryption** (CyberChef) — Too domain-specific (forensics/intelligence); security liability.
-- **X.509 certificate parsing** (CyberChef) — Too niche.
-- **IPv6/IPv4 parsing** (CyberChef) — Infrequent need for a scratchpad.
-- **Color blindness simulator** (DevToys) — Different domain (accessibility testing).
-- **QR Code generator** (DevToys, qToolkit) — Requires graphical output.
-- **Password strength tester** (DevToys) — Outside scope.
-- **CSV table editor** — Already exists in Grayslate as a separate mode.
-- **Background remover / portrait blur / sticker maker** (qToolkit) — Image editing, not text transformation.
-- **Cron expression builder** (qToolkit, DevToys) — Better as a separate tool.
-
----
-
-## Implementation Approach Suggestions
-
-1. **Batch 1 (High Priority — ~15 transformations):** Hashes, HTML entities, timestamps, JWT decoder, SQL/XML formatting, filter lines, UUID generator, JSON → TypeScript. These fill the most glaring gaps and match the competitive baseline.
-
-2. **Batch 2 (Medium Priority — ~20 transformations):** GZip, Unicode escaping, JSON → Rust/Go structs, line number operations, indent/unindent, wrap lines, Markdown → HTML, CSV → Markdown table, regex extract, PascalCase, TOML conversions.
-
-3. **Batch 3 (Low Priority — ~10 transformations):** Shuffle lines, ROT47, sentence case, flatten/unflatten JSON, character encoding converter.
-
-4. **Architecture:** All proposed transforms fit the existing `TransformationContext` + `dispatch_transformation` pattern. No new IPC protocol needed. Rust ecosystem has mature crates for all proposed features (`md5`, `sha2`, `jsonwebtoken`, `chrono`, `uuid`, `sqlformat`, `quick-xml`, `html-escape`, `flate2`, `heck` for PascalCase, `unescape`).
+| Proposed action ID | Title | Fixed behavior |
+|---|---|---|
+| `generate.uuid-v4` | Insert UUID v4 | Generate one lowercase hyphenated random UUID. |
+| `generate.uuid-v7` | Insert UUID v7 | Generate one lowercase hyphenated time-ordered UUID. |
+
+Generators replace the primary selection when it is non-empty; otherwise they insert at the primary cursor and leave the cursor after the generated text. They never replace the whole document merely because the selection is empty.
+
+## Completed Implementation Order
+
+1. **Completed — Integrity and common encodings:** hashes/checksums, HTML entities, Base64URL, and JWT inspection.
+2. **Completed — API/data workflows:** timestamps, query-string conversion, JSON Lines conversion, recursive key sorting, and UUID insertion behavior.
+3. **Completed — Heavier transforms:** bounded gzip, JSON-to-TypeScript inference, and XML format/minify/validation.
+
+Each batch must update the frontend action union/registry and Rust action enum/dispatch together. Use the shared `TransformationContext`; do not introduce action-specific IPC commands or transport protocols.
+
+## Priority 2 — Deterministic Follow-up Actions
+
+These remain good editor-native additions after Priority 1:
+
+- Unicode escape/unescape with correct surrogate-pair handling
+- standards-compliant JSON string escape/unescape; the existing Add/Remove Slashes actions are not equivalent
+- JSON example to JSON Schema
+- JSON↔TOML and optional YAML↔TOML conversion
+- Markdown→HTML and HTML→Markdown
+- CSV→GitHub-Flavored Markdown table and TSV↔JSON
+- URL components to structured JSON
+- PascalCase
+- numeric/reverse/length line sorting, unique-only lines, and occurrence counts
+- add/remove line numbers and indentation using the active editor indentation
+- HEX↔RGB color conversion
+- UUID-adjacent ULID generation if demand warrants it
+
+## Deferred Because They Need Another Input or Product Decision
+
+The following are useful tools but do not fit the approved no-dialog baseline:
+
+- regex keep/remove filters, regex capture extraction, and parameterized batch replacement
+- JSONPath queries
+- JSON/text/list diff and set intersection
+- JSON Schema or XSD validation against a separate schema
+- HMAC generation, JWT signing, password generation, or anything requiring a secret/options input
+- XML↔JSON conversion until attribute, namespace, mixed-content, and root-element mapping are specified
+- configurable hard wrapping and other actions that require a numeric parameter
+
+These should not use hidden first-line directives. If Grayslate later gains a deliberate parameter surface, they can be reconsidered.
+
+## Explicit Non-Goals
+
+- image/PDF conversion or compression
+- QR-code generation
+- broad encryption/decryption suites
+- certificate, IP/subnet, or forensic binary tooling
+- cron builders, color-blindness simulators, and other standalone widgets
+- duplicate CSV table tooling already covered by table mode
+
+## Architecture Contract for Implementation
+
+- Keep `execute_transformation` as the single command boundary.
+- Keep the command response as the control plane and indexed channel chunks as the result data plane.
+- Add a frontend action application mode with `"replace"` as the default and `"insert"` for generators; this does not require a new IPC response type.
+- Replacement and insertion results must each apply as one CodeMirror transaction and one undo step.
+- Validators return `ShowMessage`; all usable transformation outputs return `ReplaceText`, not transient toast-only data.
+- Report progress only from natural work checkpoints; do not add counting passes for loader cosmetics.
+- Validate malformed and oversized input in Rust because the frontend is untrusted.
+- Set `outputLanguage` for full-document JSON, TypeScript, and other known structured outputs.
+
+## Verification and Acceptance Criteria
+
+Every implemented action requires Rust unit coverage for its standard examples, invalid input, Unicode behavior, empty input, and cancellation checkpoints where work can be large. In addition:
+
+- use standard published digest/checksum vectors
+- test padded and unpadded Base64URL
+- test malformed and non-UTF-8 decoded payloads
+- test JWT segment count and invalid JSON payloads without implying verification
+- test timestamp range, negative epochs, offsets, and millisecond precision
+- test repeated/empty query keys and rejected nested JSON
+- test blank NDJSON lines, non-object JSON values, and array-order preservation
+- test TypeScript inference for nested objects, invalid identifiers, nulls, and heterogeneous arrays
+- test XML declarations, attributes, comments, CDATA, mixed text, and malformed input
+- test gzip corruption and the decompressed-output limit
+- manually verify selection replacement, cursor insertion with the cursor ending after generated text, output-language changes, cancellation, and one-step undo in the running app
+
+Required checks after each implementation batch:
+
+```bash
+pnpm run check
+cargo test --manifest-path src-tauri/Cargo.toml --lib -- commands::transform::tests
+```
+
+No automated frontend test framework is currently configured, so editor application behavior requires manual verification.

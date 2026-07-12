@@ -8,6 +8,8 @@ version = "0.1.0"
 dependencies = [
  "ammonia",
  "base64 0.22.1",
+ "chrono",
+ "crc32fast",
  "csv",
  "dprint-core 0.67.4",
  "dprint-plugin-jsonc",
@@ -15,6 +17,7 @@ dependencies = [
  "dprint-plugin-sql",
  "dprint-plugin-toml",
  "dprint-plugin-typescript",
+ "flate2",
  "globset",
  "grayslate-langdetect",
  "grayslate-langnaming",
@@ -22,20 +25,25 @@ dependencies = [
  "grep-regex",
  "grep-searcher",
  "heck 0.5.0",
+ "html-escape",
  "ignore",
  "jsonc-parser 0.33.0",
  "malva",
  "markup_fmt",
+ "md-5",
  "objc2",
  "objc2-app-kit",
  "objc2-quartz-core",
  "pretty_yaml",
  "pulldown-cmark 0.13.4",
+ "quick-xml 0.39.4",
  "regex",
  "rusqlite",
  "serde",
  "serde_json",
  "serde_yaml",
+ "sha1",
+ "sha2",
  "tauri",
  "tauri-build",
  "tauri-plugin-clipboard-manager",
@@ -49,6 +57,7 @@ dependencies = [
  "unicode-segmentation",
  "url",
  "urlencoding",
+ "uuid",
 ]
 
 [[package]]
@@ -680,8 +689,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1aa79e62e7697b8e29b513a68abacf485adcd1fe8284a4316c5ae868e6633327"
 dependencies = [
  "iana-time-zone",
+ "js-sys",
  "num-traits",
  "serde",
+ "wasm-bindgen",
  "windows-link 0.2.1",
 ]
 
@@ -2193,6 +2204,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "html-escape"
+version = "0.2.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "46c1ff2d1cbf39efe5af0900ced8a069b5e61557a17544eb0c4a50239937389e"
+
+[[package]]
 name = "html5ever"
 version = "0.38.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2940,6 +2957,16 @@ name = "matchgen"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e699c229322a7685323ebc3074747dcaaf174e9e582665112367aa351364c8ec"
+
+[[package]]
+name = "md-5"
+version = "0.10.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d89e7ee0cfbedfc4da3340218492196241d89eefb6dab27de5df917a6d2e78cf"
+dependencies = [
+ "cfg-if",
+ "digest",
+]
 
 [[package]]
 name = "memchr"
@@ -4606,6 +4633,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "170fb83ab34de17dc69aa7c67482b22218ddb85da56546f9bd6b929e32a05930"
 dependencies = [
  "stable_deref_trait",
+]
+
+[[package]]
+name = "sha1"
+version = "0.10.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a978451301f4db1d02937a4ab3ccce137717b81826e79b7d49ffe3244a13c3b8"
+dependencies = [
+ "cfg-if",
+ "cpufeatures",
+ "digest",
 ]
 
 [[package]]

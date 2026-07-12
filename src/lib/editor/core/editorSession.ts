@@ -385,6 +385,14 @@ export function dispatchManagedEditorChange(
         focus?: boolean;
         separateUndoStep?: boolean;
         addToHistory?: boolean;
+        /**
+         * Explicit post-change selection. Positions refer to the document
+         * after `changes` is applied, matching CodeMirror's transaction API.
+         */
+        selection?: {
+            anchor: number;
+            head?: number;
+        };
     },
 ): boolean {
     if (!session.state) {
@@ -402,6 +410,7 @@ export function dispatchManagedEditorChange(
     if (session.view) {
         session.view.dispatch({
             changes,
+            selection: options?.selection,
             userEvent: options?.userEvent ?? "input",
             annotations: annotations.length > 0 ? annotations : undefined,
         });
@@ -414,6 +423,7 @@ export function dispatchManagedEditorChange(
 
     session.state = session.state.update({
         changes,
+        selection: options?.selection,
         userEvent: options?.userEvent ?? "input",
         annotations: annotations.length > 0 ? annotations : undefined,
     }).state;

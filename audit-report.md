@@ -1,6 +1,6 @@
 # Grayslate codebase audit report
 
-Repository: `C:\Users\prasa\Documents\Projects\grayslate`
+Repository: `<local repository path>`
 
 ## Scope
 
@@ -150,4 +150,3 @@ Automated baseline validation could not be completed in this environment because
 - After `pwsh.exe` is available, run:
   - `pnpm run check`
   - `pnpm tauri build`
-

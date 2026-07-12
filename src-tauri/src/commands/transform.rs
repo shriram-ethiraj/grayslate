@@ -1,4 +1,12 @@
-use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
+use base64::{
+    engine::general_purpose::{
+        STANDARD as BASE64_STANDARD, URL_SAFE as BASE64_URL_SAFE,
+        URL_SAFE_NO_PAD as BASE64_URL_SAFE_NO_PAD,
+    },
+    Engine as _,
+};
+use chrono::{DateTime, SecondsFormat, Utc};
+use crc32fast::Hasher as Crc32Hasher;
 use dprint_plugin_jsonc::{
     configuration::Configuration as JsoncFormatConfiguration, format_text as format_jsonc_text,
 };
@@ -16,20 +24,33 @@ use dprint_plugin_typescript::{
     configuration::Configuration as TsFormatConfiguration, format_text as format_ts_text,
     FormatTextOptions,
 };
+use flate2::{read::GzDecoder, write::GzEncoder, Compression};
 use heck::{AsKebabCase, AsLowerCamelCase, AsSnakeCase, AsTitleCase};
 use jsonc_parser::{
     ast::{ObjectPropName, Value as JsonAstValue},
     common::Range as JsonRange,
     parse_to_ast, parse_to_serde_value, parse_to_value, CollectOptions, ParseOptions,
 };
-use malva::{config::FormatOptions as CssFormatOptions, format_text as format_css_text, Syntax as CssSyntax};
-use markup_fmt::{
-    config::FormatOptions as HtmlFormatOptions, format_text as format_html_text, Language as HtmlLanguage,
+use malva::{
+    config::FormatOptions as CssFormatOptions, format_text as format_css_text, Syntax as CssSyntax,
 };
+use markup_fmt::{
+    config::FormatOptions as HtmlFormatOptions, format_text as format_html_text,
+    Language as HtmlLanguage,
+};
+use md5::Md5;
 use pretty_yaml::{config::FormatOptions as YamlFormatOptions, format_text as format_yaml_text};
+use quick_xml::{
+    events::{BytesStart, Event},
+    reader::Reader as XmlReader,
+    writer::Writer as XmlWriter,
+};
 use serde::{Deserialize, Serialize};
+use sha1::Sha1;
+use sha2::{Digest, Sha256, Sha512};
 use std::cell::Cell;
 use std::collections::HashMap;
+use std::io::{Cursor, Read, Write};
 use std::path::Path;
 use std::sync::LazyLock;
 use std::sync::{
@@ -37,6 +58,7 @@ use std::sync::{
     Arc, Mutex,
 };
 use unicode_segmentation::UnicodeSegmentation;
+use uuid::Uuid;
 
 static JSONC_PARSE_OPTIONS: LazyLock<ParseOptions> = LazyLock::new(|| ParseOptions {
     allow_comments: true,
@@ -146,14 +168,9 @@ fn detect_indentation(text: &str) -> (bool, u32) {
 /// "detect" mode analyses `text` to pick the dominant indentation style;
 /// absent params and "default" mode fall back to 2 spaces.
 fn resolve_format_indent(params: &Option<TransformationParams>, text: &str) -> (bool, u32) {
-    match params
-        .as_ref()
-        .and_then(|p| p.indent_config.as_ref())
-    {
+    match params.as_ref().and_then(|p| p.indent_config.as_ref()) {
         Some(cfg) if cfg.indent_mode == "tab" => (true, cfg.indent_size.unwrap_or(2).max(1)),
-        Some(cfg) if cfg.indent_mode == "spaces" => {
-            (false, cfg.indent_size.unwrap_or(2).max(1))
-        }
+        Some(cfg) if cfg.indent_mode == "spaces" => (false, cfg.indent_size.unwrap_or(2).max(1)),
         Some(cfg) if cfg.indent_mode == "detect" => detect_indentation(text),
         _ => (false, 2),
     }
@@ -448,6 +465,14 @@ pub enum TransformationActionId {
     JsonMinify,
     #[serde(rename = "json.validate")]
     JsonValidate,
+    #[serde(rename = "json.lines-to-array")]
+    JsonLinesToArray,
+    #[serde(rename = "json.array-to-lines")]
+    JsonArrayToLines,
+    #[serde(rename = "json.sort-keys")]
+    JsonSortKeys,
+    #[serde(rename = "json.to-typescript")]
+    JsonToTypescript,
 
     #[serde(rename = "sql.format")]
     SqlFormat,
@@ -469,6 +494,14 @@ pub enum TransformationActionId {
     MarkdownFormat,
     #[serde(rename = "toml.format")]
     TomlFormat,
+
+    // ── XML ─────────────────────────────────────────────────────────────
+    #[serde(rename = "xml.format")]
+    XmlFormat,
+    #[serde(rename = "xml.minify")]
+    XmlMinify,
+    #[serde(rename = "xml.validate")]
+    XmlValidate,
 
     // ── JSON key case ────────────────────────────────────────────────────
     #[serde(rename = "json.keys-camel-case")]
@@ -538,6 +571,10 @@ pub enum TransformationActionId {
     UrlEncode,
     #[serde(rename = "url.decode")]
     UrlDecode,
+    #[serde(rename = "url.query-to-json")]
+    UrlQueryToJson,
+    #[serde(rename = "url.json-to-query")]
+    UrlJsonToQuery,
     #[serde(rename = "security.url-defang")]
     SecurityUrlDefang,
     #[serde(rename = "security.url-refang")]
@@ -548,6 +585,48 @@ pub enum TransformationActionId {
     EncodingBase64Encode,
     #[serde(rename = "encoding.base64-decode")]
     EncodingBase64Decode,
+    #[serde(rename = "encoding.base64url-encode")]
+    EncodingBase64UrlEncode,
+    #[serde(rename = "encoding.base64url-decode")]
+    EncodingBase64UrlDecode,
+    #[serde(rename = "encoding.html-encode")]
+    EncodingHtmlEncode,
+    #[serde(rename = "encoding.html-decode")]
+    EncodingHtmlDecode,
+    #[serde(rename = "encoding.gzip-to-base64")]
+    EncodingGzipToBase64,
+    #[serde(rename = "encoding.gzip-from-base64")]
+    EncodingGzipFromBase64,
+    #[serde(rename = "encoding.jwt-decode")]
+    EncodingJwtDecode,
+
+    // ── Hashes and checksums ────────────────────────────────────────────
+    #[serde(rename = "hash.sha-256")]
+    HashSha256,
+    #[serde(rename = "hash.sha-512")]
+    HashSha512,
+    #[serde(rename = "checksum.crc32")]
+    ChecksumCrc32,
+    #[serde(rename = "hash.sha-1")]
+    HashSha1,
+    #[serde(rename = "hash.md5")]
+    HashMd5,
+
+    // ── Time ────────────────────────────────────────────────────────────
+    #[serde(rename = "time.unix-seconds-to-rfc3339")]
+    TimeUnixSecondsToRfc3339,
+    #[serde(rename = "time.unix-milliseconds-to-rfc3339")]
+    TimeUnixMillisecondsToRfc3339,
+    #[serde(rename = "time.rfc3339-to-unix-seconds")]
+    TimeRfc3339ToUnixSeconds,
+    #[serde(rename = "time.rfc3339-to-unix-milliseconds")]
+    TimeRfc3339ToUnixMilliseconds,
+
+    // ── Generators ──────────────────────────────────────────────────────
+    #[serde(rename = "generate.uuid-v4")]
+    GenerateUuidV4,
+    #[serde(rename = "generate.uuid-v7")]
+    GenerateUuidV7,
 
     // ── Numeric conversions ──────────────────────────────────────────────
     #[serde(rename = "convert.ascii-to-hex")]
@@ -660,6 +739,7 @@ pub enum ExecuteTransformationResponse {
 
 const BYTE_CANCEL_CHECK_INTERVAL: usize = 4 * 1024;
 const LINE_CANCEL_CHECK_INTERVAL: usize = 512;
+const MAX_GZIP_DECOMPRESSED_BYTES: usize = 200 * 1024 * 1024;
 
 /// Shared cancellation-aware context for all transformation implementations.
 /// New transformations should take `&TransformationContext` and use the
@@ -1791,6 +1871,735 @@ fn encoding_base64_decode(text: &str, ctx: &TransformationContext<'_>) -> Result
     String::from_utf8(bytes).map_err(|e| format!("Base64 decoded to non-UTF-8 bytes: {}", e))
 }
 
+fn encoding_base64url_encode(
+    text: &str,
+    ctx: &TransformationContext<'_>,
+) -> Result<String, String> {
+    ctx.check_cancelled()?;
+    Ok(BASE64_URL_SAFE_NO_PAD.encode(text.as_bytes()))
+}
+
+fn encoding_base64url_decode(
+    text: &str,
+    ctx: &TransformationContext<'_>,
+) -> Result<String, String> {
+    ctx.check_cancelled()?;
+    let input = text.trim();
+    let bytes = BASE64_URL_SAFE_NO_PAD
+        .decode(input)
+        .or_else(|_| BASE64_URL_SAFE.decode(input))
+        .map_err(|error| format!("Invalid Base64URL: {}", error))?;
+    String::from_utf8(bytes).map_err(|error| {
+        format!(
+            "Base64URL decoded to non-UTF-8 bytes: {}",
+            error.utf8_error()
+        )
+    })
+}
+
+fn encoding_html_encode(text: &str, ctx: &TransformationContext<'_>) -> Result<String, String> {
+    ctx.check_cancelled()?;
+    let mut output = String::with_capacity(text.len());
+    let total_bytes = text.len() as u32;
+    for (character_index, (byte_index, character)) in text.char_indices().enumerate() {
+        ctx.checkpoint(character_index, BYTE_CANCEL_CHECK_INTERVAL)?;
+        ctx.report_progress(byte_index as u32, total_bytes.max(1));
+        match character {
+            '&' => output.push_str("&amp;"),
+            '<' => output.push_str("&lt;"),
+            '>' => output.push_str("&gt;"),
+            '"' => output.push_str("&quot;"),
+            '\'' => output.push_str("&#39;"),
+            _ => output.push(character),
+        }
+    }
+    Ok(output)
+}
+
+fn encoding_html_decode(text: &str, ctx: &TransformationContext<'_>) -> Result<String, String> {
+    ctx.check_cancelled()?;
+    Ok(html_escape::decode_html_entities(text).into_owned())
+}
+
+fn encoding_gzip_to_base64(text: &str, ctx: &TransformationContext<'_>) -> Result<String, String> {
+    ctx.check_cancelled()?;
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+    let total_bytes = text.len() as u32;
+    for (index, chunk) in text.as_bytes().chunks(64 * 1024).enumerate() {
+        ctx.checkpoint(index, 1)?;
+        let processed = ((index + 1) * 64 * 1024).min(text.len()) as u32;
+        ctx.report_progress(processed, total_bytes.max(1));
+        encoder
+            .write_all(chunk)
+            .map_err(|error| format!("Gzip compression failed: {}", error))?;
+    }
+    let compressed = encoder
+        .finish()
+        .map_err(|error| format!("Gzip compression failed: {}", error))?;
+    Ok(BASE64_STANDARD.encode(compressed))
+}
+
+fn encoding_gzip_from_base64(
+    text: &str,
+    ctx: &TransformationContext<'_>,
+) -> Result<String, String> {
+    ctx.check_cancelled()?;
+    let compressed = BASE64_STANDARD
+        .decode(text.trim())
+        .map_err(|error| format!("Invalid Base64 gzip input: {}", error))?;
+    let compressed_len = compressed.len() as u32;
+    let mut decoder = GzDecoder::new(Cursor::new(compressed));
+    let mut decoded = Vec::new();
+    let mut buffer = [0u8; 64 * 1024];
+
+    loop {
+        ctx.check_cancelled()?;
+        let count = decoder
+            .read(&mut buffer)
+            .map_err(|error| format!("Gzip decompression failed: {}", error))?;
+        ctx.report_progress(decoder.get_ref().position() as u32, compressed_len.max(1));
+        if count == 0 {
+            break;
+        }
+        let next_len = decoded
+            .len()
+            .checked_add(count)
+            .ok_or_else(|| "Gzip output size overflowed the supported range.".to_string())?;
+        if next_len > MAX_GZIP_DECOMPRESSED_BYTES {
+            return Err(format!(
+                "Gzip output exceeds the {} MB safety limit.",
+                MAX_GZIP_DECOMPRESSED_BYTES / (1024 * 1024)
+            ));
+        }
+        decoded.extend_from_slice(&buffer[..count]);
+    }
+
+    String::from_utf8(decoded).map_err(|error| {
+        format!(
+            "Gzip decompressed to non-UTF-8 bytes: {}",
+            error.utf8_error()
+        )
+    })
+}
+
+fn encoding_jwt_decode(text: &str, ctx: &TransformationContext<'_>) -> Result<String, String> {
+    ctx.check_cancelled()?;
+    let token = text.trim();
+    let mut segments = token.split('.');
+    let header_segment = segments
+        .next()
+        .ok_or_else(|| "Invalid JWT: missing header segment.".to_string())?;
+    let payload_segment = segments
+        .next()
+        .ok_or_else(|| "Invalid JWT: missing payload segment.".to_string())?;
+    let signature_segment = segments
+        .next()
+        .ok_or_else(|| "Invalid JWT: missing signature segment.".to_string())?;
+    if segments.next().is_some() || header_segment.is_empty() || payload_segment.is_empty() {
+        return Err("Invalid JWT: expected exactly three compact segments.".to_string());
+    }
+
+    let decode_json_segment = |segment: &str, name: &str| -> Result<serde_json::Value, String> {
+        let bytes = BASE64_URL_SAFE_NO_PAD
+            .decode(segment)
+            .or_else(|_| BASE64_URL_SAFE.decode(segment))
+            .map_err(|error| format!("Invalid JWT {} encoding: {}", name, error))?;
+        serde_json::from_slice(&bytes)
+            .map_err(|error| format!("Invalid JWT {} JSON: {}", name, error))
+    };
+
+    let header = decode_json_segment(header_segment, "header")?;
+    ctx.check_cancelled()?;
+    let payload = decode_json_segment(payload_segment, "payload")?;
+    let decoded = serde_json::json!({
+        "header": header,
+        "payload": payload,
+        "signature": signature_segment,
+    });
+    serde_json::to_string_pretty(&decoded)
+        .map_err(|error| format!("Failed to serialize decoded JWT: {}", error))
+}
+
+fn hash_digest<D>(text: &str, ctx: &TransformationContext<'_>) -> Result<String, String>
+where
+    D: Digest + Default,
+{
+    ctx.check_cancelled()?;
+    let mut digest = D::default();
+    let total_bytes = text.len() as u32;
+    for (index, chunk) in text
+        .as_bytes()
+        .chunks(BYTE_CANCEL_CHECK_INTERVAL)
+        .enumerate()
+    {
+        ctx.checkpoint(index, 1)?;
+        let processed = ((index + 1) * BYTE_CANCEL_CHECK_INTERVAL).min(text.len()) as u32;
+        ctx.report_progress(processed, total_bytes.max(1));
+        digest.update(chunk);
+    }
+    let bytes = digest.finalize();
+    let mut output = String::with_capacity(bytes.len() * 2);
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    for byte in bytes {
+        output.push(HEX[(byte >> 4) as usize] as char);
+        output.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    Ok(output)
+}
+
+fn hash_sha256(text: &str, ctx: &TransformationContext<'_>) -> Result<String, String> {
+    hash_digest::<Sha256>(text, ctx)
+}
+
+fn hash_sha512(text: &str, ctx: &TransformationContext<'_>) -> Result<String, String> {
+    hash_digest::<Sha512>(text, ctx)
+}
+
+fn hash_sha1(text: &str, ctx: &TransformationContext<'_>) -> Result<String, String> {
+    hash_digest::<Sha1>(text, ctx)
+}
+
+fn hash_md5(text: &str, ctx: &TransformationContext<'_>) -> Result<String, String> {
+    hash_digest::<Md5>(text, ctx)
+}
+
+fn checksum_crc32(text: &str, ctx: &TransformationContext<'_>) -> Result<String, String> {
+    ctx.check_cancelled()?;
+    let mut hasher = Crc32Hasher::new();
+    let total_bytes = text.len() as u32;
+    for (index, chunk) in text
+        .as_bytes()
+        .chunks(BYTE_CANCEL_CHECK_INTERVAL)
+        .enumerate()
+    {
+        ctx.checkpoint(index, 1)?;
+        let processed = ((index + 1) * BYTE_CANCEL_CHECK_INTERVAL).min(text.len()) as u32;
+        ctx.report_progress(processed, total_bytes.max(1));
+        hasher.update(chunk);
+    }
+    Ok(format!("{:08x}", hasher.finalize()))
+}
+
+fn parse_single_integer(text: &str, label: &str) -> Result<i64, String> {
+    text.trim()
+        .parse::<i64>()
+        .map_err(|error| format!("Invalid {}: {}", label, error))
+}
+
+fn time_unix_seconds_to_rfc3339(
+    text: &str,
+    ctx: &TransformationContext<'_>,
+) -> Result<String, String> {
+    ctx.check_cancelled()?;
+    let seconds = parse_single_integer(text, "Unix-seconds value")?;
+    let timestamp = DateTime::<Utc>::from_timestamp(seconds, 0)
+        .ok_or_else(|| "Unix-seconds value is outside the supported date range.".to_string())?;
+    Ok(timestamp.to_rfc3339_opts(SecondsFormat::Secs, true))
+}
+
+fn time_unix_milliseconds_to_rfc3339(
+    text: &str,
+    ctx: &TransformationContext<'_>,
+) -> Result<String, String> {
+    ctx.check_cancelled()?;
+    let milliseconds = parse_single_integer(text, "Unix-milliseconds value")?;
+    let timestamp = DateTime::<Utc>::from_timestamp_millis(milliseconds).ok_or_else(|| {
+        "Unix-milliseconds value is outside the supported date range.".to_string()
+    })?;
+    Ok(timestamp.to_rfc3339_opts(SecondsFormat::Millis, true))
+}
+
+fn parse_rfc3339(text: &str) -> Result<DateTime<chrono::FixedOffset>, String> {
+    DateTime::parse_from_rfc3339(text.trim())
+        .map_err(|error| format!("Invalid RFC 3339 timestamp: {}", error))
+}
+
+fn time_rfc3339_to_unix_seconds(
+    text: &str,
+    ctx: &TransformationContext<'_>,
+) -> Result<String, String> {
+    ctx.check_cancelled()?;
+    Ok(parse_rfc3339(text)?.timestamp().to_string())
+}
+
+fn time_rfc3339_to_unix_milliseconds(
+    text: &str,
+    ctx: &TransformationContext<'_>,
+) -> Result<String, String> {
+    ctx.check_cancelled()?;
+    Ok(parse_rfc3339(text)?.timestamp_millis().to_string())
+}
+
+fn url_query_to_json(text: &str, ctx: &TransformationContext<'_>) -> Result<String, String> {
+    ctx.check_cancelled()?;
+    let query = text.trim().strip_prefix('?').unwrap_or(text.trim());
+    let mut object = serde_json::Map::new();
+
+    for (index, (key, value)) in url::form_urlencoded::parse(query.as_bytes()).enumerate() {
+        ctx.checkpoint(index, LINE_CANCEL_CHECK_INTERVAL)?;
+        let value = serde_json::Value::String(value.into_owned());
+        match object.get_mut(key.as_ref()) {
+            None => {
+                object.insert(key.into_owned(), value);
+            }
+            Some(serde_json::Value::Array(values)) => values.push(value),
+            Some(existing) => {
+                let first = std::mem::replace(existing, serde_json::Value::Null);
+                *existing = serde_json::Value::Array(vec![first, value]);
+            }
+        }
+    }
+
+    serde_json::to_string_pretty(&serde_json::Value::Object(object))
+        .map_err(|error| format!("Failed to serialize query parameters: {}", error))
+}
+
+fn query_scalar_to_string(value: &serde_json::Value) -> Result<String, String> {
+    match value {
+        serde_json::Value::Null => Ok(String::new()),
+        serde_json::Value::Bool(value) => Ok(value.to_string()),
+        serde_json::Value::Number(value) => Ok(value.to_string()),
+        serde_json::Value::String(value) => Ok(value.clone()),
+        serde_json::Value::Array(_) | serde_json::Value::Object(_) => {
+            Err("Query parameter values must be scalars or arrays of scalars.".to_string())
+        }
+    }
+}
+
+fn url_json_to_query(text: &str, ctx: &TransformationContext<'_>) -> Result<String, String> {
+    ctx.check_cancelled()?;
+    let value: serde_json::Value =
+        serde_json::from_str(text).map_err(|error| format!("Invalid JSON: {}", error))?;
+    let object = value
+        .as_object()
+        .ok_or_else(|| "JSON to Query String requires a top-level object.".to_string())?;
+    let mut serializer = url::form_urlencoded::Serializer::new(String::new());
+
+    for (index, (key, value)) in object.iter().enumerate() {
+        ctx.checkpoint(index, LINE_CANCEL_CHECK_INTERVAL)?;
+        match value {
+            serde_json::Value::Array(values) => {
+                for value in values {
+                    serializer.append_pair(key, &query_scalar_to_string(value)?);
+                }
+            }
+            value => {
+                serializer.append_pair(key, &query_scalar_to_string(value)?);
+            }
+        }
+    }
+
+    Ok(serializer.finish())
+}
+
+fn json_lines_to_array(text: &str, ctx: &TransformationContext<'_>) -> Result<String, String> {
+    ctx.check_cancelled()?;
+    let mut values = Vec::new();
+    let total_bytes = text.len() as u32;
+    let mut processed_bytes = 0usize;
+    for (line_index, line) in text.split_inclusive('\n').enumerate() {
+        ctx.checkpoint(line_index, LINE_CANCEL_CHECK_INTERVAL)?;
+        processed_bytes += line.len();
+        ctx.report_progress(processed_bytes as u32, total_bytes.max(1));
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let value: serde_json::Value = serde_json::from_str(trimmed)
+            .map_err(|error| format!("Invalid JSON on line {}: {}", line_index + 1, error))?;
+        values.push(value);
+    }
+    serde_json::to_string_pretty(&values)
+        .map_err(|error| format!("Failed to serialize JSON array: {}", error))
+}
+
+fn json_array_to_lines(text: &str, ctx: &TransformationContext<'_>) -> Result<String, String> {
+    ctx.check_cancelled()?;
+    let value: serde_json::Value =
+        serde_json::from_str(text).map_err(|error| format!("Invalid JSON: {}", error))?;
+    let values = value
+        .as_array()
+        .ok_or_else(|| "JSON Array to JSON Lines requires a top-level array.".to_string())?;
+    let mut output = String::new();
+    for (index, value) in values.iter().enumerate() {
+        ctx.checkpoint(index, LINE_CANCEL_CHECK_INTERVAL)?;
+        if index > 0 {
+            output.push('\n');
+        }
+        output.push_str(
+            &serde_json::to_string(value)
+                .map_err(|error| format!("Failed to serialize array item: {}", error))?,
+        );
+    }
+    if !values.is_empty() {
+        output.push('\n');
+    }
+    Ok(output)
+}
+
+fn sort_json_value(
+    value: serde_json::Value,
+    ctx: &TransformationContext<'_>,
+    visited: &mut usize,
+) -> Result<serde_json::Value, String> {
+    *visited += 1;
+    ctx.checkpoint(*visited, LINE_CANCEL_CHECK_INTERVAL)?;
+    match value {
+        serde_json::Value::Object(object) => {
+            let mut entries: Vec<_> = object.into_iter().collect();
+            entries.sort_by(|(left, _), (right, _)| left.cmp(right));
+            let mut sorted = serde_json::Map::with_capacity(entries.len());
+            for (key, value) in entries {
+                sorted.insert(key, sort_json_value(value, ctx, visited)?);
+            }
+            Ok(serde_json::Value::Object(sorted))
+        }
+        serde_json::Value::Array(values) => values
+            .into_iter()
+            .map(|value| sort_json_value(value, ctx, visited))
+            .collect::<Result<Vec<_>, _>>()
+            .map(serde_json::Value::Array),
+        scalar => Ok(scalar),
+    }
+}
+
+fn serialize_json_with_indent(
+    value: &serde_json::Value,
+    use_tabs: bool,
+    indent_width: u32,
+) -> Result<String, String> {
+    let indent = if use_tabs {
+        vec![b'\t']
+    } else {
+        vec![b' '; indent_width.max(1) as usize]
+    };
+    let formatter = serde_json::ser::PrettyFormatter::with_indent(&indent);
+    let mut output = Vec::new();
+    let mut serializer = serde_json::Serializer::with_formatter(&mut output, formatter);
+    value
+        .serialize(&mut serializer)
+        .map_err(|error| format!("Failed to serialize JSON: {}", error))?;
+    String::from_utf8(output).map_err(|error| format!("Failed to encode JSON output: {}", error))
+}
+
+fn json_sort_keys(text: &str, ctx: &TransformationContext<'_>) -> Result<String, String> {
+    ctx.check_cancelled()?;
+    let value: serde_json::Value =
+        serde_json::from_str(text).map_err(|error| format!("Invalid strict JSON: {}", error))?;
+    let mut visited = 0usize;
+    let sorted = sort_json_value(value, ctx, &mut visited)?;
+    let (use_tabs, indent_width) = resolve_format_indent(ctx.params(), text);
+    serialize_json_with_indent(&sorted, use_tabs, indent_width)
+}
+
+fn is_typescript_identifier(value: &str) -> bool {
+    let mut characters = value.chars();
+    let Some(first) = characters.next() else {
+        return false;
+    };
+    if !(first == '_' || first == '$' || first.is_ascii_alphabetic()) {
+        return false;
+    }
+    characters
+        .all(|character| character == '_' || character == '$' || character.is_ascii_alphanumeric())
+}
+
+fn typescript_property_name(value: &str) -> Result<String, String> {
+    if is_typescript_identifier(value) {
+        Ok(value.to_string())
+    } else {
+        serde_json::to_string(value)
+            .map_err(|error| format!("Failed to serialize TypeScript property name: {}", error))
+    }
+}
+
+fn typescript_type_for_json(
+    value: &serde_json::Value,
+    ctx: &TransformationContext<'_>,
+    visited: &mut usize,
+) -> Result<String, String> {
+    *visited += 1;
+    ctx.checkpoint(*visited, LINE_CANCEL_CHECK_INTERVAL)?;
+    match value {
+        serde_json::Value::Null => Ok("null".to_string()),
+        serde_json::Value::Bool(_) => Ok("boolean".to_string()),
+        serde_json::Value::Number(_) => Ok("number".to_string()),
+        serde_json::Value::String(_) => Ok("string".to_string()),
+        serde_json::Value::Array(values) => {
+            if values.is_empty() {
+                return Ok("Array<unknown>".to_string());
+            }
+            let mut element_types = Vec::new();
+            for value in values {
+                let element_type = typescript_type_for_json(value, ctx, visited)?;
+                if !element_types.contains(&element_type) {
+                    element_types.push(element_type);
+                }
+            }
+            Ok(format!("Array<{}>", element_types.join(" | ")))
+        }
+        serde_json::Value::Object(object) => {
+            let mut output = String::from("{");
+            for (key, value) in object {
+                output.push_str(&typescript_property_name(key)?);
+                output.push_str(": ");
+                output.push_str(&typescript_type_for_json(value, ctx, visited)?);
+                output.push(';');
+            }
+            output.push('}');
+            Ok(output)
+        }
+    }
+}
+
+fn json_to_typescript(text: &str, ctx: &TransformationContext<'_>) -> Result<String, String> {
+    ctx.check_cancelled()?;
+    let value: serde_json::Value =
+        serde_json::from_str(text).map_err(|error| format!("Invalid strict JSON: {}", error))?;
+    let mut visited = 0usize;
+    let unformatted = match &value {
+        serde_json::Value::Object(object) => {
+            let mut declaration = String::from("export interface Root {");
+            for (key, value) in object {
+                declaration.push_str(&typescript_property_name(key)?);
+                declaration.push_str(": ");
+                declaration.push_str(&typescript_type_for_json(value, ctx, &mut visited)?);
+                declaration.push(';');
+            }
+            declaration.push('}');
+            declaration
+        }
+        value => format!(
+            "export type Root = {};",
+            typescript_type_for_json(value, ctx, &mut visited)?
+        ),
+    };
+
+    let (use_tabs, indent_width) = resolve_format_indent(ctx.params(), text);
+    let config = ts_format_config(use_tabs, indent_width);
+    let formatted = format_ts_text(FormatTextOptions {
+        path: Path::new("generated.ts"),
+        extension: None,
+        text: unformatted.clone(),
+        config: &config,
+        external_formatter: None,
+    })
+    .map_err(|error| format!("Failed to format generated TypeScript: {}", error))?;
+    Ok(formatted.unwrap_or(unformatted))
+}
+
+#[derive(Clone, Copy)]
+struct XmlElementState {
+    preserve_space: bool,
+    has_text: bool,
+}
+
+fn xml_element_preserves_space(element: &BytesStart<'_>, inherited: bool) -> Result<bool, String> {
+    let mut preserve = inherited;
+    for attribute in element.attributes() {
+        let attribute = attribute.map_err(|error| format!("Invalid XML attribute: {}", error))?;
+        if attribute.key.as_ref() != b"xml:space" {
+            continue;
+        }
+        let value = attribute
+            .unescape_value()
+            .map_err(|error| format!("Invalid xml:space value: {}", error))?;
+        preserve = match value.as_ref() {
+            "preserve" => true,
+            "default" => false,
+            other => {
+                return Err(format!(
+                    "Invalid XML: xml:space must be 'default' or 'preserve', found '{}'.",
+                    other
+                ))
+            }
+        };
+    }
+    Ok(preserve)
+}
+
+fn write_xml_event(
+    writer: &mut Option<XmlWriter<Vec<u8>>>,
+    event: Event<'_>,
+) -> Result<(), String> {
+    if let Some(writer) = writer.as_mut() {
+        writer
+            .write_event(event)
+            .map_err(|error| format!("Failed to write XML output: {}", error))?;
+    }
+    Ok(())
+}
+
+fn process_xml(
+    text: &str,
+    writer: &mut Option<XmlWriter<Vec<u8>>>,
+    ctx: &TransformationContext<'_>,
+) -> Result<(), String> {
+    ctx.check_cancelled()?;
+    let mut reader = XmlReader::from_str(text);
+    reader.config_mut().trim_text(false);
+    reader.config_mut().check_end_names = true;
+    reader.config_mut().expand_empty_elements = false;
+
+    let mut stack: Vec<XmlElementState> = Vec::new();
+    let mut root_count = 0usize;
+    let mut event_count = 0usize;
+
+    loop {
+        ctx.checkpoint(event_count, LINE_CANCEL_CHECK_INTERVAL)?;
+        event_count += 1;
+        let event = reader
+            .read_event()
+            .map_err(|error| format!("Invalid XML: {}", error))?;
+        ctx.report_progress(reader.buffer_position() as u32, (text.len() as u32).max(1));
+
+        match event {
+            Event::Start(element) => {
+                if stack.is_empty() {
+                    root_count += 1;
+                    if root_count > 1 {
+                        return Err(
+                            "Invalid XML: document has more than one root element.".to_string()
+                        );
+                    }
+                }
+                let inherited = stack
+                    .last()
+                    .map(|state| state.preserve_space)
+                    .unwrap_or(false);
+                let preserve_space = xml_element_preserves_space(&element, inherited)?;
+                write_xml_event(writer, Event::Start(element))?;
+                stack.push(XmlElementState {
+                    preserve_space,
+                    has_text: false,
+                });
+            }
+            Event::Empty(element) => {
+                if stack.is_empty() {
+                    root_count += 1;
+                    if root_count > 1 {
+                        return Err(
+                            "Invalid XML: document has more than one root element.".to_string()
+                        );
+                    }
+                }
+                let inherited = stack
+                    .last()
+                    .map(|state| state.preserve_space)
+                    .unwrap_or(false);
+                xml_element_preserves_space(&element, inherited)?;
+                write_xml_event(writer, Event::Empty(element))?;
+            }
+            Event::End(element) => {
+                if stack.pop().is_none() {
+                    return Err("Invalid XML: unexpected closing element.".to_string());
+                }
+                write_xml_event(writer, Event::End(element))?;
+            }
+            Event::Text(content) => {
+                let decoded = content
+                    .decode()
+                    .map_err(|error| format!("Invalid XML text encoding: {}", error))?;
+                let is_whitespace = decoded.trim().is_empty();
+                let Some(state) = stack.last_mut() else {
+                    if is_whitespace {
+                        continue;
+                    }
+                    return Err("Invalid XML: text is not inside the root element.".to_string());
+                };
+
+                if !is_whitespace {
+                    state.has_text = true;
+                    write_xml_event(writer, Event::Text(content))?;
+                } else if state.preserve_space || state.has_text {
+                    write_xml_event(writer, Event::Text(content))?;
+                }
+            }
+            Event::CData(content) => {
+                let Some(state) = stack.last_mut() else {
+                    return Err("Invalid XML: CDATA is not inside the root element.".to_string());
+                };
+                if !content.is_empty() {
+                    state.has_text = true;
+                }
+                write_xml_event(writer, Event::CData(content))?;
+            }
+            Event::GeneralRef(reference) => {
+                let Some(state) = stack.last_mut() else {
+                    return Err(
+                        "Invalid XML: entity reference is not inside the root element.".to_string(),
+                    );
+                };
+                state.has_text = true;
+                write_xml_event(writer, Event::GeneralRef(reference))?;
+            }
+            Event::Decl(declaration) => write_xml_event(writer, Event::Decl(declaration))?,
+            Event::PI(instruction) => write_xml_event(writer, Event::PI(instruction))?,
+            Event::Comment(comment) => write_xml_event(writer, Event::Comment(comment))?,
+            Event::DocType(doctype) => write_xml_event(writer, Event::DocType(doctype))?,
+            Event::Eof => break,
+        }
+    }
+
+    if !stack.is_empty() {
+        return Err("Invalid XML: one or more elements are not closed.".to_string());
+    }
+    if root_count == 0 {
+        return Err("Invalid XML: document has no root element.".to_string());
+    }
+    Ok(())
+}
+
+fn xml_output(
+    text: &str,
+    ctx: &TransformationContext<'_>,
+    formatted: bool,
+) -> Result<String, String> {
+    let mut writer = if formatted {
+        let (use_tabs, indent_width) = resolve_format_indent(ctx.params(), text);
+        Some(XmlWriter::new_with_indent(
+            Vec::new(),
+            if use_tabs { b'\t' } else { b' ' },
+            if use_tabs {
+                1
+            } else {
+                indent_width.max(1) as usize
+            },
+        ))
+    } else {
+        Some(XmlWriter::new(Vec::new()))
+    };
+    process_xml(text, &mut writer, ctx)?;
+    let bytes = writer
+        .take()
+        .expect("XML output processing always has a writer")
+        .into_inner();
+    String::from_utf8(bytes).map_err(|error| format!("XML output was not valid UTF-8: {}", error))
+}
+
+fn xml_format(text: &str, ctx: &TransformationContext<'_>) -> Result<String, String> {
+    xml_output(text, ctx, true)
+}
+
+fn xml_minify(text: &str, ctx: &TransformationContext<'_>) -> Result<String, String> {
+    xml_output(text, ctx, false)
+}
+
+fn xml_validate(text: &str, ctx: &TransformationContext<'_>) -> Result<(), String> {
+    let mut writer = None;
+    process_xml(text, &mut writer, ctx)
+}
+
+fn generate_uuid_v4(ctx: &TransformationContext<'_>) -> Result<String, String> {
+    ctx.check_cancelled()?;
+    Ok(Uuid::new_v4().to_string())
+}
+
+fn generate_uuid_v7(ctx: &TransformationContext<'_>) -> Result<String, String> {
+    ctx.check_cancelled()?;
+    Ok(Uuid::now_v7().to_string())
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // Numeric / encoding conversions
 // ════════════════════════════════════════════════════════════════════════════
@@ -2004,6 +2813,26 @@ fn dispatch_transformation(
                 Err(error) => Ok((error, TransformationMessageLevel::Error)),
             })
         }
+        TransformationActionId::JsonLinesToArray => ctx.run_replace_text(
+            "Converted JSON Lines to an array.",
+            "JSON Lines already match the formatted array output.",
+            |ctx| json_lines_to_array(ctx.text(), ctx),
+        ),
+        TransformationActionId::JsonArrayToLines => ctx.run_replace_text(
+            "Converted JSON array to JSON Lines.",
+            "JSON is already in JSON Lines form.",
+            |ctx| json_array_to_lines(ctx.text(), ctx),
+        ),
+        TransformationActionId::JsonSortKeys => ctx.run_replace_text(
+            "Sorted JSON keys.",
+            "JSON keys are already sorted.",
+            |ctx| json_sort_keys(ctx.text(), ctx),
+        ),
+        TransformationActionId::JsonToTypescript => ctx.run_replace_text(
+            "Generated TypeScript from JSON.",
+            "JSON already matches the generated TypeScript output.",
+            |ctx| json_to_typescript(ctx.text(), ctx),
+        ),
         TransformationActionId::SqlFormat => {
             ctx.run_replace_text("Formatted SQL.", "SQL is already formatted.", |ctx| {
                 let (use_tabs, indent_width) = resolve_format_indent(ctx.params(), ctx.text());
@@ -2013,44 +2842,40 @@ fn dispatch_transformation(
                 Ok(formatted.unwrap_or_else(|| ctx.text().to_string()))
             })
         }
-        TransformationActionId::JavascriptFormat => {
-            ctx.run_replace_text(
-                "Formatted JavaScript.",
-                "JavaScript is already formatted.",
-                |ctx| {
-                    let (use_tabs, indent_width) = resolve_format_indent(ctx.params(), ctx.text());
-                    let config = ts_format_config(use_tabs, indent_width);
-                    let formatted = format_ts_text(FormatTextOptions {
-                        path: Path::new("file.js"),
-                        extension: None,
-                        text: ctx.text().to_string(),
-                        config: &config,
-                        external_formatter: None,
-                    })
-                    .map_err(|error| format!("Invalid JavaScript: {}", error))?;
-                    Ok(formatted.unwrap_or_else(|| ctx.text().to_string()))
-                },
-            )
-        }
-        TransformationActionId::TypescriptFormat => {
-            ctx.run_replace_text(
-                "Formatted TypeScript.",
-                "TypeScript is already formatted.",
-                |ctx| {
-                    let (use_tabs, indent_width) = resolve_format_indent(ctx.params(), ctx.text());
-                    let config = ts_format_config(use_tabs, indent_width);
-                    let formatted = format_ts_text(FormatTextOptions {
-                        path: Path::new("file.ts"),
-                        extension: None,
-                        text: ctx.text().to_string(),
-                        config: &config,
-                        external_formatter: None,
-                    })
-                    .map_err(|error| format!("Invalid TypeScript: {}", error))?;
-                    Ok(formatted.unwrap_or_else(|| ctx.text().to_string()))
-                },
-            )
-        }
+        TransformationActionId::JavascriptFormat => ctx.run_replace_text(
+            "Formatted JavaScript.",
+            "JavaScript is already formatted.",
+            |ctx| {
+                let (use_tabs, indent_width) = resolve_format_indent(ctx.params(), ctx.text());
+                let config = ts_format_config(use_tabs, indent_width);
+                let formatted = format_ts_text(FormatTextOptions {
+                    path: Path::new("file.js"),
+                    extension: None,
+                    text: ctx.text().to_string(),
+                    config: &config,
+                    external_formatter: None,
+                })
+                .map_err(|error| format!("Invalid JavaScript: {}", error))?;
+                Ok(formatted.unwrap_or_else(|| ctx.text().to_string()))
+            },
+        ),
+        TransformationActionId::TypescriptFormat => ctx.run_replace_text(
+            "Formatted TypeScript.",
+            "TypeScript is already formatted.",
+            |ctx| {
+                let (use_tabs, indent_width) = resolve_format_indent(ctx.params(), ctx.text());
+                let config = ts_format_config(use_tabs, indent_width);
+                let formatted = format_ts_text(FormatTextOptions {
+                    path: Path::new("file.ts"),
+                    extension: None,
+                    text: ctx.text().to_string(),
+                    config: &config,
+                    external_formatter: None,
+                })
+                .map_err(|error| format!("Invalid TypeScript: {}", error))?;
+                Ok(formatted.unwrap_or_else(|| ctx.text().to_string()))
+            },
+        ),
         TransformationActionId::CssFormat => {
             ctx.run_replace_text("Formatted CSS.", "CSS is already formatted.", |ctx| {
                 let (use_tabs, indent_width) = resolve_format_indent(ctx.params(), ctx.text());
@@ -2086,8 +2911,7 @@ fn dispatch_transformation(
                                 text: code.to_string(),
                                 config: &ts_config,
                                 external_formatter: None,
-                            })
-                            ?;
+                            })?;
                             Ok(formatted.unwrap_or_else(|| code.to_string()).into())
                         }
                         "css" | "scss" | "sass" | "less" => {
@@ -2114,19 +2938,17 @@ fn dispatch_transformation(
                     .map_err(|error| format!("Invalid YAML: {}", error))
             })
         }
-        TransformationActionId::MarkdownFormat => {
-            ctx.run_replace_text(
-                "Formatted Markdown.",
-                "Markdown is already formatted.",
-                |ctx| {
-                    let config = markdown_format_config();
-                    let formatted =
-                        format_markdown_text(ctx.text(), &config, |_tag, _code, _width| Ok(None))
-                            .map_err(|error| format!("Invalid Markdown: {}", error))?;
-                    Ok(formatted.unwrap_or_else(|| ctx.text().to_string()))
-                },
-            )
-        }
+        TransformationActionId::MarkdownFormat => ctx.run_replace_text(
+            "Formatted Markdown.",
+            "Markdown is already formatted.",
+            |ctx| {
+                let config = markdown_format_config();
+                let formatted =
+                    format_markdown_text(ctx.text(), &config, |_tag, _code, _width| Ok(None))
+                        .map_err(|error| format!("Invalid Markdown: {}", error))?;
+                Ok(formatted.unwrap_or_else(|| ctx.text().to_string()))
+            },
+        ),
         TransformationActionId::TomlFormat => {
             ctx.run_replace_text("Formatted TOML.", "TOML is already formatted.", |ctx| {
                 let (use_tabs, indent_width) = resolve_format_indent(ctx.params(), ctx.text());
@@ -2134,6 +2956,25 @@ fn dispatch_transformation(
                 let formatted = format_toml_text(Path::new("file.toml"), ctx.text(), &config)
                     .map_err(|error| format!("Invalid TOML: {}", error))?;
                 Ok(formatted.unwrap_or_else(|| ctx.text().to_string()))
+            })
+        }
+        TransformationActionId::XmlFormat => {
+            ctx.run_replace_text("Formatted XML.", "XML is already formatted.", |ctx| {
+                xml_format(ctx.text(), ctx)
+            })
+        }
+        TransformationActionId::XmlMinify => {
+            ctx.run_replace_text("Minified XML.", "XML is already minified.", |ctx| {
+                xml_minify(ctx.text(), ctx)
+            })
+        }
+        TransformationActionId::XmlValidate => {
+            ctx.run_show_message(|ctx| match xml_validate(ctx.text(), ctx) {
+                Ok(()) => Ok((
+                    "XML is well-formed.".to_string(),
+                    TransformationMessageLevel::Success,
+                )),
+                Err(error) => Ok((error, TransformationMessageLevel::Error)),
             })
         }
         TransformationActionId::TextTrimTrailingWhitespace => ctx.run_replace_text(
@@ -2304,6 +3145,16 @@ fn dispatch_transformation(
                 url_decode(ctx.text(), ctx)
             })
         }
+        TransformationActionId::UrlQueryToJson => ctx.run_replace_text(
+            "Converted query string to JSON.",
+            "Query string already matches the JSON output.",
+            |ctx| url_query_to_json(ctx.text(), ctx),
+        ),
+        TransformationActionId::UrlJsonToQuery => ctx.run_replace_text(
+            "Converted JSON to a query string.",
+            "JSON already matches the query-string output.",
+            |ctx| url_json_to_query(ctx.text(), ctx),
+        ),
         TransformationActionId::SecurityUrlDefang => {
             ctx.run_replace_text("Defanged URLs.", "No URLs to defang.", |ctx| {
                 url_defang(ctx.text(), ctx)
@@ -2326,6 +3177,102 @@ fn dispatch_transformation(
                 encoding_base64_decode(ctx.text(), ctx)
             })
         }
+        TransformationActionId::EncodingBase64UrlEncode => ctx.run_replace_text(
+            "Encoded to Base64URL.",
+            "Text already matches its Base64URL output.",
+            |ctx| encoding_base64url_encode(ctx.text(), ctx),
+        ),
+        TransformationActionId::EncodingBase64UrlDecode => ctx.run_replace_text(
+            "Decoded from Base64URL.",
+            "Text is already decoded.",
+            |ctx| encoding_base64url_decode(ctx.text(), ctx),
+        ),
+        TransformationActionId::EncodingHtmlEncode => ctx.run_replace_text(
+            "Encoded HTML entities.",
+            "No HTML-sensitive characters needed encoding.",
+            |ctx| encoding_html_encode(ctx.text(), ctx),
+        ),
+        TransformationActionId::EncodingHtmlDecode => ctx.run_replace_text(
+            "Decoded HTML entities.",
+            "No HTML entities were found.",
+            |ctx| encoding_html_decode(ctx.text(), ctx),
+        ),
+        TransformationActionId::EncodingGzipToBase64 => ctx.run_replace_text(
+            "Compressed text to Base64-encoded gzip.",
+            "Text already matches the compressed output.",
+            |ctx| encoding_gzip_to_base64(ctx.text(), ctx),
+        ),
+        TransformationActionId::EncodingGzipFromBase64 => ctx.run_replace_text(
+            "Decompressed Base64-encoded gzip text.",
+            "Text is already decompressed.",
+            |ctx| encoding_gzip_from_base64(ctx.text(), ctx),
+        ),
+        TransformationActionId::EncodingJwtDecode => ctx.run_replace_text(
+            "Decoded JWT without verifying its signature.",
+            "JWT already matches the decoded JSON output.",
+            |ctx| encoding_jwt_decode(ctx.text(), ctx),
+        ),
+
+        // ── Hashes and checksums ─────────────────────────────────────────
+        TransformationActionId::HashSha256 => ctx.run_replace_text(
+            "Generated SHA-256 digest.",
+            "Input already matches its SHA-256 digest.",
+            |ctx| hash_sha256(ctx.text(), ctx),
+        ),
+        TransformationActionId::HashSha512 => ctx.run_replace_text(
+            "Generated SHA-512 digest.",
+            "Input already matches its SHA-512 digest.",
+            |ctx| hash_sha512(ctx.text(), ctx),
+        ),
+        TransformationActionId::ChecksumCrc32 => ctx.run_replace_text(
+            "Generated CRC32 checksum.",
+            "Input already matches its CRC32 checksum.",
+            |ctx| checksum_crc32(ctx.text(), ctx),
+        ),
+        TransformationActionId::HashSha1 => ctx.run_replace_text(
+            "Generated legacy SHA-1 digest.",
+            "Input already matches its SHA-1 digest.",
+            |ctx| hash_sha1(ctx.text(), ctx),
+        ),
+        TransformationActionId::HashMd5 => ctx.run_replace_text(
+            "Generated legacy MD5 digest.",
+            "Input already matches its MD5 digest.",
+            |ctx| hash_md5(ctx.text(), ctx),
+        ),
+
+        // ── Time ─────────────────────────────────────────────────────────
+        TransformationActionId::TimeUnixSecondsToRfc3339 => ctx.run_replace_text(
+            "Converted Unix seconds to RFC 3339 UTC.",
+            "Timestamp already matches the RFC 3339 output.",
+            |ctx| time_unix_seconds_to_rfc3339(ctx.text(), ctx),
+        ),
+        TransformationActionId::TimeUnixMillisecondsToRfc3339 => ctx.run_replace_text(
+            "Converted Unix milliseconds to RFC 3339 UTC.",
+            "Timestamp already matches the RFC 3339 output.",
+            |ctx| time_unix_milliseconds_to_rfc3339(ctx.text(), ctx),
+        ),
+        TransformationActionId::TimeRfc3339ToUnixSeconds => ctx.run_replace_text(
+            "Converted RFC 3339 to Unix seconds.",
+            "Timestamp already matches the Unix-seconds output.",
+            |ctx| time_rfc3339_to_unix_seconds(ctx.text(), ctx),
+        ),
+        TransformationActionId::TimeRfc3339ToUnixMilliseconds => ctx.run_replace_text(
+            "Converted RFC 3339 to Unix milliseconds.",
+            "Timestamp already matches the Unix-milliseconds output.",
+            |ctx| time_rfc3339_to_unix_milliseconds(ctx.text(), ctx),
+        ),
+
+        // ── Generators ───────────────────────────────────────────────────
+        TransformationActionId::GenerateUuidV4 => ctx.run_replace_text(
+            "Inserted UUID v4.",
+            "Generated UUID matches the source.",
+            generate_uuid_v4,
+        ),
+        TransformationActionId::GenerateUuidV7 => ctx.run_replace_text(
+            "Inserted UUID v7.",
+            "Generated UUID matches the source.",
+            generate_uuid_v7,
+        ),
 
         // ── Numeric conversions ───────────────────────────────────────────
         TransformationActionId::ConvertAsciiToHex => {
@@ -2618,10 +3565,8 @@ mod tests {
 
     #[test]
     fn typescript_format_reindents_and_reports_success() {
-        let (text, message) = expect_replace_text(
-            TransformationActionId::TypescriptFormat,
-            "const x:number=1",
-        );
+        let (text, message) =
+            expect_replace_text(TransformationActionId::TypescriptFormat, "const x:number=1");
         assert_eq!(text, "const x: number = 1;\n");
         assert_eq!(message.as_deref(), Some("Formatted TypeScript."));
     }
@@ -2682,8 +3627,14 @@ mod tests {
             TransformationActionId::SvelteFormat,
             "<script lang=\"ts\">\nlet x:number=1;\n</script>\n<div>{x}</div>\n<style>\na{color:red}\n</style>\n",
         );
-        assert!(text.contains("let x: number = 1;"), "script not TS-formatted: {text}");
-        assert!(text.contains("color: red;"), "style not CSS-formatted: {text}");
+        assert!(
+            text.contains("let x: number = 1;"),
+            "script not TS-formatted: {text}"
+        );
+        assert!(
+            text.contains("color: red;"),
+            "style not CSS-formatted: {text}"
+        );
         assert_eq!(message.as_deref(), Some("Formatted Svelte."));
     }
 
@@ -2701,7 +3652,10 @@ mod tests {
         )
         .expect_err("invalid embedded TypeScript should fail");
 
-        assert!(error.starts_with("Invalid Svelte:"), "unexpected error: {error}");
+        assert!(
+            error.starts_with("Invalid Svelte:"),
+            "unexpected error: {error}"
+        );
     }
 
     #[test]
@@ -2740,8 +3694,7 @@ mod tests {
 
     #[test]
     fn toml_format_reindents_and_reports_success() {
-        let (text, message) =
-            expect_replace_text(TransformationActionId::TomlFormat, "a=1\nb=2\n");
+        let (text, message) = expect_replace_text(TransformationActionId::TomlFormat, "a=1\nb=2\n");
         assert_eq!(text, "a = 1\nb = 2\n");
         assert_eq!(message.as_deref(), Some("Formatted TOML."));
     }
@@ -3902,6 +4855,220 @@ mod tests {
             }
             other => panic!("expected ShowMessage, got {:?}", other),
         }
+    }
+
+    // ── editor-first baseline additions ──────────────────────────────────
+
+    #[test]
+    fn baseline_action_ids_deserialize() {
+        for action_id in [
+            "hash.sha-256",
+            "encoding.jwt-decode",
+            "time.rfc3339-to-unix-milliseconds",
+            "url.query-to-json",
+            "json.to-typescript",
+            "xml.validate",
+            "generate.uuid-v7",
+        ] {
+            let value = serde_json::json!({ "actionId": action_id, "text": "" });
+            serde_json::from_value::<ExecuteTransformationRequest>(value)
+                .unwrap_or_else(|error| panic!("failed to deserialize {action_id}: {error}"));
+        }
+    }
+
+    #[test]
+    fn hashes_match_published_abc_vectors() {
+        let nc = not_cancelled();
+        let ctx = test_ctx("abc", &nc);
+        assert_eq!(
+            hash_sha256("abc", &ctx).unwrap(),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+        assert_eq!(
+            hash_sha512("abc", &ctx).unwrap(),
+            "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f"
+        );
+        assert_eq!(
+            hash_sha1("abc", &ctx).unwrap(),
+            "a9993e364706816aba3e25717850c26c9cd0d89d"
+        );
+        assert_eq!(
+            hash_md5("abc", &ctx).unwrap(),
+            "900150983cd24fb0d6963f7d28e17f72"
+        );
+        assert_eq!(checksum_crc32("abc", &ctx).unwrap(), "352441c2");
+    }
+
+    #[test]
+    fn hash_honors_pre_cancelled_context() {
+        let cancelled = Arc::new(AtomicBool::new(true));
+        let ctx = test_ctx("abc", &cancelled);
+        assert!(hash_sha256("abc", &ctx).is_err());
+    }
+
+    #[test]
+    fn html_entity_actions_round_trip_sensitive_and_numeric_entities() {
+        let nc = not_cancelled();
+        let ctx = test_ctx("<&>\"' café", &nc);
+        let encoded = encoding_html_encode("<&>\"' café", &ctx).unwrap();
+        assert_eq!(encoded, "&lt;&amp;&gt;&quot;&#39; café");
+
+        let decode_ctx = test_ctx("&lt;&#x1F980;&#129408;&amp;", &nc);
+        assert_eq!(
+            encoding_html_decode("&lt;&#x1F980;&#129408;&amp;", &decode_ctx).unwrap(),
+            "<🦀🦀&"
+        );
+    }
+
+    #[test]
+    fn base64url_accepts_padded_and_unpadded_input() {
+        let nc = not_cancelled();
+        let ctx = test_ctx("hello?", &nc);
+        let encoded = encoding_base64url_encode("hello?", &ctx).unwrap();
+        assert_eq!(encoded, "aGVsbG8_");
+        assert_eq!(encoding_base64url_decode(&encoded, &ctx).unwrap(), "hello?");
+        assert_eq!(encoding_base64url_decode("aGk=", &ctx).unwrap(), "hi");
+    }
+
+    #[test]
+    fn jwt_decode_returns_json_and_never_verifies() {
+        let nc = not_cancelled();
+        let token = "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiIxMjMifQ.";
+        let ctx = test_ctx(token, &nc);
+        let output = encoding_jwt_decode(token, &ctx).unwrap();
+        let decoded: serde_json::Value = serde_json::from_str(&output).unwrap();
+        assert_eq!(decoded["header"]["alg"], "none");
+        assert_eq!(decoded["payload"]["sub"], "123");
+        assert_eq!(decoded["signature"], "");
+        assert!(encoding_jwt_decode("one.two", &ctx).is_err());
+    }
+
+    #[test]
+    fn gzip_base64_round_trip_and_corruption_error() {
+        let nc = not_cancelled();
+        let original = "hello gzip 🦀\n".repeat(100);
+        let ctx = test_ctx(&original, &nc);
+        let encoded = encoding_gzip_to_base64(&original, &ctx).unwrap();
+        let decode_ctx = test_ctx(&encoded, &nc);
+        assert_eq!(
+            encoding_gzip_from_base64(&encoded, &decode_ctx).unwrap(),
+            original
+        );
+        assert!(encoding_gzip_from_base64("bm90LWd6aXA=", &decode_ctx).is_err());
+    }
+
+    #[test]
+    fn timestamp_actions_are_explicit_and_offset_aware() {
+        let nc = not_cancelled();
+        let ctx = test_ctx("0", &nc);
+        assert_eq!(
+            time_unix_seconds_to_rfc3339("0", &ctx).unwrap(),
+            "1970-01-01T00:00:00Z"
+        );
+        assert_eq!(
+            time_unix_milliseconds_to_rfc3339("123", &ctx).unwrap(),
+            "1970-01-01T00:00:00.123Z"
+        );
+        assert_eq!(
+            time_rfc3339_to_unix_seconds("1970-01-01T01:00:00+01:00", &ctx).unwrap(),
+            "0"
+        );
+        assert_eq!(
+            time_rfc3339_to_unix_milliseconds("1970-01-01T00:00:00.123Z", &ctx).unwrap(),
+            "123"
+        );
+        assert!(time_rfc3339_to_unix_seconds("2026-01-01 12:00", &ctx).is_err());
+    }
+
+    #[test]
+    fn query_string_conversion_preserves_repeated_keys_and_form_spaces() {
+        let nc = not_cancelled();
+        let input = "?tag=rust&tag=tauri&q=hello+world&empty=";
+        let ctx = test_ctx(input, &nc);
+        let json = url_query_to_json(input, &ctx).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["tag"], serde_json::json!(["rust", "tauri"]));
+        assert_eq!(value["q"], "hello world");
+        assert_eq!(value["empty"], "");
+
+        let json_input = r#"{"tag":["rust","tauri"],"enabled":true,"empty":null}"#;
+        let json_ctx = test_ctx(json_input, &nc);
+        assert_eq!(
+            url_json_to_query(json_input, &json_ctx).unwrap(),
+            "tag=rust&tag=tauri&enabled=true&empty="
+        );
+        assert!(url_json_to_query(r#"{"nested":{"x":1}}"#, &json_ctx).is_err());
+    }
+
+    #[test]
+    fn json_lines_conversion_handles_blank_lines_and_scalars() {
+        let nc = not_cancelled();
+        let input = "{\"a\":1}\n\n42\n\"text\"\n";
+        let ctx = test_ctx(input, &nc);
+        let array = json_lines_to_array(input, &ctx).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&array).unwrap();
+        assert_eq!(value, serde_json::json!([{"a": 1}, 42, "text"]));
+
+        let lines = json_array_to_lines(&array, &ctx).unwrap();
+        assert_eq!(lines, "{\"a\":1}\n42\n\"text\"\n");
+        assert!(json_array_to_lines("{}", &ctx).is_err());
+    }
+
+    #[test]
+    fn json_sort_keys_is_recursive_and_preserves_array_order() {
+        let nc = not_cancelled();
+        let input = r#"{"z":1,"a":{"d":4,"b":2},"items":[{"y":2,"x":1},0]}"#;
+        let ctx = test_ctx(input, &nc);
+        let output = json_sort_keys(input, &ctx).unwrap();
+        let a = output.find("\"a\"").unwrap();
+        let z = output.find("\"z\"").unwrap();
+        assert!(a < z);
+        assert!(output.find("\"b\"").unwrap() < output.find("\"d\"").unwrap());
+        let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+        assert_eq!(parsed["items"][1], 0);
+        assert!(json_sort_keys("{/*comment*/\"a\":1}", &ctx).is_err());
+    }
+
+    #[test]
+    fn json_to_typescript_handles_nested_invalid_null_and_union_types() {
+        let nc = not_cancelled();
+        let input = r#"{"user-id":1,"profile":{"name":"Ada"},"value":null,"items":[1,"two"]}"#;
+        let ctx = test_ctx(input, &nc);
+        let output = json_to_typescript(input, &ctx).unwrap();
+        assert!(output.contains("export interface Root"));
+        assert!(output.contains("\"user-id\": number"));
+        assert!(output.contains("profile:"));
+        assert!(output.contains("value: null"));
+        assert!(output.contains("Array<number | string>"));
+    }
+
+    #[test]
+    fn xml_actions_preserve_content_and_reject_malformed_documents() {
+        let nc = not_cancelled();
+        let input =
+            "<?xml version=\"1.0\"?><root><child a=\"1\"> text </child><![CDATA[x<y]]></root>";
+        let ctx = test_ctx(input, &nc);
+        xml_validate(input, &ctx).unwrap();
+        let formatted = xml_format(input, &ctx).unwrap();
+        assert!(formatted.contains("\n"));
+        assert!(formatted.contains(" text "));
+        assert!(formatted.contains("<![CDATA[x<y]]>"));
+
+        let spaced = "<root xml:space=\"preserve\">  <child/>  </root>";
+        let spaced_ctx = test_ctx(spaced, &nc);
+        assert_eq!(xml_minify(spaced, &spaced_ctx).unwrap(), spaced);
+        assert!(xml_validate("<root><child></root>", &ctx).is_err());
+        assert!(xml_validate("<one/><two/>", &ctx).is_err());
+    }
+
+    #[test]
+    fn uuid_generators_create_expected_versions() {
+        let nc = not_cancelled();
+        let ctx = test_ctx("", &nc);
+        let v4 = Uuid::parse_str(&generate_uuid_v4(&ctx).unwrap()).unwrap();
+        let v7 = Uuid::parse_str(&generate_uuid_v7(&ctx).unwrap()).unwrap();
+        assert_eq!(v4.get_version_num(), 4);
+        assert_eq!(v7.get_version_num(), 7);
     }
 
     // ── indentation detection ─────────────────────────────────────────────

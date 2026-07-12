@@ -19,7 +19,7 @@ This skill documents how built-in transformations work in Grayslate today. Use i
 ## End-to-End Flow
 
 1. The frontend chooses a transformation from `actions.ts`.
-2. `EditorWrapper.svelte` decides whether the action applies to the current selection or the full document.
+2. `EditorWrapper.svelte` decides whether the action replaces the current selection/full document or, for a generator, replaces the selection/inserts at the cursor.
 3. The frontend sends `execute_transformation` a request containing:
    - `actionId`
    - `text`
@@ -121,6 +121,11 @@ This path exists to avoid creating one giant JavaScript string before the editor
 - CRLF split across chunk boundaries is normalized correctly.
 - The final result is applied through `dispatchManagedEditorChange()`.
 - `insert` accepts `string | Text`, so the editor can take the rope directly.
+- Action definitions default to `applyMode: "replace"`.
+- Generator actions use `applyMode: "insert"`: a non-empty primary selection is replaced; otherwise the result is inserted at the primary cursor. They send an empty source string because they require no editor input.
+- Insert-mode generators explicitly place the primary cursor after the generated
+  result, including when they replace a non-empty selection. Replacement-mode
+  transforms keep CodeMirror's existing selection mapping.
 
 ### Undo/redo contract
 
@@ -159,6 +164,8 @@ For large whole-document transformations, do not route through a minimal-string 
    - `ReplaceText` for document-changing transforms, or
    - `ShowMessage` for validation/statistics style actions.
 6. Let the shared command transport handle progress, chunking, and final delivery.
+
+For no-input generators, set `applyMode: "insert"` on the frontend action. Do not add a generator-specific IPC response or replace the whole document when the cursor has no selection.
 
 ## Failure Modes To Watch
 

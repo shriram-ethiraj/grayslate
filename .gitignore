@@ -20,6 +20,9 @@ src-tauri/target/
 !.vscode/settings.json
 .idea/
 
+# Local Claude settings
+.claude/settings.local.json
+
 # OS generated files
 .DS_Store
 .DS_Store?
@@ -32,4 +35,3 @@ Thumbs.db
 # Python
 .venv
 .python-version
-

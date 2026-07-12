@@ -463,10 +463,14 @@
     }
 
     const selection = editorSession.state.selection.main;
+    const applyAsInsert = action.applyMode === "insert";
     const useSelection = action.supportsSelection && !selection.empty;
-    const sourceText = useSelection
-      ? editorSession.state.doc.sliceString(selection.from, selection.to)
-      : editorSession.state.doc.toString();
+    let sourceText = "";
+    if (!applyAsInsert) {
+      sourceText = useSelection
+        ? editorSession.state.doc.sliceString(selection.from, selection.to)
+        : editorSession.state.doc.toString();
+    }
 
     const requestId = ++transformationRequestCounter;
     const isFormatAction = actionId.endsWith(".format");
@@ -526,7 +530,7 @@
       // JS string, which would throw "Invalid string length" for ~400 MB results.
       const resultDoc = buildCodeMirrorTextFromChunks(resultChunks);
 
-      if (useSelection) {
+      if (applyAsInsert || useSelection) {
         dispatchManagedEditorChange(
           editorSession,
           {
@@ -537,6 +541,13 @@
           {
             userEvent: `input.transform.${actionId}`,
             separateUndoStep: true,
+            // CodeMirror's default mapping keeps a cursor at the start when
+            // text is inserted at a collapsed range. Generators should leave
+            // the cursor after the generated text; replacement transforms
+            // retain their existing selection mapping.
+            ...(applyAsInsert
+              ? { selection: { anchor: selection.from + resultDoc.length } }
+              : {}),
           },
         );
       } else {
