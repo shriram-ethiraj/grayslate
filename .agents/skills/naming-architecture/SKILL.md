@@ -324,11 +324,11 @@ The Generate Name button mirrors untitled naming as closely as possible:
 
 After rename succeeds:
 
-1. call `librarySidebarState.requestQuietDataRefresh?.()` so the sidebar picks up the new filename/path without visible jitter
-2. if the renamed file is the active editor file, set `librarySidebarState.lastRenamedPath = { from, to }`
-3. then update `editorState.currentFilePath = newPath`
+1. call `reportLibraryMutation({ kind: "renamed", from, to })` so the sidebar picks up metadata without visible jitter
+2. then update `editorState.currentFilePath = newPath`
 
-That ordering is important. The sidebar uses `lastRenamedPath` to update its suppression tracking instead of misclassifying the rename as an external navigation.
+The sidebar mutation coordinator releases suppression and refreshes the active
+dataset, so rename callers must not add a second direct refresh path.
 
 ## Frontend language support
 

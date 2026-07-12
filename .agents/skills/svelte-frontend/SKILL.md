@@ -25,8 +25,7 @@ Current coordination hooks:
 
 - `pendingOpenFile`
 - `requestActivateSearch`
-- `requestQuietDataRefresh`
-- `lastRenamedPath`
+- `handleLibraryMutation` / `reportLibraryMutation(...)`
 
 Use these for sidebar/editor/dialog interaction where the components do not have a direct parent-child data flow.
 
@@ -42,26 +41,27 @@ Key pieces:
 
 - `suppressReorder`
 - `lastSidebarOpenedPath`
-- `quietRefreshRecentFiles(...)`
+- `createLibraryRefreshCoordinator(...)`
 
 Rules:
 
 - opening a file from the sidebar activates suppression
-- while suppressed, incoming recent-file refreshes do not re-sort the visible list
+- while suppressed, background refreshes are deferred
+- successful structural mutations release suppression and refresh immediately
 - pure filter-tab changes do not clear suppression
 - suppression clears on explicit user actions like sort change or manual refresh
 - sidebar close/reopen performs an invisible quiet refresh so reopen shows fresh, already-sorted data
 
 Do not reintroduce eager reordering or a second staged list unless you have verified the UX impact.
 
-## Rename-Aware UI Sync
+## Structural Mutation Sync
 
-`RenameFileDialog.svelte` now coordinates with the sidebar carefully:
+Dialogs and editor flows report semantic mutations after successful operations:
 
-1. it triggers `requestQuietDataRefresh?.()` after rename
-2. it sets `lastRenamedPath = { from, to }` before updating `editorState.currentFilePath`
+1. report the operation through `reportLibraryMutation(...)`
+2. let the sidebar own active-dataset refresh, suppression, tab, and reveal policy
 
-That ordering lets the sidebar update suppression tracking without treating the rename as an unrelated external navigation.
+Do not add operation-specific refresh calls outside the coordinator.
 
 ## Linux / WebKitGTK Rendering Notes
 

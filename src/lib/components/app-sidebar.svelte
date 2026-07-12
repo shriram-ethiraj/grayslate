@@ -4,6 +4,8 @@
     import { editorState } from "$lib/state/editor.svelte";
     import {
         librarySidebarState,
+        type LibraryMutation,
+        reportLibraryMutation,
         setPendingSidebarOpenFile,
     } from "$lib/state/librarySidebar.svelte";
     import { confirmBeforeLeavingDocument } from "$lib/state/unsavedChangesGuard.svelte";
@@ -39,6 +41,7 @@
     import SidebarHeader from "$lib/components/sidebar/SidebarHeader.svelte";
     import SidebarFileList from "$lib/components/sidebar/SidebarFileList.svelte";
     import { useListNavigator } from "$lib/components/sidebar/useListNavigator.svelte";
+    import { createLibraryRefreshCoordinator } from "$lib/files/libraryRefreshCoordinator";
 
     // ---------------------------------------------------------------------------
     // Component state
@@ -78,18 +81,19 @@
     //     (safety valve so suppression doesn't stick forever).
     //
     // NOT cleared by:
-    //   • Backend events (file save, rename, duplicate, delete).
+    //   • Background backend events such as open recency or existing-file save.
     //   • Filter (tab) changes while suppression is active.
-    //   • Rename of the active file (tracking path is updated instead).
+    //
+    // Successful structural actions (create, rename, remove, duplicate) are
+    // explicit user intent and therefore clear suppression immediately.
     // ---------------------------------------------------------------------------
     let suppressReorder = $state(false);
     // The path of the last file opened via the sidebar, used to decide whether
     // to keep suppressReorder active when the editor navigation event fires.
     let lastSidebarOpenedPath = $state<string | undefined>(undefined);
 
-    // Incrementing version counters for in-flight async requests; a stale
-    // response whose version doesn't match the current one is discarded.
-    let recentFilesRequestVersion = 0;
+    // Search requests may overlap because query changes are debounced; stale
+    // responses are discarded by this version counter.
     let searchRequestVersion = 0;
 
     // DOM ref for the scrollable results container (propagated from SidebarFileList).
@@ -108,6 +112,10 @@
     let lastObservedFilterMode: FilterMode = DEFAULT_FILTER_MODE;
     let lastObservedSortMode: SortMode = DEFAULT_SORT_MODE;
     let lastObservedSidebarOpen = true;
+
+    // The path to reveal after a refresh has placed it in the current list.
+    // This makes external opens and duplicates resilient to backend event timing.
+    let pendingRevealPath = $state<string | undefined>(undefined);
 
     // ---------------------------------------------------------------------------
     // Derived state
@@ -176,19 +184,14 @@
     function clearReorderSuppression(): void {
         suppressReorder = false;
         lastSidebarOpenedPath = undefined;
+        refreshCoordinator.releaseDeferred();
     }
 
     // ---------------------------------------------------------------------------
     // Data fetching
     // ---------------------------------------------------------------------------
 
-    async function fetchRecentFiles(options?: {
-        showLoading?: boolean;
-        clearSuppression?: boolean;
-    }): Promise<void> {
-        const showLoading = options?.showLoading ?? true;
-        const clearSuppression = options?.clearSuppression ?? false;
-        const currentVersion = ++recentFilesRequestVersion;
+    async function fetchRecentFiles(showLoading: boolean): Promise<void> {
         if (showLoading) {
             isLoading = true;
         }
@@ -202,43 +205,18 @@
 
         try {
             const result = await getRecentFiles(RECENT_FILES_LIMIT);
-            if (currentVersion !== recentFilesRequestVersion) {
-                return;
-            }
-
-            // Clear suppression and update data in the same synchronous block so
-            // Svelte batches them into one render. This prevents the two-step
-            // jitter: "list re-sorts on old data" → "list updates with new data".
-            if (clearSuppression) {
-                suppressReorder = false;
-                lastSidebarOpenedPath = undefined;
-            }
             recentFiles = result;
         } catch (error: unknown) {
-            if (currentVersion !== recentFilesRequestVersion) {
-                return;
-            }
-
             if (showLoading && !isSearchMode) {
                 loadError = typeof error === "string"
                     ? error
                     : "Failed to load recent files.";
             }
         } finally {
-            if (showLoading && currentVersion === recentFilesRequestVersion) {
+            if (showLoading) {
                 isLoading = false;
             }
         }
-    }
-
-    async function refreshRecentFiles(): Promise<void> {
-        await fetchRecentFiles({ showLoading: true });
-    }
-
-    /** Silently refresh without showing a loading skeleton. Used for
-     *  background syncs (backend events, tab switches, sidebar reveal). */
-    async function quietRefreshRecentFiles(options?: { clearSuppression?: boolean }): Promise<void> {
-        await fetchRecentFiles({ showLoading: false, clearSuppression: options?.clearSuppression });
     }
 
     async function refreshSearchResults(): Promise<void> {
@@ -277,6 +255,13 @@
         }
     }
 
+    const refreshCoordinator = createLibraryRefreshCoordinator({
+        isSuppressed: () => suppressReorder,
+        isSearchMode: () => isSearchMode,
+        refreshRecent: fetchRecentFiles,
+        refreshSearch: refreshSearchResults,
+    });
+
     // ---------------------------------------------------------------------------
     // UI actions
     // ---------------------------------------------------------------------------
@@ -306,6 +291,11 @@
     async function handleDuplicateRecentFile(file: RecentFileRecord): Promise<void> {
         try {
             const newPath = await duplicateFile(file.path);
+            reportLibraryMutation({
+                kind: "duplicated",
+                path: newPath,
+                source: file.source,
+            });
             const newName = newPath.replace(/\\/g, "/").split("/").pop() ?? "copy";
             toast.success(`Duplicated as "${newName}"`);
         } catch (err) {
@@ -317,6 +307,11 @@
     async function handleDuplicateLocalFileAsSlate(file: RecentFileRecord): Promise<void> {
         try {
             const newPath = await duplicateLocalFileAsSlate(file.path);
+            reportLibraryMutation({
+                kind: "duplicated",
+                path: newPath,
+                source: "slates",
+            });
             const newName = newPath.replace(/\\/g, "/").split("/").pop() ?? "copy";
             toast.success(`Duplicated as slate "${newName}"`);
         } catch (err) {
@@ -325,20 +320,35 @@
         }
     }
 
+    function restoreRemovedRecord<T extends { path: string }>(
+        records: T[],
+        record: T | undefined,
+        index: number,
+    ): T[] {
+        if (!record || records.some((item) => item.path === record.path)) return records;
+
+        const restored = [...records];
+        restored.splice(Math.min(Math.max(index, 0), restored.length), 0, record);
+        return restored;
+    }
+
     async function handleUnlink(file: RecentFileRecord): Promise<void> {
         // Optimistically remove from both lists before awaiting the backend so
         // the card disappears immediately without a visible delay.
-        const prevRecentFiles = recentFiles;
-        const prevSearchResults = searchResults;
+        const recentIndex = recentFiles.findIndex((item) => item.path === file.path);
+        const removedRecentFile = recentFiles[recentIndex];
+        const searchIndex = searchResults.findIndex((item) => item.path === file.path);
+        const removedSearchResult = searchResults[searchIndex];
         recentFiles = recentFiles.filter((f) => f.path !== file.path);
         searchResults = searchResults.filter((f) => f.path !== file.path);
 
         try {
             await performFileUnlink(file);
         } catch (err) {
-            // Restore both lists so the card reappears on failure.
-            recentFiles = prevRecentFiles;
-            searchResults = prevSearchResults;
+            // Restore only the removed record so concurrent refreshes or
+            // mutations are not overwritten by an old whole-list snapshot.
+            recentFiles = restoreRemovedRecord(recentFiles, removedRecentFile, recentIndex);
+            searchResults = restoreRemovedRecord(searchResults, removedSearchResult, searchIndex);
             const msg = err instanceof Error ? err.message : String(err);
             toast.error(`Failed to unlink: ${msg}`);
         }
@@ -347,11 +357,7 @@
     function handleRefresh(): void {
         clearReorderSuppression();
         navigator.reset();
-        if (normalizedQuery.length > 0) {
-            void refreshSearchResults();
-        } else {
-            void refreshRecentFiles();
-        }
+        refreshCoordinator.requestActive({ priority: "immediate", showLoading: true });
     }
 
     function requestSearchFocus(): void {
@@ -371,20 +377,75 @@
         requestSearchFocus();
     }
 
+    function ensureSourceIsVisible(source: RecentFileSource): void {
+        if (filterMode !== "unified" && filterMode !== source) {
+            filterMode = "unified";
+        }
+    }
+
+    function requestImmediateActiveRefresh(): void {
+        clearReorderSuppression();
+        refreshCoordinator.requestActive({ priority: "immediate" });
+    }
+
+    function handleLibraryMutation(mutation: LibraryMutation): void {
+        switch (mutation.kind) {
+            case "created":
+                requestImmediateActiveRefresh();
+                return;
+
+            case "opened":
+                if (mutation.origin === "external") {
+                    pendingRevealPath = mutation.path;
+                    query = "";
+                    ensureSourceIsVisible(mutation.source);
+                    requestImmediateActiveRefresh();
+                    return;
+                }
+
+                refreshCoordinator.requestActive({ priority: "background" });
+                return;
+
+            case "duplicated":
+                pendingRevealPath = mutation.path;
+                query = "";
+                ensureSourceIsVisible(mutation.source);
+                requestImmediateActiveRefresh();
+                return;
+
+            case "removed":
+                recentFiles = recentFiles.filter((file) => file.path !== mutation.path);
+                searchResults = searchResults.filter((file) => file.path !== mutation.path);
+                if (pendingRevealPath === mutation.path) {
+                    pendingRevealPath = undefined;
+                }
+                requestImmediateActiveRefresh();
+                return;
+
+            case "renamed":
+                if (pendingRevealPath === mutation.from) {
+                    pendingRevealPath = mutation.to;
+                }
+                requestImmediateActiveRefresh();
+                return;
+
+            case "sync":
+                refreshCoordinator.requestActive({ priority: "background" });
+                return;
+        }
+    }
+
     $effect(() => {
         librarySidebarState.requestActivateSearch = activateLibrarySearch;
-        // Registered for the rename dialog: refreshes cached file data (new
-        // filename, new path) while keeping suppressReorder active so the
-        // visible list order doesn't shift.
-        librarySidebarState.requestQuietDataRefresh = () => {
-            void fetchRecentFiles({ showLoading: false, clearSuppression: false });
-        };
+        librarySidebarState.handleLibraryMutation = handleLibraryMutation;
 
         return () => {
             if (librarySidebarState.requestActivateSearch === activateLibrarySearch) {
                 librarySidebarState.requestActivateSearch = undefined;
             }
-            librarySidebarState.requestQuietDataRefresh = undefined;
+            if (librarySidebarState.handleLibraryMutation === handleLibraryMutation) {
+                librarySidebarState.handleLibraryMutation = undefined;
+            }
         };
     });
 
@@ -393,7 +454,29 @@
     // ---------------------------------------------------------------------------
 
     $effect(() => {
-        void refreshRecentFiles();
+        refreshCoordinator.requestRecent({
+            priority: "immediate",
+            showLoading: true,
+        });
+    });
+
+    $effect(() => {
+        const path = pendingRevealPath;
+        if (!path || isSearchMode) {
+            return;
+        }
+
+        if (!recentFiles.some((file) => file.path === path)) {
+            return;
+        }
+
+        if (!activeResults.some((file) => file.path === path)) {
+            pendingRevealPath = undefined;
+            return;
+        }
+
+        navigator.revealHighlight(path);
+        pendingRevealPath = undefined;
     });
 
     // Refresh when the sidebar is reopened so the list reflects any changes
@@ -408,7 +491,10 @@
             // now (while the sidebar is animating away, invisible to the user)
             // so the correctly-sorted data is already in place when it opens
             // again. No visible transition on reopen.
-            void quietRefreshRecentFiles({ clearSuppression: true });
+            suppressReorder = false;
+            lastSidebarOpenedPath = undefined;
+            refreshCoordinator.releaseDeferred();
+            refreshCoordinator.requestRecent({ priority: "immediate" });
         }
     });
 
@@ -452,28 +538,9 @@
     });
 
     $effect(() => {
-        const pending = pendingOpenFile;
-        if (!pending?.revealInRecentList) {
-            return;
-        }
-
-        clearReorderSuppression();
-        // Switch to "unified" so the file is visible regardless of its actual
-        // source (slates vs local). We don't know the backend-classified
-        // source at this point; "unified" guarantees visibility.
-        if (filterMode !== "unified") {
-            filterMode = "unified";
-        }
-        if (query.length > 0) {
-            query = "";
-        }
-    });
-
-    $effect(() => {
         const currentFilePath = editorState.currentFilePath;
         const isUntitledDocument = editorState.isUntitledDocument;
         const pending = pendingOpenFile;
-        const renamedPath = librarySidebarState.lastRenamedPath;
 
         const editorLocationChanged = currentFilePath !== lastObservedEditorPath
             || isUntitledDocument !== lastObservedUntitledState;
@@ -483,19 +550,6 @@
 
         if (!editorLocationChanged || pending) {
             return;
-        }
-
-        // The active file was renamed — update suppression tracking to the
-        // new path so we don't misinterpret the rename as an external open.
-        if (renamedPath && suppressReorder && lastSidebarOpenedPath === renamedPath.from) {
-            lastSidebarOpenedPath = renamedPath.to;
-            librarySidebarState.lastRenamedPath = undefined;
-            return;
-        }
-
-        // Consume the signal even if suppression wasn't active.
-        if (renamedPath) {
-            librarySidebarState.lastRenamedPath = undefined;
         }
 
         // File was opened from the sidebar — keep the list frozen until an
@@ -531,7 +585,7 @@
 
         if (isSearchMode) {
             clearReorderSuppression();
-            void refreshSearchResults();
+            refreshCoordinator.requestActive({ priority: "immediate" });
             return;
         }
 
@@ -546,7 +600,8 @@
             return;
         }
 
-        void quietRefreshRecentFiles({ clearSuppression: true });
+        clearReorderSuppression();
+        refreshCoordinator.requestRecent({ priority: "immediate" });
     });
 
     $effect(() => {
@@ -566,21 +621,13 @@
                     return;
                 }
 
-                // When the user opened a file from the sidebar, skip the
-                // refresh so the list doesn't reorder under their cursor.
-                // The data will catch up on the next user action that clears
-                // suppressReorder (tab switch, sort change, manual refresh,
-                // or opening a file from outside the sidebar).
-                if (suppressReorder) {
-                    return;
-                }
-
-                void quietRefreshRecentFiles();
+                reportLibraryMutation({ kind: "sync" });
             });
         });
 
         return () => {
             disposed = true;
+            refreshCoordinator.destroy();
             // Kill any in-flight search when the sidebar component unmounts
             // so the backend doesn't keep working on a stale request.
             void cancelSidebarSearch();

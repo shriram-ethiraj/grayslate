@@ -260,6 +260,16 @@ export function useListNavigator(config: ListNavigatorConfig) {
             }
         },
 
+        /** Highlight a result and bring its card into the visible viewport. */
+        revealHighlight(path: string): void {
+            const results = config.getActiveResults();
+            const idx = results.findIndex((r) => r.path === path);
+            if (idx === -1) return;
+
+            highlightedIndex = idx;
+            void scrollHighlightedIntoView();
+        },
+
         /** Scroll the list container to the top (e.g. on filter/sort change). */
         scrollToTop(): void {
             config.getScrollContainer()?.scrollTo({ top: 0, behavior: "auto" });

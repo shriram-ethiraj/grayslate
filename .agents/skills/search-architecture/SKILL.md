@@ -45,7 +45,7 @@ The library sidebar has two modes:
 
 `isSearchMode` in `app-sidebar.svelte` is a dedicated `$derived(normalizedQuery.length > 0)` boolean that only changes at the empty ↔ non-empty boundary, not on every character typed. All downstream derivations (`activeResults`, `visibleRecentFiles`, `recentFileSections`) and the `SidebarFileList` prop depend on `isSearchMode` instead of `normalizedQuery` directly. This prevents Svelte from re-reconciling the 80-card result list on every keystroke. Do not replace `isSearchMode` with `normalizedQuery.length > 0` in these dependants.
 
-**Critical:** `fetchRecentFiles` also uses `isSearchMode` (not `normalizedQuery`) to avoid accidentally subscribing the mount `$effect` to `normalizedQuery`. Reading `normalizedQuery` inside any function called synchronously from an `$effect` subscribes the effect to every keystroke. If you need "is the search query empty?" inside such a function, always read `isSearchMode`.
+**Critical:** the queued recent-files refresh eventually calls `fetchRecentFiles`, which must keep using `isSearchMode` (not `normalizedQuery`). Reading `normalizedQuery` inside any function called synchronously from an `$effect` subscribes that effect to every keystroke. If you need "is the search query empty?" inside such a function, always read `isSearchMode`.
 
 ## Cancellation
 
@@ -77,10 +77,13 @@ Current shared fields:
 
 - `pendingOpenFile`
 - `requestActivateSearch`
-- `requestQuietDataRefresh`
-- `lastRenamedPath`
+- `handleLibraryMutation`
 
 Use this shared state for sidebar/editor/dialog coordination instead of ad-hoc custom event chains.
+
+`reportLibraryMutation(...)` is the typed entry point for file-operation results.
+It classifies created, opened, duplicated, removed, renamed, and generic sync
+updates so the sidebar owns refresh, suppression, tab, and reveal policy.
 
 ## Recent-Files Mode
 
@@ -168,10 +171,9 @@ Activation:
 
 Behavior while active:
 
-- `visibleRecentFiles` skips re-sorting when query is empty
-- `RECENT_FILES_UPDATED_EVENT` refreshes are ignored
+- background `RECENT_FILES_UPDATED_EVENT` refreshes are deferred
 - pure filter-tab changes do not refetch
-- rename metadata refreshes happen quietly without clearing suppression
+- successful structural mutations clear suppression and refresh immediately
 
 Suppression clears only on explicit user or session boundaries:
 
@@ -180,37 +182,37 @@ Suppression clears only on explicit user or session boundaries:
 - sidebar close/reopen cycle
 - external navigation that does not match the sidebar-opened path
 
-## Quiet Refresh Pattern
+## Library Refresh Coordinator
 
 The sidebar now prefers a single-list model plus quiet refreshes over the old "staged buffer" style.
 
-Key functions:
-
-- `fetchRecentFiles({ showLoading, clearSuppression })`
-- `refreshRecentFiles()`
-- `quietRefreshRecentFiles({ clearSuppression })`
+`src/lib/files/libraryRefreshCoordinator.ts` serializes and coalesces refresh
+work. It targets the active dataset: search mode refreshes `searchResults`,
+while browse mode refreshes `recentFiles`.
 
 Important behavior:
 
-- quiet refresh updates data without showing loading skeletons
-- sidebar-close while suppressed triggers an invisible quiet refresh with `clearSuppression: true`
+- immediate structural actions override suppression
+- background updates collapse into one deferred refresh while suppressed
+- sidebar-close while suppressed releases suppression and triggers an invisible recent-files refresh
 - reopening the sidebar then shows already-fresh data with no visible jitter
 
 Do not reintroduce a second recent-files buffer unless there is a very strong reason.
 
-## Rename-Aware Suppression Tracking
+## Structural Mutation Policy
 
-`RenameFileDialog.svelte` and `app-sidebar.svelte` now coordinate renames explicitly.
+User-triggered structural operations report semantic mutations after the
+backend succeeds.
 
 Flow:
 
-1. rename succeeds in the dialog
-2. dialog calls `librarySidebarState.requestQuietDataRefresh?.()`
-3. dialog sets `librarySidebarState.lastRenamedPath = { from, to }`
-4. dialog updates `editorState.currentFilePath`
-5. sidebar sees the rename signal and updates `lastSidebarOpenedPath` instead of clearing suppression
+1. the operation succeeds and reports its mutation
+2. the sidebar applies immediate local visibility changes where possible
+3. suppression is released and the active dataset is refreshed
+4. the backend event is coalesced as reconciliation, not a second policy path
 
-Without `lastRenamedPath`, the sidebar would misread the path change as an external navigation and reorder the list mid-session.
+Rename, delete, unlink, duplicate, and first-time creation are immediate.
+Open recency and existing-file save events remain background updates.
 
 ## Backend-Driven Recent Files Refresh
 
@@ -230,11 +232,14 @@ The backend emits this event after:
 - `duplicate_file`
 - `save_untitled_slate`
 
-`app-sidebar.svelte` listens for that event and quiet-refreshes recent files when suppression is not active.
+`app-sidebar.svelte` reports that event as `{ kind: "sync" }`. Its mutation
+coordinator coalesces refreshes and defers background sync while reorder
+suppression is active.
 
 This means:
 
-- duplicate/delete/rename handlers in the sidebar no longer need to manually refresh
+- file-operation callers report semantic mutations only when they need a UI
+  policy beyond generic backend sync (for example, reveal a duplicated slate)
 - `EditorWrapper` should not emit recent-file update events after open/read
 
 ## Open-File Flow
@@ -247,7 +252,8 @@ Flow:
 2. it emits `OPEN_FILE_PATH_EVENT`
 3. `EditorWrapper.svelte` listens and opens the file
 4. backend `read_file_content` records the open event and emits `RECENT_FILES_UPDATED_EVENT`
-5. sidebar ignores that refresh if suppression is active
+5. after a successful load, `EditorWrapper` reports whether the open originated from the sidebar or externally
+6. sidebar opens remain deferred; external opens clear search, ensure a visible source tab, refresh, and reveal
 
 This split is intentional:
 
@@ -301,7 +307,7 @@ That preserves filename-only matches and metadata-rich ranking.
 2. Keep command-layer code thin; ranking/retrieval stays outside Tauri IPC functions.
 3. Treat `RECENT_FILES_UPDATED_EVENT` as backend-owned.
 4. Preserve `suppressReorder` behavior after sidebar-initiated opens.
-5. Keep rename-aware suppression tracking via `lastRenamedPath`.
+5. Keep explicit structural mutations immediate and background sync deferred.
 6. Keep stale-result guards aligned with backend cancellation.
 7. Preserve normalized-path behavior across Windows and non-Windows paths.
 8. **Never read `normalizedQuery` inside functions called synchronously from `$effect`.** Use `isSearchMode` for boolean checks. See "Search Mode Signal" above.
@@ -314,7 +320,7 @@ These patterns caused severe input lag and must not be reintroduced:
 
 ### 1. Reactive subscription leak in `fetchRecentFiles`
 
-`fetchRecentFiles` is called from the mount `$effect`. In Svelte 5, all `$state`/`$derived` reads **before the first `await`** inside an async function become subscriptions of the calling `$effect`. Previously, `normalizedQuery.length` was read at lines 185/208, making the mount effect re-run on every keystroke — flooding Rust with `getRecentFiles()` IPC calls (120+ filesystem stats each) and toggling `isLoading` per character. Fixed by reading `isSearchMode` instead.
+The mount `$effect` schedules a recent-files refresh. In Svelte 5, all `$state`/`$derived` reads **before the first `await`** inside an async function called directly from an effect become subscriptions of that effect. Previously, `normalizedQuery.length` was read in the refresh path, making the mount effect re-run on every keystroke — flooding Rust with `getRecentFiles()` IPC calls (120+ filesystem stats each) and toggling `isLoading` per character. The scheduler now breaks that direct effect call chain; `fetchRecentFiles` still uses `isSearchMode` as a defensive invariant.
 
 **Rule:** Any async function called from an `$effect` must never read fast-changing reactive state before its first `await`. Snapshot the value beforehand or use a coarser derived signal.
 
@@ -333,7 +339,7 @@ Each `SidebarFileCard` rendered up to 50 `matched_lines` (buttons + fragment loo
 ## Failure Modes To Watch
 
 - If the list jumps after clicking a sidebar file, inspect `suppressReorder` and `lastSidebarOpenedPath`.
-- If rename causes a reorder, inspect `lastRenamedPath` and `requestQuietDataRefresh`.
+- If rename remains stale, inspect `reportLibraryMutation` and the active-dataset refresh.
 - If duplicate/delete/rename do not refresh the sidebar, inspect backend event emit sites before adding frontend refresh code.
 - If search flashes stale results while typing, inspect `searchRequestVersion` and backend cancellation.
 - If filename-only matches disappear, inspect candidate collection in `search/mod.rs`, not only grep logic.

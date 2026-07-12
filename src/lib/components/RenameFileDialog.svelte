@@ -11,7 +11,7 @@
         closeAppDialog,
     } from "$lib/state/appDialogs.svelte";
     import { editorState } from "$lib/state/editor.svelte";
-    import { librarySidebarState } from "$lib/state/librarySidebar.svelte";
+    import { reportLibraryMutation } from "$lib/state/librarySidebar.svelte";
     import {
         renameFile,
     } from "$lib/files/recentFiles";
@@ -103,17 +103,12 @@
             const newPath = await renameFile(oldPath, trimmed);
             closeAppDialog();
 
-            // Refresh sidebar data to pick up the new filename. This triggers
-            // a quiet refetch that updates file metadata in place without
-            // clearing suppression — so the list doesn't reorder.
-            librarySidebarState.requestQuietDataRefresh?.();
+            // Structural mutations refresh immediately; report before the
+            // editor path changes so sidebar state moves as one transition.
+            reportLibraryMutation({ kind: "renamed", from: oldPath, to: newPath });
 
             // Keep the editor's save path in sync with the renamed file.
-            // Signal the sidebar BEFORE updating the path so it can update
-            // its suppression tracking instead of misinterpreting the path
-            // change as an external navigation.
             if (wasCurrentFile) {
-                librarySidebarState.lastRenamedPath = { from: oldPath, to: newPath };
                 editorState.currentFilePath = newPath;
             }
 

@@ -493,20 +493,6 @@ fn sync_notes_tracking(app: &tauri::AppHandle, storage: &AppStorage) {
 }
 
 #[tauri::command]
-pub fn prepare_file_open(
-    app: tauri::AppHandle,
-    storage: tauri::State<'_, AppStorage>,
-    path: String,
-) -> Result<RecentFileRecord, String> {
-    let path_buf = PathBuf::from(&path);
-    let source = classify_file_source(&app, storage.inner(), &path_buf)?;
-    storage.record_file_event(&path_buf, source)?;
-    storage
-        .get_tracked_file(&path_buf)?
-        .ok_or_else(|| "Failed to resolve prepared file entry.".to_string())
-}
-
-#[tauri::command]
 pub async fn write_file_content(
     app: tauri::AppHandle,
     storage: tauri::State<'_, AppStorage>,

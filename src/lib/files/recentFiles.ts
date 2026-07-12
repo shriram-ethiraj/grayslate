@@ -6,6 +6,7 @@ import {
   appSettingsState,
 } from "$lib/state/appSettings.svelte";
 import { openDeleteFileDialog } from "$lib/state/appDialogs.svelte";
+import { reportLibraryMutation } from "$lib/state/librarySidebar.svelte";
 
 export const OPEN_FILE_PATH_EVENT = "files://open-path";
 export const RECENT_FILES_UPDATED_EVENT = "files://recent-updated";
@@ -104,6 +105,7 @@ export async function deleteFile(path: string): Promise<void> {
 export async function performFileDelete(file: RecentFileRecord): Promise<void> {
   const wasCurrentFile = file.path === editorState.currentFilePath;
   await deleteFile(file.path);
+  reportLibraryMutation({ kind: "removed", path: file.path });
   if (wasCurrentFile) {
     // Reset the editor to a new untitled slate via the shared event bus.
     await emit("menu://new-file");
@@ -166,6 +168,7 @@ export async function untrackLocalFile(path: string): Promise<void> {
 export async function performFileUnlink(file: RecentFileRecord): Promise<void> {
   const wasCurrentFile = file.path === editorState.currentFilePath;
   await untrackLocalFile(file.path);
+  reportLibraryMutation({ kind: "removed", path: file.path });
   if (wasCurrentFile) {
     // Reset the editor to a new untitled slate via the shared event bus.
     await emit("menu://new-file");

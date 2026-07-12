@@ -8,21 +8,32 @@ export interface PendingSidebarFileOpen {
     lineNumber?: number;
 }
 
+/**
+ * Semantic result of a library-affecting file operation. The sidebar owns the
+ * refresh and navigation policy; callers only report what changed.
+ */
+export type LibraryMutation =
+    | { kind: "created"; path: string; source: RecentFileSource }
+    | { kind: "opened"; path: string; source: RecentFileSource; origin: "sidebar" | "external" }
+    | { kind: "duplicated"; path: string; source: RecentFileSource }
+    | { kind: "removed"; path: string }
+    | { kind: "renamed"; from: string; to: string }
+    | { kind: "sync" };
+
 export const librarySidebarState = $state<{
     pendingOpenFile: PendingSidebarFileOpen | undefined;
     requestActivateSearch?: () => void;
-    /** Registered by the sidebar. Call after a rename to refresh metadata
-     *  (new filename) without clearing suppression or reordering the list. */
-    requestQuietDataRefresh?: () => void;
-    /** Set by the rename dialog so the sidebar can update its suppression
-     *  tracking path instead of misinterpreting the rename as a navigation. */
-    lastRenamedPath?: { from: string; to: string };
+    /** Registered by the sidebar. Call after any library-affecting operation. */
+    handleLibraryMutation?: (mutation: LibraryMutation) => void;
 }>({
     pendingOpenFile: undefined,
     requestActivateSearch: undefined,
-    requestQuietDataRefresh: undefined,
-    lastRenamedPath: undefined,
+    handleLibraryMutation: undefined,
 });
+
+export function reportLibraryMutation(mutation: LibraryMutation): void {
+    librarySidebarState.handleLibraryMutation?.(mutation);
+}
 
 export function setPendingSidebarOpenFile(pendingOpenFile: PendingSidebarFileOpen): void {
     librarySidebarState.pendingOpenFile = pendingOpenFile;

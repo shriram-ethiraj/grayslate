@@ -62,6 +62,7 @@
   import {
     librarySidebarState,
     clearPendingSidebarOpenFile,
+    reportLibraryMutation,
     setPendingSidebarOpenFile,
   } from "$lib/state/librarySidebar.svelte";
   import { confirmBeforeLeavingDocument } from "$lib/state/unsavedChangesGuard.svelte";
@@ -330,6 +331,7 @@
             lastSavedValue: value,
           };
           flushPendingValueSync(editorSession);
+          reportLibraryMutation({ kind: "created", path, source: "slates" });
         });
 
         // Rust asks FE to flush before window close
@@ -827,14 +829,16 @@
     const filename = filePath.replace(/\\/g, "/").split("/").pop() ?? "";
     const existingPendingFile = librarySidebarState.pendingOpenFile;
     const preservesPendingMetadata = existingPendingFile?.path === filePath;
+    const revealInRecentList = preservesPendingMetadata
+      ? existingPendingFile.revealInRecentList
+      : true;
+    const openOrigin = revealInRecentList ? "external" : "sidebar";
 
     setPendingSidebarOpenFile({
       path: filePath,
       source: preservesPendingMetadata ? existingPendingFile.source : (fileSource ?? "local"),
       requestId: requestVersion,
-      revealInRecentList: preservesPendingMetadata
-        ? existingPendingFile.revealInRecentList
-        : true,
+      revealInRecentList,
       lineNumber,
     });
 
@@ -906,6 +910,13 @@
         nextLanguage,
         nextDetectedLanguage,
       );
+
+      reportLibraryMutation({
+        kind: "opened",
+        path: filePath,
+        source: resolvedSource,
+        origin: openOrigin,
+      });
 
       // Remember this as the last-active file for the "reopen last file"
       // startup behavior. Fire-and-forget — best-effort convenience only.
@@ -987,6 +998,7 @@
   }
 
   async function writeDocumentToPath(path: string, content: string): Promise<void> {
+    const previousPath = activeDocument.kind === "saved" ? activeDocument.path : undefined;
     await invoke("write_file_content", { path, content });
     await syncLanguageFromPath(path);
 
@@ -1004,6 +1016,9 @@
       source: newSource,
       lastSavedValue: content,
     };
+    if (previousPath !== path) {
+      reportLibraryMutation({ kind: "created", path, source: newSource });
+    }
     // Flush any pending debounced value sync so that `isDirty`
     // resolves immediately after saving (value === lastSavedValue).
     flushPendingValueSync(editorSession);
@@ -1048,6 +1063,7 @@
       }
 
       const savePath = await saveUntitledSlate(content);
+      reportLibraryMutation({ kind: "created", path: savePath, source: "slates" });
       // Transition the document state — writeDocumentToPath would overwrite
       // with write_file_content again, so apply state directly here.
       await syncLanguageFromPath(savePath);

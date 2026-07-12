@@ -93,7 +93,6 @@ pub fn run() {
             commands::file::get_all_settings,
             commands::file::get_app_setting,
             commands::file::get_recent_files,
-            commands::file::prepare_file_open,
             commands::file::read_file_content,
             commands::file::rename_file,
             commands::file::resolve_notes_root,
