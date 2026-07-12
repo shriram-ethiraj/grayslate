@@ -46,6 +46,7 @@ export type FormatTransformationActionId =
     | "typescript.format"
     | "css.format"
     | "html.format"
+    | "svelte.format"
     | "yaml.format"
     | "markdown.format"
     | "toml.format";
@@ -249,6 +250,16 @@ export const transformationActions: TransformationActionDefinition[] = [
         category: "HTML",
         keywords: ["html", "markup", "format", "pretty", "indent"],
         fileTypes: ["html"],
+        supportsSelection: true,
+        icon: FluentCodeText20Filled,
+    },
+    {
+        id: "svelte.format",
+        title: "Format Svelte",
+        description: "Pretty-print Svelte markup, script, and style blocks with consistent indentation.",
+        category: "Svelte",
+        keywords: ["svelte", "format", "pretty", "indent"],
+        fileTypes: ["svelte"],
         supportsSelection: true,
         icon: FluentCodeText20Filled,
     },

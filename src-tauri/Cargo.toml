@@ -24,18 +24,18 @@ tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-clipboard-manager = "2"
-tauri-plugin-prevent-default = "4"
+tauri-plugin-prevent-default = "5.0.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 dprint-plugin-jsonc = "0.7.4"
 dprint-plugin-sql = "0.2.0"
-jsonc-parser = { version = "0.29.0", features = ["serde"] }
+jsonc-parser = { version = "0.33.0", features = ["serde"] }
 serde_yaml = "0.9"
 tauri-plugin-os = "2"
 grayslate-langdetect = { path = "../crates/grayslate-langdetect" }
 grayslate-langnaming = { path = "../crates/grayslate-langnaming" }
 
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.39.0", features = ["bundled"] }
 url = "2"
 csv = "1"
 base64 = "0.22"
@@ -48,7 +48,7 @@ grep-matcher = "0.1"
 grep-regex = "0.1"
 grep-searcher = "0.1"
 ignore = "0.4"
-pulldown-cmark = "0.12"
+pulldown-cmark = "0.13.4"
 ammonia = "4"
 tokio = { version = "1", features = ["time"] }
 dprint-core = "0.67.4"

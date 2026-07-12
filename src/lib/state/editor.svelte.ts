@@ -20,6 +20,7 @@ export type FileType =
     | "python"
     | "html"
     | "css"
+    | "svelte"
     | "yaml"
     | "c"
     | "cpp"

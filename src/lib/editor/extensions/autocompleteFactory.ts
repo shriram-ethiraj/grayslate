@@ -1,12 +1,11 @@
 import { snippetCompletion } from "@codemirror/autocomplete";
 import type { CompletionContext, CompletionResult, Completion } from "@codemirror/autocomplete";
-import { iconExists, loadIcon, renderSVG } from "@iconify/iconify";
 
 export interface AutocompleteItem {
     snippet: string;
     label: string;
     type?: string;
-    /** Can be an Iconify icon name like 'lucide:heading-1' or raw inline HTML <svg>...</svg> */
+    /** Raw inline SVG markup, e.g. imported via `~icons/lucide/heading-1?raw` */
     iconData?: string;
     detailText?: string;
 }
@@ -33,25 +32,8 @@ function createAutocompleteIcon(iconData?: string) {
     const iconContainer = document.createElement("div");
     iconContainer.className = "cm-autocomplete-option-icon";
 
-    if (iconData.startsWith("<")) {
-        iconContainer.innerHTML = iconData;
-        sizeAutocompleteSvg(iconContainer.querySelector("svg"));
-        return iconContainer;
-    }
-
-    if (iconExists(iconData)) {
-        const svgEl = renderSVG(iconData, { width: "18", height: "18" });
-        if (svgEl) iconContainer.appendChild(svgEl);
-        return iconContainer;
-    }
-
-    void loadIcon(iconData).then(() => {
-        const svgEl = renderSVG(iconData, { width: "18", height: "18" });
-        if (svgEl && iconContainer.isConnected) {
-            iconContainer.appendChild(svgEl);
-        }
-    });
-
+    iconContainer.innerHTML = iconData;
+    sizeAutocompleteSvg(iconContainer.querySelector("svg"));
     return iconContainer;
 }
 

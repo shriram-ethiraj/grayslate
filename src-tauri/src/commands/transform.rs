@@ -461,6 +461,8 @@ pub enum TransformationActionId {
     CssFormat,
     #[serde(rename = "html.format")]
     HtmlFormat,
+    #[serde(rename = "svelte.format")]
+    SvelteFormat,
     #[serde(rename = "yaml.format")]
     YamlFormat,
     #[serde(rename = "markdown.format")]
@@ -2067,6 +2069,43 @@ fn dispatch_transformation(
                 .map_err(|error| format!("Invalid HTML: {}", error))
             })
         }
+        TransformationActionId::SvelteFormat => {
+            ctx.run_replace_text("Formatted Svelte.", "Svelte is already formatted.", |ctx| {
+                let (use_tabs, indent_width) = resolve_format_indent(ctx.params(), ctx.text());
+                let config = html_format_config(use_tabs, indent_width);
+                let ts_config = ts_format_config(use_tabs, indent_width);
+                let css_config = css_format_config(use_tabs, indent_width);
+
+                format_html_text(ctx.text(), HtmlLanguage::Svelte, &config, |code, hints| {
+                    match hints.ext {
+                        "js" | "jsx" | "ts" | "tsx" | "mjs" | "mts" => {
+                            let path = format!("file.{}", hints.ext);
+                            let formatted = format_ts_text(FormatTextOptions {
+                                path: Path::new(&path),
+                                extension: None,
+                                text: code.to_string(),
+                                config: &ts_config,
+                                external_formatter: None,
+                            })
+                            ?;
+                            Ok(formatted.unwrap_or_else(|| code.to_string()).into())
+                        }
+                        "css" | "scss" | "sass" | "less" => {
+                            let syntax = match hints.ext {
+                                "scss" => CssSyntax::Scss,
+                                "sass" => CssSyntax::Sass,
+                                "less" => CssSyntax::Less,
+                                _ => CssSyntax::Css,
+                            };
+                            let formatted = format_css_text(code, syntax, &css_config)?;
+                            Ok(formatted.into())
+                        }
+                        _ => Ok(code.into()),
+                    }
+                })
+                .map_err(|error| format!("Invalid Svelte: {}", error))
+            })
+        }
         TransformationActionId::YamlFormat => {
             ctx.run_replace_text("Formatted YAML.", "YAML is already formatted.", |ctx| {
                 let (_, indent_width) = resolve_format_indent(ctx.params(), ctx.text());
@@ -2635,6 +2674,34 @@ mod tests {
             expect_replace_text(TransformationActionId::HtmlFormat, "<div><p>hi</p></div>");
         assert!(text.contains("<div>"));
         assert_eq!(message.as_deref(), Some("Formatted HTML."));
+    }
+
+    #[test]
+    fn svelte_format_reindents_script_and_style_and_reports_success() {
+        let (text, message) = expect_replace_text(
+            TransformationActionId::SvelteFormat,
+            "<script lang=\"ts\">\nlet x:number=1;\n</script>\n<div>{x}</div>\n<style>\na{color:red}\n</style>\n",
+        );
+        assert!(text.contains("let x: number = 1;"), "script not TS-formatted: {text}");
+        assert!(text.contains("color: red;"), "style not CSS-formatted: {text}");
+        assert_eq!(message.as_deref(), Some("Formatted Svelte."));
+    }
+
+    #[test]
+    fn svelte_format_reports_invalid_script_syntax() {
+        let nc = not_cancelled();
+        let error = execute_transformation_blocking(
+            ExecuteTransformationRequest {
+                action_id: TransformationActionId::SvelteFormat,
+                text: "<script lang=\"ts\">\nlet x: = 1;\n</script>\n".to_string(),
+                request_id: 0,
+                params: None,
+            },
+            &nc,
+        )
+        .expect_err("invalid embedded TypeScript should fail");
+
+        assert!(error.starts_with("Invalid Svelte:"), "unexpected error: {error}");
     }
 
     #[test]
