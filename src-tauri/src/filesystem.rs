@@ -53,8 +53,20 @@ pub fn classify_file_source(
 /// disk.  If `base_name` is taken, `-2`, `-3`, … are appended before the
 /// last extension: `"note.md"` → `"note-2.md"`.
 pub fn unique_path_in_dir(dir: &Path, base_name: &str) -> PathBuf {
+    unique_path_in_dir_excluding(dir, base_name, None)
+}
+
+/// Returns a unique path in `dir`, optionally ignoring one existing path.
+///
+/// The exclusion is used by rename flows so the source file does not count as
+/// a collision when the user submits its current filename unchanged.
+pub fn unique_path_in_dir_excluding(
+    dir: &Path,
+    base_name: &str,
+    excluded_path: Option<&Path>,
+) -> PathBuf {
     let candidate = dir.join(base_name);
-    if !candidate.exists() {
+    if (!candidate.exists()) || excluded_path == Some(candidate.as_path()) {
         return candidate;
     }
 
@@ -68,7 +80,7 @@ pub fn unique_path_in_dir(dir: &Path, base_name: &str) -> PathBuf {
     loop {
         let name = format!("{}-{}{}", stem, counter, ext);
         let path = dir.join(&name);
-        if !path.exists() {
+        if (!path.exists()) || excluded_path == Some(path.as_path()) {
             return path;
         }
         counter += 1;
@@ -118,4 +130,64 @@ pub fn sanitize_filename(name: &str) -> String {
     }
 
     format!("{}{}", result, ext)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_dir() -> PathBuf {
+        static COUNTER: AtomicUsize = AtomicUsize::new(0);
+        let count = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!(
+            "grayslate_filesystem_test_{timestamp}_{count}"
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn unique_path_excluding_source_keeps_unchanged_name() {
+        let dir = temp_dir();
+        let source = dir.join("test.txt");
+        fs::write(&source, "content").unwrap();
+
+        let path = unique_path_in_dir_excluding(&dir, "test.txt", Some(&source));
+
+        assert_eq!(path, source);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn unique_path_excluding_source_still_suffixes_other_collision() {
+        let dir = temp_dir();
+        let source = dir.join("source.txt");
+        let occupied = dir.join("test.txt");
+        fs::write(&source, "source").unwrap();
+        fs::write(&occupied, "occupied").unwrap();
+
+        let path = unique_path_in_dir_excluding(&dir, "test.txt", Some(&source));
+
+        assert_eq!(path, dir.join("test-2.txt"));
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn unique_path_without_exclusion_keeps_existing_collision_behavior() {
+        let dir = temp_dir();
+        let occupied = dir.join("test.txt");
+        fs::write(&occupied, "occupied").unwrap();
+
+        let path = unique_path_in_dir(&dir, "test.txt");
+
+        assert_eq!(path, dir.join("test-2.txt"));
+        fs::remove_dir_all(&dir).unwrap();
+    }
 }

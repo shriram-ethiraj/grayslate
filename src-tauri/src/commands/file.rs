@@ -13,7 +13,7 @@ use tauri::Emitter;
 
 use crate::filesystem::{
     classify_file_source, resolve_default_notes_root_path, resolve_notes_root_path,
-    sanitize_filename, unique_path_in_dir,
+    sanitize_filename, unique_path_in_dir_excluding,
 };
 use crate::storage::{
     normalize_path_key, AppStorage, FileSource, RecentFileRecord, SETTING_CONFIRM_BEFORE_DELETE,
@@ -721,8 +721,15 @@ pub async fn rename_file(
         .ok_or_else(|| "File has no parent directory.".to_string())?
         .to_path_buf();
 
-    let new_path = unique_path_in_dir(&parent, &sanitized_name);
+    let new_path = unique_path_in_dir_excluding(&parent, &sanitized_name, Some(&old_path));
     let new_path_str = new_path.to_string_lossy().to_string();
+
+    // A submitted unchanged filename resolves to the source path. There is
+    // nothing to rename, and attempting fs::rename(source, source) fails on
+    // some platforms.
+    if new_path == old_path {
+        return Ok(new_path_str);
+    }
 
     let old_clone = old_path.clone();
     let new_clone = new_path.clone();
