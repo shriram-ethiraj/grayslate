@@ -160,8 +160,6 @@ fn clamp_recent_files_limit(limit: Option<usize>) -> usize {
 /// - the file is not valid UTF-8.
 #[tauri::command]
 pub async fn read_file_content(
-    app: tauri::AppHandle,
-    storage: tauri::State<'_, AppStorage>,
     cancellations: tauri::State<'_, FileReadCancellationRegistry>,
     window: tauri::Window,
     path: String,
@@ -194,11 +192,6 @@ pub async fn read_file_content(
         .map_err(|error| format!("Failed to join file read task: {}", error))??;
 
         ensure_read_not_cancelled(cancellation_flag.as_ref())?;
-
-       if let Ok(source) = classify_file_source(&app, storage.inner(), &path_buf) {
-            let _ = storage.record_file_event(&path_buf, source);
-        }
-        let _ = app.emit(RECENT_FILES_UPDATED_EVENT, ());
 
         Ok(tauri::ipc::Response::new(bytes))
     }
@@ -518,8 +511,8 @@ pub async fn write_file_content(
     .map_err(|error| format!("Failed to join file write task: {}", error))??;
 
     let source = classify_file_source(&app, storage.inner(), &target_path)?;
-    storage.record_file_event(&target_path, source)?;
-    let _ = app.emit(RECENT_FILES_UPDATED_EVENT, ());
+    storage.record_file_update(&target_path, source)?;
+    let _ = app.emit(RECENT_FILES_UPDATED_EVENT, "saved");
     Ok(())
 }
 
@@ -780,7 +773,7 @@ pub async fn duplicate_local_file_as_slate(
     .await
     .map_err(|e| format!("Duplicate task failed: {}", e))??;
 
-    storage.record_file_event(&dest, crate::storage::FileSource::Slates)?;
+    storage.record_file_update(&dest, crate::storage::FileSource::Slates)?;
     let _ = app.emit(RECENT_FILES_UPDATED_EVENT, ());
 
     Ok(dest_str)
@@ -831,7 +824,7 @@ pub async fn duplicate_file(
     .map_err(|e| format!("Duplicate task failed: {}", e))??;
 
     let source = classify_file_source(&app, storage.inner(), &dest)?;
-    storage.record_file_event(&dest, source)?;
+    storage.record_file_update(&dest, source)?;
     let _ = app.emit(RECENT_FILES_UPDATED_EVENT, ());
 
     Ok(dest_str)

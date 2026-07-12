@@ -68,6 +68,7 @@
   import { confirmBeforeLeavingDocument } from "$lib/state/unsavedChangesGuard.svelte";
   import {
     OPEN_FILE_PATH_EVENT,
+    RESET_TO_BLANK_EVENT,
     type OpenFilePathPayload,
     type RecentFileSource,
   } from "$lib/files/recentFiles";
@@ -212,7 +213,12 @@
   );
   let activeDocument = $state.raw<ActiveDocument>(createUntitledDocument());
   let activeFilePath = $derived(getDocumentKey(activeDocument));
-  let isDirty = $derived(value !== activeDocument.lastSavedValue);
+  // Managed slates are persisted by the backend autosave flow, including
+  // untitled slates that are flushed before a document switch. "Dirty" is
+  // therefore reserved for external/local files that need an explicit save.
+  let isDirty = $derived(
+    activeDocument.source === "local" && value !== activeDocument.lastSavedValue,
+  );
 
   // Sync activeLanguage to global editorState
   $effect(() => {
@@ -342,6 +348,14 @@
           };
           flushPendingValueSync(editorSession);
           reportLibraryMutation({ kind: "created", path, source: "slates" });
+          // The {#key activeFilePath} block destroys and remounts <Editor>
+          // when the document key changes (untitled key → saved path),
+          // which drops DOM focus even though the CodeMirror selection is
+          // preserved in `editorSession`. Wait a tick for Svelte to mount
+          // the new EditorView, then restore focus so the caret stays
+          // visible — mirrors the same workaround in `saveFile()`.
+          await new Promise<void>((resolve) => setTimeout(resolve, 10));
+          editorView?.focus();
         });
 
         // Rust asks FE to flush before window close
@@ -783,12 +797,14 @@
     previousAutosaveValue = nextValue;
   }
 
-  async function createNewFile(): Promise<void> {
-    if (!(await confirmBeforeLeavingDocument())) return;
-
-    // User explicitly started a blank slate — clear the last-active pointer so
-    // "reopen last file" doesn't resurrect the file they just navigated away
-    // from. (Also covers deleting the current file, which routes here.)
+  // Resets the editor to a blank untitled slate. Does NOT confirm unsaved
+  // changes itself — callers that can discard user content must run
+  // `confirmBeforeLeavingDocument()` first (either here via `createNewFile`,
+  // or upstream before emitting `RESET_TO_BLANK_EVENT`).
+  async function resetToBlankDocument(): Promise<void> {
+    // Clear the last-active pointer so "reopen last file" doesn't resurrect
+    // the file the user just navigated away from. (Also covers deleting/
+    // unlinking the current file, which route here.)
     saveLastActiveFile(null);
 
     invalidatePendingFileOpen();
@@ -807,6 +823,11 @@
 
     // Reclaim stale heap after tearing down a large document into a blank editor.
     requestFileOpenReclaim(previousDocLength, 0);
+  }
+
+  async function createNewFile(): Promise<void> {
+    if (!(await confirmBeforeLeavingDocument())) return;
+    await resetToBlankDocument();
   }
 
   // -----------------------------------------------------------------------
@@ -853,9 +874,9 @@
     });
 
     try {
-      // Start a decelerating progress ticker while the file is read.
-      // The backend records the open event and emits RECENT_FILES_UPDATED_EVENT
-      // after a successful read, so the sidebar refreshes automatically.
+      // Start a decelerating progress ticker while the file is read. Opening
+      // is deliberately read-only: it must not update database timestamps or
+      // reorder the sidebar.
       startLoaderTicker("Reading file…", filename, {
         ceiling: 65,
         factor: 0.06,
@@ -893,19 +914,20 @@
       const nextLanguage = detected;
       const nextDetectedLanguage = detected;
 
-      // Resolve the document source for save policy.
-      // Prefer: explicit parameter → pending sidebar state → backend classification.
-      let resolvedSource: SavedDocumentSource = fileSource ?? "local";
-      if (!fileSource) {
-        const pending = librarySidebarState.pendingOpenFile;
-        if (pending?.path === filePath) {
-          resolvedSource = pending.source;
-        } else {
-          try {
-            resolvedSource = (await invoke<string>("classify_source", { path: filePath })) as SavedDocumentSource;
-          } catch {
-            resolvedSource = "local";
-          }
+      // Resolve the document source for save policy. The pending record written
+      // above may contain a temporary "local" fallback, so only use the
+      // snapshot captured before this request replaced it. Startup restores
+      // and native-picker opens must reach the backend classifier.
+      let resolvedSource: SavedDocumentSource;
+      if (fileSource) {
+        resolvedSource = fileSource;
+      } else if (preservesPendingMetadata && existingPendingFile) {
+        resolvedSource = existingPendingFile.source;
+      } else {
+        try {
+          resolvedSource = await invoke<RecentFileSource>("classify_source", { path: filePath });
+        } catch {
+          resolvedSource = "local";
         }
       }
 
@@ -1163,6 +1185,9 @@
         const unlistenNewFile = await listen("menu://new-file", () => {
           void createNewFile();
         });
+        const unlistenResetToBlank = await listen(RESET_TO_BLANK_EVENT, () => {
+          void resetToBlankDocument();
+        });
         const unlistenOpenFile = await listen("menu://open-file", () => {
           void openFile();
         });
@@ -1180,6 +1205,7 @@
 
         return () => {
           unlistenNewFile();
+          unlistenResetToBlank();
           unlistenOpenFile();
           unlistenOpenFilePath();
           unlistenSaveFile();

@@ -10,7 +10,7 @@
  *   2. Picks the right extension via naming::language_to_extension.
  *   3. Resolves a collision-free path inside notes_root.
  *   4. Creates parent directories and writes the file.
- *   5. Records the file event in storage (same as write_file_content).
+ *   5. Records the file update in storage (same as write_file_content).
  *   6. Returns the final absolute path to the frontend.
  */
 use crate::{
@@ -100,7 +100,7 @@ pub async fn save_new_slate_to_disk(
     .map_err(|e| format!("Failed to join file write task: {}", e))??;
 
     let source = classify_file_source(app, storage, &target_path)?;
-    storage.record_file_event(&target_path, source)?;
+    storage.record_file_update(&target_path, source)?;
     let _ = app.emit(RECENT_FILES_UPDATED_EVENT, ());
 
     target_path

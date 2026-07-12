@@ -74,6 +74,7 @@ export const editorState = $state<{
         active: EditorPopupId | undefined;
     };
     isUntitledDocument: boolean;
+    /** True only when the active external/local file has unsaved changes. */
     isDirty: boolean;
     /** Absolute path of the file currently open in the editor, or undefined for untitled documents. */
     currentFilePath: string | undefined;

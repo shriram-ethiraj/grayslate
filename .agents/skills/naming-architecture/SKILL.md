@@ -312,8 +312,8 @@ Relevant contracts:
 
 Important sidebar interaction:
 
-- after a successful `read_file_content`, the **backend** records the open event and emits `RECENT_FILES_UPDATED_EVENT`
-- `EditorWrapper` should not manually emit recent-files refresh events anymore
+- `read_file_content` is read-only and does not emit `RECENT_FILES_UPDATED_EVENT`
+- saves and file mutations emit backend refresh events; `EditorWrapper` should not manually mirror them
 
 ## `RenameFileDialog.svelte`
 

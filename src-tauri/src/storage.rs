@@ -158,7 +158,10 @@ impl AppStorage {
         Ok(map)
     }
 
-    pub fn record_file_event(
+    /// Records a file creation or content save. Reads intentionally do not
+    /// call this method: opening a file must never alter its database
+    /// timestamps or affect the sidebar's ordering.
+    pub fn record_file_update(
         &self,
         path: &Path,
         source: FileSource,
@@ -501,8 +504,8 @@ impl AppStorage {
     }
 
     /// Inserts or updates a tracked-file row for a file discovered during a
-    /// sync scan of the notes directory.  Unlike `record_file_event`, this
-    /// method does **not** create a `file_access_events` row and leaves
+    /// sync scan of the notes directory. Unlike `record_file_update`, this
+    /// method leaves
     /// `file_modified_app_at` untouched so the sync scan does
     /// not pollute open/save-based ordering.
     ///
@@ -804,7 +807,14 @@ mod tests {
     fn temp_storage() -> (AppStorage, PathBuf) {
         let pid = std::process::id();
         let counter = TEST_DIR_COUNTER.fetch_add(1, Ordering::SeqCst);
-        let dir = std::env::temp_dir().join(format!("grayslate-storage-test-{}-{}", pid, counter));
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock before Unix epoch")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!(
+            "grayslate-storage-test-{}-{}-{}",
+            pid, counter, timestamp
+        ));
         std::fs::create_dir_all(&dir).expect("create temp dir");
         let storage = AppStorage {
             db_path: dir.join("test.sqlite3"),
@@ -882,7 +892,7 @@ mod tests {
         write_file(&path, b"hello");
 
         storage
-            .record_file_event(&path, FileSource::Slates)
+            .record_file_update(&path, FileSource::Slates)
             .unwrap();
         let before = storage.get_tracked_file(&path).unwrap().unwrap();
 
@@ -903,7 +913,7 @@ mod tests {
         write_file(&path, b"hello");
 
         storage
-            .record_file_event(&path, FileSource::Slates)
+            .record_file_update(&path, FileSource::Slates)
             .unwrap();
         let before = storage.get_tracked_file(&path).unwrap().unwrap();
 
@@ -936,7 +946,7 @@ mod tests {
     }
 
     #[test]
-    fn recency_order_uses_app_at_then_disk_at() {
+    fn recency_order_uses_app_save_timestamp_then_disk_timestamp() {
         let (storage, dir) = temp_storage();
 
         let opened = dir.join("opened.txt");
@@ -948,10 +958,10 @@ mod tests {
         storage.upsert_slates_file_for_sync(&opened).unwrap();
         storage.upsert_slates_file_for_sync(&untouched).unwrap();
 
-        // Now record an open event for one file. Its app timestamp should
+        // Now record a content save for one file. Its app timestamp should
         // push it to the top regardless of disk mtime.
         storage
-            .record_file_event(&opened, FileSource::Slates)
+            .record_file_update(&opened, FileSource::Slates)
             .unwrap();
 
         let recent = storage.list_recent_files(10).unwrap();

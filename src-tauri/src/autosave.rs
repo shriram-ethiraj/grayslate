@@ -27,7 +27,8 @@ use serde::Serialize;
 use tauri::{Emitter, Manager};
 
 use crate::commands::csv::CsvSessionRegistry;
-use crate::storage::FileSource;
+use crate::commands::RECENT_FILES_UPDATED_EVENT;
+use crate::storage::{AppStorage, FileSource};
 
 // ---------------------------------------------------------------------------
 // Constants (tunable)
@@ -412,6 +413,11 @@ fn handle_csv_direct_save(
     match flush_result {
         Some((version, content)) => match autosave_write_to_disk(&path, &content) {
             Ok(()) => {
+                let storage = app_handle.state::<AppStorage>();
+                if let Err(error) = storage.record_file_update(&path, FileSource::Slates) {
+                    eprintln!("Autosave: failed to update tracked-file metadata: {}", error);
+                }
+                let _ = app_handle.emit(RECENT_FILES_UPDATED_EVENT, "saved");
                 registry.complete_save(window_label, version);
             }
             Err(e) => {

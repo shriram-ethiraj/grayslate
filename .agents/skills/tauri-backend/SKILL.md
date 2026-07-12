@@ -56,9 +56,8 @@ pub const RECENT_FILES_UPDATED_EVENT: &str = "files://recent-updated";
 
 This event is emitted by the backend after every file operation that should refresh the sidebar's recent-files data.
 
-Current emit sites include:
+Current emit sites include file mutations:
 
-- `read_file_content` — after recording an open event
 - `write_file_content`
 - `delete_file`
 - `rename_file`
@@ -68,17 +67,20 @@ Current emit sites include:
 
 The frontend sidebar listens for this event and refreshes itself. Do not add mirror frontend emits for the same file operations unless there is a very specific reason and the event contract is being changed deliberately.
 
-## File Read Tracking
+## File Read Behavior
 
-`read_file_content` now owns recent-file tracking for opens:
+`read_file_content` is strictly read-only:
 
 1. validate and read the file
-2. classify the file source
-3. record `FileEventType::Open` in storage
-4. emit `RECENT_FILES_UPDATED_EVENT`
-5. return raw bytes to the frontend
+2. return raw bytes to the frontend
 
-That means opening a file through the normal editor path automatically updates sidebar recency without extra frontend bookkeeping.
+It does not write storage records, alter any timestamps, or emit
+`RECENT_FILES_UPDATED_EVENT`. Only file creation, content saves, and explicit
+file mutations update tracking metadata and trigger sidebar refreshes.
+
+Content saves emit `RECENT_FILES_UPDATED_EVENT` with the `"saved"` payload so
+the sidebar can immediately refresh even when an opened-file reorder freeze is
+active.
 
 ## Naming Command Contracts
 
@@ -108,6 +110,6 @@ Keep command handlers thin:
 
 - Keep command modules thin and push business logic into plain Rust modules.
 - Preserve backend ownership of `RECENT_FILES_UPDATED_EVENT`.
-- Preserve file-open tracking inside `read_file_content`.
+- Preserve `read_file_content` as a storage-free read path.
 - Re-run `cargo check` or `cargo test --manifest-path src-tauri/Cargo.toml` after backend changes.
 - Re-run `pnpm run check` if the IPC contract changed and Svelte types or callers were updated.

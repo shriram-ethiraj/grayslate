@@ -10,6 +10,13 @@ import { reportLibraryMutation } from "$lib/state/librarySidebar.svelte";
 
 export const OPEN_FILE_PATH_EVENT = "files://open-path";
 export const RECENT_FILES_UPDATED_EVENT = "files://recent-updated";
+/**
+ * Resets the editor to a blank untitled slate without re-running the
+ * unsaved-changes confirm gate. Emitted by callers (e.g. unlink) that have
+ * already confirmed with the user before performing an action that requires
+ * the reset, so EditorWrapper must not prompt a second time.
+ */
+export const RESET_TO_BLANK_EVENT = "files://reset-to-blank";
 
 export type RecentFileSource = "slates" | "local";
 
@@ -164,14 +171,21 @@ export async function untrackLocalFile(path: string): Promise<void> {
  * file was the one open in the editor, reset to a fresh untitled slate; then
  * surface a success toast. Throws on failure so the caller can restore its
  * own optimistic UI state.
+ *
+ * Callers are responsible for running the unsaved-changes confirm gate
+ * (`confirmBeforeLeavingDocument`) before calling this, when the file being
+ * unlinked is the one currently open — this function no longer prompts, so
+ * it must not run until the caller has the user's go-ahead.
  */
 export async function performFileUnlink(file: RecentFileRecord): Promise<void> {
   const wasCurrentFile = file.path === editorState.currentFilePath;
   await untrackLocalFile(file.path);
   reportLibraryMutation({ kind: "removed", path: file.path });
   if (wasCurrentFile) {
-    // Reset the editor to a new untitled slate via the shared event bus.
-    await emit("menu://new-file");
+    // Reset the editor to a new untitled slate. The caller already ran the
+    // unsaved-changes confirm gate, so use the no-reprompt reset event
+    // instead of "menu://new-file" (which would confirm a second time).
+    await emit(RESET_TO_BLANK_EVENT);
   }
   toast.success(`"${file.file_name}" unlinked from sidebar.`);
 }

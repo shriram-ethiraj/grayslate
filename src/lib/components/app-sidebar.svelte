@@ -66,7 +66,8 @@
     // while they are browsing or navigating via the sidebar.
     //
     // When active (`suppressReorder = true`):
-    //   • RECENT_FILES_UPDATED_EVENT refreshes are silently deferred.
+    //   • Generic RECENT_FILES_UPDATED_EVENT refreshes are silently deferred;
+    //     explicit content-save events refresh immediately.
     //   • The sort is still applied so the user's selected sort mode is respected.
     //
     // Activated by:
@@ -81,7 +82,7 @@
     //     (safety valve so suppression doesn't stick forever).
     //
     // NOT cleared by:
-    //   • Background backend events such as open recency or existing-file save.
+    //   • Background backend events unrelated to a content save.
     //   • Filter (tab) changes while suppression is active.
     //
     // Successful structural actions (create, rename, remove, duplicate) are
@@ -267,6 +268,10 @@
     // ---------------------------------------------------------------------------
 
     async function openRecentFile(path: string, source: RecentFileSource, lineNumber?: number): Promise<void> {
+        // Already the open file — nothing to navigate away from, so don't
+        // prompt for unsaved changes or re-trigger the open flow.
+        if (path === editorState.currentFilePath) return;
+
         if (!(await confirmBeforeLeavingDocument())) return;
 
         // Freeze the list order so opening a file doesn't immediately re-sort
@@ -333,6 +338,14 @@
     }
 
     async function handleUnlink(file: RecentFileRecord): Promise<void> {
+        // If this is the file currently open in the editor, confirm before
+        // discarding any unsaved changes. Must happen before the unlink
+        // actually runs, not after — otherwise the file is already
+        // untracked by the time the user sees the prompt.
+        if (file.path === editorState.currentFilePath) {
+            if (!(await confirmBeforeLeavingDocument())) return;
+        }
+
         // Optimistically remove from both lists before awaiting the backend so
         // the card disappears immediately without a visible delay.
         const recentIndex = recentFiles.findIndex((item) => item.path === file.path);
@@ -404,6 +417,13 @@
                 }
 
                 refreshCoordinator.requestActive({ priority: "background" });
+                return;
+
+            case "saved":
+                // A completed save is a material change. Release the freeze
+                // used to prevent an open from reordering the list, then show
+                // the saved file at its updated position immediately.
+                requestImmediateActiveRefresh();
                 return;
 
             case "duplicated":
@@ -479,8 +499,8 @@
         pendingRevealPath = undefined;
     });
 
-    // Refresh when the sidebar is reopened so the list reflects any changes
-    // that occurred while it was collapsed (e.g. suppressed open events).
+    // Refresh when the sidebar is reopened so the list reflects file changes
+    // that occurred while it was collapsed (e.g. deferred save events).
     $effect(() => {
         const isOpen = sidebar.open;
         const wasOpen = lastObservedSidebarOpen;
@@ -616,12 +636,12 @@
         let unlistenRecentFiles: undefined | (() => void);
 
         const setup = import("@tauri-apps/api/event").then(async ({ listen }) => {
-            unlistenRecentFiles = await listen(RECENT_FILES_UPDATED_EVENT, () => {
+            unlistenRecentFiles = await listen<"saved" | null>(RECENT_FILES_UPDATED_EVENT, (event) => {
                 if (disposed) {
                     return;
                 }
 
-                reportLibraryMutation({ kind: "sync" });
+                reportLibraryMutation(event.payload === "saved" ? { kind: "saved" } : { kind: "sync" });
             });
         });
 

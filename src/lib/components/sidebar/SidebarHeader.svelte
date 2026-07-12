@@ -86,9 +86,9 @@
         title: string;
         icon: typeof Files;
     }> = [
-        { value: "unified", label: "All", title: "Show all recently opened files", icon: Files },
+        { value: "unified", label: "All", title: "Show all recently modified files", icon: Files },
         { value: "slates", label: "Slates", title: "Show Grayslate documents only", icon: RiCodeBoxLine },
-        { value: "local", label: "Local", title: "Show previously opened local files only", icon: LucideHardDrive },
+        { value: "local", label: "Local", title: "Show tracked local files only", icon: LucideHardDrive },
     ];
 
     const sortOptions: Array<{
@@ -96,8 +96,8 @@
         label: string;
         icon: typeof Search;
     }> = [
-        { value: "recently-opened", label: "Recently opened", icon: Clock3 },
-        { value: "least-recently-opened", label: "Least recently opened", icon: History },
+        { value: "recently-opened", label: "Recently modified", icon: Clock3 },
+        { value: "least-recently-opened", label: "Least recently modified", icon: History },
         { value: "name-asc", label: "Name (A to Z)", icon: ArrowDownAZ },
         { value: "name-desc", label: "Name (Z to A)", icon: ArrowUpZA },
         { value: "size-desc", label: "Largest first", icon: ArrowDownWideNarrow },

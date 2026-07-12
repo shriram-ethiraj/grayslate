@@ -171,10 +171,22 @@ async fn flush_on_close(window: &tauri::Window) {
         if let Some((_, content)) = csv_registry.try_flush_for_autosave(&label) {
             if let Some(path) = &doc_info.path {
                 let path = path.clone();
-                let _ = tauri::async_runtime::spawn_blocking(move || {
-                    autosave::autosave_write_to_disk(&path, &content)
+                let path_for_write = path.clone();
+                match tauri::async_runtime::spawn_blocking(move || {
+                    autosave::autosave_write_to_disk(&path_for_write, &content)
                 })
-                .await;
+                .await
+                {
+                    Ok(Ok(())) => {
+                        let storage = app.state::<storage::AppStorage>();
+                        if let Err(error) = storage.record_file_update(&path, storage::FileSource::Slates) {
+                            eprintln!("Autosave close-flush: failed to update tracked-file metadata: {}", error);
+                        }
+                        let _ = app.emit(commands::RECENT_FILES_UPDATED_EVENT, "saved");
+                    }
+                    Ok(Err(error)) => eprintln!("Autosave close-flush: {}", error),
+                    Err(error) => eprintln!("Autosave close-flush task failed: {}", error),
+                }
             }
         }
     } else {

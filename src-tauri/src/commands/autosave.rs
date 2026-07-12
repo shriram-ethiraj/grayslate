@@ -25,7 +25,7 @@ use crate::commands::csv::CsvSessionRegistry;
 use crate::filesystem::classify_file_source;
 use crate::storage::{AppStorage, FileSource};
 
-use super::naming::save_new_slate_to_disk;
+use super::{naming::save_new_slate_to_disk, RECENT_FILES_UPDATED_EVENT};
 
 // ---------------------------------------------------------------------------
 // autosave_register
@@ -114,9 +114,20 @@ pub async fn autosave_submit_content(
             .await
             .map_err(|e| format!("Autosave: join error: {}", e))??;
 
+            storage.record_file_update(&path, FileSource::Slates)?;
+            let _ = app.emit(RECENT_FILES_UPDATED_EVENT, "saved");
             registry.complete_save(&window_label, generation);
         }
         None => {
+            // Untitled slate with no content yet (e.g. typed then deleted
+            // everything before the first save) — nothing worth naming or
+            // writing to disk. Mark the save complete so the timer stops
+            // retrying; the file gets created once real content arrives.
+            if content.is_empty() {
+                registry.complete_save(&window_label, generation);
+                return Ok(());
+            }
+
             // Untitled slate — run naming pipeline to create the file
             let result = save_new_slate_to_disk(
                 &app,
@@ -199,32 +210,38 @@ pub async fn autosave_flush_before_switch(
             .await
             .map_err(|e| format!("Autosave flush: join error: {}", e))??;
 
+            storage.record_file_update(&path, FileSource::Slates)?;
+            let _ = app.emit(RECENT_FILES_UPDATED_EVENT, "saved");
             registry.complete_save(&window_label, save_generation);
         }
         None => {
-            // Untitled slate — create the file via naming pipeline
-            let result = save_new_slate_to_disk(
-                &app,
-                storage.inner(),
-                &save_content,
-                &doc_info.language_hint,
-            )
-            .await?;
+            // Untitled slate with no content — nothing worth naming or
+            // writing to disk, just drop it on switch.
+            if !save_content.is_empty() {
+                // Untitled slate — create the file via naming pipeline
+                let result = save_new_slate_to_disk(
+                    &app,
+                    storage.inner(),
+                    &save_content,
+                    &doc_info.language_hint,
+                )
+                .await?;
 
-            let new_path = PathBuf::from(&result.path);
-            registry.update_path(&window_label, new_path);
-            registry.complete_save(&window_label, save_generation);
+                let new_path = PathBuf::from(&result.path);
+                registry.update_path(&window_label, new_path);
+                registry.complete_save(&window_label, save_generation);
 
-            // Emit document-created so FE can update its state
-            // (though the FE is about to switch documents, it may
-            // still need the path for sidebar consistency).
-            let _ = window.emit(
-                AUTOSAVE_DOCUMENT_CREATED_EVENT,
-                DocumentCreatedPayload {
-                    path: result.path,
-                    detected_language: result.detected_language,
-                },
-            );
+                // Emit document-created so FE can update its state
+                // (though the FE is about to switch documents, it may
+                // still need the path for sidebar consistency).
+                let _ = window.emit(
+                    AUTOSAVE_DOCUMENT_CREATED_EVENT,
+                    DocumentCreatedPayload {
+                        path: result.path,
+                        detected_language: result.detected_language,
+                    },
+                );
+            }
         }
     }
 
