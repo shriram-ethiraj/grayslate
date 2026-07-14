@@ -20,12 +20,6 @@ export default defineConfig(async () => ({
   // 1. prevent Vite from obscuring rust errors
   clearScreen: false,
 
-  // Pre-bundle papaparse so Vite doesn't discover it lazily on first worker spawn,
-  // which would trigger a re-optimization reload and crash the CSV table view.
-  optimizeDeps: {
-    include: ["papaparse"],
-  },
-
   // 2. tauri expects a fixed port, fail if that port is not available
   server: {
     port: 1420,
