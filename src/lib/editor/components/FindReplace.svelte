@@ -330,39 +330,33 @@
           {@render resizeGrip()}
         </div>
         <div class="flex items-center gap-0.5 self-stretch border-l pl-1.5">
-          <button
-            type="button"
-            class="inline-flex size-6 items-center justify-center rounded-sm transition-colors {fr.caseSensitive
-              ? 'text-foreground bg-foreground/[0.13]'
-              : 'text-muted-foreground hover:bg-foreground/[0.07]'}"
+          <Button
+            variant="ghost"
+            size="icon-xs"
             aria-pressed={fr.caseSensitive}
             title="Match Case"
             onclick={() => { fr.caseSensitive = !fr.caseSensitive; }}
           >
             <MaterialSymbolsMatchCaseRounded class="size-[1.2rem]" />
-          </button>
-          <button
-            type="button"
-            class="inline-flex size-6 items-center justify-center rounded-sm transition-colors {fr.wholeWord
-              ? 'text-foreground bg-foreground/[0.13]'
-              : 'text-muted-foreground hover:bg-foreground/[0.07]'}"
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-xs"
             aria-pressed={fr.wholeWord}
             title="Match Whole Word"
             onclick={() => { fr.wholeWord = !fr.wholeWord; }}
           >
             <MaterialSymbolsMatchWordRounded class="size-[1.2rem]" />
-          </button>
-          <button
-            type="button"
-            class="inline-flex size-6 items-center justify-center rounded-sm transition-colors {fr.useRegex
-              ? 'text-foreground bg-foreground/[0.13]'
-              : 'text-muted-foreground hover:bg-foreground/[0.07]'}"
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-xs"
             aria-pressed={fr.useRegex}
             title="Use Regular Expression"
             onclick={() => { fr.useRegex = !fr.useRegex; }}
           >
             <CodiconRegex class="size-[1.1rem]" />
-          </button>
+          </Button>
           <span
             class="text-sm pointer-events-none inline-flex shrink-0 items-center justify-center whitespace-nowrap px-1 min-w-[4.5rem] {fr.searchError ? 'text-destructive' : 'text-foreground'}"
           >
@@ -378,32 +372,32 @@
               No results
             {/if}
           </span>
-          <button
-            type="button"
-            class="inline-flex size-6 items-center justify-center rounded-sm transition-colors hover:bg-foreground/[0.07] disabled:text-disabled-foreground disabled:cursor-not-allowed {canNavigate ? 'text-foreground' : 'text-muted-foreground'}"
+          <Button
+            variant="ghost"
+            size="icon-xs"
             onclick={findPreviousNow}
             title="Previous match ({formatForDisplay('Shift+Enter')})"
             disabled={!canNavigate}
           >
             <ArrowUp class="size-4" />
-          </button>
-          <button
-            type="button"
-            class="inline-flex size-6 items-center justify-center rounded-sm transition-colors hover:bg-foreground/[0.07] disabled:text-disabled-foreground disabled:cursor-not-allowed {canNavigate ? 'text-foreground' : 'text-muted-foreground'}"
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-xs"
             onclick={findNextNow}
             title="Next match ({formatForDisplay('Enter')})"
             disabled={!canNavigate}
           >
             <ArrowDown class="size-4" />
-          </button>
-          <button
-            type="button"
-            class="inline-flex size-6 items-center justify-center rounded-sm text-foreground transition-colors hover:bg-foreground/[0.07]"
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-xs"
             onclick={close}
             title="Close ({formatForDisplay('Escape')})"
           >
             <X class="size-4" />
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -436,24 +430,24 @@
             {@render resizeGrip()}
           </div>
           <div class="flex items-center gap-0.5 self-stretch border-l pl-1.5">
-            <button
-              type="button"
-              class="inline-flex size-6 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-foreground/[0.07] disabled:text-disabled-foreground disabled:cursor-not-allowed"
+            <Button
+              variant="ghost"
+              size="icon-xs"
               onclick={replaceNextNow}
               title="Replace currently selected match"
               disabled={!canReplace}
             >
               <CodIconReplace class="size-4" />
-            </button>
-            <button
-              type="button"
-              class="inline-flex size-6 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-foreground/[0.07] disabled:text-disabled-foreground disabled:cursor-not-allowed"
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-xs"
               onclick={replaceAllNow}
               title="Replace All matches"
               disabled={!canReplaceAll}
             >
               <CodIconReplaceAll class="size-4" />
-            </button>
+            </Button>
           </div>
         </div>
       {/if}

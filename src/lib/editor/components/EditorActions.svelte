@@ -151,9 +151,7 @@
             ? "Hide preview"
             : "Show preview"}
         disabled={editorState.loader.visible}
-        class={editorState.markdown.showPreview
-            ? "bg-accent text-accent-foreground"
-            : ""}
+        aria-pressed={editorState.markdown.showPreview}
         onclick={() => {
             editorState.markdown.showPreview =
                 !editorState.markdown.showPreview;

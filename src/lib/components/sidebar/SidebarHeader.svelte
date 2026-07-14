@@ -145,7 +145,7 @@
                 <Button
                     variant="ghost"
                     size="sm"
-                    class="gap-1.5 px-2 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                    class="gap-1.5 px-2 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                     aria-label="Clear search"
                     title="Clear search and reset options"
                     onclick={() => {
@@ -162,7 +162,7 @@
             <Button
                 variant="ghost"
                 size="icon-sm"
-                class="text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                class="hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                 aria-label="Refresh recent files"
                 title="Refresh recent files"
                 onclick={onRefresh}
@@ -182,39 +182,33 @@
                 class="border-sidebar-border bg-sidebar pe-[5.75rem] ps-9 text-sm shadow-none placeholder:text-muted-foreground focus-visible:border-sidebar-ring focus-visible:ring-sidebar-ring"
             />
             <div class="absolute right-1.5 top-1/2 z-10 flex -translate-y-1/2 items-center gap-0.5">
-                <button
-                    type="button"
-                    class="inline-flex size-6 items-center justify-center rounded-sm transition-colors {searchOptions.caseSensitive
-                        ? 'text-sidebar-primary bg-sidebar-primary/15'
-                        : 'text-muted-foreground hover:bg-sidebar-foreground/[0.07]'}"
+                <Button
+                    variant="ghost"
+                    size="icon-xs"
                     aria-pressed={searchOptions.caseSensitive}
                     title="Match Case"
                     onclick={() => { searchOptions.caseSensitive = !searchOptions.caseSensitive; }}
                 >
                     <MaterialSymbolsMatchCaseRounded class="size-[1.2rem]" />
-                </button>
-                <button
-                    type="button"
-                    class="inline-flex size-6 items-center justify-center rounded-sm transition-colors {searchOptions.wholeWord
-                        ? 'text-sidebar-primary bg-sidebar-primary/15'
-                        : 'text-muted-foreground hover:bg-sidebar-foreground/[0.07]'}"
+                </Button>
+                <Button
+                    variant="ghost"
+                    size="icon-xs"
                     aria-pressed={searchOptions.wholeWord}
                     title="Match Whole Word"
                     onclick={() => { searchOptions.wholeWord = !searchOptions.wholeWord; }}
                 >
                     <MaterialSymbolsMatchWordRounded class="size-[1.2rem]" />
-                </button>
-                <button
-                    type="button"
-                    class="inline-flex size-6 items-center justify-center rounded-sm transition-colors {searchOptions.useRegex
-                        ? 'text-sidebar-primary bg-sidebar-primary/15'
-                        : 'text-muted-foreground hover:bg-sidebar-foreground/[0.07]'}"
+                </Button>
+                <Button
+                    variant="ghost"
+                    size="icon-xs"
                     aria-pressed={searchOptions.useRegex}
                     title="Use Regular Expression"
                     onclick={() => { searchOptions.useRegex = !searchOptions.useRegex; }}
                 >
                     <CodiconRegex class="size-[1.1rem]" />
-                </button>
+                </Button>
             </div>
         </div>
 

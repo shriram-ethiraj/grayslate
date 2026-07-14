@@ -13,7 +13,7 @@
 				outline:
 					"bg-background hover:bg-accent hover:text-accent-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50 border shadow-xs",
 				secondary: "bg-secondary text-secondary-foreground hover:bg-secondary/80 shadow-xs",
-				ghost: "hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50",
+				ghost: "not-aria-pressed:hover:bg-accent not-aria-pressed:hover:text-accent-foreground dark:not-aria-pressed:hover:bg-accent/50 disabled:opacity-100 disabled:text-disabled-foreground aria-pressed:bg-foreground/[0.13] aria-pressed:text-foreground",
 				link: "text-primary underline-offset-4 hover:underline",
 			},
 			size: {
