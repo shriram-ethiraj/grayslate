@@ -1,8 +1,20 @@
 <div align="center">
   <img src="app-icon.png" alt="Grayslate Logo" width="128" />
   <h1>Grayslate</h1>
-  <p><strongA fast scratchpad for code, data, and quick thinking.</strong></p>
-  
+  <p><strong>A fast scratchpad for code, data, and quick thinking.</strong></p>
+
+  <p>
+    <a href="https://grayslate.app">
+      <img src="https://img.shields.io/badge/Download-macOS-000000?style=flat-square&logo=apple&logoColor=white" alt="Download for macOS" />
+    </a>
+    <a href="https://grayslate.app">
+      <img src="https://img.shields.io/badge/Download-Windows-0078D6?style=flat-square&logo=windows&logoColor=white" alt="Download for Windows" />
+    </a>
+    <a href="https://grayslate.app">
+      <img src="https://img.shields.io/badge/Download-Linux-FCC624?style=flat-square&logo=linux&logoColor=black" alt="Download for Linux" />
+    </a>
+  </p>
+
   <p>
     <a href="https://github.com/shriram-ethiraj/grayslate/blob/main/LICENSE">
       <img src="https://img.shields.io/github/license/shriram-ethiraj/grayslate?style=flat-square" alt="License" />
@@ -14,100 +26,105 @@
       <img src="https://img.shields.io/github/stars/shriram-ethiraj/grayslate?style=flat-square" alt="Stars" />
     </a>
   </p>
-</div>
 
-**Grayslate** is a simple yet powerful cross-platform code and data editor. Designed as a lightweight scratchpad and data viewer, it provides a fast and clean environment for everyday text manipulation, data viewing, and code editing without the bloat of a full IDE.
+  <img src="docs/hero.png" alt="Grayslate in action" width="820" />
+</div>
 
 ---
 
-## ✨ Key Features
+Grayslate is the window you keep open next to your main editor. Paste an API response and format it. Drop in a giant CSV and actually scroll through it. Jot notes that save themselves. It starts quickly, does the small jobs well, and stays out of your way — no projects to configure.
 
-- **🚀 Fast Data Viewing**: High-performance CSV table view that can open large files without breaking a sweat.
-- **🔍 Automatic Language Detection**: Automatically detects 40+ languages using extension, shebang, structural patterns, and family-based content analysis.
-- **🎨 Clean UI**: A tidy, distraction-free interface built with **Tailwind CSS v4** and **Shadcn**. Includes a beautiful dark mode.
-- **🛠️ Robust Editor**: Powered by **CodeMirror 6** for a solid, modern editing experience.
-- **📦 Cross-Platform**: Runs on macOS, Windows, and Linux as a dedicated desktop application using **Tauri 2.0**.
-- **🔒 Privacy First**: Everything runs locally on your machine. No cloud syncing, no data collection.
+## What it does
 
-## 🛠️ Tech Stack
+**Transform text without a website.** The thing most people open a browser tab for — formatting JSON, decoding Base64, converting CSV to JSON, hashing a string — is a keystroke away here, and it all runs on your machine. There are 80+ built-in transformations; a sample is [below](#transformations).
 
-Grayslate is built using modern, high-performance tools to remain fast, small, and reliable:
+**Open big CSVs.** The table view is backed by Rust and virtualized, so files with hundreds of thousands of rows open and scroll without the app grinding to a halt.
 
-- **Frontend**: [SvelteKit](https://kit.svelte.dev/) + [Svelte 5](https://svelte.dev/)
-- **Styling**: [Tailwind CSS v4](https://tailwindcss.com/) + Shadcn
-- **Editor Core**: [CodeMirror 6](https://codemirror.net/)
-- **Backend**: [Tauri 2.0](https://tauri.app/) (Rust)
+**Paste first, name it later.** Grayslate recognizes 40+ languages from the extension, a shebang, or the content itself. It picks a useful filename and extension, then saves the note (a *slate*) as you type. Rename it whenever you like, or find it again from the sidebar.
 
-## 🚀 Getting Started
+**Work with JSON faster.** Right-click a key or value to copy its path, key, or value, much like in Chrome DevTools.
 
-Want to build Grayslate from source? Follow these steps to set up the project on your local machine.
+There is also a live Markdown preview and multiline find and replace, including matches across line breaks.
 
-### Prerequisites
+Your files and transformations stay on your machine. No account, no cloud sync, no telemetry.
 
-Please ensure you have these installed:
+## Screenshots
 
-- [Node.js](https://nodejs.org/) (v18 or above)
-- [Rust](https://www.rust-lang.org/) (latest version)
-- [pnpm](https://pnpm.io/)
+<div align="center">
+  <img src="docs/csv.png" alt="CSV table view" width="760" />
+  <br /><em>Large CSVs in a virtualized table</em>
+  <br /><br />
+  <img src="docs/json-copy.png" alt="JSON copy path, key, and value actions" width="760" />
+  <br /><em>Copy a JSON path, key, or value from the context menu</em>
+  <br /><br />
+  <img src="docs/transforms.png" alt="Transformations menu" width="760" />
+  <br /><em>Built-in transformations, one keystroke away</em>
+</div>
 
-### Local Development
+## Download
 
-1. **Clone the repository**:
+Grab a build for your platform from [grayslate.app](https://grayslate.app), or from the [Releases page](https://github.com/shriram-ethiraj/grayslate/releases).
 
-   ```bash
-   git clone https://github.com/shriram-ethiraj/grayslate.git
-   cd grayslate
-   ```
+## Transformations
 
-2. **Install dependencies**:
+More than 80 built-in actions. A sample of what's there:
 
-   ```bash
-   pnpm install
-   ```
+- **JSON** — format, minify, validate (comments & trailing commas allowed), sort keys, JSON ↔ YAML, JSON → CSV, JSON → TypeScript, array ↔ JSON-lines, query string ↔ JSON, rename keys to camel/snake/kebab/Title case.
+- **CSV** — CSV → JSON (delimiter auto-detected), and JSON → CSV from the JSON side.
+- **Encoding** — Base64 & Base64URL encode/decode, gzip ↔ Base64, hex ↔ ASCII, URL encode/decode, HTML entity encode/decode, decode a JWT (unverified).
+- **Hashing** — SHA-256, SHA-512, SHA-1, MD5, CRC32.
+- **Text & lines** — upper/lower/Title/camel/snake/kebab/sPoNgE case, sort lines, reverse lines, reverse string, remove duplicates, trim whitespace, collapse blank lines, ROT13, count words/lines/characters.
+- **Numbers & time** — binary/decimal/hex conversions, Unix time ↔ RFC 3339.
+- **Formatters** — JavaScript, TypeScript, CSS, HTML, Svelte, YAML, TOML, Markdown, SQL, XML.
+- **Misc** — insert UUID v4/v7, add/remove slashes, defang/refang URLs.
 
-3. **Run the application**:
-   ```bash
-   pnpm tauri dev
-   ```
+## Tech stack
 
-### Building the Project
+- **Frontend** — [SvelteKit](https://kit.svelte.dev/) + [Svelte 5](https://svelte.dev/), TypeScript
+- **Editor** — [CodeMirror 6](https://codemirror.net/)
+- **Styling** — [Tailwind CSS v4](https://tailwindcss.com/) + shadcn-svelte
+- **Backend** — [Tauri 2](https://tauri.app/) (Rust)
 
-To create a final optimized build for your operating system:
+Tauri means Grayslate uses your OS's built-in webview instead of bundling a whole browser, so the download is small and it's light on memory.
+
+## Building from source
+
+You'll need [Node.js](https://nodejs.org/) (v24+), [Rust](https://www.rust-lang.org/), and [pnpm](https://pnpm.io/).
 
 ```bash
-pnpm tauri build
+git clone https://github.com/shriram-ethiraj/grayslate.git
+cd grayslate
+pnpm install
+pnpm tauri dev      # run in development
+pnpm tauri build    # produce an optimized build
 ```
 
-## ❓ Frequently Asked Questions (FAQ)
+## FAQ
 
-### Is this similar to Boop or Notepad++?
+**How is this different from Boop or Notepad++?**
+Like Boop, it's a developer scratchpad for quick text jobs — but it also handles real file editing and large CSVs, and it runs on macOS, Windows, and Linux. Think of it as text transformations, a data viewer, and a notepad in one small window.
 
-Yes and no. Like **Boop**, Grayslate serves as an excellent developer scratchpad for quick manipulations, but goes further by offering robust file editing and high-performance data viewing (like large CSVs). Unlike **Notepad++**, which is Windows-only, Grayslate is truly cross-platform out of the box with a modern, clean UI, taking the best ideas from both worlds and bringing them to macOS, Windows, and Linux.
+**Why Tauri and not Electron?**
+Electron ships an entire Chromium and Node runtime with every app. Tauri reuses the system webview and pairs it with a Rust backend, so bundles are far smaller and memory use is lower.
 
-### Why use Tauri instead of Electron?
+**Why not just use an online formatter?**
+Because your data leaves your machine when you do. Proprietary code, API keys, customer CSVs — none of it should have to travel to a stranger's server just to get pretty-printed. Grayslate does it all locally.
 
-**Performance and bundle size.** Electron bundles a whole Chromium browser and Node.js runtime, making apps huge and memory-hungry. By using Tauri, Grayslate relies on the OS's system webview and a lightweight Rust backend. This results in significantly lower RAM usage, vastly smaller app bundles, and excellent performance.
+**Can it handle very large files?**
+Grayslate can open files up to 200 MB, whether they are CSV or regular text files. The CSV table is virtualized, so files with hundreds of thousands of rows remain practical to browse.
 
-### Why not just use online text/data converters?
+**Is it free?**
+Yes. Free and open source.
 
-**Privacy.** Online formatters and converters require you to send your data over the internet to a third-party server. Whether it's proprietary code, secret API keys, or sensitive CSV data, you shouldn't have to risk exposing it just to format JSON. Grayslate processes everything 100% locally on your machine.
+## Roadmap
 
-### Why not use VS Code, IntelliJ, or another heavyweight IDE?
+- **Git sync** — automatically version and back up your notes to a Git repo.
+- **Custom transformations** — write your own and add them to the menu.
 
-IDEs are fantastic for managing large projects, but they can be slow to launch and overly complex when all you want to do is paste an API payload, quickly format it, or view a CSV file. Grayslate is designed to open instantly, provide the core tools you need without the bloat, and get out of your way.
+## Contributing
 
-### Can Grayslate handle extremely large files?
+Issues and pull requests are welcome. If you hit a bug or have an idea, open an issue.
 
-Yes. Grayslate is specifically optimized for viewing large datasets. The CSV viewer uses a high-performance table implementation that can handle hundreds of thousands of rows without slowing down your system. For text editing, it uses **CodeMirror 6**, which is designed for fast, efficient manipulation of large text blocks.
+## License
 
-### Is Grayslate free to use?
-
-Yes! Grayslate is completely free and open-source.
-
-## 🤝 Contributing
-
-Contributions are welcome! If you find any issues, want to request features, or suggest updates, please feel free to open an issue or submit a pull request. Make sure to read the contributing guidelines before jumping in.
-
-## 📄 License
-
-This project is available under the **MIT License**.
+MIT.
