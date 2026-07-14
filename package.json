@@ -9,7 +9,12 @@
     "preview": "vite preview",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "e2e:build": "pnpm tauri build --no-bundle --config src-tauri/tauri.e2e.conf.json",
+    "e2e:check": "tsc --noEmit -p e2e/tsconfig.json",
+    "e2e:test": "wdio run e2e/wdio.conf.ts",
+    "e2e:ci": "xvfb-run -a pnpm run e2e:test",
+    "e2e:local": "pnpm run e2e:build && pnpm run e2e:test"
   },
   "license": "MIT",
   "dependencies": {
@@ -63,6 +68,8 @@
     "lodash-es": "^4.18.1"
   },
   "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^24.0.0",
     "@internationalized/date": "^3.12.2",
     "@lezer/common": "^1.5.2",
     "@lezer/highlight": "^1.2.3",
@@ -72,6 +79,12 @@
     "@tailwindcss/vite": "^4.3.2",
     "@tanstack/svelte-table": "9.0.0-alpha.10",
     "@tauri-apps/cli": "^2.11.4",
+    "@wdio/cli": "^9.29.1",
+    "@wdio/globals": "^9.29.1",
+    "@wdio/local-runner": "^9.29.1",
+    "@wdio/mocha-framework": "^9.29.1",
+    "@wdio/spec-reporter": "^9.29.1",
+    "@wdio/tauri-service": "1.1.0",
     "@types/lodash-es": "^4.17.12",
     "bits-ui": "^2.18.1",
     "clsx": "^2.1.1",

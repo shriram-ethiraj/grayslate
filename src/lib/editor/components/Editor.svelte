@@ -234,7 +234,7 @@
   }
 </script>
 
-<div class="editor-container" use:editor={value}>
+<div class="editor-container" data-testid="editor" use:editor={value}>
   <FindReplace />
 </div>
 

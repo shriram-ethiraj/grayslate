@@ -69,6 +69,9 @@
     onclick={openEditorLanguagePicker}
     class="flex items-center hover:bg-muted/50 hover:text-foreground h-full px-2 transition-colors cursor-pointer rounded-none bg-transparent text-xs gap-1.5"
     title="Select Language Mode"
+    data-testid="language-mode"
+    data-language-mode={language}
+    data-detected-language={detectedLanguage}
 >
     {#if selectedLabel.icon}
         {@const Icon = selectedLabel.icon}
