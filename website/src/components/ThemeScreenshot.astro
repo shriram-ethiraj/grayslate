@@ -1,0 +1,36 @@
+---
+import type { ImageMetadata } from "astro";
+
+interface Props {
+  dark: ImageMetadata;
+  light: ImageMetadata;
+  alt: string;
+  loading?: "eager" | "lazy";
+  fetchpriority?: "high" | "low" | "auto";
+}
+
+const {
+  dark,
+  light,
+  alt,
+  loading = "lazy",
+  fetchpriority = "auto",
+} = Astro.props;
+---
+
+<picture class="theme-screenshot" data-theme-picture>
+  <source
+    data-theme-source="light"
+    media="(prefers-color-scheme: light)"
+    srcset={light.src}
+  />
+  <img
+    src={dark.src}
+    alt={alt}
+    width={dark.width}
+    height={dark.height}
+    loading={loading}
+    decoding="async"
+    fetchpriority={fetchpriority}
+  />
+</picture>

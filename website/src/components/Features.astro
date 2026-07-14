@@ -1,0 +1,95 @@
+---
+import transformsImage from "../assets/product/transforms.png";
+import transformsLightImage from "../assets/product/transforms-light.png";
+import csvImage from "../assets/product/csv.png";
+import csvLightImage from "../assets/product/csv-light.png";
+import heroImage from "../assets/product/hero.png";
+import heroLightImage from "../assets/product/hero-light.png";
+import ThemeScreenshot from "./ThemeScreenshot.astro";
+---
+
+<section class="section features" id="features">
+  <div class="container">
+    <div class="section-heading">
+      <p class="section-kicker">Built for the everyday detours</p>
+      <h2>The small jobs, handled.</h2>
+      <p>Grayslate keeps useful developer tools close without turning every quick task into a project.</p>
+    </div>
+
+    <div class="feature-stories">
+      <article class="feature-story">
+        <div class="feature-copy">
+          <span class="feature-number">01</span>
+          <h3>Transform text without changing context.</h3>
+          <p>Grayslate detects the current document or selection and puts matching transformations first. Format JSON, convert CSV, decode Base64, hash text, clean up lines, and more—all on your machine.</p>
+          <ul class="tag-list" aria-label="Example transformations">
+            <li>JSON</li><li>Base64</li><li>CSV</li><li>Hashes</li><li>SQL</li><li>80+ actions</li>
+          </ul>
+        </div>
+        <div class="feature-media">
+          <ThemeScreenshot
+            dark={transformsImage}
+            light={transformsLightImage}
+            alt="The searchable Grayslate transformations palette"
+          />
+        </div>
+      </article>
+
+      <article class="feature-story feature-story--reverse">
+        <div class="feature-copy">
+          <span class="feature-number">02</span>
+          <h3>Large CSVs that still feel usable.</h3>
+          <p>Open and explore CSV files with hundreds of thousands of rows in a Rust-backed, virtualized table.</p>
+          <div class="feature-note">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16M8 3v18M16 3v18"></path></svg>
+            Virtualized rows keep scrolling responsive.
+          </div>
+        </div>
+        <div class="feature-media">
+          <ThemeScreenshot
+            dark={csvImage}
+            light={csvLightImage}
+            alt="A CSV file open in Grayslate's virtualized table"
+          />
+        </div>
+      </article>
+
+      <article class="feature-story">
+        <div class="feature-copy">
+          <span class="feature-number">03</span>
+          <h3>Paste it now. Find it later.</h3>
+          <p>Grayslate recognizes the content, chooses a useful filename and extension, and saves every new slate as you type. Browse recent slates or search by name and content whenever you need it again.</p>
+          <div class="feature-note">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18M3 12h18"></path><path d="m5 5 14 14M19 5 5 19"></path></svg>
+            More than 40 languages recognized from content.
+          </div>
+        </div>
+        <div class="feature-media">
+          <ThemeScreenshot
+            dark={heroImage}
+            light={heroLightImage}
+            alt="Grayslate editor and library sidebar with automatically named and saved slates"
+          />
+        </div>
+      </article>
+    </div>
+
+    <div class="capability-grid">
+      <article class="capability-card">
+        <div class="capability-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.5.5l2-2a5 5 0 0 0-7-7l-1.2 1.2"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-2 2a5 5 0 0 0 7 7l1.2-1.2"></path></svg></div>
+        <h3>JSON shortcuts</h3>
+        <p>Right-click to copy a JSON path, key, or value.</p>
+      </article>
+      <article class="capability-card">
+        <div class="capability-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4zM12 5v14"></path><path d="m7 14 2-2 2 2M15 9h2M15 12h2M15 15h2"></path></svg></div>
+        <h3>Markdown preview</h3>
+        <p>Write and preview Markdown side by side.</p>
+      </article>
+      <article class="capability-card">
+        <div class="capability-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"></circle><path d="m15.5 15.5 4 4M8 8h5M8 11h3"></path></svg></div>
+        <h3>Find across line breaks</h3>
+        <p>Search and replace multiline content without leaving the editor.</p>
+      </article>
+    </div>
+  </div>
+</section>

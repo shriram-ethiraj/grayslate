@@ -19,6 +19,7 @@
     setEditorWordWrap,
   } from "$lib/state/editor.svelte";
   import AboutDialog from "$lib/components/AboutDialog.svelte";
+  import KeyboardShortcutsDialog from "$lib/components/KeyboardShortcutsDialog.svelte";
   import SettingsDialog from "$lib/components/SettingsDialog.svelte";
   import DeleteFileDialog from "$lib/components/DeleteFileDialog.svelte";
   import RenameFileDialog from "$lib/components/RenameFileDialog.svelte";
@@ -27,7 +28,10 @@
     checkForAppUpdates,
     openAboutDialog,
   } from "$lib/state/appMenu.svelte";
-  import { openSettingsAppDialog } from "$lib/state/appDialogs.svelte";
+  import {
+    openKeyboardShortcutsAppDialog,
+    openSettingsAppDialog,
+  } from "$lib/state/appDialogs.svelte";
   import { confirmBeforeLeavingDocument } from "$lib/state/unsavedChangesGuard.svelte";
   import {
     editorUndo,
@@ -81,6 +85,7 @@
   let unlistenEditAction: (() => void) | undefined;
   let unlistenAbout: (() => void) | undefined;
   let unlistenSettings: (() => void) | undefined;
+  let unlistenKeyboardShortcuts: (() => void) | undefined;
   let unlistenCheckForUpdates: (() => void) | undefined;
   let unlistenWordWrap: (() => void) | undefined;
   let unlistenViewAction: (() => void) | undefined;
@@ -124,6 +129,10 @@
         handleSettings();
       });
 
+      unlistenKeyboardShortcuts = await listen("menu://keyboard-shortcuts", () => {
+        handleKeyboardShortcuts();
+      });
+
       unlistenCheckForUpdates = await listen("menu://check-for-updates", () => {
         void handleCheckForUpdates();
       });
@@ -155,6 +164,7 @@
   onDestroy(() => {
     unlistenAbout?.();
     unlistenSettings?.();
+    unlistenKeyboardShortcuts?.();
     unlistenCheckForUpdates?.();
     unlistenEditAction?.();
     unlistenWordWrap?.();
@@ -169,6 +179,10 @@
 
   function handleSettings() {
     openSettingsAppDialog();
+  }
+
+  function handleKeyboardShortcuts() {
+    openKeyboardShortcutsAppDialog();
   }
 
   async function handleCheckForUpdates() {
@@ -516,8 +530,12 @@
       </Menubar.Content>
     </Menubar.Menu>
     <Menubar.Menu>
-      <Menubar.Trigger class="cursor-pointer">Help</Menubar.Trigger>
+      <Menubar.Trigger data-testid="app-help-menu" class="cursor-pointer">Help</Menubar.Trigger>
       <Menubar.Content>
+        <Menubar.Item data-testid="help-keyboard-shortcuts" onclick={handleKeyboardShortcuts}
+          >Keyboard Shortcuts...</Menubar.Item
+        >
+        <Menubar.Separator />
         <Menubar.Item onclick={handleCheckForUpdates}
           >Check for Updates...</Menubar.Item
         >
@@ -641,6 +659,7 @@
 </div>
 
 <AboutDialog />
+<KeyboardShortcutsDialog />
 <SettingsDialog />
 <DeleteFileDialog />
 <RenameFileDialog />

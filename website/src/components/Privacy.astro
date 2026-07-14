@@ -1,0 +1,27 @@
+---
+import { site } from "../lib/site";
+---
+
+<section class="section privacy" id="privacy">
+  <div class="container">
+    <div class="privacy-panel">
+      <div class="privacy-mark" aria-hidden="true">
+        <span>&lt;</span><span>/</span><span>&gt;</span>
+      </div>
+      <div class="privacy-copy">
+        <p class="section-kicker">Local by design</p>
+        <h2>Your scratch data should not need a round trip.</h2>
+        <p>API responses, customer CSVs, tokens, and unfinished ideas stay on your computer. Grayslate does not require an account, cloud upload, or telemetry.</p>
+        <div class="inline-links">
+          <a href={site.repositoryUrl}>Inspect the source <span aria-hidden="true">↗</span></a>
+          <a href={site.licenseUrl}>MIT license <span aria-hidden="true">↗</span></a>
+        </div>
+      </div>
+      <ul class="privacy-points">
+        <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"></path></svg><span><strong>Local auto-save</strong>New slates are saved on your machine as you type.</span></li>
+        <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"></path></svg><span><strong>No account</strong>Install it and start working.</span></li>
+        <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"></path></svg><span><strong>Open source</strong>Read the code and see how it works.</span></li>
+      </ul>
+    </div>
+  </div>
+</section>

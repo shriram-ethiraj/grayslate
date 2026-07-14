@@ -11,6 +11,7 @@ export type AppDialogState =
     | { type: "none" }
     | { type: "about" }
     | { type: "settings" }
+    | { type: "keyboard-shortcuts" }
     | { type: "delete"; file: RecentFileRecord }
     | { type: "rename"; file: RecentFileRecord }
     | { type: "unsaved-changes"; resolve: (choice: UnsavedChangesChoice) => void };
@@ -25,6 +26,10 @@ export function openAboutAppDialog(): void {
 
 export function openSettingsAppDialog(): void {
     appDialogsState.active = { type: "settings" };
+}
+
+export function openKeyboardShortcutsAppDialog(): void {
+    appDialogsState.active = { type: "keyboard-shortcuts" };
 }
 
 export function openDeleteFileDialog(file: RecentFileRecord): void {

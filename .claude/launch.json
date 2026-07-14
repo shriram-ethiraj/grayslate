@@ -6,6 +6,13 @@
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["run", "dev", "--port", "5183", "--strictPort", "false"],
       "port": 5183
+    },
+    {
+      "name": "website",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@grayslate/website", "run", "dev"],
+      "port": 4321,
+      "autoPort": true
     }
   ]
 }

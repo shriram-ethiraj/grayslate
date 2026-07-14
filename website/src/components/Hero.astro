@@ -1,0 +1,98 @@
+---
+import heroImage from "../assets/product/hero.png";
+import heroLightImage from "../assets/product/hero-light.png";
+import transformsImage from "../assets/product/transforms.png";
+import transformsLightImage from "../assets/product/transforms-light.png";
+import jsonImage from "../assets/product/json-copy.png";
+import jsonLightImage from "../assets/product/json-copy-light.png";
+import ThemeScreenshot from "./ThemeScreenshot.astro";
+import { downloads, site } from "../lib/site";
+---
+
+<section class="hero section" id="top">
+  <div class="hero-backdrop" aria-hidden="true"></div>
+  <div class="container hero-content">
+    <p class="eyebrow">Free and open source <span>·</span> macOS, Windows, Linux</p>
+    <h1>A fast scratchpad for<br class="desktop-break" /> code, data, and quick thinking.</h1>
+    <p class="hero-copy">
+      Paste an API response. Explore a huge CSV. Transform text or capture a thought.
+      Grayslate recognizes your content, suggests relevant transformations, and automatically
+      names and saves each slate—so you can find it again whenever you need it.
+    </p>
+
+    <div class="hero-actions">
+      <a
+        class="button button--primary button--large"
+        href={site.latestReleaseUrl}
+        data-primary-download
+        data-fallback-label="View all downloads"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 3v12m0 0 4-4m-4 4-4-4M5 20h14"></path>
+        </svg>
+        <span data-download-label>View all downloads</span>
+      </a>
+      <a class="button button--secondary button--large" href={site.repositoryUrl}>
+        View on GitHub
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M7 17 17 7M8 7h9v9"></path>
+        </svg>
+      </a>
+    </div>
+
+    <p class="trust-line">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 5 6v5c0 4.6 2.9 8.3 7 10 4.1-1.7 7-5.4 7-10V6l-7-3Z"></path><path d="m9 12 2 2 4-4"></path></svg>
+      Your files stay on your machine. No account. No telemetry.
+    </p>
+
+    <div class="product-stage" data-product-stage>
+      <div class="window-bar" aria-hidden="true">
+        <span class="window-dot"></span><span class="window-dot"></span><span class="window-dot"></span>
+        <span class="window-title">Grayslate</span>
+      </div>
+      <div class="product-slides" aria-label="Grayslate product preview">
+        <figure class="product-slide product-slide--active" data-product-slide>
+          <ThemeScreenshot
+            dark={heroImage}
+            light={heroLightImage}
+            alt="Grayslate showing a JSON document and automatically saved slates"
+            loading="eager"
+            fetchpriority="high"
+          />
+          <figcaption><span>01</span> Paste, recognize, name, and save automatically</figcaption>
+        </figure>
+        <figure class="product-slide" data-product-slide>
+          <ThemeScreenshot
+            dark={transformsImage}
+            light={transformsLightImage}
+            alt="Grayslate transformations palette with JSON actions"
+          />
+          <figcaption><span>02</span> Get transformations suggested for your content</figcaption>
+        </figure>
+        <figure class="product-slide" data-product-slide>
+          <ThemeScreenshot
+            dark={jsonImage}
+            light={jsonLightImage}
+            alt="Grayslate JSON context menu with copy actions"
+          />
+          <figcaption><span>03</span> Copy exactly the JSON detail you need</figcaption>
+        </figure>
+      </div>
+      <button class="demo-control" type="button" data-demo-toggle aria-label="Pause product preview">
+        <svg class="demo-icon demo-icon--pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6v12M15 6v12"></path></svg>
+        <svg class="demo-icon demo-icon--play" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 9 6-9 6V6Z"></path></svg>
+      </button>
+    </div>
+
+    <div class="sr-only" aria-hidden="true">
+      {downloads.map((download) => (
+        <span
+          data-download-source
+          data-os={download.os}
+          data-label={download.label}
+          data-href={download.href}
+        ></span>
+      ))}
+    </div>
+  </div>
+</section>

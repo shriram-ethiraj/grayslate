@@ -1,0 +1,12 @@
+---
+interface Props {
+  compact?: boolean;
+}
+
+const { compact = false } = Astro.props;
+---
+
+<span class:list={["brand", { "brand--compact": compact }]}> 
+  <img src="/brand-icon.png" alt="" width="40" height="40" />
+  <span>Grayslate</span>
+</span>

@@ -6,7 +6,7 @@ struct MacOsMenuState {
     save_file_item: std::sync::Mutex<tauri::menu::MenuItem<tauri::Wry>>,
 }
 
-/// Build the macOS-native menu bar (File + Edit + View).
+/// Build the macOS-native menu bar (File + Edit + View + Help).
 ///
 /// On macOS the in-window shadcn Menubar is hidden; this native menu
 /// provides the same actions via the system menu bar at the top of the
@@ -143,11 +143,16 @@ pub fn build_native_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::M
         )
         .build()?;
 
+    let help_menu = SubmenuBuilder::new(app, "Help")
+        .item(&MenuItemBuilder::with_id("keyboard-shortcuts", "Keyboard Shortcuts...").build(app)?)
+        .build()?;
+
     let menu_builder = MenuBuilder::new(app)
         .item(&app_menu)
         .item(&file_menu)
         .item(&edit_menu)
-        .item(&view_menu);
+        .item(&view_menu)
+        .item(&help_menu);
 
     menu_builder.build()
 }
@@ -157,6 +162,7 @@ pub fn build_native_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::M
 ///
 /// - `menu://new-file`     → EditorWrapper's createNewFile()
 /// - `menu://open-file`    → EditorWrapper's openFile()
+/// - `menu://keyboard-shortcuts` → Titlebar's shortcut reference dialog
 /// - `menu://edit-action`  → Titlebar's handleEdit(action) / word-wrap toggle
 /// - `menu://view-action`  → Titlebar's handleView(action)
 #[cfg(target_os = "macos")]
@@ -173,6 +179,9 @@ pub fn handle_macos_menu_event(app: &tauri::AppHandle, event: tauri::menu::MenuE
         }
         "settings" => {
             let _ = window.emit("menu://settings", true);
+        }
+        "keyboard-shortcuts" => {
+            let _ = window.emit("menu://keyboard-shortcuts", true);
         }
         "check-for-updates" => {
             let _ = window.emit("menu://check-for-updates", true);

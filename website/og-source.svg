@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1b1e26"/>
+      <stop offset="1" stop-color="#20242d"/>
+    </linearGradient>
+    <radialGradient id="cyan" cx="0" cy="0" r="1" gradientTransform="translate(160 90) rotate(38) scale(520 410)">
+      <stop stop-color="#3fd0e0" stop-opacity=".17"/>
+      <stop offset="1" stop-color="#3fd0e0" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="pink" cx="0" cy="0" r="1" gradientTransform="translate(1110 590) rotate(-145) scale(480 330)">
+      <stop stop-color="#f0537f" stop-opacity=".14"/>
+      <stop offset="1" stop-color="#f0537f" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="grid" width="56" height="56" patternUnits="userSpaceOnUse">
+      <path d="M56 0H0V56" fill="none" stroke="#7c879b" stroke-opacity=".07"/>
+    </pattern>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="170%">
+      <feDropShadow dx="0" dy="24" stdDeviation="28" flood-color="#000" flood-opacity=".34"/>
+    </filter>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <rect width="1200" height="630" fill="url(#grid)"/>
+  <rect width="1200" height="630" fill="url(#cyan)"/>
+  <rect width="1200" height="630" fill="url(#pink)"/>
+
+  <g transform="translate(72 76)">
+    <rect width="68" height="68" rx="17" fill="#292d36" stroke="#454c5d"/>
+    <path d="m27 23-13 11 13 11" fill="none" stroke="#3fd0e0" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="m41 19-9 30" fill="none" stroke="#f2f5f9" stroke-width="7" stroke-linecap="round"/>
+    <path d="m45 23 13 11-13 11" fill="none" stroke="#f0537f" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="88" y="47" fill="#f2f5f9" font-family="Inter,system-ui,sans-serif" font-size="32" font-weight="680" letter-spacing="-1">Grayslate</text>
+  </g>
+
+  <text x="72" y="244" fill="#f2f5f9" font-family="Inter,system-ui,sans-serif" font-size="58" font-weight="720" letter-spacing="-2.8">
+    <tspan x="72" dy="0">A fast scratchpad for</tspan>
+    <tspan x="72" dy="68">code, data, and quick thinking.</tspan>
+  </text>
+  <text x="74" y="405" fill="#a3aec0" font-family="Inter,system-ui,sans-serif" font-size="23">
+    Transform text. Explore large CSVs. Keep everything on your machine.
+  </text>
+  <g transform="translate(74 466)">
+    <rect width="272" height="54" rx="12" fill="#eef1f5"/>
+    <text x="136" y="35" text-anchor="middle" fill="#1b1e26" font-family="Inter,system-ui,sans-serif" font-size="18" font-weight="700">Download Grayslate</text>
+  </g>
+
+  <g transform="translate(724 78) rotate(3 206 235)" filter="url(#shadow)">
+    <rect width="414" height="474" rx="18" fill="#171a21" stroke="#3a4050"/>
+    <rect width="414" height="38" rx="18" fill="#1f232c"/>
+    <path d="M0 38h414" stroke="#3a4050"/>
+    <circle cx="20" cy="19" r="4" fill="#f0537f"/>
+    <circle cx="34" cy="19" r="4" fill="#e5b85a"/>
+    <circle cx="48" cy="19" r="4" fill="#3fd0e0"/>
+    <rect x="18" y="58" width="88" height="395" rx="8" fill="#1f232c"/>
+    <rect x="30" y="76" width="64" height="10" rx="5" fill="#3a4050"/>
+    <rect x="30" y="104" width="64" height="46" rx="8" fill="#2f3542" stroke="#626b7f"/>
+    <rect x="30" y="163" width="64" height="46" rx="8" fill="#272c37"/>
+    <rect x="30" y="222" width="64" height="46" rx="8" fill="#272c37"/>
+    <g font-family="ui-monospace,monospace" font-size="13">
+      <text x="130" y="82" fill="#7b8598">1</text><text x="156" y="82" fill="#aeb7c7">{</text>
+      <text x="130" y="112" fill="#7b8598">2</text><text x="156" y="112" fill="#3fd0e0">"app"</text><text x="202" y="112" fill="#aeb7c7">:</text><text x="220" y="112" fill="#9ce56c">"Grayslate"</text>
+      <text x="130" y="142" fill="#7b8598">3</text><text x="156" y="142" fill="#3fd0e0">"local"</text><text x="218" y="142" fill="#aeb7c7">:</text><text x="236" y="142" fill="#e5b85a">true</text>
+      <text x="130" y="172" fill="#7b8598">4</text><text x="156" y="172" fill="#3fd0e0">"tools"</text><text x="210" y="172" fill="#aeb7c7">: [</text>
+      <text x="130" y="202" fill="#7b8598">5</text><text x="178" y="202" fill="#9ce56c">"format"</text><text x="250" y="202" fill="#aeb7c7">,</text>
+      <text x="130" y="232" fill="#7b8598">6</text><text x="178" y="232" fill="#9ce56c">"transform"</text><text x="275" y="232" fill="#aeb7c7">,</text>
+      <text x="130" y="262" fill="#7b8598">7</text><text x="178" y="262" fill="#9ce56c">"explore"</text>
+      <text x="130" y="292" fill="#7b8598">8</text><text x="156" y="292" fill="#aeb7c7">],</text>
+      <text x="130" y="322" fill="#7b8598">9</text><text x="156" y="322" fill="#3fd0e0">"telemetry"</text><text x="252" y="322" fill="#aeb7c7">:</text><text x="270" y="322" fill="#9ce56c">"none"</text>
+      <text x="122" y="352" fill="#7b8598">10</text><text x="156" y="352" fill="#aeb7c7">}</text>
+    </g>
+    <rect x="124" y="420" width="270" height="16" rx="5" fill="#272c37"/>
+  </g>
+</svg>

@@ -27,20 +27,24 @@
     </a>
   </p>
 
-  <img src="docs/hero.png" alt="Grayslate in action" width="820" />
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/hero.png" />
+    <source media="(prefers-color-scheme: light)" srcset="docs/hero-light.png" />
+    <img src="docs/hero.png" alt="Grayslate showing automatically named and saved slates" />
+  </picture>
 </div>
 
 ---
 
-Grayslate is the window you keep open next to your main editor. Paste an API response and format it. Drop in a giant CSV and actually scroll through it. Jot notes that save themselves. It starts quickly, does the small jobs well, and stays out of your way — no projects to configure.
+Grayslate is the window you keep open next to your main editor. Paste an API response. Explore a huge CSV. Transform text or capture a thought. Grayslate recognizes your content, suggests relevant transformations, and automatically names and saves each slate—so you can find it again whenever you need it.
 
 ## What it does
 
-**Transform text without a website.** The thing most people open a browser tab for — formatting JSON, decoding Base64, converting CSV to JSON, hashing a string — is a keystroke away here, and it all runs on your machine. There are 80+ built-in transformations; a sample is [below](#transformations).
+**Transform text without a website.** Grayslate detects the current document or selection and puts transformations matching its content type first. Formatting JSON, decoding Base64, converting CSV to JSON, hashing a string, and more are a keystroke away, and everything runs on your machine. There are 80+ built-in transformations; a sample is [below](#transformations).
 
 **Open big CSVs.** The table view is backed by Rust and virtualized, so files with hundreds of thousands of rows open and scroll without the app grinding to a halt.
 
-**Paste first, name it later.** Grayslate recognizes 40+ languages from the extension, a shebang, or the content itself. It picks a useful filename and extension, then saves the note (a *slate*) as you type. Rename it whenever you like, or find it again from the sidebar.
+**Paste it now. Find it later.** Grayslate recognizes 40+ languages from the extension, a shebang, or the content itself. It picks a useful filename and extension, then automatically saves the note (a *slate*) as you type. Browse recent slates or search their names and contents whenever you need one again.
 
 **Work with JSON faster.** Right-click a key or value to copy its path, key, or value, much like in Chrome DevTools.
 
@@ -51,14 +55,26 @@ Your files and transformations stay on your machine. No account, no cloud sync, 
 ## Screenshots
 
 <div align="center">
-  <img src="docs/csv.png" alt="CSV table view" width="760" />
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/csv.png" />
+    <source media="(prefers-color-scheme: light)" srcset="docs/csv-light.png" />
+    <img src="docs/csv.png" alt="CSV table view" />
+  </picture>
   <br /><em>Large CSVs in a virtualized table</em>
   <br /><br />
-  <img src="docs/json-copy.png" alt="JSON copy path, key, and value actions" width="760" />
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/json-copy.png" />
+    <source media="(prefers-color-scheme: light)" srcset="docs/json-copy-light.png" />
+    <img src="docs/json-copy.png" alt="JSON copy path, key, and value actions" />
+  </picture>
   <br /><em>Copy a JSON path, key, or value from the context menu</em>
   <br /><br />
-  <img src="docs/transforms.png" alt="Transformations menu" width="760" />
-  <br /><em>Built-in transformations, one keystroke away</em>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/transforms.png" />
+    <source media="(prefers-color-scheme: light)" srcset="docs/transforms-light.png" />
+    <img src="docs/transforms.png" alt="Transformations menu" />
+  </picture>
+  <br /><em>Relevant transformations suggested from the detected content type</em>
 </div>
 
 ## Download
@@ -102,7 +118,10 @@ pnpm tauri build    # produce an optimized build
 ## FAQ
 
 **How is this different from Boop or Notepad++?**
-Like Boop, it's a developer scratchpad for quick text jobs — but it also handles real file editing and large CSVs, and it runs on macOS, Windows, and Linux. Think of it as text transformations, a data viewer, and a notepad in one small window.
+Boop is centered on one-off transformations, while Notepad++ is a general-purpose editor. Grayslate is built around persistent scratch work: it recognizes pasted content, suggests relevant transformations, gives each new slate a useful name, auto-saves it, and lets you search for it later. It also handles real file editing and large CSVs on macOS, Windows, and Linux.
+
+**Does Grayslate save my work automatically?**
+New slates are named and saved automatically as you type, and remain available in the library for browsing or search. Files opened from elsewhere on your computer are never overwritten automatically—Grayslate writes changes to those files only when you explicitly choose Save.
 
 **Why Tauri and not Electron?**
 Electron ships an entire Chromium and Node runtime with every app. Tauri reuses the system webview and pairs it with a Rust backend, so bundles are far smaller and memory use is lower.

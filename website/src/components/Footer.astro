@@ -1,0 +1,26 @@
+---
+import Brand from "./Brand.astro";
+import { site } from "../lib/site";
+---
+
+<footer class="site-footer">
+  <div class="container footer-layout">
+    <div class="footer-brand">
+      <a href="#top" aria-label="Back to top"><Brand compact /></a>
+      <p>A fast scratchpad for code, data, and quick thinking.</p>
+    </div>
+    <nav class="footer-links" aria-label="Footer navigation">
+      <a href={site.repositoryUrl}>GitHub</a>
+      <a href={site.issuesUrl}>Issues</a>
+      <a href={site.releasesUrl}>Releases</a>
+      <a href={site.licenseUrl}>MIT License</a>
+    </nav>
+  </div>
+  <div class="container footer-meta">
+    <p>
+      Created by&nbsp;
+      <a href="https://github.com/shriram-ethiraj">Shriram Ethiraj <span aria-hidden="true">↗</span></a>
+    </p>
+    <p>© {new Date().getFullYear()} Grayslate</p>
+  </div>
+</footer>

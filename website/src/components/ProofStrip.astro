@@ -1,0 +1,14 @@
+---
+import { proofPoints } from "../lib/site";
+---
+
+<div class="container proof-wrap" aria-label="Grayslate product facts">
+  <dl class="proof-strip">
+    {proofPoints.map((point) => (
+      <div>
+        <dt>{point.value}</dt>
+        <dd>{point.label}</dd>
+      </div>
+    ))}
+  </dl>
+</div>
