@@ -9,8 +9,8 @@
 
     interface Props {
         sections: RecentFileSection[];
-        /** Show the external-file badge in the unified All view. */
-        showExternalBadge: boolean;
+        /** Show the local-file badge in the unified All view. */
+        showLocalBadge: boolean;
         /** True while the search query is non-empty (stable boolean, not the raw query string). */
         isSearchMode: boolean;
         isLoading: boolean;
@@ -38,7 +38,7 @@
 
     let {
         sections,
-        showExternalBadge,
+        showLocalBadge,
         isSearchMode,
         isLoading,
         isSearchLoading,
@@ -116,7 +116,7 @@
                             {#each section.items as recentFile (recentFile.path)}
                                 <SidebarFileCard
                                     {recentFile}
-                                    {showExternalBadge}
+                                    {showLocalBadge}
                                     isActive={isActive(recentFile)}
                                     isHighlighted={recentFile.path === highlightedPath}
                                     {onOpen}

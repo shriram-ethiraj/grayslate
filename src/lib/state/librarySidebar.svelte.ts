@@ -14,7 +14,7 @@ export interface PendingSidebarFileOpen {
  */
 export type LibraryMutation =
     | { kind: "created"; path: string; source: RecentFileSource }
-    | { kind: "opened"; path: string; source: RecentFileSource; origin: "sidebar" | "external" }
+    | { kind: "opened"; path: string; source: RecentFileSource; origin: "sidebar" | "local" }
     | { kind: "saved" }
     | { kind: "duplicated"; path: string; source: RecentFileSource }
     | { kind: "removed"; path: string }

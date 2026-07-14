@@ -13,7 +13,7 @@ import type { UnsavedChangesChoice } from "$lib/state/appDialogs.svelte";
  */
 export async function confirmBeforeLeavingDocument(): Promise<boolean> {
     // Slates (including untitled documents) are autosaved by the backend, so
-    // only local/external files need an explicit unsaved-changes prompt.
+    // only local files need an explicit unsaved-changes prompt.
     if (!editorState.isDirty || editorState.currentFileSource !== "local") {
         return true;
     }

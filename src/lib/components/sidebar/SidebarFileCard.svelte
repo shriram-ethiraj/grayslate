@@ -38,8 +38,8 @@
 
     interface Props {
         recentFile: LibraryFileRecord;
-        /** Whether the external-file badge should be shown in the current tab. */
-        showExternalBadge?: boolean;
+        /** Whether the local-file badge should be shown in the current tab. */
+        showLocalBadge?: boolean;
         isActive: boolean;
         /** Keyboard-navigated highlight (ArrowUp/Down from the search input). */
         isHighlighted?: boolean;
@@ -56,7 +56,7 @@
 
     const {
         recentFile,
-        showExternalBadge = true,
+        showLocalBadge = true,
         isActive,
         isHighlighted = false,
         onOpen,
@@ -149,7 +149,7 @@
                             {:else}
                                 <Files class="size-4.5" />
                             {/if}
-                            {#if recentFile.source === "local" && showExternalBadge}
+                            {#if recentFile.source === "local" && showLocalBadge}
                                 <!-- Corner marker for local files. -->
                                 <span
                                     aria-hidden="true"

@@ -215,7 +215,7 @@
   let activeFilePath = $derived(getDocumentKey(activeDocument));
   // Managed slates are persisted by the backend autosave flow, including
   // untitled slates that are flushed before a document switch. "Dirty" is
-  // therefore reserved for external/local files that need an explicit save.
+  // therefore reserved for local files that need an explicit save.
   let isDirty = $derived(
     activeDocument.source === "local" && value !== activeDocument.lastSavedValue,
   );
@@ -874,7 +874,7 @@
     const revealInRecentList = preservesPendingMetadata
       ? existingPendingFile.revealInRecentList
       : true;
-    const openOrigin = revealInRecentList ? "external" : "sidebar";
+    const openOrigin = revealInRecentList ? "local" : "sidebar";
 
     setPendingSidebarOpenFile({
       path: filePath,
@@ -885,9 +885,10 @@
     });
 
     try {
-      // Start a decelerating progress ticker while the file is read. Opening
-      // is deliberately read-only: it must not update database timestamps or
-      // reorder the sidebar.
+      // Start a decelerating progress ticker while the file is read. The
+      // backend records only first-time opens so new local files appear in
+      // the Local sidebar tab without bumping timestamps when tracked files are
+      // reopened.
       startLoaderTicker("Reading file…", filename, {
         ceiling: 65,
         factor: 0.06,

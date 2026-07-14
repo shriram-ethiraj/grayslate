@@ -160,6 +160,8 @@ fn clamp_recent_files_limit(limit: Option<usize>) -> usize {
 /// - the file is not valid UTF-8.
 #[tauri::command]
 pub async fn read_file_content(
+    app: tauri::AppHandle,
+    storage: tauri::State<'_, AppStorage>,
     cancellations: tauri::State<'_, FileReadCancellationRegistry>,
     window: tauri::Window,
     path: String,
@@ -192,6 +194,11 @@ pub async fn read_file_content(
         .map_err(|error| format!("Failed to join file read task: {}", error))??;
 
         ensure_read_not_cancelled(cancellation_flag.as_ref())?;
+
+        let source = classify_file_source(&app, storage.inner(), &path_buf)?;
+        if storage.record_file_open_if_untracked(&path_buf, source)? {
+            let _ = app.emit(RECENT_FILES_UPDATED_EVENT, ());
+        }
 
         Ok(tauri::ipc::Response::new(bytes))
     }
@@ -419,7 +426,7 @@ fn list_top_level_files(root: &Path) -> Vec<PathBuf> {
 /// the two: add newly-discovered files, remove entries for files that were
 /// deleted from disk, and refresh metadata for files that still exist.
 ///
-/// Only touches rows whose `source` is `'slates'` — local (external) files
+/// Only touches rows whose `source` is `'slates'` — local files
 /// are left unchanged.
 ///
 /// This function is intentionally infallible: individual errors are logged
@@ -627,7 +634,7 @@ fn require_slate_file(
     Ok(())
 }
 
-/// Remove a local (external) file from sidebar tracking without deleting
+/// Remove a local file from sidebar tracking without deleting
 /// it from disk.  Returns an error if the path is a managed slate file.
 #[tauri::command]
 pub fn untrack_local_file(

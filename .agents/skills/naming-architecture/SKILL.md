@@ -312,7 +312,7 @@ Relevant contracts:
 
 Important sidebar interaction:
 
-- `read_file_content` is read-only and does not emit `RECENT_FILES_UPDATED_EVENT`
+- `read_file_content` inserts only previously untracked opens and emits `RECENT_FILES_UPDATED_EVENT` after insertion
 - saves and file mutations emit backend refresh events; `EditorWrapper` should not manually mirror them
 
 ## `RenameFileDialog.svelte`

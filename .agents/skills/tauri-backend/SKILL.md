@@ -56,8 +56,9 @@ pub const RECENT_FILES_UPDATED_EVENT: &str = "files://recent-updated";
 
 This event is emitted by the backend after every file operation that should refresh the sidebar's recent-files data.
 
-Current emit sites include file mutations:
+Current emit sites include tracked file activity:
 
+- `read_file_content` — after inserting a previously untracked open
 - `write_file_content`
 - `delete_file`
 - `rename_file`
@@ -67,16 +68,19 @@ Current emit sites include file mutations:
 
 The frontend sidebar listens for this event and refreshes itself. Do not add mirror frontend emits for the same file operations unless there is a very specific reason and the event contract is being changed deliberately.
 
-## File Read Behavior
+## File Read Tracking
 
-`read_file_content` is strictly read-only:
+`read_file_content` owns first-open tracking:
 
 1. validate and read the file
-2. return raw bytes to the frontend
+2. classify the file source
+3. insert its `tracked_files` row with `ON CONFLICT DO NOTHING`
+4. emit `RECENT_FILES_UPDATED_EVENT` only if the row was inserted
+5. return raw bytes to the frontend
 
-It does not write storage records, alter any timestamps, or emit
-`RECENT_FILES_UPDATED_EVENT`. Only file creation, content saves, and explicit
-file mutations update tracking metadata and trigger sidebar refreshes.
+This ensures a newly opened local file is stored with source `local` and is
+available to the Local sidebar tab. Reopening any already tracked slate or
+local file leaves all database fields and recency timestamps untouched.
 
 Content saves emit `RECENT_FILES_UPDATED_EVENT` with the `"saved"` payload so
 the sidebar can immediately refresh even when an opened-file reorder freeze is
@@ -110,6 +114,6 @@ Keep command handlers thin:
 
 - Keep command modules thin and push business logic into plain Rust modules.
 - Preserve backend ownership of `RECENT_FILES_UPDATED_EVENT`.
-- Preserve `read_file_content` as a storage-free read path.
+- Preserve insert-only first-open tracking inside `read_file_content`.
 - Re-run `cargo check` or `cargo test --manifest-path src-tauri/Cargo.toml` after backend changes.
 - Re-run `pnpm run check` if the IPC contract changed and Svelte types or callers were updated.

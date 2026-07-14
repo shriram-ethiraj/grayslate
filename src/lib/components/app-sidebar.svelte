@@ -78,7 +78,7 @@
     //   • Clicking the manual refresh button.
     //   • Closing the sidebar (pre-fetches invisibly on close so reopen
     //     shows fresh data without a visible transition).
-    //   • An external navigation that doesn't match the sidebar-opened path
+    //   • A local navigation that doesn't match the sidebar-opened path
     //     (safety valve so suppression doesn't stick forever).
     //
     // NOT cleared by:
@@ -115,7 +115,7 @@
     let lastObservedSidebarOpen = true;
 
     // The path to reveal after a refresh has placed it in the current list.
-    // This makes external opens and duplicates resilient to backend event timing.
+    // This makes local opens and duplicates resilient to backend event timing.
     let pendingRevealPath = $state<string | undefined>(undefined);
 
     // ---------------------------------------------------------------------------
@@ -408,7 +408,7 @@
                 return;
 
             case "opened":
-                if (mutation.origin === "external") {
+                if (mutation.origin === "local") {
                     pendingRevealPath = mutation.path;
                     query = "";
                     ensureSourceIsVisible(mutation.source);
@@ -579,7 +579,7 @@
         }
 
         // Edge case: suppression is active but the loaded file doesn't match
-        // the sidebar-clicked path (e.g. a concurrent external open won the
+        // the sidebar-clicked path (e.g. a concurrent local open won the
         // race). Clear it so the list isn't stuck frozen indefinitely.
         if (suppressReorder) {
             clearReorderSuppression();
@@ -615,7 +615,7 @@
         // difference in the DB is the opened_at bump on the file the user
         // just clicked, and surfacing that reorder mid-browse is the jitter
         // we want to avoid. Suppression clears on sort change, manual
-        // refresh, sidebar reopen, or opening a file from outside.
+        // refresh, sidebar reopen, or opening a local file.
         if (suppressReorder && filterChanged && !sortChanged) {
             return;
         }
@@ -678,7 +678,7 @@
     <SidebarFileList
         bind:scrollContainer={resultsScrollContainer}
         sections={recentFileSections}
-        showExternalBadge={filterMode === "unified"}
+        showLocalBadge={filterMode === "unified"}
         {isSearchMode}
         {isLoading}
         {isSearchLoading}

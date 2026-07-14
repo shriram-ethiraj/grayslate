@@ -181,7 +181,7 @@ Suppression clears only on explicit user or session boundaries:
 - sort change
 - manual refresh
 - sidebar close/reopen cycle
-- external navigation that does not match the sidebar-opened path
+- local navigation that does not match the sidebar-opened path
 
 ## Library Refresh Coordinator
 
@@ -213,8 +213,8 @@ Flow:
 4. the backend event is coalesced as reconciliation, not a second policy path
 
 Rename, delete, unlink, duplicate, first-time creation, and completed saves
-are immediate. Opening a file is read-only and does not affect timestamps or
-list ordering.
+are immediate. The backend inserts a tracking row only for first-time opens;
+reopening an already tracked file does not alter its timestamps or ordering.
 
 ## Backend-Driven Recent Files Refresh
 
@@ -224,8 +224,9 @@ The frontend no longer owns recent-file update emits for file operations.
 
 - `RECENT_FILES_UPDATED_EVENT = "files://recent-updated"`
 
-The backend emits this event after file mutations, including:
+The backend emits this event after tracked file activity, including:
 
+- `read_file_content` (only after inserting a previously untracked open)
 - `write_file_content`
 - `delete_file`
 - `rename_file`
@@ -256,9 +257,9 @@ Flow:
 1. `app-sidebar.svelte::openRecentFile(...)` sets suppression + pending-open metadata
 2. it emits `OPEN_FILE_PATH_EVENT`
 3. `EditorWrapper.svelte` listens and opens the file
-4. `read_file_content` returns bytes without changing storage or emitting a refresh event
-5. after a successful load, `EditorWrapper` reports whether the open originated from the sidebar or externally
-6. sidebar opens remain deferred; external opens clear search, ensure a visible source tab, refresh, and reveal
+4. `read_file_content` inserts the file only when untracked and emits `RECENT_FILES_UPDATED_EVENT` only after insertion
+5. after a successful load, `EditorWrapper` reports whether the open originated from the sidebar or locally
+6. sidebar opens remain deferred; local opens clear search, ensure a visible source tab, refresh, and reveal
 
 This split is intentional:
 
@@ -296,8 +297,8 @@ Key ranking inputs still include:
 Scope still supports:
 
 - `unified`
-- `internal`
-- `external`
+- `slates`
+- `local`
 
 Candidate collection still includes both:
 

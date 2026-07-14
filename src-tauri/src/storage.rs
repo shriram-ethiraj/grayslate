@@ -158,9 +158,59 @@ impl AppStorage {
         Ok(map)
     }
 
-    /// Records a file creation or content save. Reads intentionally do not
-    /// call this method: opening a file must never alter its database
-    /// timestamps or affect the sidebar's ordering.
+    /// Inserts a file that was opened before it had a tracking row.
+    ///
+    /// Existing rows are intentionally left completely unchanged so reopening
+    /// a slate or local file cannot bump its recency timestamps. Returns true
+    /// only when a new row was inserted.
+    pub fn record_file_open_if_untracked(
+        &self,
+        path: &Path,
+        source: FileSource,
+    ) -> Result<bool, String> {
+        let snapshot = build_file_snapshot(path)?;
+        let language = detect_file_language(path);
+        let now = current_time_ms();
+        let connection = self.open_connection()?;
+
+        let inserted = connection
+            .execute(
+                "
+                INSERT INTO tracked_files (
+                    path_key,
+                    path,
+                    file_name,
+                    extension,
+                    source,
+                    size_bytes,
+                    file_modified_disk_at,
+                    file_modified_app_at,
+                    language,
+                    created_at,
+                    updated_at
+                )
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10)
+                ON CONFLICT(path_key) DO NOTHING
+                ",
+                params![
+                    snapshot.path_key,
+                    snapshot.path,
+                    snapshot.file_name,
+                    snapshot.extension,
+                    source.as_str(),
+                    snapshot.size_bytes.map(|value| value as i64),
+                    snapshot.file_modified_disk_at,
+                    Some(now),
+                    language,
+                    now,
+                ],
+            )
+            .map_err(|error| format!("Failed to track opened file: {}", error))?;
+
+        Ok(inserted == 1)
+    }
+
+    /// Records a file creation or content save and updates its app timestamp.
     pub fn record_file_update(
         &self,
         path: &Path,
@@ -907,6 +957,34 @@ mod tests {
     }
 
     #[test]
+    fn first_open_tracks_local_file_without_updating_it_on_reopen() {
+        let (storage, dir) = temp_storage();
+        let path = dir.join("local.txt");
+        write_file(&path, b"original");
+
+        assert!(storage
+            .record_file_open_if_untracked(&path, FileSource::Local)
+            .unwrap());
+
+        let first = storage.get_tracked_file(&path).unwrap().unwrap();
+        assert_eq!(first.source, "local");
+        assert!(first.file_modified_app_at.is_some());
+
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        write_file(&path, b"changed after first open");
+
+        assert!(!storage
+            .record_file_open_if_untracked(&path, FileSource::Local)
+            .unwrap());
+
+        let reopened = storage.get_tracked_file(&path).unwrap().unwrap();
+        assert_eq!(reopened.file_modified_app_at, first.file_modified_app_at);
+        assert_eq!(reopened.file_modified_disk_at, first.file_modified_disk_at);
+        assert_eq!(reopened.size_bytes, first.size_bytes);
+        assert_eq!(reopened.updated_at, first.updated_at);
+    }
+
+    #[test]
     fn refresh_tracked_file_bumps_updated_at_on_real_change() {
         let (storage, dir) = temp_storage();
         let path = dir.join("change.txt");
@@ -946,7 +1024,7 @@ mod tests {
     }
 
     #[test]
-    fn recency_order_uses_app_save_timestamp_then_disk_timestamp() {
+    fn recency_order_uses_app_update_timestamp_then_disk_timestamp() {
         let (storage, dir) = temp_storage();
 
         let opened = dir.join("opened.txt");
