@@ -110,6 +110,7 @@ pub fn run() {
             commands::findstats::cancel_editor_find,
             commands::markdown::render_markdown_preview,
             commands::markdown::cancel_markdown_preview,
+            commands::markdown::read_markdown_preview_asset,
             commands::csv::csv_initialize,
             commands::csv::csv_dispose,
             commands::csv::csv_get_rows,

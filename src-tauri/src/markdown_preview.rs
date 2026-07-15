@@ -16,6 +16,7 @@
 //!   rapid edits can abort superseded renders.
 
 use pulldown_cmark::{Alignment, CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
+use std::borrow::Cow;
 use std::fmt::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -222,6 +223,11 @@ impl Renderer {
                 self.write_data_line(start);
                 self.html.push('>');
             }
+            // Raw HTML must be emitted exactly as supplied by pulldown-cmark.
+            // CommonMark splits HTML blocks at blank lines, so wrapping each
+            // block would prematurely close containers that intentionally span
+            // those lines (for example a README's `<div align="center">`).
+            Tag::HtmlBlock => {}
             Tag::List(first_item) => match first_item {
                 Some(start_num) => {
                     self.html.push_str("<ol");
@@ -266,7 +272,9 @@ impl Renderer {
             Tag::Emphasis => self.html.push_str("<em>"),
             Tag::Strong => self.html.push_str("<strong>"),
             Tag::Strikethrough => self.html.push_str("<del>"),
-            Tag::Link { dest_url, title, .. } => {
+            Tag::Link {
+                dest_url, title, ..
+            } => {
                 self.html.push_str("<a href=\"");
                 escape_href(&dest_url, &mut self.html);
                 self.html.push('"');
@@ -277,7 +285,9 @@ impl Renderer {
                 }
                 self.html.push('>');
             }
-            Tag::Image { dest_url, title, .. } => {
+            Tag::Image {
+                dest_url, title, ..
+            } => {
                 self.html.push_str("<img src=\"");
                 escape_href(&dest_url, &mut self.html);
                 self.html.push('"');
@@ -302,6 +312,7 @@ impl Renderer {
             TagEnd::Paragraph => self.html.push_str("</p>\n"),
             TagEnd::CodeBlock => self.html.push_str("</code></pre>\n"),
             TagEnd::BlockQuote(_) => self.html.push_str("</blockquote>\n"),
+            TagEnd::HtmlBlock => {}
             TagEnd::List(ordered) => {
                 if ordered {
                     self.html.push_str("</ol>\n");
@@ -362,15 +373,71 @@ fn heading_level_to_u8(level: HeadingLevel) -> u8 {
 fn sanitize_preview_html(html: &str) -> String {
     ammonia::Builder::new()
         .add_generic_attributes(&["data-line"])
-        .add_tags(&["input"])
+        .add_tags(&["input", "picture", "source"])
         .add_tag_attributes("input", &["type", "checked", "disabled"])
         .add_tag_attributes("code", &["class"])
         .add_tag_attributes("a", &["title"])
-        .add_tag_attributes("img", &["title"])
+        .add_tag_attributes("img", &["title", "srcset", "sizes"])
+        .add_tag_attributes("source", &["src", "srcset", "media", "type", "sizes"])
+        .add_tag_attributes("div", &["align"])
+        .add_tag_attributes("p", &["align"])
+        .add_tag_attributes("h1", &["align"])
+        .add_tag_attributes("h2", &["align"])
+        .add_tag_attributes("h3", &["align"])
+        .add_tag_attributes("h4", &["align"])
+        .add_tag_attributes("h5", &["align"])
+        .add_tag_attributes("h6", &["align"])
+        .add_tag_attributes("details", &["open"])
         .add_tag_attributes("td", &["align"])
         .add_tag_attributes("th", &["align"])
+        .set_tag_attribute_value("img", "loading", "lazy")
+        .set_tag_attribute_value("img", "decoding", "async")
+        .set_tag_attribute_value("img", "referrerpolicy", "no-referrer")
+        .attribute_filter(|element, attribute, value| {
+            if attribute == "align" {
+                return matches!(
+                    value.to_ascii_lowercase().as_str(),
+                    "left" | "center" | "right" | "justify"
+                )
+                .then(|| Cow::Borrowed(value));
+            }
+
+            if attribute == "srcset" && (element == "img" || element == "source") {
+                return is_safe_srcset(value).then(|| Cow::Borrowed(value));
+            }
+
+            Some(Cow::Borrowed(value))
+        })
         .clean(html)
         .to_string()
+}
+
+/// `ammonia` validates `src` and `href` URL schemes itself, but `srcset` is a
+/// compound attribute and therefore needs an explicit scheme check. Data URLs
+/// are intentionally rejected to keep preview memory bounded and avoid active
+/// SVG payloads embedded directly in Markdown.
+fn is_safe_srcset(value: &str) -> bool {
+    let mut found_candidate = false;
+
+    for candidate in value.split(',') {
+        let Some(url) = candidate.split_whitespace().next() else {
+            continue;
+        };
+        found_candidate = true;
+
+        if url.starts_with("//") {
+            continue;
+        }
+
+        match url::Url::parse(url) {
+            Ok(parsed) if matches!(parsed.scheme(), "http" | "https") => {}
+            Err(url::ParseError::RelativeUrlWithoutBase)
+                if !url.starts_with('/') && !url.starts_with('#') => {}
+            _ => return false,
+        }
+    }
+
+    found_candidate
 }
 
 // ───────────────────────────────────────────────────────────────────────
@@ -382,10 +449,7 @@ fn sanitize_preview_html(html: &str) -> String {
 ///
 /// The `cancelled` flag is checked periodically; if set, the function
 /// returns `Err("Cancelled")` promptly.
-pub(crate) fn render_markdown_to_html(
-    src: &str,
-    cancelled: &AtomicBool,
-) -> Result<String, String> {
+pub(crate) fn render_markdown_to_html(src: &str, cancelled: &AtomicBool) -> Result<String, String> {
     if src.is_empty() {
         return Ok(String::new());
     }
@@ -451,15 +515,27 @@ mod tests {
     #[test]
     fn multiline_heading_lines() {
         let html = render("# First\n\n## Second\n\n### Third");
-        assert!(html.contains("<h1 data-line=\"1\">First</h1>"), "html: {html}");
-        assert!(html.contains("<h2 data-line=\"3\">Second</h2>"), "html: {html}");
-        assert!(html.contains("<h3 data-line=\"5\">Third</h3>"), "html: {html}");
+        assert!(
+            html.contains("<h1 data-line=\"1\">First</h1>"),
+            "html: {html}"
+        );
+        assert!(
+            html.contains("<h2 data-line=\"3\">Second</h2>"),
+            "html: {html}"
+        );
+        assert!(
+            html.contains("<h3 data-line=\"5\">Third</h3>"),
+            "html: {html}"
+        );
     }
 
     #[test]
     fn paragraph_has_data_line() {
         let html = render("Hello world");
-        assert!(html.contains("<p data-line=\"1\">Hello world</p>"), "html: {html}");
+        assert!(
+            html.contains("<p data-line=\"1\">Hello world</p>"),
+            "html: {html}"
+        );
     }
 
     #[test]
@@ -542,7 +618,10 @@ mod tests {
     #[test]
     fn link_rendering() {
         let html = render("[click](https://example.com \"tip\")");
-        assert!(html.contains("href=\"https://example.com\""), "html: {html}");
+        assert!(
+            html.contains("href=\"https://example.com\""),
+            "html: {html}"
+        );
         assert!(html.contains("title=\"tip\""), "html: {html}");
         assert!(html.contains(">click</a>"), "html: {html}");
     }
@@ -562,7 +641,67 @@ mod tests {
 
         // Dangerous inline HTML should be stripped
         let html = render("text <script>alert('xss')</script> more");
-        assert!(!html.contains("<script>"), "script should be stripped: {html}");
+        assert!(
+            !html.contains("<script>"),
+            "script should be stripped: {html}"
+        );
+    }
+
+    #[test]
+    fn github_readme_html_is_preserved_safely() {
+        let html = render(
+            r#"<div align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/hero.png" />
+  <img src="docs/hero-light.png" alt="Hero" />
+</picture>
+</div>"#,
+        );
+
+        assert!(html.contains("<div align=\"center\">"), "html: {html}");
+        assert!(html.contains("<picture>"), "html: {html}");
+        assert!(html.contains("<source"), "html: {html}");
+        assert!(html.contains("srcset=\"docs/hero.png\""), "html: {html}");
+        assert!(html.contains("loading=\"lazy\""), "html: {html}");
+        assert!(
+            html.contains("referrerpolicy=\"no-referrer\""),
+            "html: {html}"
+        );
+    }
+
+    #[test]
+    fn raw_html_container_spans_blank_line_delimited_blocks() {
+        let html = render(
+            r#"<div align="center">
+  <h1>Grayslate</h1>
+
+  <p>
+    <a href="https://example.com">
+      <img src="https://example.com/badge.svg" alt="Download" />
+    </a>
+  </p>
+
+</div>"#,
+        );
+
+        let centered_start = html.find("<div align=\"center\">").unwrap();
+        let badge = html.find("alt=\"Download\"").unwrap();
+        let centered_end = html.rfind("</div>").unwrap();
+
+        assert!(centered_start < badge, "html: {html}");
+        assert!(badge < centered_end, "html: {html}");
+        assert_eq!(html.matches("<div").count(), 1, "html: {html}");
+        assert_eq!(html.matches("</div>").count(), 1, "html: {html}");
+    }
+
+    #[test]
+    fn unsafe_readme_attributes_are_removed() {
+        let html = render(
+            r#"<div align="evil"><picture><source srcset="javascript:alert(1)" /></picture></div>"#,
+        );
+
+        assert!(!html.contains("align=\"evil\""), "html: {html}");
+        assert!(!html.contains("javascript:"), "html: {html}");
     }
 
     #[test]

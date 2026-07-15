@@ -104,7 +104,7 @@ Check for:
 - heavy parsing/sanitization happening eagerly on every keystroke
 - broken scroll sync or active-pane ownership
 - missing cleanup of `selectionchange`, scroll, mutation, resize, or image listeners
-- any unsanitized HTML path or DOM insertion bypassing `dompurify`
+- any unsanitized HTML path or DOM insertion bypassing the Rust `ammonia` sanitizer
 - pointless teardown assignments that do not actually release memory
 
 Hot files:

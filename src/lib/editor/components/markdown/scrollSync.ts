@@ -52,7 +52,10 @@ export function buildAnchorMap(
             anchor.linePercent - filtered[filtered.length - 1].linePercent > 0.001
         ) {
             filtered.push(anchor);
-        } else if (anchor.previewFraction > filtered[filtered.length - 1].previewFraction) {
+        } else if (
+            filtered[filtered.length - 1].linePercent !== 0 &&
+            anchor.previewFraction > filtered[filtered.length - 1].previewFraction
+        ) {
             filtered[filtered.length - 1] = anchor;
         }
     }

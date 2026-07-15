@@ -1468,7 +1468,11 @@
               class="split-surface flex flex-col flex-1 min-h-0 min-w-0"
               data-active={editorState.activeSurface === "markdown-preview"}
             >
-              <MarkdownPreview content={value} {editorView} />
+              <MarkdownPreview
+                content={value}
+                {editorView}
+                sourcePath={editorState.currentFilePath}
+              />
             </div>
           </ResizablePane>
         {/if}

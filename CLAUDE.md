@@ -48,7 +48,7 @@ Language detection and naming logic live in workspace crates, not under `src-tau
 - Built-in transformations use a shared Rust progress/cancellation context plus a chunked large-text transport; the frontend assembles chunked results into a CodeMirror `Text` rope and applies them as one undoable transaction.
 - CSV table mode is Rust-backed and mounted on demand.
 - CSV table edits mirror live into the preserved CodeMirror session only for sessions that start at or below 100,000 data rows; larger sessions skip live mirroring and return to text mode as a single undo step back to the pre-table state.
-- Markdown preview uses `marked` plus `dompurify` with scroll-sync hooks.
+- Markdown preview uses Rust-side `pulldown-cmark` plus `ammonia`, with sanitized HTML returned over raw-byte IPC and custom scroll-sync hooks.
 - Loader and memory-reclamation behavior are shared infrastructure, not CSV-specific logic.
 
 ---
@@ -108,7 +108,7 @@ Language detection and naming logic live in workspace crates, not under `src-tau
 - **CSV Mode Architecture:** CSV table mode mounts on demand, performs parsing and mutations in a Rust `CsvSession` backend via Tauri IPC, and only live-mirrors text undo history for sessions that start at or below 100,000 data rows.
 - **Transformations:** Built-in transformations share a Rust-side progress/cancellation layer and use chunked text delivery plus CodeMirror rope assembly for large results.
 - **Find / Replace:** Uses a custom popup wired to CodeMirror search state; heavy match counting is Rust-backed via Tauri IPC (`editor_find_scan` / `editor_find_selection` / `cancel_editor_find`), but live query/highlight/navigation stays on the main thread.
-- **Markdown Preview:** Parsed via `marked` and sanitized via `dompurify`, with custom bi-directional scroll synchronization.
+- **Markdown Preview:** Parsed and sanitized in Rust via `pulldown-cmark` and `ammonia`, with custom bi-directional scroll synchronization. Saved files resolve relative images through a bounded image-only IPC command; external links are opened through the system browser rather than navigating the app webview.
 - **Hotkeys:** Use `@tanstack/hotkeys` through the shared helpers in `src/lib/hotkeys.ts`; table-specific shortcuts should remain element-scoped.
 - **File Loading:** File reads are validated in Rust and currently allow files up to 200 MB.
 
