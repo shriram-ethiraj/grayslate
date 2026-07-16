@@ -9,6 +9,7 @@ import { openDeleteFileDialog } from "$lib/state/appDialogs.svelte";
 import { reportLibraryMutation } from "$lib/state/librarySidebar.svelte";
 
 export const OPEN_FILE_PATH_EVENT = "files://open-path";
+export const DOCUMENT_RENAMED_EVENT = "files://document-renamed";
 export const RECENT_FILES_UPDATED_EVENT = "files://recent-updated";
 /**
  * Resets the editor to a blank untitled slate without re-running the
@@ -20,7 +21,18 @@ export const RESET_TO_BLANK_EVENT = "files://reset-to-blank";
 
 export type RecentFileSource = "slates" | "local";
 
+export interface DocumentDescriptor {
+  documentId: string;
+  generation: number;
+  displayPath: string;
+  fileName: string;
+  source: RecentFileSource;
+  writable: boolean;
+}
+
 export interface RecentFileRecord {
+  document_id: string;
+  document_generation: number;
   path: string;
   file_name: string;
   extension: string | null;
@@ -54,6 +66,8 @@ export interface SidebarSearchResult extends RecentFileRecord {
 }
 
 export interface OpenFilePathPayload {
+  documentId: string;
+  documentGeneration: number;
   path: string;
   source?: RecentFileSource;
   lineNumber?: number;
@@ -99,8 +113,11 @@ export async function cancelSidebarSearch(): Promise<void> {
 }
 
 /** Permanently delete a slate file from disk and remove it from tracking. */
-export async function deleteFile(path: string): Promise<void> {
-  return invoke<void>("delete_file", { path });
+export async function deleteFile(file: RecentFileRecord): Promise<void> {
+  return invoke<void>("delete_file", {
+    documentId: file.document_id,
+    documentGeneration: file.document_generation,
+  });
 }
 
 /**
@@ -110,8 +127,8 @@ export async function deleteFile(path: string): Promise<void> {
  * (e.g. the confirmation dialog) and decide how to report the error.
  */
 export async function performFileDelete(file: RecentFileRecord): Promise<void> {
-  const wasCurrentFile = file.path === editorState.currentFilePath;
-  await deleteFile(file.path);
+  const wasCurrentFile = file.document_id === editorState.currentDocumentId;
+  await deleteFile(file);
   reportLibraryMutation({ kind: "removed", path: file.path });
   if (wasCurrentFile) {
     // Reset the editor to a new untitled slate via the shared event bus.
@@ -141,29 +158,42 @@ export function requestDeleteFile(file: RecentFileRecord): void {
  * The backend auto-appends a numeric suffix on collision.
  * Returns the absolute path of the renamed file.
  */
-export async function renameFile(path: string, newName: string): Promise<string> {
-  return invoke<string>("rename_file", { path, newName });
+export async function renameFile(file: RecentFileRecord, newName: string): Promise<DocumentDescriptor> {
+  return invoke<DocumentDescriptor>("rename_file", {
+    documentId: file.document_id,
+    documentGeneration: file.document_generation,
+    newName,
+  });
 }
 
 /**
  * Duplicate a file, placing a copy in the same directory with a `(copy)` suffix.
  * Returns the absolute path of the new copy.
  */
-export async function duplicateFile(path: string): Promise<string> {
-  return invoke<string>("duplicate_file", { path });
+export async function duplicateFile(file: RecentFileRecord): Promise<DocumentDescriptor> {
+  return invoke<DocumentDescriptor>("duplicate_file", {
+    documentId: file.document_id,
+    documentGeneration: file.document_generation,
+  });
 }
 
 /**
  * Duplicate a local file into the Grayslate slates directory as a slate file.
  * Returns the absolute path of the new copy.
  */
-export async function duplicateLocalFileAsSlate(path: string): Promise<string> {
-  return invoke<string>("duplicate_local_file_as_slate", { path });
+export async function duplicateLocalFileAsSlate(file: RecentFileRecord): Promise<DocumentDescriptor> {
+  return invoke<DocumentDescriptor>("duplicate_local_file_as_slate", {
+    documentId: file.document_id,
+    documentGeneration: file.document_generation,
+  });
 }
 
 /** Remove a local file from sidebar tracking without deleting it from disk. */
-export async function untrackLocalFile(path: string): Promise<void> {
-  return invoke<void>("untrack_local_file", { path });
+export async function untrackLocalFile(file: RecentFileRecord): Promise<void> {
+  return invoke<void>("untrack_local_file", {
+    documentId: file.document_id,
+    documentGeneration: file.document_generation,
+  });
 }
 
 /**
@@ -178,8 +208,8 @@ export async function untrackLocalFile(path: string): Promise<void> {
  * it must not run until the caller has the user's go-ahead.
  */
 export async function performFileUnlink(file: RecentFileRecord): Promise<void> {
-  const wasCurrentFile = file.path === editorState.currentFilePath;
-  await untrackLocalFile(file.path);
+  const wasCurrentFile = file.document_id === editorState.currentDocumentId;
+  await untrackLocalFile(file);
   reportLibraryMutation({ kind: "removed", path: file.path });
   if (wasCurrentFile) {
     // Reset the editor to a new untitled slate. The caller already ran the

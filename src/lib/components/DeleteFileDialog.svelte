@@ -12,7 +12,7 @@
         appDialogsState.active.type === "delete" ? appDialogsState.active.file : null,
     );
     const isCurrentFile = $derived(
-        !!file && file.path === editorState.currentFilePath,
+        !!file && file.document_id === editorState.currentDocumentId,
     );
 
     let isDeleting = $state(false);

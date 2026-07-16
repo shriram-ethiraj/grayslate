@@ -5,16 +5,13 @@
  * autosave engine.  See `autosave.rs` for the core scheduling logic.
  *
  * Commands:
- *   - `autosave_register`        — register a document for autosave tracking
+ *   - `autosave_activate_untitled` — start a backend-owned untitled slate session
+ *   - `autosave_activate_document` — bind autosave to a Rust-authorized document
  *   - `autosave_notify_changed`  — lightweight "content changed" signal (no content)
  *   - `autosave_submit_content`  — FE responds to a content request with serialized text
  *   - `autosave_flush_before_switch` — FE sends content before switching files
  *   - `autosave_set_csv_mode`    — toggle CSV table mode awareness
- *   - `classify_source`          — expose `classify_file_source()` to the frontend
  */
-
-use std::path::PathBuf;
-
 use tauri::Emitter;
 
 use crate::autosave::{
@@ -22,39 +19,51 @@ use crate::autosave::{
     AUTOSAVE_DOCUMENT_CREATED_EVENT,
 };
 use crate::commands::csv::CsvSessionRegistry;
-use crate::filesystem::classify_file_source;
+use crate::document::{revalidate_source_authority, DocumentAccess, DocumentRegistry};
 use crate::storage::{AppStorage, FileSource};
 
 use super::{naming::save_new_slate_to_disk, RECENT_FILES_UPDATED_EVENT};
 
 // ---------------------------------------------------------------------------
-// autosave_register
+// autosave_activate_untitled
 // ---------------------------------------------------------------------------
 
-/// Register a document for autosave tracking when it is opened or created.
-/// Call this after the editor loads the document content.
-///
-/// - `path`: absolute path on disk, or empty string for an untitled document.
-/// - `source`: `"slates"` or `"local"`.
-/// - `language_hint`: current language mode (passed to naming pipeline for untitled slates).
 #[tauri::command]
-pub fn autosave_register(
+pub fn autosave_activate_untitled(
     window: tauri::Window,
     registry: tauri::State<'_, AutosaveRegistry>,
-    path: String,
-    source: String,
     language_hint: String,
 ) {
-    let file_source = match source.as_str() {
-        "slates" => FileSource::Slates,
-        _ => FileSource::Local,
-    };
-    let path_buf = if path.is_empty() {
-        None
-    } else {
-        Some(PathBuf::from(&path))
-    };
-    registry.register(window.label(), path_buf, file_source, language_hint);
+    registry.register(window.label(), None, FileSource::Slates, language_hint);
+}
+
+#[tauri::command]
+pub fn autosave_activate_document(
+    app: tauri::AppHandle,
+    storage: tauri::State<'_, AppStorage>,
+    documents: tauri::State<'_, DocumentRegistry>,
+    window: tauri::Window,
+    registry: tauri::State<'_, AutosaveRegistry>,
+    document_id: String,
+    document_generation: u64,
+    language_hint: String,
+) -> Result<(), String> {
+    let document = documents.resolve(
+        window.label(),
+        &document_id,
+        document_generation,
+        DocumentAccess::Read,
+    )?;
+    revalidate_source_authority(&app, storage.inner(), &document)?;
+    registry.register_authorized(
+        window.label(),
+        document.path,
+        document.source,
+        language_hint,
+        document.id,
+        document.generation,
+    );
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -87,6 +96,7 @@ pub async fn autosave_submit_content(
     app: tauri::AppHandle,
     window: tauri::Window,
     registry: tauri::State<'_, AutosaveRegistry>,
+    documents: tauri::State<'_, DocumentRegistry>,
     storage: tauri::State<'_, AppStorage>,
     request_id: u64,
     generation: u64,
@@ -105,6 +115,25 @@ pub async fn autosave_submit_content(
 
     match doc_info.path {
         Some(path) => {
+            let document_id = doc_info
+                .document_id
+                .as_deref()
+                .ok_or_else(|| "Autosave document has no Rust authorization.".to_string())?;
+            let document_generation = doc_info
+                .document_generation
+                .ok_or_else(|| "Autosave document has no Rust authorization.".to_string())?;
+            let document = documents.resolve(
+                &window_label,
+                document_id,
+                document_generation,
+                DocumentAccess::Write,
+            )?;
+            revalidate_source_authority(&app, storage.inner(), &document)?;
+            if document.path != path || document.source != FileSource::Slates {
+                return Err(
+                    "Autosave authorization no longer matches the active slate.".to_string()
+                );
+            }
             // Existing file — write using atomic temp+rename
             let path_clone = path.clone();
             let content_clone = content.clone();
@@ -132,13 +161,19 @@ pub async fn autosave_submit_content(
             let result = save_new_slate_to_disk(
                 &app,
                 storage.inner(),
+                documents.inner(),
+                &window_label,
                 &content,
                 &doc_info.language_hint,
             )
             .await?;
 
-            let new_path = PathBuf::from(&result.path);
-            registry.update_path(&window_label, new_path);
+            registry.update_authorization(
+                &window_label,
+                result.path.clone().into(),
+                result.document_id.clone(),
+                result.document_generation,
+            );
             registry.complete_save(&window_label, generation);
 
             // Notify the frontend of the new path so it can update
@@ -147,6 +182,8 @@ pub async fn autosave_submit_content(
                 AUTOSAVE_DOCUMENT_CREATED_EVENT,
                 DocumentCreatedPayload {
                     path: result.path,
+                    document_id: result.document_id,
+                    document_generation: result.document_generation,
                     detected_language: result.detected_language,
                 },
             );
@@ -172,6 +209,7 @@ pub async fn autosave_flush_before_switch(
     app: tauri::AppHandle,
     window: tauri::Window,
     registry: tauri::State<'_, AutosaveRegistry>,
+    documents: tauri::State<'_, DocumentRegistry>,
     storage: tauri::State<'_, AppStorage>,
     csv_registry: tauri::State<'_, CsvSessionRegistry>,
     content: String,
@@ -203,6 +241,25 @@ pub async fn autosave_flush_before_switch(
 
     match doc_info.path {
         Some(path) => {
+            let document_id = doc_info
+                .document_id
+                .as_deref()
+                .ok_or_else(|| "Autosave document has no Rust authorization.".to_string())?;
+            let document_generation = doc_info
+                .document_generation
+                .ok_or_else(|| "Autosave document has no Rust authorization.".to_string())?;
+            let document = documents.resolve(
+                &window_label,
+                document_id,
+                document_generation,
+                DocumentAccess::Write,
+            )?;
+            revalidate_source_authority(&app, storage.inner(), &document)?;
+            if document.path != path || document.source != FileSource::Slates {
+                return Err(
+                    "Autosave authorization no longer matches the active slate.".to_string()
+                );
+            }
             let path_clone = path.clone();
             tauri::async_runtime::spawn_blocking(move || {
                 autosave_write_to_disk(&path_clone, &save_content)
@@ -222,13 +279,19 @@ pub async fn autosave_flush_before_switch(
                 let result = save_new_slate_to_disk(
                     &app,
                     storage.inner(),
+                    documents.inner(),
+                    &window_label,
                     &save_content,
                     &doc_info.language_hint,
                 )
                 .await?;
 
-                let new_path = PathBuf::from(&result.path);
-                registry.update_path(&window_label, new_path);
+                registry.update_authorization(
+                    &window_label,
+                    result.path.clone().into(),
+                    result.document_id.clone(),
+                    result.document_generation,
+                );
                 registry.complete_save(&window_label, save_generation);
 
                 // Emit document-created so FE can update its state
@@ -238,6 +301,8 @@ pub async fn autosave_flush_before_switch(
                     AUTOSAVE_DOCUMENT_CREATED_EVENT,
                     DocumentCreatedPayload {
                         path: result.path,
+                        document_id: result.document_id,
+                        document_generation: result.document_generation,
                         detected_language: result.detected_language,
                     },
                 );
@@ -266,19 +331,11 @@ pub fn autosave_set_csv_mode(
     registry.set_csv_mode(window.label(), active);
 }
 
-// ---------------------------------------------------------------------------
-// classify_source
-// ---------------------------------------------------------------------------
-
-/// Expose `classify_file_source()` to the frontend.  Returns `"slates"` or
-/// `"local"` for a given absolute path.
 #[tauri::command]
-pub fn classify_source(
-    app: tauri::AppHandle,
-    storage: tauri::State<'_, AppStorage>,
-    path: String,
-) -> Result<String, String> {
-    let path_buf = PathBuf::from(&path);
-    let source = classify_file_source(&app, storage.inner(), &path_buf)?;
-    Ok(source.as_str().to_string())
+pub fn autosave_set_language_hint(
+    window: tauri::Window,
+    registry: tauri::State<'_, AutosaveRegistry>,
+    language_hint: String,
+) {
+    registry.update_language_hint(window.label(), &language_hint);
 }

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
@@ -155,6 +156,14 @@ fn resolve_markdown_asset_path(
         .ok_or_else(|| "Markdown document has no parent directory".to_string())?;
     let asset = std::fs::canonicalize(parent.join(relative))
         .map_err(|error| format!("Could not resolve Markdown image: {error}"))?;
+    if !asset.starts_with(parent) {
+        return Err("Markdown image escaped the document directory".to_string());
+    }
+    let link_metadata = std::fs::symlink_metadata(&asset)
+        .map_err(|error| format!("Could not inspect Markdown image: {error}"))?;
+    if link_metadata.file_type().is_symlink() {
+        return Err("Markdown image cannot be a symlink".to_string());
+    }
     if !asset.is_file() {
         return Err("Markdown image path is not a file".to_string());
     }
@@ -168,9 +177,22 @@ fn resolve_markdown_asset_path(
 /// filesystem asset protocol.
 #[tauri::command]
 pub async fn read_markdown_preview_asset(
-    document_path: String,
+    app: tauri::AppHandle,
+    storage: tauri::State<'_, crate::storage::AppStorage>,
+    documents: tauri::State<'_, crate::document::DocumentRegistry>,
+    window: tauri::Window,
+    document_id: String,
+    document_generation: u64,
     resource_path: String,
 ) -> Result<tauri::ipc::Response, String> {
+    let document = documents.resolve(
+        window.label(),
+        &document_id,
+        document_generation,
+        crate::document::DocumentAccess::Read,
+    )?;
+    crate::document::revalidate_source_authority(&app, storage.inner(), &document)?;
+    let document_path = document.path.to_string_lossy().into_owned();
     tauri::async_runtime::spawn_blocking(move || {
         let asset = resolve_markdown_asset_path(&document_path, &resource_path)?;
         let metadata = std::fs::metadata(&asset)
@@ -182,8 +204,15 @@ pub async fn read_markdown_preview_asset(
             ));
         }
 
-        let bytes = std::fs::read(asset)
+        let mut file = crate::document::open_authorized_read(&asset)?;
+        let mut bytes = Vec::with_capacity(metadata.len() as usize);
+        file.by_ref()
+            .take(MAX_MARKDOWN_ASSET_BYTES + 1)
+            .read_to_end(&mut bytes)
             .map_err(|error| format!("Could not read Markdown image: {error}"))?;
+        if bytes.len() as u64 > MAX_MARKDOWN_ASSET_BYTES {
+            return Err("Markdown image exceeded the size limit while reading".to_string());
+        }
         Ok(tauri::ipc::Response::new(bytes))
     })
     .await
@@ -223,5 +252,22 @@ mod tests {
         let result = resolve_markdown_asset_path(document.to_string_lossy().as_ref(), "README.md");
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn rejects_markdown_image_traversal_outside_document_directory() {
+        let root =
+            std::env::temp_dir().join(format!("grayslate-markdown-{}", uuid::Uuid::new_v4()));
+        let document_dir = root.join("docs");
+        std::fs::create_dir_all(&document_dir).unwrap();
+        let document = document_dir.join("note.md");
+        let outside = root.join("outside.png");
+        std::fs::write(&document, "![outside](../outside.png)").unwrap();
+        std::fs::write(&outside, "image").unwrap();
+
+        let result =
+            resolve_markdown_asset_path(document.to_string_lossy().as_ref(), "../outside.png");
+        assert!(result.is_err());
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

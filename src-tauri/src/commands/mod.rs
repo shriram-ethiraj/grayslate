@@ -1,6 +1,7 @@
 pub mod autosave;
 pub mod csv;
 pub mod detection;
+pub mod external;
 pub mod file;
 pub mod findstats;
 pub mod markdown;

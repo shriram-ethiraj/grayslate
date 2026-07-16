@@ -11,13 +11,12 @@ export async function getConfiguredNotesRoot(): Promise<string | null> {
   return storedPath ? normalize(storedPath) : null;
 }
 
-export async function setConfiguredNotesRoot(path: string | null): Promise<void> {
-  const normalizedPath = path ? await normalize(path) : null;
+export async function pickConfiguredNotesRoot(): Promise<string | null> {
+  return invoke<string | null>("pick_notes_root");
+}
 
-  await invoke("set_app_setting", {
-    key: NOTES_ROOT_SETTING_KEY,
-    value: normalizedPath,
-  });
+export async function resetConfiguredNotesRoot(): Promise<void> {
+  return invoke<void>("reset_notes_root");
 }
 
 export async function resolveNotesRoot(): Promise<string> {

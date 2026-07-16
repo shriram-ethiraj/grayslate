@@ -20,5 +20,8 @@ pub fn suggest_stem_auto(
     } else {
         language_hint.to_string()
     };
-    (grayslate_langnaming::suggest_stem(content, &effective), effective)
+    (
+        grayslate_langnaming::suggest_stem(content, &effective),
+        effective,
+    )
 }

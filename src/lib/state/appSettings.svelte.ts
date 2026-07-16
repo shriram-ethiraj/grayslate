@@ -169,6 +169,11 @@ export function setConfirmBeforeDelete(confirm: boolean): void {
  * starts a fresh untitled slate). Fire-and-forget — startup restoration is a
  * best-effort convenience, not a correctness guarantee.
  */
-export function saveLastActiveFile(path: string | null): void {
-    void saveSetting(KEY_LAST_ACTIVE_FILE, path);
+export function saveLastActiveDocument(
+    document: { documentId: string; generation: number } | null,
+): void {
+    void invoke("set_last_active_document", {
+        documentId: document?.documentId ?? null,
+        documentGeneration: document?.generation ?? null,
+    });
 }

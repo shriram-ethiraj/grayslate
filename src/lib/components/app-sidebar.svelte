@@ -274,6 +274,12 @@
 
         if (!(await confirmBeforeLeavingDocument())) return;
 
+        const authorizedFile = activeResults.find((file) => file.path === path);
+        if (!authorizedFile) {
+            toast.error("This file authorization expired. Refresh the sidebar and try again.");
+            return;
+        }
+
         // Freeze the list order so opening a file doesn't immediately re-sort
         // the sidebar, which would be jarring for sequential file navigation.
         suppressReorder = true;
@@ -290,12 +296,19 @@
         });
 
         const { emit } = await import("@tauri-apps/api/event");
-        await emit(OPEN_FILE_PATH_EVENT, { path, source, lineNumber } satisfies OpenFilePathPayload);
+        await emit(OPEN_FILE_PATH_EVENT, {
+            documentId: authorizedFile.document_id,
+            documentGeneration: authorizedFile.document_generation,
+            path,
+            source,
+            lineNumber,
+        } satisfies OpenFilePathPayload);
     }
 
     async function handleDuplicateRecentFile(file: RecentFileRecord): Promise<void> {
         try {
-            const newPath = await duplicateFile(file.path);
+            const duplicated = await duplicateFile(file);
+            const newPath = duplicated.displayPath;
             reportLibraryMutation({
                 kind: "duplicated",
                 path: newPath,
@@ -311,7 +324,8 @@
 
     async function handleDuplicateLocalFileAsSlate(file: RecentFileRecord): Promise<void> {
         try {
-            const newPath = await duplicateLocalFileAsSlate(file.path);
+            const duplicated = await duplicateLocalFileAsSlate(file);
+            const newPath = duplicated.displayPath;
             reportLibraryMutation({
                 kind: "duplicated",
                 path: newPath,
@@ -342,7 +356,7 @@
         // discarding any unsaved changes. Must happen before the unlink
         // actually runs, not after — otherwise the file is already
         // untracked by the time the user sees the prompt.
-        if (file.path === editorState.currentFilePath) {
+        if (file.document_id === editorState.currentDocumentId) {
             if (!(await confirmBeforeLeavingDocument())) return;
         }
 

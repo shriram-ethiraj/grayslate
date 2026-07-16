@@ -141,10 +141,7 @@ impl AppStorage {
 
         let rows = statement
             .query_map([], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                ))
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
             })
             .map_err(|error| format!("Failed to execute all settings query: {}", error))?;
 
@@ -211,11 +208,7 @@ impl AppStorage {
     }
 
     /// Records a file creation or content save and updates its app timestamp.
-    pub fn record_file_update(
-        &self,
-        path: &Path,
-        source: FileSource,
-    ) -> Result<(), String> {
+    pub fn record_file_update(&self, path: &Path, source: FileSource) -> Result<(), String> {
         let snapshot = build_file_snapshot(path)?;
         let language = detect_file_language(path);
         let now = current_time_ms();
@@ -532,9 +525,7 @@ impl AppStorage {
     pub fn list_slates_path_map(&self) -> Result<HashMap<String, String>, String> {
         let connection = self.open_connection()?;
         let mut statement = connection
-            .prepare(
-                "SELECT path_key, path FROM tracked_files WHERE source = 'slates'",
-            )
+            .prepare("SELECT path_key, path FROM tracked_files WHERE source = 'slates'")
             .map_err(|error| format!("Failed to prepare slates path map query: {}", error))?;
 
         let rows = statement
@@ -545,8 +536,8 @@ impl AppStorage {
 
         let mut map = HashMap::new();
         for row in rows {
-            let (key, path) = row
-                .map_err(|error| format!("Failed to parse slates path map row: {}", error))?;
+            let (key, path) =
+                row.map_err(|error| format!("Failed to parse slates path map row: {}", error))?;
             map.insert(key, path);
         }
 
@@ -903,9 +894,15 @@ mod tests {
 
         // Simulate repeated refreshes; nothing has changed, so order must not jitter.
         for _ in 0..5 {
-            storage.refresh_tracked_file(&alpha, FileSource::Slates).unwrap();
-            storage.refresh_tracked_file(&beta, FileSource::Slates).unwrap();
-            storage.refresh_tracked_file(&gamma, FileSource::Slates).unwrap();
+            storage
+                .refresh_tracked_file(&alpha, FileSource::Slates)
+                .unwrap();
+            storage
+                .refresh_tracked_file(&beta, FileSource::Slates)
+                .unwrap();
+            storage
+                .refresh_tracked_file(&gamma, FileSource::Slates)
+                .unwrap();
             storage.upsert_slates_file_for_sync(&alpha).unwrap();
             storage.upsert_slates_file_for_sync(&beta).unwrap();
             storage.upsert_slates_file_for_sync(&gamma).unwrap();

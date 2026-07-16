@@ -8,10 +8,22 @@ use std::{
 
 use tauri::Window;
 
-use crate::{search, storage::AppStorage};
+use crate::{
+    document::{classify_existing_document, DocumentRegistry, DocumentRights},
+    search,
+    storage::{AppStorage, FileSource},
+};
 
 const MAX_SEARCH_RESULTS_LIMIT: usize = 200;
 const SEARCH_CANCELLED_MESSAGE: &str = "Search cancelled.";
+
+#[derive(serde::Serialize)]
+pub struct AuthorizedSearchResultRecord {
+    #[serde(flatten)]
+    result: search::types::SearchResultRecord,
+    document_id: String,
+    document_generation: u64,
+}
 
 #[derive(Clone)]
 struct ActiveSearch {
@@ -115,6 +127,7 @@ fn clamp_search_results_limit(limit: Option<usize>) -> usize {
 pub async fn search_sidebar_files(
     app: tauri::AppHandle,
     storage: tauri::State<'_, AppStorage>,
+    documents: tauri::State<'_, DocumentRegistry>,
     search_state: tauri::State<'_, SearchRuntimeState>,
     window: Window,
     query: String,
@@ -124,11 +137,12 @@ pub async fn search_sidebar_files(
     case_sensitive: Option<bool>,
     whole_word: Option<bool>,
     use_regex: Option<bool>,
-) -> Result<Vec<search::types::SearchResultRecord>, String> {
+) -> Result<Vec<AuthorizedSearchResultRecord>, String> {
     let limit = clamp_search_results_limit(limit);
     let window_label = window.label().to_string();
     let cancellation_flag = search_state.begin_request(&window_label, request_id);
     let storage = storage.inner().clone();
+    let search_storage = storage.clone();
     let runtime_state = search_state.inner().clone();
     let app_handle = app.clone();
 
@@ -141,7 +155,7 @@ pub async fn search_sidebar_files(
     let result = tauri::async_runtime::spawn_blocking(move || {
         search::run_sidebar_search(
             &app_handle,
-            &storage,
+            &search_storage,
             &runtime_state,
             &query,
             &filter_mode,
@@ -155,10 +169,42 @@ pub async fn search_sidebar_files(
 
     search_state.finish_request(&window_label, request_id);
 
-    match result {
-        Err(error) if error == SEARCH_CANCELLED_MESSAGE => Err(error),
-        other => other,
+    let results = match result {
+        Err(error) if error == SEARCH_CANCELLED_MESSAGE => return Err(error),
+        other => other?,
+    };
+
+    let mut authorized = Vec::with_capacity(results.len());
+    for result in results {
+        let requested_source = match result.source.as_str() {
+            "slates" => FileSource::Slates,
+            "local" => FileSource::Local,
+            _ => continue,
+        };
+        let (canonical, actual_source) =
+            match classify_existing_document(&app, &storage, std::path::Path::new(&result.path)) {
+                Ok(value) => value,
+                Err(_) => continue,
+            };
+        if requested_source != actual_source {
+            continue;
+        }
+        let granted = match documents.grant_existing(
+            &window_label,
+            &canonical,
+            actual_source,
+            DocumentRights::tracked(actual_source),
+        ) {
+            Ok(granted) => granted,
+            Err(_) => continue,
+        };
+        authorized.push(AuthorizedSearchResultRecord {
+            result,
+            document_id: granted.id,
+            document_generation: granted.generation,
+        });
     }
+    Ok(authorized)
 }
 
 /// Immediately cancel any in-flight sidebar search for this window.
@@ -166,9 +212,6 @@ pub async fn search_sidebar_files(
 /// or the search component tears down — without waiting for a replacement
 /// search to arrive.
 #[tauri::command]
-pub fn cancel_sidebar_search(
-    search_state: tauri::State<'_, SearchRuntimeState>,
-    window: Window,
-) {
+pub fn cancel_sidebar_search(search_state: tauri::State<'_, SearchRuntimeState>, window: Window) {
     search_state.cancel_active(window.label());
 }

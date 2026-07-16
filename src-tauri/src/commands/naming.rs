@@ -13,10 +13,14 @@
  *   5. Records the file update in storage (same as write_file_content).
  *   6. Returns the final absolute path to the frontend.
  */
+use std::path::PathBuf;
+
 use crate::{
-    filesystem::{classify_file_source, resolve_notes_root_path, sanitize_filename, unique_path_in_dir},
+    autosave::atomic_create_to_disk,
+    document::{canonical_notes_root, DocumentRegistry, DocumentRights},
+    filesystem::{sanitize_filename, unique_path_in_dir},
     naming::{fallback_stem, language_to_extension, suggest_stem_auto},
-    storage::{AppStorage},
+    storage::{AppStorage, FileSource},
 };
 
 use tauri::Emitter;
@@ -29,6 +33,9 @@ use super::RECENT_FILES_UPDATED_EVENT;
 #[serde(rename_all = "camelCase")]
 pub struct SaveResult {
     pub path: String,
+    pub document_id: String,
+    pub document_generation: u64,
+    pub source: String,
     pub detected_language: String,
 }
 
@@ -56,10 +63,30 @@ pub struct SuggestResult {
 pub async fn save_untitled_slate(
     app: tauri::AppHandle,
     storage: tauri::State<'_, AppStorage>,
+    documents: tauri::State<'_, DocumentRegistry>,
+    autosave: tauri::State<'_, crate::autosave::AutosaveRegistry>,
+    window: tauri::Window,
     content: String,
     language_hint: String,
 ) -> Result<SaveResult, String> {
-    save_new_slate_to_disk(&app, storage.inner(), &content, &language_hint).await
+    let result = save_new_slate_to_disk(
+        &app,
+        storage.inner(),
+        documents.inner(),
+        window.label(),
+        &content,
+        &language_hint,
+    )
+    .await?;
+    autosave.register_authorized(
+        window.label(),
+        PathBuf::from(&result.path),
+        FileSource::Slates,
+        language_hint,
+        result.document_id.clone(),
+        result.document_generation,
+    );
+    Ok(result)
 }
 
 /// Core logic for saving untitled content as a new slate file.
@@ -68,10 +95,12 @@ pub async fn save_untitled_slate(
 pub async fn save_new_slate_to_disk(
     app: &tauri::AppHandle,
     storage: &AppStorage,
+    documents: &DocumentRegistry,
+    window_label: &str,
     content: &str,
     language_hint: &str,
 ) -> Result<SaveResult, String> {
-    let notes_root = resolve_notes_root_path(app, storage)?;
+    let notes_root = canonical_notes_root(app, storage, true)?;
 
     let (stem, effective_language) = suggest_stem_auto(content, language_hint, None);
     let stem = stem.unwrap_or_else(fallback_stem);
@@ -85,22 +114,23 @@ pub async fn save_new_slate_to_disk(
     };
     let base_name = sanitize_filename(&base_name);
     let target_path = unique_path_in_dir(&notes_root, &base_name);
+    let granted = documents.grant_new(
+        window_label,
+        &target_path,
+        FileSource::Slates,
+        DocumentRights::tracked(FileSource::Slates),
+    )?;
 
     let path_for_write = target_path.clone();
     let content_for_write = content.to_string();
-    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
-        if let Some(parent) = path_for_write.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| format!("Failed to create notes root: {}", e))?;
-        }
-        std::fs::write(&path_for_write, content_for_write)
-            .map_err(|e| format!("Failed to save file: {}", e))
+    tauri::async_runtime::spawn_blocking(move || {
+        atomic_create_to_disk(&path_for_write, &content_for_write)
     })
     .await
     .map_err(|e| format!("Failed to join file write task: {}", e))??;
 
-    let source = classify_file_source(app, storage, &target_path)?;
-    storage.record_file_update(&target_path, source)?;
+    let created = documents.mark_created(window_label, &granted.id, granted.generation)?;
+    storage.record_file_update(&target_path, FileSource::Slates)?;
     let _ = app.emit(RECENT_FILES_UPDATED_EVENT, ());
 
     target_path
@@ -108,6 +138,9 @@ pub async fn save_new_slate_to_disk(
         .into_string()
         .map(|path| SaveResult {
             path,
+            document_id: created.id,
+            document_generation: created.generation,
+            source: FileSource::Slates.as_str().to_string(),
             detected_language: effective_language,
         })
         .map_err(|_| "Saved path contains invalid UTF-8.".to_string())
@@ -156,25 +189,43 @@ pub fn suggest_slate_name(content: String, language_hint: String) -> SuggestResu
 /// file content, runs the naming pipeline, and returns a suggested filename
 /// (stem + extension).
 ///
-/// The frontend passes only the file path; the backend does all the I/O so no
-/// large content needs to cross the IPC boundary.
+/// The frontend passes only the current document grant; Rust resolves the path
+/// and performs the bounded I/O so no large content crosses the IPC boundary.
 ///
 /// Language detection uses the same "auto" content-driven cascade as the
 /// untitled-save flow — the file extension is intentionally NOT used as a hint
 /// so that mis-named files (e.g. notes.txt containing Perl) still get the
 /// correct extension in the suggestion.
 #[tauri::command]
-pub fn suggest_name_for_file(path: String) -> Result<String, String> {
+pub fn suggest_name_for_file(
+    app: tauri::AppHandle,
+    storage: tauri::State<'_, AppStorage>,
+    documents: tauri::State<'_, DocumentRegistry>,
+    window: tauri::Window,
+    document_id: String,
+    document_generation: u64,
+) -> Result<String, String> {
     use std::io::Read;
 
-    let file_path = std::path::Path::new(&path);
+    let document = documents.resolve(
+        window.label(),
+        &document_id,
+        document_generation,
+        crate::document::DocumentAccess::Read,
+    )?;
+    crate::document::revalidate_source_authority(&app, storage.inner(), &document)?;
+    let file_path = &document.path;
 
     // Read only what the naming pipeline can use to keep this fast.
     // Gracefully fall back to an empty string for binary or unreadable files.
     const READ_LIMIT: u64 = 8_192;
     let mut raw_bytes = Vec::with_capacity(READ_LIMIT as usize);
-    let _ = std::fs::File::open(file_path)
-        .and_then(|mut f| f.by_ref().take(READ_LIMIT).read_to_end(&mut raw_bytes));
+    let _ = crate::document::open_authorized_read(file_path).and_then(|mut f| {
+        f.by_ref()
+            .take(READ_LIMIT)
+            .read_to_end(&mut raw_bytes)
+            .map_err(|error| error.to_string())
+    });
     let content = String::from_utf8_lossy(&raw_bytes);
 
     // "auto" triggers the family-first detection pipeline:
@@ -240,6 +291,10 @@ mod tests {
             r#"{"userId":1,"name":"Alice"}"#.to_string(),
             "json".to_string(),
         );
-        assert!(result.filename.ends_with(".json"), "got: {}", result.filename);
+        assert!(
+            result.filename.ends_with(".json"),
+            "got: {}",
+            result.filename
+        );
     }
 }

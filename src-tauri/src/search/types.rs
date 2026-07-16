@@ -95,7 +95,12 @@ pub fn truncate_preview_line(text: &str) -> String {
 
 /// Returns a short excerpt of `line_text` centred around the first query-term
 /// match. Leading/trailing truncation is indicated with "…".
-pub fn get_line_excerpt(line_text: &str, terms: &[String], options: &SearchOptions, is_glob: bool) -> String {
+pub fn get_line_excerpt(
+    line_text: &str,
+    terms: &[String],
+    options: &SearchOptions,
+    is_glob: bool,
+) -> String {
     let trimmed = line_text.trim();
     if trimmed.len() <= LINE_EXCERPT_MAX_LENGTH || terms.is_empty() {
         if trimmed.len() > LINE_EXCERPT_MAX_LENGTH {
@@ -578,7 +583,11 @@ mod tests {
             use_regex: false,
         };
         let frags = split_text_by_terms("report.csv", &["*.{csv,txt}".into()], &options, true);
-        let matched: Vec<_> = frags.iter().filter(|f| f.is_match).map(|f| f.text.as_str()).collect();
+        let matched: Vec<_> = frags
+            .iter()
+            .filter(|f| f.is_match)
+            .map(|f| f.text.as_str())
+            .collect();
         assert_eq!(matched, vec![".csv"]);
     }
 
@@ -590,7 +599,11 @@ mod tests {
             use_regex: false,
         };
         let frags = split_text_by_terms("data.tsv", &["*.{csv,tsv}".into()], &options, true);
-        let matched: Vec<_> = frags.iter().filter(|f| f.is_match).map(|f| f.text.as_str()).collect();
+        let matched: Vec<_> = frags
+            .iter()
+            .filter(|f| f.is_match)
+            .map(|f| f.text.as_str())
+            .collect();
         assert_eq!(matched, vec![".tsv"]);
     }
 }

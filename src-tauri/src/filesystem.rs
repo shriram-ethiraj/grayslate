@@ -146,9 +146,8 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos();
-        let dir = std::env::temp_dir().join(format!(
-            "grayslate_filesystem_test_{timestamp}_{count}"
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("grayslate_filesystem_test_{timestamp}_{count}"));
         fs::create_dir_all(&dir).unwrap();
         dir
     }

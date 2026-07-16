@@ -1,4 +1,3 @@
-import { getName, getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "$lib/components/ui/sonner";
 import { appDialogsState, openAboutAppDialog, closeAppDialog } from "$lib/state/appDialogs.svelte";
@@ -37,6 +36,11 @@ type UpdateInstallResponse = {
     message: string;
 };
 
+type AppInfo = {
+    appName: string;
+    appVersion: string;
+};
+
 export const appMenuState = $state({
     appName: "Grayslate",
     appVersion: "",
@@ -59,10 +63,10 @@ export async function ensureAppInfoLoaded(): Promise<void> {
         return;
     }
 
-    const [appName, appVersion] = await Promise.all([getName(), getVersion()]);
-    appMenuState.appName = appName;
-    appMenuState.appVersion = appVersion;
-    appMenuState.currentVersion = appVersion;
+    const appInfo = await invoke<AppInfo>("get_app_info");
+    appMenuState.appName = appInfo.appName;
+    appMenuState.appVersion = appInfo.appVersion;
+    appMenuState.currentVersion = appInfo.appVersion;
     appInfoLoaded = true;
 }
 

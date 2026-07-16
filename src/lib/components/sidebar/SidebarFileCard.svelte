@@ -9,7 +9,7 @@
 
 <script lang="ts">
     import { writeText } from "@tauri-apps/plugin-clipboard-manager";
-    import { revealItemInDir } from "@tauri-apps/plugin-opener";
+    import { invoke } from "@tauri-apps/api/core";
     import { toast } from "$lib/components/ui/sonner";
     import type { LanguageIcon } from "$lib/editor/config/languageIconMap";
     import * as ContextMenu from "$lib/components/ui/context-menu/index.js";
@@ -112,7 +112,10 @@
 
     async function handleReveal(): Promise<void> {
         try {
-            await revealItemInDir(recentFile.path);
+            await invoke("reveal_document", {
+                documentId: recentFile.document_id,
+                documentGeneration: recentFile.document_generation,
+            });
         } catch {
             toast.error("Failed to open containing folder");
         }

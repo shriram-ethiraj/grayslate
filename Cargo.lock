@@ -28,6 +28,7 @@ dependencies = [
  "html-escape",
  "ignore",
  "jsonc-parser 0.33.0",
+ "libc",
  "malva",
  "markup_fmt",
  "md-5",
@@ -58,6 +59,7 @@ dependencies = [
  "url",
  "urlencoding",
  "uuid",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

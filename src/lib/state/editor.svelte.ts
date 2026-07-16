@@ -78,6 +78,9 @@ export const editorState = $state<{
     isDirty: boolean;
     /** Absolute path of the file currently open in the editor, or undefined for untitled documents. */
     currentFilePath: string | undefined;
+    /** Opaque Rust-issued authorization for the active saved document. */
+    currentDocumentId: string | undefined;
+    currentDocumentGeneration: number | undefined;
     /** Source classification of the current file: `"slates"` (managed notes directory) or `"local"`. */
     currentFileSource: RecentFileSource | undefined;
     /** Callback used by the unsaved-changes guard to save the current document. */
@@ -127,6 +130,8 @@ export const editorState = $state<{
     isUntitledDocument: true,
     isDirty: false,
     currentFilePath: undefined,
+    currentDocumentId: undefined,
+    currentDocumentGeneration: undefined,
     currentFileSource: undefined,
     currentDocumentLength: 0,
     currentSelectionSize: 0,

@@ -102,7 +102,7 @@ async function rewriteSrcset(
  */
 export async function prepareMarkdownPreviewHtml(
   html: string,
-  documentPath: string | undefined,
+  authorization: { documentId: string; documentGeneration: number } | undefined,
 ): Promise<PreparedMarkdownHtml> {
   const document = new DOMParser().parseFromString(html, "text/html");
   const objectUrls = new Set<string>();
@@ -112,13 +112,14 @@ export async function prepareMarkdownPreviewHtml(
   wrapTables(document);
 
   async function resolveLocalImage(resourcePath: string): Promise<string | null> {
-    if (!documentPath || !isRelativeResource(resourcePath)) return null;
+    if (!authorization || !isRelativeResource(resourcePath)) return null;
 
     const existing = localImageCache.get(resourcePath);
     if (existing) return existing;
 
     const pending = invoke<ArrayBuffer>("read_markdown_preview_asset", {
-      documentPath,
+      documentId: authorization.documentId,
+      documentGeneration: authorization.documentGeneration,
       resourcePath,
     })
       .then((buffer) => {
@@ -181,37 +182,4 @@ export async function prepareMarkdownPreviewHtml(
 
   await Promise.all(rewriteTasks);
   return { html: document.body.innerHTML, objectUrls: [...objectUrls] };
-}
-
-export function resolveMarkdownLinkPath(
-  documentPath: string,
-  href: string,
-): string | null {
-  const pathPart = stripUrlSuffix(href.trim());
-  if (!pathPart || pathPart.startsWith("//") || URL_SCHEME.test(pathPart)) return null;
-
-  let decoded: string;
-  try {
-    decoded = decodeURIComponent(pathPart).replace(/\\/g, "/");
-  } catch {
-    return null;
-  }
-
-  if (decoded.startsWith("/")) return decoded;
-
-  const normalizedDocument = documentPath.replace(/\\/g, "/");
-  const separatorIndex = normalizedDocument.lastIndexOf("/");
-  if (separatorIndex === -1) return null;
-
-  const baseSegments = normalizedDocument.slice(0, separatorIndex).split("/");
-  for (const segment of decoded.split("/")) {
-    if (!segment || segment === ".") continue;
-    if (segment === "..") {
-      if (baseSegments.length > 1) baseSegments.pop();
-      continue;
-    }
-    baseSegments.push(segment);
-  }
-
-  return baseSegments.join("/");
 }

@@ -44,15 +44,9 @@
     completeEditorLoader,
     type FileType,
   } from "$lib/state/editor.svelte";
-  import { resolveNotesRoot } from "$lib/files/notesRoot";
   import {
     basename,
-    join,
   } from "@tauri-apps/api/path";
-  import {
-    open as openFilePicker,
-    save as saveFilePicker,
-  } from "@tauri-apps/plugin-dialog";
   import { createChunkedTextAccumulator, invoke, invokeText } from "$lib/ipc";
   import { Channel } from "@tauri-apps/api/core";
   import { toast } from "$lib/components/ui/sonner";
@@ -68,15 +62,17 @@
   import { confirmBeforeLeavingDocument } from "$lib/state/unsavedChangesGuard.svelte";
   import {
     OPEN_FILE_PATH_EVENT,
+    DOCUMENT_RENAMED_EVENT,
     RESET_TO_BLANK_EVENT,
+    type DocumentDescriptor,
     type OpenFilePathPayload,
     type RecentFileSource,
   } from "$lib/files/recentFiles";
-  import { onMount } from "svelte";
+  import { onMount, untrack } from "svelte";
   import {
     appSettingsState,
     loadAllSettings,
-    saveLastActiveFile,
+    saveLastActiveDocument,
   } from "$lib/state/appSettings.svelte";
   import {
     type ExecuteTransformationResponse,
@@ -99,6 +95,8 @@
       }
     | {
         kind: "saved";
+        documentId: string;
+        documentGeneration: number;
         path: string;
         source: SavedDocumentSource;
         lastSavedValue: string;
@@ -185,7 +183,7 @@
   }
 
   function getDocumentKey(document: ActiveDocument): string {
-    return document.kind === "untitled" ? document.key : document.path;
+    return document.kind === "untitled" ? document.key : document.documentId;
   }
 
   async function getPathLabel(path: string): Promise<string> {
@@ -239,6 +237,12 @@
 
   $effect(() => {
     editorState.currentFilePath = activeDocument.kind === "saved" ? activeDocument.path : undefined;
+    editorState.currentDocumentId = activeDocument.kind === "saved"
+      ? activeDocument.documentId
+      : undefined;
+    editorState.currentDocumentGeneration = activeDocument.kind === "saved"
+      ? activeDocument.documentGeneration
+      : undefined;
   });
 
   $effect(() => {
@@ -304,13 +308,20 @@
     }
   });
 
-  // Register/unregister the document with the autosave system.
+  // Rust creates saved-document autosave sessions from an authorized document
+  // grant. The frontend can only activate a pathless untitled slate; it never
+  // supplies a filesystem path or source classification.
   $effect(() => {
-    const path = activeDocument.kind === "saved" ? activeDocument.path : "";
-    const source = activeDocument.source;
-    const languageHint = language;
+    if (activeDocument.kind === "untitled") {
+      const key = activeDocument.key;
+      void key;
+      const languageHint = untrack(() => language);
+      invoke("autosave_activate_untitled", { languageHint }).catch(() => {});
+    }
+  });
 
-    invoke("autosave_register", { path, source, languageHint }).catch(() => {});
+  $effect(() => {
+    invoke("autosave_set_language_hint", { languageHint: language }).catch(() => {});
   });
 
   // Listen for autosave events from Rust.
@@ -333,15 +344,24 @@
         // Rust created a new file for an untitled slate
         const unlistenDocumentCreated = await listen<{
           path: string;
+          documentId: string;
+          documentGeneration: number;
           detectedLanguage: string;
         }>("autosave://document-created", async (event) => {
-          const { path, detectedLanguage: lang } = event.payload;
+          const {
+            path,
+            documentId,
+            documentGeneration,
+            detectedLanguage: lang,
+          } = event.payload;
           await syncLanguageFromPath(path);
           if (language === "auto" && lang) {
             detectedLanguage = lang;
           }
           activeDocument = {
             kind: "saved",
+            documentId,
+            documentGeneration,
             path,
             source: "slates",
             lastSavedValue: value,
@@ -764,17 +784,17 @@
     clearColorCache();
   }
 
-  function resetEditorDocument(
+  async function resetEditorDocument(
     nextValue: string,
     nextDocument: ActiveDocument,
     nextLanguage = "auto",
     nextDetectedLanguage = "text",
-  ): void {
+  ): Promise<void> {
     // Flush unsaved slate content to Rust before switching documents.
     if (activeDocument.source === "slates") {
       const content = editorSession.state?.doc.toString() ?? value;
       const gen = autosaveGeneration;
-      invoke("autosave_flush_before_switch", {
+      await invoke("autosave_flush_before_switch", {
         content,
         generation: gen,
       }).catch((err) => console.error("Autosave flush on switch failed:", err));
@@ -816,14 +836,14 @@
     // Clear the last-active pointer so "reopen last file" doesn't resurrect
     // the file the user just navigated away from. (Also covers deleting/
     // unlinking the current file, which route here.)
-    saveLastActiveFile(null);
+    saveLastActiveDocument(null);
 
     invalidatePendingFileOpen();
 
     const previousSession = editorSession;
     const previousDocLength = previousSession.state?.doc.length ?? value.length;
 
-    resetEditorDocument("", createUntitledDocument());
+    await resetEditorDocument("", createUntitledDocument());
 
     await new Promise<void>((resolve) => setTimeout(resolve, 10));
 
@@ -849,12 +869,12 @@
   // picker, then invoke read_file_content on the Rust side which enforces
   // the current 200 MB size limit before returning the text.
   // -----------------------------------------------------------------------
-  async function openFileAtPath(
-    filePath: string,
+  async function openAuthorizedDocument(
+    document: DocumentDescriptor,
     lineNumber?: number,
-    fileSource?: RecentFileSource,
     options?: { silent?: boolean },
   ): Promise<void> {
+    const filePath = document.displayPath;
     // Fast path: the file is already loaded — avoid a full reload and just
     // navigate to the requested line directly.
     if (editorState.currentFilePath === filePath && editorView) {
@@ -878,7 +898,7 @@
 
     setPendingSidebarOpenFile({
       path: filePath,
-      source: preservesPendingMetadata ? existingPendingFile.source : (fileSource ?? "local"),
+      source: document.source,
       requestId: requestVersion,
       revealInRecentList,
       lineNumber,
@@ -901,7 +921,8 @@
       const previousDocLength =
         previousSession.state?.doc.length ?? value.length;
       const content = await invokeText("read_file_content", {
-        path: filePath,
+        documentId: document.documentId,
+        documentGeneration: document.generation,
         requestId: requestVersion,
       });
       if (!isActiveFileOpenRequest(requestVersion)) {
@@ -926,45 +947,35 @@
       const nextLanguage = detected;
       const nextDetectedLanguage = detected;
 
-      // Resolve the document source for save policy. The pending record written
-      // above may contain a temporary "local" fallback, so only use the
-      // snapshot captured before this request replaced it. Startup restores
-      // and native-picker opens must reach the backend classifier.
-      let resolvedSource: SavedDocumentSource;
-      if (fileSource) {
-        resolvedSource = fileSource;
-      } else if (preservesPendingMetadata && existingPendingFile) {
-        resolvedSource = existingPendingFile.source;
-      } else {
-        try {
-          resolvedSource = await invoke<RecentFileSource>("classify_source", { path: filePath });
-        } catch {
-          resolvedSource = "local";
-        }
-      }
-
-      resetEditorDocument(
+      await resetEditorDocument(
         content,
         {
           kind: "saved",
+          documentId: document.documentId,
+          documentGeneration: document.generation,
           path: filePath,
-          source: resolvedSource,
+          source: document.source,
           lastSavedValue: content,
         },
         nextLanguage,
         nextDetectedLanguage,
       );
+      await invoke("autosave_activate_document", {
+        documentId: document.documentId,
+        documentGeneration: document.generation,
+        languageHint: language,
+      });
 
       reportLibraryMutation({
         kind: "opened",
         path: filePath,
-        source: resolvedSource,
+        source: document.source,
         origin: openOrigin,
       });
 
       // Remember this as the last-active file for the "reopen last file"
       // startup behavior. Fire-and-forget — best-effort convenience only.
-      saveLastActiveFile(filePath);
+      saveLastActiveDocument(document);
 
       // Yield to let Svelte update the DOM and dispose old CodeMirror instance
       await new Promise<void>((r) => setTimeout(r, 10));
@@ -1012,15 +1023,12 @@
   async function openFile(): Promise<void> {
     if (!(await confirmBeforeLeavingDocument())) return;
 
-    const selected = await openFilePicker({
-      multiple: false,
-      directory: false,
-    });
+    const selected = await invoke<DocumentDescriptor | null>("pick_document");
 
     // User cancelled the dialog
     if (!selected) return;
 
-    await openFileAtPath(selected as string);
+    await openAuthorizedDocument(selected);
   }
 
   async function getContentForSave(): Promise<string> {
@@ -1041,31 +1049,34 @@
     return editorSession.state?.doc.toString() ?? value;
   }
 
-  async function writeDocumentToPath(path: string, content: string): Promise<void> {
+  async function writeDocument(
+    document: DocumentDescriptor,
+    content: string,
+  ): Promise<DocumentDescriptor> {
     const previousPath = activeDocument.kind === "saved" ? activeDocument.path : undefined;
-    await invoke("write_file_content", { path, content });
-    await syncLanguageFromPath(path);
-
-    // Classify the source from the new path (Save As may change source).
-    let newSource: SavedDocumentSource;
-    try {
-      newSource = (await invoke<string>("classify_source", { path })) as SavedDocumentSource;
-    } catch {
-      newSource = activeDocument.source === "slates" ? "slates" : "local";
-    }
+    const saved = await invoke<DocumentDescriptor>("write_file_content", {
+      documentId: document.documentId,
+      documentGeneration: document.generation,
+      content,
+    });
+    await syncLanguageFromPath(saved.displayPath);
 
     activeDocument = {
       kind: "saved",
-      path,
-      source: newSource,
+      documentId: saved.documentId,
+      documentGeneration: saved.generation,
+      path: saved.displayPath,
+      source: saved.source,
       lastSavedValue: content,
     };
-    if (previousPath !== path) {
-      reportLibraryMutation({ kind: "created", path, source: newSource });
+    if (previousPath !== saved.displayPath) {
+      reportLibraryMutation({ kind: "created", path: saved.displayPath, source: saved.source });
     }
     // Flush any pending debounced value sync so that `isDirty`
     // resolves immediately after saving (value === lastSavedValue).
     flushPendingValueSync(editorSession);
+    saveLastActiveDocument(saved);
+    return saved;
   }
 
   /**
@@ -1075,8 +1086,17 @@
    * When the editor is in "auto" mode, the backend auto-detects the
    * language from content (no separate frontend detection needed).
    */
-  async function saveUntitledSlate(content: string): Promise<string> {
-    const result = await invoke<{ path: string; detectedLanguage: string }>(
+  async function saveUntitledSlate(content: string): Promise<{
+    descriptor: DocumentDescriptor;
+    detectedLanguage: string;
+  }> {
+    const result = await invoke<{
+      path: string;
+      documentId: string;
+      documentGeneration: number;
+      source: RecentFileSource;
+      detectedLanguage: string;
+    }>(
       "save_untitled_slate",
       {
         content,
@@ -1089,7 +1109,17 @@
       detectedLanguage = result.detectedLanguage;
     }
 
-    return result.path;
+    return {
+      descriptor: {
+        documentId: result.documentId,
+        generation: result.documentGeneration,
+        displayPath: result.path,
+        fileName: await getPathLabel(result.path),
+        source: result.source,
+        writable: true,
+      },
+      detectedLanguage: result.detectedLanguage,
+    };
   }
 
   async function saveFile(): Promise<boolean> {
@@ -1101,24 +1131,34 @@
           return true;
         }
 
-        await writeDocumentToPath(activeDocument.path, content);
+        await writeDocument({
+          documentId: activeDocument.documentId,
+          generation: activeDocument.documentGeneration,
+          displayPath: activeDocument.path,
+          fileName: await getPathLabel(activeDocument.path),
+          source: activeDocument.source,
+          writable: true,
+        }, content);
         editorView?.focus();
         return true;
       }
 
-      const savePath = await saveUntitledSlate(content);
+      const saved = await saveUntitledSlate(content);
+      const savePath = saved.descriptor.displayPath;
       reportLibraryMutation({ kind: "created", path: savePath, source: "slates" });
       // Transition the document state — writeDocumentToPath would overwrite
       // with write_file_content again, so apply state directly here.
       await syncLanguageFromPath(savePath);
       activeDocument = {
         kind: "saved",
+        documentId: saved.descriptor.documentId,
+        documentGeneration: saved.descriptor.generation,
         path: savePath,
         source: "slates",
         lastSavedValue: content,
       };
       // A freshly-saved untitled slate is now a real file — track it as last-active.
-      saveLastActiveFile(savePath);
+      saveLastActiveDocument(saved.descriptor);
       flushPendingValueSync(editorSession);
       // The {#key activeFilePath} block destroys and remounts <Editor> when
       // the document key changes (untitled key → saved path). Wait a tick
@@ -1137,9 +1177,9 @@
     try {
       const content = await getContentForSave();
 
-      let defaultPath: string;
+      let suggestedName: string | undefined;
       if (activeDocument.kind === "saved") {
-        defaultPath = activeDocument.path;
+        suggestedName = undefined;
       } else {
         // Ask Rust for a smart suggested filename (no collision check, no write).
         const suggestion = await invoke<{ filename: string; detectedLanguage: string }>(
@@ -1151,20 +1191,22 @@
             languageHint: language,
           },
         );
-        const notesRoot = await resolveNotesRoot();
-        defaultPath = await join(notesRoot, suggestion.filename);
+        suggestedName = suggestion.filename;
       }
 
-      const selectedPath = await saveFilePicker({
-        title: "Save As",
-        defaultPath,
+      const selected = await invoke<DocumentDescriptor | null>("pick_save_document", {
+        currentDocumentId: activeDocument.kind === "saved" ? activeDocument.documentId : null,
+        currentDocumentGeneration: activeDocument.kind === "saved"
+          ? activeDocument.documentGeneration
+          : null,
+        suggestedName: suggestedName ?? null,
       });
 
-      if (!selectedPath) {
+      if (!selected) {
         return;
       }
 
-      await writeDocumentToPath(selectedPath, content);
+      await writeDocument(selected, content);
     } catch (err: unknown) {
       const msg = typeof err === "string" ? err : "Failed to save file.";
       toast.error(msg);
@@ -1180,10 +1222,11 @@
   onMount(async () => {
     try {
       const settings = await loadAllSettings();
-      if (settings.startupBehavior === "last" && settings.lastActiveFile) {
-        await openFileAtPath(settings.lastActiveFile, undefined, undefined, {
-          silent: true,
-        });
+      if (settings.startupBehavior === "last") {
+        const lastDocument = await invoke<DocumentDescriptor | null>("get_last_active_document");
+        if (lastDocument) {
+          await openAuthorizedDocument(lastDocument, undefined, { silent: true });
+        }
       }
     } catch (err) {
       console.warn("[Startup] Failed to evaluate startup-file behavior:", err);
@@ -1204,8 +1247,29 @@
           void openFile();
         });
         const unlistenOpenFilePath = await listen<OpenFilePathPayload>(OPEN_FILE_PATH_EVENT, (event) => {
-          if (event.payload?.path) {
-            void openFileAtPath(event.payload.path, event.payload.lineNumber, event.payload.source);
+          if (event.payload?.documentId) {
+            void openAuthorizedDocument({
+              documentId: event.payload.documentId,
+              generation: event.payload.documentGeneration,
+              displayPath: event.payload.path,
+              fileName: event.payload.path.replace(/\\/g, "/").split("/").pop() ?? "",
+              source: event.payload.source ?? "local",
+              writable: true,
+            }, event.payload.lineNumber);
+          }
+        });
+        const unlistenDocumentRenamed = await listen<DocumentDescriptor>(DOCUMENT_RENAMED_EVENT, (event) => {
+          if (
+            activeDocument.kind === "saved" &&
+            activeDocument.documentId === event.payload.documentId
+          ) {
+            activeDocument = {
+              ...activeDocument,
+              documentGeneration: event.payload.generation,
+              path: event.payload.displayPath,
+              source: event.payload.source,
+            };
+            saveLastActiveDocument(event.payload);
           }
         });
         const unlistenSaveFile = await listen("menu://save-file", () => {
@@ -1220,6 +1284,7 @@
           unlistenResetToBlank();
           unlistenOpenFile();
           unlistenOpenFilePath();
+          unlistenDocumentRenamed();
           unlistenSaveFile();
           unlistenSaveFileAs();
         };
@@ -1471,7 +1536,8 @@
               <MarkdownPreview
                 content={value}
                 {editorView}
-                sourcePath={editorState.currentFilePath}
+                documentId={editorState.currentDocumentId}
+                documentGeneration={editorState.currentDocumentGeneration}
               />
             </div>
           </ResizablePane>

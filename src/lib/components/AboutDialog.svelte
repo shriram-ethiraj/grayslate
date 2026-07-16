@@ -1,5 +1,4 @@
 <script lang="ts">
-    import { openUrl } from "@tauri-apps/plugin-opener";
     import aboutImage from "$lib/assets/grayslate-about.png";
     import { Badge } from "$lib/components/ui/badge/index.js";
     import * as Dialog from "$lib/components/ui/dialog/index.js";
@@ -15,10 +14,10 @@
         installAvailableUpdate,
     } from "$lib/state/appMenu.svelte";
     import { appDialogsState, closeAppDialog } from "$lib/state/appDialogs.svelte";
+    import { invoke } from "$lib/ipc";
+    import { toast } from "$lib/components/ui/sonner";
 
-    const REPOSITORY_URL = "https://github.com/shriram-ethiraj/grayslate";
-    const RELEASES_URL = "https://github.com/shriram-ethiraj/grayslate/releases";
-    const LICENSE_URL = "https://github.com/shriram-ethiraj/grayslate/blob/main/LICENSE";
+    type AboutLinkTarget = "license" | "releases" | "releaseNotes" | "repository";
 
     const isChecking = $derived(appMenuState.updateStatus === "checking");
     const isInstalling = $derived(appMenuState.updateStatus === "installing");
@@ -33,24 +32,23 @@
     const currentVersionLabel = $derived(
         appMenuState.currentVersion || appMenuState.appVersion || "Unknown",
     );
-    const whatsNewUrl = $derived.by(() => {
-        if (!appMenuState.availableVersion) {
-            return RELEASES_URL;
-        }
-
-        const version = appMenuState.availableVersion.startsWith("v")
-            ? appMenuState.availableVersion
-            : `v${appMenuState.availableVersion}`;
-
-        return `${RELEASES_URL}/tag/${version}`;
-    });
-
     async function openWhatsNew(): Promise<void> {
-        await openUrl(whatsNewUrl);
+        if (appMenuState.availableVersion) {
+            await openProjectLink("releaseNotes", appMenuState.availableVersion);
+            return;
+        }
+        await openProjectLink("releases");
     }
 
-    async function openExternal(url: string): Promise<void> {
-        await openUrl(url);
+    async function openProjectLink(
+        target: AboutLinkTarget,
+        version?: string,
+    ): Promise<void> {
+        try {
+            await invoke("open_about_link", { target, version });
+        } catch {
+            toast.error("Failed to open the project link");
+        }
     }
 </script>
 
@@ -186,7 +184,7 @@
                             size="sm"
                             class="h-auto p-0 text-xs text-muted-foreground"
                             onclick={() => {
-                                void openExternal(LICENSE_URL);
+                                void openProjectLink("license");
                             }}
                         >
                             MIT License
@@ -199,7 +197,7 @@
                             size="sm"
                             class="h-auto p-0 text-xs text-muted-foreground"
                             onclick={() => {
-                                void openExternal(REPOSITORY_URL);
+                                void openProjectLink("repository");
                             }}
                         >
                             GitHub

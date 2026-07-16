@@ -1,5 +1,6 @@
 <script lang="ts">
     import { tick } from "svelte";
+    import { emit } from "@tauri-apps/api/event";
     import { invoke } from "@tauri-apps/api/core";
     import { toast } from "$lib/components/ui/sonner";
     import * as Dialog from "$lib/components/ui/dialog/index.js";
@@ -14,6 +15,7 @@
     import { reportLibraryMutation } from "$lib/state/librarySidebar.svelte";
     import {
         renameFile,
+        DOCUMENT_RENAMED_EVENT,
     } from "$lib/files/recentFiles";
 
     const isOpen = $derived(appDialogsState.active.type === "rename");
@@ -55,7 +57,7 @@
 
             // For the currently open file, use live editor content so that
             // unsaved changes are reflected in the suggestion — same as untitled save.
-            const isCurrentFile = file.path === editorState.currentFilePath;
+            const isCurrentFile = file.document_id === editorState.currentDocumentId;
             const view = editorState.activeView;
 
             if (isCurrentFile && view) {
@@ -68,7 +70,8 @@
             } else {
                 // Non-current files: backend reads from disk and detects from content.
                 suggested = await invoke<string>("suggest_name_for_file", {
-                    path: file.path,
+                    documentId: file.document_id,
+                    documentGeneration: file.document_generation,
                 });
             }
 
@@ -97,10 +100,11 @@
 
         isRenaming = true;
         const oldPath = file.path;
-        const wasCurrentFile = oldPath === editorState.currentFilePath;
+        const wasCurrentFile = file.document_id === editorState.currentDocumentId;
 
         try {
-            const newPath = await renameFile(oldPath, trimmed);
+            const renamed = await renameFile(file, trimmed);
+            const newPath = renamed.displayPath;
             closeAppDialog();
 
             // Structural mutations refresh immediately; report before the
@@ -109,7 +113,7 @@
 
             // Keep the editor's save path in sync with the renamed file.
             if (wasCurrentFile) {
-                editorState.currentFilePath = newPath;
+                await emit(DOCUMENT_RENAMED_EVENT, renamed);
             }
 
             const newName =

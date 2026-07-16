@@ -4,6 +4,7 @@ pub mod autosave;
 pub mod commands;
 pub mod csv;
 pub mod detection;
+pub mod document;
 pub mod filesystem;
 pub mod findstats;
 pub mod markdown_preview;
@@ -50,6 +51,7 @@ pub fn run() {
             })?;
             app.manage(storage);
             app.manage(commands::file::FileReadCancellationRegistry::default());
+            app.manage(document::DocumentRegistry::default());
             app.manage(commands::search::SearchRuntimeState::default());
             app.manage(commands::transform::TransformationCancellationRegistry::default());
             app.manage(commands::findstats::EditorFindState::default());
@@ -92,12 +94,19 @@ pub fn run() {
             commands::file::duplicate_local_file_as_slate,
             commands::file::get_all_settings,
             commands::file::get_app_setting,
+            commands::file::get_last_active_document,
             commands::file::get_recent_files,
+            commands::file::pick_document,
+            commands::file::pick_notes_root,
+            commands::file::pick_save_document,
             commands::file::read_file_content,
+            commands::file::reveal_document,
             commands::file::rename_file,
             commands::file::resolve_notes_root,
+            commands::file::reset_notes_root,
             commands::file::resolve_default_notes_root,
             commands::file::set_app_setting,
+            commands::file::set_last_active_document,
             commands::file::write_file_content,
             commands::memory::get_memory_info,
             commands::detection::detect_language,
@@ -127,12 +136,16 @@ pub fn run() {
             commands::transform::editor_detect_indent,
             commands::update::check_for_updates,
             commands::update::install_available_update,
-            commands::autosave::autosave_register,
+            commands::external::get_app_info,
+            commands::external::open_about_link,
+            commands::external::open_markdown_link,
+            commands::autosave::autosave_activate_untitled,
+            commands::autosave::autosave_activate_document,
             commands::autosave::autosave_notify_changed,
             commands::autosave::autosave_submit_content,
             commands::autosave::autosave_flush_before_switch,
             commands::autosave::autosave_set_csv_mode,
-            commands::autosave::classify_source,
+            commands::autosave::autosave_set_language_hint,
             menu::set_menu_word_wrap,
             menu::set_menu_save_enabled,
         ])
@@ -171,6 +184,38 @@ async fn flush_on_close(window: &tauri::Window) {
         let csv_registry = app.state::<commands::csv::CsvSessionRegistry>();
         if let Some((_, content)) = csv_registry.try_flush_for_autosave(&label) {
             if let Some(path) = &doc_info.path {
+                let Some(document_id) = doc_info.document_id.as_deref() else {
+                    eprintln!("Autosave close-flush: document authorization is missing");
+                    return;
+                };
+                let Some(document_generation) = doc_info.document_generation else {
+                    eprintln!("Autosave close-flush: document generation is missing");
+                    return;
+                };
+                let documents = app.state::<document::DocumentRegistry>();
+                let storage = app.state::<storage::AppStorage>();
+                let authorized = match documents.resolve(
+                    &label,
+                    document_id,
+                    document_generation,
+                    document::DocumentAccess::Write,
+                ) {
+                    Ok(document) => document,
+                    Err(error) => {
+                        eprintln!("Autosave close-flush: {error}");
+                        return;
+                    }
+                };
+                if let Err(error) =
+                    document::revalidate_source_authority(app, storage.inner(), &authorized)
+                {
+                    eprintln!("Autosave close-flush: {error}");
+                    return;
+                }
+                if authorized.path != *path {
+                    eprintln!("Autosave close-flush: authorized path changed");
+                    return;
+                }
                 let path = path.clone();
                 let path_for_write = path.clone();
                 match tauri::async_runtime::spawn_blocking(move || {
@@ -179,7 +224,6 @@ async fn flush_on_close(window: &tauri::Window) {
                 .await
                 {
                     Ok(Ok(())) => {
-                        let storage = app.state::<storage::AppStorage>();
                         if let Err(error) = storage.record_file_update(&path, storage::FileSource::Slates) {
                             eprintln!("Autosave close-flush: failed to update tracked-file metadata: {}", error);
                         }

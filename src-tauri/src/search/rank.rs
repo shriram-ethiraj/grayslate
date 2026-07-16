@@ -41,10 +41,8 @@ pub fn rank_candidate(
 
     let freshness_score = score_freshness(candidate.file_modified_disk_at);
     let usage_score = score_usage(candidate.file_modified_app_at);
-    let final_score = filename_score * 1.6
-        + content_score * 1.0
-        + freshness_score * 0.15
-        + usage_score * 0.1;
+    let final_score =
+        filename_score * 1.6 + content_score * 1.0 + freshness_score * 0.15 + usage_score * 0.1;
 
     Some(SearchResultRecord {
         path: candidate.path.clone(),
@@ -139,10 +137,18 @@ fn score_filename(candidate: &FileSearchCandidate, query: &ParsedSearchQuery) ->
 
     // Helper closures for whole-word–aware substring operations.
     let name_find = |needle: &str| -> Option<usize> {
-        if ww { find_whole_word(&normalized_name, needle) } else { normalized_name.find(needle) }
+        if ww {
+            find_whole_word(&normalized_name, needle)
+        } else {
+            normalized_name.find(needle)
+        }
     };
     let path_find = |needle: &str| -> Option<usize> {
-        if ww { find_whole_word(&normalized_path, needle) } else { normalized_path.find(needle) }
+        if ww {
+            find_whole_word(&normalized_path, needle)
+        } else {
+            normalized_path.find(needle)
+        }
     };
 
     if normalized_name == query.normalized {

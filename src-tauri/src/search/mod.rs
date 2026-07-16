@@ -130,7 +130,9 @@ fn build_candidates(
         let file_modified_disk_at = metadata
             .and_then(|value| value.modified().ok())
             .and_then(system_time_to_unix_ms)
-            .or(tracked.as_ref().and_then(|value| value.file_modified_disk_at));
+            .or(tracked
+                .as_ref()
+                .and_then(|value| value.file_modified_disk_at));
 
         candidates.insert(
             path_key,
@@ -143,7 +145,9 @@ fn build_candidates(
                     .map(|value| value.source.clone())
                     .unwrap_or_else(|| "slates".to_string()),
                 size_bytes,
-                file_modified_app_at: tracked.as_ref().and_then(|value| value.file_modified_app_at),
+                file_modified_app_at: tracked
+                    .as_ref()
+                    .and_then(|value| value.file_modified_app_at),
                 file_modified_disk_at,
                 content,
                 document_length: size_bytes.unwrap_or(0).max(1) as f32,

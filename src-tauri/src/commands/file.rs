@@ -1,6 +1,5 @@
 use std::{
     collections::HashMap,
-    fs::File,
     io::{BufReader, Read},
     path::{Path, PathBuf},
     sync::{
@@ -10,16 +9,23 @@ use std::{
 };
 
 use tauri::Emitter;
+use tauri_plugin_dialog::DialogExt;
+use tauri_plugin_opener::OpenerExt;
 
+use crate::document::{
+    canonical_notes_root, classify_existing_document, classify_new_document, open_authorized_read,
+    revalidate_source_authority, AuthorizedDocument, DocumentAccess, DocumentDescriptor,
+    DocumentRegistry, DocumentRights,
+};
 use crate::filesystem::{
-    classify_file_source, resolve_default_notes_root_path, resolve_notes_root_path,
-    sanitize_filename, unique_path_in_dir_excluding,
+    resolve_default_notes_root_path, resolve_notes_root_path, sanitize_filename,
+    unique_path_in_dir_excluding,
 };
 use crate::storage::{
     normalize_path_key, AppStorage, FileSource, RecentFileRecord, SETTING_CONFIRM_BEFORE_DELETE,
     SETTING_DEFAULT_INDENT_MODE, SETTING_DEFAULT_INDENT_SIZE, SETTING_FONT_SIZE,
-    SETTING_NOTES_ROOT, SETTING_SIDEBAR_OPEN, SETTING_SIDEBAR_WIDTH, SETTING_STARTUP_BEHAVIOR,
-    SETTING_THEME, SETTING_WORD_WRAP,
+    SETTING_LAST_ACTIVE_FILE, SETTING_NOTES_ROOT, SETTING_SIDEBAR_OPEN, SETTING_SIDEBAR_WIDTH,
+    SETTING_STARTUP_BEHAVIOR, SETTING_THEME, SETTING_WORD_WRAP,
 };
 
 use super::RECENT_FILES_UPDATED_EVENT;
@@ -29,6 +35,89 @@ const MAX_FILE_SIZE: u64 = 200 * 1024 * 1024;
 const FILE_READ_CHUNK_SIZE: usize = 256 * 1024;
 const FILE_READ_CANCELLED_MESSAGE: &str = "File read cancelled.";
 const MAX_RECENT_FILES_LIMIT: usize = 200;
+
+#[derive(serde::Serialize)]
+pub struct AuthorizedRecentFileRecord {
+    #[serde(flatten)]
+    pub file: RecentFileRecord,
+    pub document_id: String,
+    pub document_generation: u64,
+}
+
+fn source_from_record(record: &RecentFileRecord) -> Result<FileSource, String> {
+    match record.source.as_str() {
+        "slates" => Ok(FileSource::Slates),
+        "local" => Ok(FileSource::Local),
+        _ => Err("Tracked file has an invalid source classification.".to_string()),
+    }
+}
+
+fn grant_tracked_record(
+    app: &tauri::AppHandle,
+    storage: &AppStorage,
+    documents: &DocumentRegistry,
+    window_label: &str,
+    record: RecentFileRecord,
+) -> Result<AuthorizedRecentFileRecord, String> {
+    let recorded_source = source_from_record(&record)?;
+    let path = PathBuf::from(&record.path);
+    let (canonical, actual_source) = classify_existing_document(app, storage, &path)?;
+    if recorded_source != actual_source {
+        return Err("Tracked file no longer matches its authorized source.".to_string());
+    }
+    let granted = documents.grant_existing(
+        window_label,
+        &canonical,
+        actual_source,
+        DocumentRights::tracked(actual_source),
+    )?;
+    Ok(AuthorizedRecentFileRecord {
+        file: record,
+        document_id: granted.id,
+        document_generation: granted.generation,
+    })
+}
+
+fn resolve_document(
+    app: &tauri::AppHandle,
+    storage: &AppStorage,
+    documents: &DocumentRegistry,
+    window_label: &str,
+    document_id: &str,
+    document_generation: u64,
+    access: DocumentAccess,
+) -> Result<AuthorizedDocument, String> {
+    let document = documents.resolve(window_label, document_id, document_generation, access)?;
+    revalidate_source_authority(app, storage, &document)?;
+    Ok(document)
+}
+
+fn require_tracked_document(
+    app: &tauri::AppHandle,
+    storage: &AppStorage,
+    documents: &DocumentRegistry,
+    window_label: &str,
+    document_id: &str,
+    document_generation: u64,
+    access: DocumentAccess,
+) -> Result<AuthorizedDocument, String> {
+    let document = resolve_document(
+        app,
+        storage,
+        documents,
+        window_label,
+        document_id,
+        document_generation,
+        access,
+    )?;
+    let record = storage
+        .get_tracked_file(&document.path)?
+        .ok_or_else(|| "Document is not tracked by Grayslate.".to_string())?;
+    if source_from_record(&record)? != document.source {
+        return Err("Tracked document source does not match its grant.".to_string());
+    }
+    Ok(document)
+}
 
 #[derive(Clone)]
 struct ActiveFileRead {
@@ -101,7 +190,7 @@ fn ensure_read_not_cancelled(cancelled: &AtomicBool) -> Result<(), String> {
 fn read_file_bytes_cancellable(path: &Path, cancelled: &AtomicBool) -> Result<Vec<u8>, String> {
     ensure_read_not_cancelled(cancelled)?;
 
-    let file = File::open(path).map_err(|error| format!("Failed to read file: {}", error))?;
+    let file = open_authorized_read(path)?;
     let mut reader = BufReader::new(file);
     let mut bytes = Vec::new();
     let mut chunk = vec![0_u8; FILE_READ_CHUNK_SIZE];
@@ -117,6 +206,13 @@ fn read_file_bytes_cancellable(path: &Path, cancelled: &AtomicBool) -> Result<Ve
             break;
         }
 
+        if bytes.len().saturating_add(bytes_read) > MAX_FILE_SIZE as usize {
+            return Err(format!(
+                "File exceeds the maximum supported size of {} MB",
+                MAX_FILE_SIZE / (1024 * 1024)
+            ));
+        }
+
         bytes.extend_from_slice(&chunk[..bytes_read]);
     }
 
@@ -128,6 +224,111 @@ fn read_file_bytes_cancellable(path: &Path, cancelled: &AtomicBool) -> Result<Ve
     Ok(bytes)
 }
 
+/// Reject paths whose target is not a regular file.
+///
+/// `metadata` follows symlinks, so a symlink pointing at a regular file passes.
+/// This blocks opening/overwriting directories, device nodes, FIFOs, and sockets
+/// — none of which are meaningful in a text scratchpad, and some of which
+/// (FIFOs, block devices) would otherwise stall the read. This file-type check
+/// is defense in depth only: CSP does not authorize privileged IPC, and the
+/// pending Rust-owned document-grant work remains the actual path authority
+/// boundary.
+fn ensure_regular_file(metadata: &std::fs::Metadata) -> Result<(), String> {
+    if !metadata.is_file() {
+        return Err("Path is not a regular file.".to_string());
+    }
+    Ok(())
+}
+
+/// Best-effort resolution of the current user's home directory without pulling
+/// in a Tauri handle. Used only to reject a home-directory notes root.
+fn user_home_dir() -> Option<PathBuf> {
+    #[cfg(windows)]
+    {
+        std::env::var_os("USERPROFILE").map(PathBuf::from)
+    }
+    #[cfg(not(windows))]
+    {
+        std::env::var_os("HOME").map(PathBuf::from)
+    }
+}
+
+/// Reject notes-root choices that would make Grayslate treat sweeping parts of
+/// the filesystem as managed "slate" files.
+///
+/// The notes root defines which files count as `FileSource::Slates`, and the
+/// slate-only gate (`require_slate_file`) authorizes rename/delete. A too-broad
+/// root (a filesystem root, or the whole home directory) would turn that gate
+/// into near-arbitrary rename/delete authority, so we refuse those. The path is
+/// canonicalized first so a symlinked or `..`-traversal root cannot slip past
+/// these checks.
+fn validate_notes_root_choice(path: &Path) -> Result<(), String> {
+    let resolved = match std::fs::canonicalize(path) {
+        Ok(canonical) => {
+            if !canonical.is_dir() {
+                return Err("Notes root must be a directory.".to_string());
+            }
+            canonical
+        }
+        Err(_) => {
+            // The directory does not exist yet — validate the parent (which
+            // must exist) so the root can be created safely under it.
+            let parent = path
+                .parent()
+                .ok_or_else(|| "Notes root cannot be a filesystem root.".to_string())?;
+            let parent_canonical = std::fs::canonicalize(parent)
+                .map_err(|_| "Notes root parent directory does not exist.".to_string())?;
+            let leaf = path
+                .file_name()
+                .ok_or_else(|| "Notes root must name a directory.".to_string())?;
+            parent_canonical.join(leaf)
+        }
+    };
+
+    // A filesystem root ("/", "C:\\", …) has no parent.
+    if resolved.parent().is_none() {
+        return Err("Notes root cannot be a filesystem root.".to_string());
+    }
+
+    // The home directory itself is too broad; a subfolder of it is fine.
+    if let Some(home) = user_home_dir() {
+        if let Ok(home_canonical) = std::fs::canonicalize(&home) {
+            if resolved == home_canonical {
+                return Err(
+                    "Notes root cannot be your home directory itself; choose a subfolder."
+                        .to_string(),
+                );
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_last_active_file_choice(value: &str) -> Result<(), String> {
+    if value.len() > 32 * 1024 {
+        return Err("Last active file path is too long.".to_string());
+    }
+    if value.contains('\0') {
+        return Err("Last active file path contains an invalid character.".to_string());
+    }
+
+    let path = Path::new(value);
+    if !path.is_absolute() {
+        return Err("Last active file path must be absolute.".to_string());
+    }
+
+    match std::fs::metadata(path) {
+        Ok(metadata) => ensure_regular_file(&metadata)
+            .map_err(|_| "Last active file path must identify a regular file.".to_string()),
+        // The last-opened file may legitimately have been moved or deleted
+        // between sessions. Startup revalidates it before attempting a read.
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(format!("Cannot validate last active file path: {}", error)),
+    }
+}
+
+#[cfg(test)]
 fn validate_write_path(path: &Path) -> Result<(), String> {
     if !path.is_absolute() {
         return Err("Save path must be absolute.".to_string());
@@ -139,6 +340,14 @@ fn validate_write_path(path: &Path) -> Result<(), String> {
 
     if parent.as_os_str().is_empty() {
         return Err("Save path must have a valid parent directory.".to_string());
+    }
+
+    // If the target already exists, refuse to overwrite anything that is not a
+    // regular file (e.g. a directory or device node). A not-yet-existing path
+    // is fine — that is a normal new-file save.
+    if let Ok(metadata) = std::fs::metadata(path) {
+        ensure_regular_file(&metadata)
+            .map_err(|_| "Save target exists and is not a regular file.".to_string())?;
     }
 
     Ok(())
@@ -162,18 +371,33 @@ fn clamp_recent_files_limit(limit: Option<usize>) -> usize {
 pub async fn read_file_content(
     app: tauri::AppHandle,
     storage: tauri::State<'_, AppStorage>,
+    documents: tauri::State<'_, DocumentRegistry>,
     cancellations: tauri::State<'_, FileReadCancellationRegistry>,
     window: tauri::Window,
-    path: String,
+    document_id: String,
+    document_generation: u64,
     request_id: u64,
 ) -> Result<tauri::ipc::Response, String> {
     let window_label = window.label().to_string();
     let cancellation_flag = cancellations.begin_request(&window_label, request_id);
-    let path_buf = PathBuf::from(&path);
 
     let result = async {
-        let metadata = std::fs::metadata(&path_buf)
+        let document = resolve_document(
+            &app,
+            storage.inner(),
+            documents.inner(),
+            &window_label,
+            &document_id,
+            document_generation,
+            DocumentAccess::Read,
+        )?;
+        let metadata = std::fs::metadata(&document.path)
             .map_err(|error| format!("Cannot access file: {}", error))?;
+
+        // Only regular files may be opened. Grant resolution already rejects
+        // symlinks; this second check rejects directories, device nodes, FIFOs,
+        // and sockets before the blocking read is attempted.
+        ensure_regular_file(&metadata)?;
 
         ensure_read_not_cancelled(cancellation_flag.as_ref())?;
 
@@ -185,7 +409,7 @@ pub async fn read_file_content(
             ));
         }
 
-        let read_path = path_buf.clone();
+        let read_path = document.path.clone();
         let read_cancelled = Arc::clone(&cancellation_flag);
         let bytes = tauri::async_runtime::spawn_blocking(move || {
             read_file_bytes_cancellable(&read_path, read_cancelled.as_ref())
@@ -195,11 +419,9 @@ pub async fn read_file_content(
 
         ensure_read_not_cancelled(cancellation_flag.as_ref())?;
 
-        let source = classify_file_source(&app, storage.inner(), &path_buf)?;
-        if storage.record_file_open_if_untracked(&path_buf, source)? {
+        if storage.record_file_open_if_untracked(&document.path, document.source)? {
             let _ = app.emit(RECENT_FILES_UPDATED_EVENT, ());
         }
-
         Ok(tauri::ipc::Response::new(bytes))
     }
     .await;
@@ -210,11 +432,144 @@ pub async fn read_file_content(
 }
 
 #[tauri::command]
+pub async fn pick_document(
+    app: tauri::AppHandle,
+    storage: tauri::State<'_, AppStorage>,
+    documents: tauri::State<'_, DocumentRegistry>,
+    window: tauri::Window,
+) -> Result<Option<DocumentDescriptor>, String> {
+    let dialog_app = app.clone();
+    let dialog_window = window.clone();
+    let selected = tauri::async_runtime::spawn_blocking(move || {
+        dialog_app
+            .dialog()
+            .file()
+            .set_parent(&dialog_window)
+            .blocking_pick_file()
+    })
+    .await
+    .map_err(|error| format!("Failed to join open dialog task: {error}"))?;
+
+    let Some(selected) = selected else {
+        return Ok(None);
+    };
+    let path = selected
+        .into_path()
+        .map_err(|error| format!("Selected file is not a filesystem path: {error}"))?;
+    let (canonical, source) = classify_existing_document(&app, storage.inner(), &path)?;
+    let granted = documents.grant_existing(
+        window.label(),
+        &canonical,
+        source,
+        DocumentRights::tracked(source),
+    )?;
+    Ok(Some(granted.descriptor()))
+}
+
+#[tauri::command]
+pub async fn pick_save_document(
+    app: tauri::AppHandle,
+    storage: tauri::State<'_, AppStorage>,
+    documents: tauri::State<'_, DocumentRegistry>,
+    window: tauri::Window,
+    current_document_id: Option<String>,
+    current_document_generation: Option<u64>,
+    suggested_name: Option<String>,
+) -> Result<Option<DocumentDescriptor>, String> {
+    let mut dialog = app.dialog().file().set_parent(&window).set_title("Save As");
+
+    if let (Some(id), Some(generation)) =
+        (current_document_id.as_deref(), current_document_generation)
+    {
+        let current = resolve_document(
+            &app,
+            storage.inner(),
+            documents.inner(),
+            window.label(),
+            id,
+            generation,
+            DocumentAccess::Read,
+        )?;
+        if let Some(parent) = current.path.parent() {
+            dialog = dialog.set_directory(parent);
+        }
+        if let Some(name) = current.path.file_name() {
+            dialog = dialog.set_file_name(name.to_string_lossy());
+        }
+    } else {
+        let root = canonical_notes_root(&app, storage.inner(), true)?;
+        dialog = dialog.set_directory(root);
+        if let Some(name) = suggested_name {
+            let safe_name = sanitize_filename(&name);
+            validate_new_filename(&safe_name)?;
+            dialog = dialog.set_file_name(safe_name);
+        }
+    }
+
+    let selected = tauri::async_runtime::spawn_blocking(move || dialog.blocking_save_file())
+        .await
+        .map_err(|error| format!("Failed to join save dialog task: {error}"))?;
+    let Some(selected) = selected else {
+        return Ok(None);
+    };
+    let path = selected
+        .into_path()
+        .map_err(|error| format!("Selected file is not a filesystem path: {error}"))?;
+
+    let (authorized_path, source, exists) = if path.exists() {
+        let (canonical, source) = classify_existing_document(&app, storage.inner(), &path)?;
+        (canonical, source, true)
+    } else {
+        let (candidate, source) = classify_new_document(&app, storage.inner(), &path)?;
+        (candidate, source, false)
+    };
+    let granted = if exists {
+        documents.grant_existing(
+            window.label(),
+            &authorized_path,
+            source,
+            DocumentRights::tracked(source),
+        )?
+    } else {
+        documents.grant_new(
+            window.label(),
+            &authorized_path,
+            source,
+            DocumentRights::tracked(source),
+        )?
+    };
+    Ok(Some(granted.descriptor()))
+}
+
+#[tauri::command]
 pub fn cancel_file_read(
     cancellations: tauri::State<'_, FileReadCancellationRegistry>,
     window: tauri::Window,
 ) {
     cancellations.cancel_window_request(window.label());
+}
+
+#[tauri::command]
+pub fn reveal_document(
+    app: tauri::AppHandle,
+    storage: tauri::State<'_, AppStorage>,
+    documents: tauri::State<'_, DocumentRegistry>,
+    window: tauri::Window,
+    document_id: String,
+    document_generation: u64,
+) -> Result<(), String> {
+    let document = resolve_document(
+        &app,
+        storage.inner(),
+        documents.inner(),
+        window.label(),
+        &document_id,
+        document_generation,
+        DocumentAccess::Read,
+    )?;
+    app.opener()
+        .reveal_item_in_dir(&document.path)
+        .map_err(|error| format!("Failed to reveal document: {error}"))
 }
 
 #[tauri::command]
@@ -237,6 +592,43 @@ pub fn resolve_notes_root(
 }
 
 #[tauri::command]
+pub async fn pick_notes_root(
+    app: tauri::AppHandle,
+    storage: tauri::State<'_, AppStorage>,
+    window: tauri::Window,
+) -> Result<Option<String>, String> {
+    let dialog_app = app.clone();
+    let dialog_window = window.clone();
+    let selected = tauri::async_runtime::spawn_blocking(move || {
+        dialog_app
+            .dialog()
+            .file()
+            .set_parent(&dialog_window)
+            .set_title("Choose Grayslate notes folder")
+            .blocking_pick_folder()
+    })
+    .await
+    .map_err(|error| format!("Failed to join notes-folder dialog task: {error}"))?;
+    let Some(selected) = selected else {
+        return Ok(None);
+    };
+    let path = selected
+        .into_path()
+        .map_err(|error| format!("Selected folder is not a filesystem path: {error}"))?;
+    validate_notes_root_choice(&path)?;
+    let canonical = std::fs::canonicalize(path)
+        .map_err(|error| format!("Cannot resolve selected notes folder: {error}"))?;
+    let value = canonical.to_string_lossy().into_owned();
+    storage.set_setting(SETTING_NOTES_ROOT, Some(&value))?;
+    Ok(Some(value))
+}
+
+#[tauri::command]
+pub fn reset_notes_root(storage: tauri::State<'_, AppStorage>) -> Result<(), String> {
+    storage.set_setting(SETTING_NOTES_ROOT, None)
+}
+
+#[tauri::command]
 pub fn get_app_setting(
     storage: tauri::State<'_, AppStorage>,
     key: String,
@@ -252,6 +644,64 @@ pub fn get_all_settings(
 }
 
 #[tauri::command]
+pub fn get_last_active_document(
+    app: tauri::AppHandle,
+    storage: tauri::State<'_, AppStorage>,
+    documents: tauri::State<'_, DocumentRegistry>,
+    window: tauri::Window,
+) -> Result<Option<DocumentDescriptor>, String> {
+    let Some(path) = storage.get_setting(SETTING_LAST_ACTIVE_FILE)? else {
+        return Ok(None);
+    };
+    let path = PathBuf::from(path);
+    let Some(record) = storage.get_tracked_file(&path)? else {
+        return Ok(None);
+    };
+    let authorized = grant_tracked_record(
+        &app,
+        storage.inner(),
+        documents.inner(),
+        window.label(),
+        record,
+    )?;
+    let document = documents.resolve(
+        window.label(),
+        &authorized.document_id,
+        authorized.document_generation,
+        DocumentAccess::Read,
+    )?;
+    Ok(Some(document.descriptor()))
+}
+
+#[tauri::command]
+pub fn set_last_active_document(
+    app: tauri::AppHandle,
+    storage: tauri::State<'_, AppStorage>,
+    documents: tauri::State<'_, DocumentRegistry>,
+    window: tauri::Window,
+    document_id: Option<String>,
+    document_generation: Option<u64>,
+) -> Result<(), String> {
+    match (document_id.as_deref(), document_generation) {
+        (None, None) => storage.set_setting(SETTING_LAST_ACTIVE_FILE, None),
+        (Some(id), Some(generation)) => {
+            let document = resolve_document(
+                &app,
+                storage.inner(),
+                documents.inner(),
+                window.label(),
+                id,
+                generation,
+                DocumentAccess::Read,
+            )?;
+            let path = document.path.to_string_lossy();
+            storage.set_setting(SETTING_LAST_ACTIVE_FILE, Some(path.as_ref()))
+        }
+        _ => Err("Document ID and generation must be provided together.".to_string()),
+    }
+}
+
+#[tauri::command]
 pub fn set_app_setting(
     storage: tauri::State<'_, AppStorage>,
     key: String,
@@ -259,12 +709,9 @@ pub fn set_app_setting(
 ) -> Result<(), String> {
     match key.as_str() {
         SETTING_NOTES_ROOT => {
-            if let Some(ref configured_path) = value {
-                let configured_path = PathBuf::from(configured_path);
-                if !configured_path.is_absolute() {
-                    return Err("Configured notes root must be an absolute path.".to_string());
-                }
-            }
+            return Err(
+                "Notes root can only be changed through the native folder picker.".to_string(),
+            );
         }
         SETTING_THEME => {
             if let Some(ref theme) = value {
@@ -275,11 +722,14 @@ pub fn set_app_setting(
         }
         SETTING_FONT_SIZE => {
             if let Some(ref size) = value {
-                let parsed: i32 = size.parse().map_err(|_| {
-                    format!("Font size must be a number, got \"{}\".", size)
-                })?;
+                let parsed: i32 = size
+                    .parse()
+                    .map_err(|_| format!("Font size must be a number, got \"{}\".", size))?;
                 if !(10..=24).contains(&parsed) {
-                    return Err(format!("Font size must be between 10 and 24, got {}.", parsed));
+                    return Err(format!(
+                        "Font size must be between 10 and 24, got {}.",
+                        parsed
+                    ));
                 }
             }
         }
@@ -292,9 +742,9 @@ pub fn set_app_setting(
         }
         SETTING_SIDEBAR_WIDTH => {
             if let Some(ref width) = value {
-                let parsed: i32 = width.parse().map_err(|_| {
-                    format!("Sidebar width must be a number, got \"{}\".", width)
-                })?;
+                let parsed: i32 = width
+                    .parse()
+                    .map_err(|_| format!("Sidebar width must be a number, got \"{}\".", width))?;
                 if !(15..=30).contains(&parsed) {
                     return Err(format!(
                         "Sidebar width must be between 15 and 30, got {}.",
@@ -344,8 +794,19 @@ pub fn set_app_setting(
                 }
             }
         }
-        // SETTING_LAST_ACTIVE_FILE: arbitrary path string, no validation (or None to clear).
-        _ => {}
+        // Internal bookkeeping path (or None to clear). It may be stale by the
+        // next launch, but it must still have the shape of a file path written
+        // by the editor rather than an arbitrary setting payload.
+        SETTING_LAST_ACTIVE_FILE => {
+            if let Some(ref last_active_file) = value {
+                validate_last_active_file_choice(last_active_file)?;
+            }
+        }
+        // Reject any key the backend does not recognize rather than silently
+        // persisting attacker- or bug-supplied settings.
+        other => {
+            return Err(format!("Unknown setting key: {}", other));
+        }
     }
 
     storage.set_setting(&key, value.as_deref())
@@ -355,8 +816,10 @@ pub fn set_app_setting(
 pub fn get_recent_files(
     app: tauri::AppHandle,
     storage: tauri::State<'_, AppStorage>,
+    documents: tauri::State<'_, DocumentRegistry>,
+    window: tauri::Window,
     limit: Option<usize>,
-) -> Result<Vec<RecentFileRecord>, String> {
+) -> Result<Vec<AuthorizedRecentFileRecord>, String> {
     let limit = clamp_recent_files_limit(limit);
 
     // Keep the tracking table in sync with the filesystem before returning
@@ -371,8 +834,9 @@ pub fn get_recent_files(
     let tracked = storage.list_tracked_files()?;
     for file in &tracked {
         let path = PathBuf::from(&file.path);
-        let source = classify_file_source(&app, storage.inner(), &path)?;
-        storage.refresh_tracked_file(&path, source)?;
+        if let Ok((canonical, source)) = classify_existing_document(&app, storage.inner(), &path) {
+            storage.refresh_tracked_file(&canonical, source)?;
+        }
     }
 
     // Prune entries that no longer exist on disk so the sidebar stays clean.
@@ -381,7 +845,16 @@ pub fn get_recent_files(
     for file in rows {
         let path = PathBuf::from(&file.path);
         if path.exists() {
-            result.push(file);
+            match grant_tracked_record(
+                &app,
+                storage.inner(),
+                documents.inner(),
+                window.label(),
+                file,
+            ) {
+                Ok(authorized) => result.push(authorized),
+                Err(error) => eprintln!("Skipping unauthorized recent file: {error}"),
+            }
         } else {
             let _ = storage.delete_tracked_file(&path);
         }
@@ -485,8 +958,7 @@ fn sync_notes_tracking(app: &tauri::AppHandle, storage: &AppStorage) {
         if let Err(e) = storage.delete_tracked_file(Path::new(path)) {
             eprintln!(
                 "sync_notes_tracking: failed to delete tracked file '{}': {}",
-                path,
-                e
+                path, e
             );
         }
     }
@@ -496,31 +968,51 @@ fn sync_notes_tracking(app: &tauri::AppHandle, storage: &AppStorage) {
 pub async fn write_file_content(
     app: tauri::AppHandle,
     storage: tauri::State<'_, AppStorage>,
-    path: String,
+    documents: tauri::State<'_, DocumentRegistry>,
+    autosave: tauri::State<'_, crate::autosave::AutosaveRegistry>,
+    window: tauri::Window,
+    document_id: String,
+    document_generation: u64,
     content: String,
-) -> Result<(), String> {
-    let target_path = PathBuf::from(&path);
-    validate_write_path(&target_path)?;
+) -> Result<DocumentDescriptor, String> {
+    let document = resolve_document(
+        &app,
+        storage.inner(),
+        documents.inner(),
+        window.label(),
+        &document_id,
+        document_generation,
+        DocumentAccess::Write,
+    )?;
+    let target_path = document.path.clone();
 
-    let parent = target_path
-        .parent()
-        .ok_or_else(|| "Save path must have a parent directory.".to_string())?
-        .to_path_buf();
-
+    // Durable, atomic save via the shared temp-file + rename helper so a crash
+    // mid-write cannot truncate or corrupt the destination file.
     let path_for_write = target_path.clone();
+    let is_new_document = !document.exists;
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
-        std::fs::create_dir_all(&parent)
-            .map_err(|error| format!("Failed to create parent directory: {}", error))?;
-        std::fs::write(&path_for_write, content)
-            .map_err(|error| format!("Failed to save file: {}", error))
+        if is_new_document {
+            crate::autosave::atomic_create_to_disk(&path_for_write, &content)
+        } else {
+            crate::autosave::autosave_write_to_disk(&path_for_write, &content)
+        }
     })
     .await
     .map_err(|error| format!("Failed to join file write task: {}", error))??;
 
-    let source = classify_file_source(&app, storage.inner(), &target_path)?;
-    storage.record_file_update(&target_path, source)?;
+    let saved = documents.mark_created(window.label(), &document_id, document_generation)?;
+    revalidate_source_authority(&app, storage.inner(), &saved)?;
+    storage.record_file_update(&target_path, saved.source)?;
+    autosave.register_authorized(
+        window.label(),
+        saved.path.clone(),
+        saved.source,
+        "auto".to_string(),
+        saved.id.clone(),
+        saved.generation,
+    );
     let _ = app.emit(RECENT_FILES_UPDATED_EVENT, "saved");
-    Ok(())
+    Ok(saved.descriptor())
 }
 
 // ---------------------------------------------------------------------------
@@ -614,24 +1106,42 @@ fn next_copy_path_in_dir(dir: &Path, copy_name: &str) -> PathBuf {
     }
 }
 
-/// Returns `Ok(())` when `path` is absolute and belongs to the Grayslate
-/// notes root (source == Slates).  Returns a user-visible error otherwise.
-/// Rename and delete are restricted to slate files managed by the app.
-fn require_slate_file(
-    app: &tauri::AppHandle,
-    storage: &AppStorage,
-    path: &Path,
-) -> Result<(), String> {
-    if !path.is_absolute() {
-        return Err("File path must be absolute.".to_string());
+fn copy_file_create_new(source: &Path, destination: &Path) -> Result<(), String> {
+    let mut input = open_authorized_read(source)?;
+    let mut output = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(destination)
+        .map_err(|error| format!("Failed to create duplicate: {error}"))?;
+    if let Err(error) = std::io::copy(&mut input, &mut output) {
+        drop(output);
+        let _ = std::fs::remove_file(destination);
+        return Err(format!("Failed to copy file: {error}"));
     }
-    let source = classify_file_source(app, storage, path)?;
-    if source != FileSource::Slates {
-        return Err(
-            "Rename and delete are only available for Grayslate slate files.".to_string(),
-        );
+    if let Err(error) = output.sync_all() {
+        drop(output);
+        let _ = std::fs::remove_file(destination);
+        return Err(format!("Failed to flush duplicate: {error}"));
     }
     Ok(())
+}
+
+#[cfg(unix)]
+fn rename_file_no_replace(source: &Path, destination: &Path) -> Result<(), String> {
+    std::fs::hard_link(source, destination)
+        .map_err(|error| format!("Failed to reserve renamed file: {error}"))?;
+    if let Err(error) = std::fs::remove_file(source) {
+        let _ = std::fs::remove_file(destination);
+        return Err(format!("Failed to remove old file after rename: {error}"));
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn rename_file_no_replace(source: &Path, destination: &Path) -> Result<(), String> {
+    // Windows rename fails if the destination exists, providing the required
+    // no-replace behavior for the collision-free name selected above.
+    std::fs::rename(source, destination).map_err(|error| format!("Failed to rename file: {error}"))
 }
 
 /// Remove a local file from sidebar tracking without deleting
@@ -640,18 +1150,26 @@ fn require_slate_file(
 pub fn untrack_local_file(
     app: tauri::AppHandle,
     storage: tauri::State<'_, AppStorage>,
-    path: String,
+    documents: tauri::State<'_, DocumentRegistry>,
+    window: tauri::Window,
+    document_id: String,
+    document_generation: u64,
 ) -> Result<(), String> {
-    let target = PathBuf::from(&path);
-    if !target.is_absolute() {
-        return Err("File path must be absolute.".to_string());
-    }
-    let source = classify_file_source(&app, storage.inner(), &target)?;
-    if source == FileSource::Slates {
+    let document = require_tracked_document(
+        &app,
+        storage.inner(),
+        documents.inner(),
+        window.label(),
+        &document_id,
+        document_generation,
+        DocumentAccess::Read,
+    )?;
+    if document.source == FileSource::Slates {
         return Err("Cannot untrack a Grayslate slate file. Use Delete instead.".to_string());
     }
 
-    storage.delete_tracked_file(&target)?;
+    storage.delete_tracked_file(&document.path)?;
+    documents.revoke(window.label(), &document_id);
     let _ = app.emit(RECENT_FILES_UPDATED_EVENT, ());
     Ok(())
 }
@@ -662,15 +1180,28 @@ pub fn untrack_local_file(
 pub async fn delete_file(
     app: tauri::AppHandle,
     storage: tauri::State<'_, AppStorage>,
-    path: String,
+    documents: tauri::State<'_, DocumentRegistry>,
+    window: tauri::Window,
+    document_id: String,
+    document_generation: u64,
 ) -> Result<(), String> {
-    let target = PathBuf::from(&path);
-    require_slate_file(&app, storage.inner(), &target)?;
+    let document = require_tracked_document(
+        &app,
+        storage.inner(),
+        documents.inner(),
+        window.label(),
+        &document_id,
+        document_generation,
+        DocumentAccess::Manage,
+    )?;
+    if document.source != FileSource::Slates {
+        return Err("Delete is only available for managed slate files.".to_string());
+    }
+    let target = document.path;
 
     let target_clone = target.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        std::fs::remove_file(&target_clone)
-            .map_err(|e| format!("Failed to delete file: {}", e))
+        std::fs::remove_file(&target_clone).map_err(|e| format!("Failed to delete file: {}", e))
     })
     .await
     .map_err(|e| format!("Delete task failed: {}", e))??;
@@ -678,6 +1209,7 @@ pub async fn delete_file(
     // Best-effort removal from tracking; ignore errors if the row was never
     // stored.
     let _ = storage.delete_tracked_file(&target);
+    documents.revoke(window.label(), &document_id);
     let _ = app.emit(RECENT_FILES_UPDATED_EVENT, ());
 
     Ok(())
@@ -693,11 +1225,26 @@ pub async fn delete_file(
 pub async fn rename_file(
     app: tauri::AppHandle,
     storage: tauri::State<'_, AppStorage>,
-    path: String,
+    documents: tauri::State<'_, DocumentRegistry>,
+    autosave: tauri::State<'_, crate::autosave::AutosaveRegistry>,
+    window: tauri::Window,
+    document_id: String,
+    document_generation: u64,
     new_name: String,
-) -> Result<String, String> {
-    let old_path = PathBuf::from(&path);
-    require_slate_file(&app, storage.inner(), &old_path)?;
+) -> Result<DocumentDescriptor, String> {
+    let document = require_tracked_document(
+        &app,
+        storage.inner(),
+        documents.inner(),
+        window.label(),
+        &document_id,
+        document_generation,
+        DocumentAccess::Manage,
+    )?;
+    if document.source != FileSource::Slates {
+        return Err("Rename is only available for managed slate files.".to_string());
+    }
+    let old_path = document.path.clone();
 
     let sanitized_name = sanitize_filename(&new_name);
     validate_new_filename(&sanitized_name)?;
@@ -708,28 +1255,31 @@ pub async fn rename_file(
         .to_path_buf();
 
     let new_path = unique_path_in_dir_excluding(&parent, &sanitized_name, Some(&old_path));
-    let new_path_str = new_path.to_string_lossy().to_string();
-
     // A submitted unchanged filename resolves to the source path. There is
     // nothing to rename, and attempting fs::rename(source, source) fails on
     // some platforms.
     if new_path == old_path {
-        return Ok(new_path_str);
+        return Ok(document.descriptor());
     }
 
     let old_clone = old_path.clone();
     let new_clone = new_path.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        std::fs::rename(&old_clone, &new_clone)
-            .map_err(|e| format!("Failed to rename file: {}", e))
-    })
-    .await
-    .map_err(|e| format!("Rename task failed: {}", e))??;
+    tauri::async_runtime::spawn_blocking(move || rename_file_no_replace(&old_clone, &new_clone))
+        .await
+        .map_err(|e| format!("Rename task failed: {}", e))??;
 
     storage.rename_tracked_file(&old_path, &new_path)?;
+    let renamed =
+        documents.replace_path(window.label(), &document_id, document_generation, &new_path)?;
+    autosave.update_authorization_if_matches(
+        window.label(),
+        &document_id,
+        renamed.path.clone(),
+        renamed.generation,
+    );
     let _ = app.emit(RECENT_FILES_UPDATED_EVENT, ());
 
-    Ok(new_path_str)
+    Ok(renamed.descriptor())
 }
 
 /// Duplicate a local file into the Grayslate slates directory.
@@ -743,15 +1293,24 @@ pub async fn rename_file(
 pub async fn duplicate_local_file_as_slate(
     app: tauri::AppHandle,
     storage: tauri::State<'_, AppStorage>,
-    path: String,
-) -> Result<String, String> {
-    let src = PathBuf::from(&path);
-    if !src.is_absolute() {
-        return Err("File path must be absolute.".to_string());
+    documents: tauri::State<'_, DocumentRegistry>,
+    window: tauri::Window,
+    document_id: String,
+    document_generation: u64,
+) -> Result<DocumentDescriptor, String> {
+    let document = require_tracked_document(
+        &app,
+        storage.inner(),
+        documents.inner(),
+        window.label(),
+        &document_id,
+        document_generation,
+        DocumentAccess::Read,
+    )?;
+    if document.source != FileSource::Local {
+        return Err("Only local files can be duplicated into slates.".to_string());
     }
-    if !src.exists() {
-        return Err("Source file does not exist.".to_string());
-    }
+    let src = document.path;
 
     let src_name = src
         .file_name()
@@ -759,31 +1318,28 @@ pub async fn duplicate_local_file_as_slate(
         .to_string_lossy()
         .to_string();
 
-    let notes_root =
-        crate::filesystem::resolve_notes_root_path(&app, storage.inner())?;
-    if !notes_root.exists() {
-        std::fs::create_dir_all(&notes_root)
-            .map_err(|e| format!("Failed to create slates directory: {}", e))?;
-    }
+    let notes_root = canonical_notes_root(&app, storage.inner(), true)?;
 
     let copy_name = make_copy_name(&src_name);
     let dest = next_copy_path_in_dir(&notes_root, &copy_name);
-    let dest_str = dest.to_string_lossy().to_string();
+    let granted = documents.grant_new(
+        window.label(),
+        &dest,
+        FileSource::Slates,
+        DocumentRights::tracked(FileSource::Slates),
+    )?;
 
     let src_clone = src.clone();
     let dest_clone = dest.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        std::fs::copy(&src_clone, &dest_clone)
-            .map(|_| ())
-            .map_err(|e| format!("Failed to copy file: {}", e))
-    })
-    .await
-    .map_err(|e| format!("Duplicate task failed: {}", e))??;
+    tauri::async_runtime::spawn_blocking(move || copy_file_create_new(&src_clone, &dest_clone))
+        .await
+        .map_err(|e| format!("Duplicate task failed: {}", e))??;
 
     storage.record_file_update(&dest, crate::storage::FileSource::Slates)?;
+    let created = documents.mark_created(window.label(), &granted.id, granted.generation)?;
     let _ = app.emit(RECENT_FILES_UPDATED_EVENT, ());
 
-    Ok(dest_str)
+    Ok(created.descriptor())
 }
 
 /// Duplicate a file, placing the copy in the same directory with a `(copy)`
@@ -795,15 +1351,21 @@ pub async fn duplicate_local_file_as_slate(
 pub async fn duplicate_file(
     app: tauri::AppHandle,
     storage: tauri::State<'_, AppStorage>,
-    path: String,
-) -> Result<String, String> {
-    let src = PathBuf::from(&path);
-    if !src.is_absolute() {
-        return Err("File path must be absolute.".to_string());
-    }
-    if !src.exists() {
-        return Err("Source file does not exist.".to_string());
-    }
+    documents: tauri::State<'_, DocumentRegistry>,
+    window: tauri::Window,
+    document_id: String,
+    document_generation: u64,
+) -> Result<DocumentDescriptor, String> {
+    let document = require_tracked_document(
+        &app,
+        storage.inner(),
+        documents.inner(),
+        window.label(),
+        &document_id,
+        document_generation,
+        DocumentAccess::Read,
+    )?;
+    let src = document.path;
 
     let parent = src
         .parent()
@@ -818,21 +1380,126 @@ pub async fn duplicate_file(
 
     let copy_name = make_copy_name(&src_name);
     let dest = next_copy_path_in_dir(&parent, &copy_name);
-    let dest_str = dest.to_string_lossy().to_string();
+    let granted = documents.grant_new(
+        window.label(),
+        &dest,
+        document.source,
+        DocumentRights::tracked(document.source),
+    )?;
 
     let src_clone = src.clone();
     let dest_clone = dest.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        std::fs::copy(&src_clone, &dest_clone)
-            .map(|_| ())
-            .map_err(|e| format!("Failed to copy file: {}", e))
-    })
-    .await
-    .map_err(|e| format!("Duplicate task failed: {}", e))??;
+    tauri::async_runtime::spawn_blocking(move || copy_file_create_new(&src_clone, &dest_clone))
+        .await
+        .map_err(|e| format!("Duplicate task failed: {}", e))??;
 
-    let source = classify_file_source(&app, storage.inner(), &dest)?;
-    storage.record_file_update(&dest, source)?;
+    storage.record_file_update(&dest, document.source)?;
+    let created = documents.mark_created(window.label(), &granted.id, granted.generation)?;
     let _ = app.emit(RECENT_FILES_UPDATED_EVENT, ());
 
-    Ok(dest_str)
+    Ok(created.descriptor())
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(name);
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn write_path_rejects_relative() {
+        assert!(validate_write_path(Path::new("relative/file.txt")).is_err());
+    }
+
+    #[test]
+    fn write_path_allows_new_file_in_dir() {
+        let dir = temp_dir("grayslate_write_new");
+        let target = dir.join("brand-new.txt");
+        // Does not exist yet — a normal new-file save must be allowed.
+        assert!(validate_write_path(&target).is_ok());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn write_path_allows_existing_regular_file() {
+        let dir = temp_dir("grayslate_write_regular");
+        let target = dir.join("existing.txt");
+        std::fs::write(&target, "hi").unwrap();
+        assert!(validate_write_path(&target).is_ok());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn write_path_rejects_overwriting_a_directory() {
+        let dir = temp_dir("grayslate_write_dir_target");
+        // The target itself is a directory — refuse to "save" over it.
+        assert!(validate_write_path(&dir).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn ensure_regular_file_accepts_file_rejects_dir() {
+        let dir = temp_dir("grayslate_regular_file_check");
+        let file = dir.join("f.txt");
+        std::fs::write(&file, "x").unwrap();
+
+        let file_meta = std::fs::metadata(&file).unwrap();
+        assert!(ensure_regular_file(&file_meta).is_ok());
+
+        let dir_meta = std::fs::metadata(&dir).unwrap();
+        assert!(ensure_regular_file(&dir_meta).is_err());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn notes_root_rejects_filesystem_root() {
+        assert!(validate_notes_root_choice(Path::new("/")).is_err());
+    }
+
+    #[test]
+    fn notes_root_rejects_a_regular_file() {
+        let dir = temp_dir("grayslate_notes_root_file");
+        let file = dir.join("not-a-dir.txt");
+        std::fs::write(&file, "x").unwrap();
+        assert!(validate_notes_root_choice(&file).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn notes_root_accepts_a_normal_subdirectory() {
+        let dir = temp_dir("grayslate_notes_root_ok");
+        assert!(validate_notes_root_choice(&dir).is_ok());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn last_active_file_requires_an_absolute_path() {
+        assert!(validate_last_active_file_choice("relative/file.txt").is_err());
+    }
+
+    #[test]
+    fn last_active_file_rejects_a_directory() {
+        let dir = temp_dir("grayslate_last_active_directory");
+        assert!(validate_last_active_file_choice(dir.to_str().unwrap()).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn last_active_file_allows_a_missing_absolute_path() {
+        let dir = temp_dir("grayslate_last_active_missing");
+        let missing = dir.join("moved.txt");
+        assert!(validate_last_active_file_choice(missing.to_str().unwrap()).is_ok());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

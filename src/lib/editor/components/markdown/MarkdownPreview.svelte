@@ -4,7 +4,6 @@
   import { hotkey, type HotkeyBinding } from "$lib/hotkeys";
   import type { EditorView } from "codemirror";
   import { onDestroy, tick } from "svelte";
-  import { openPath, openUrl } from "@tauri-apps/plugin-opener";
   import { toast } from "$lib/components/ui/sonner";
   import { editorState } from "$lib/state/editor.svelte";
   import {
@@ -16,29 +15,19 @@
     unregisterMarkdownPreviewElement,
   } from "./previewActions";
   import { invokeText, invoke } from "$lib/ipc";
-  import {
-    prepareMarkdownPreviewHtml,
-    resolveMarkdownLinkPath,
-  } from "./previewHtml";
+  import { prepareMarkdownPreviewHtml } from "./previewHtml";
 
   interface Props {
     content: string;
     editorView?: EditorView;
-    sourcePath?: string;
+    documentId?: string;
+    documentGeneration?: number;
   }
 
-  let { content, editorView, sourcePath }: Props = $props();
+  let { content, editorView, documentId, documentGeneration }: Props = $props();
 
   const MARKDOWN_RENDER_DEBOUNCE_MS = 120;
   const MAX_MARKDOWN_PREVIEW_BYTES = 5 * 1024 * 1024;
-  const EXTERNAL_LINK_PROTOCOLS = new Set([
-    "ftp:",
-    "http:",
-    "https:",
-    "mailto:",
-    "tel:",
-  ]);
-
   let previewEl = $state<HTMLElement | undefined>(undefined);
   let htmlPreview = $state("");
   let previewNotice = $state<string | undefined>(undefined);
@@ -48,7 +37,9 @@
   let markdownRenderTimer: ReturnType<typeof setTimeout> | undefined;
   let hasPostedMarkdownRenderRequest = false;
   let activeObjectUrls: string[] = [];
-  let renderedSourcePath: string | undefined;
+  let renderedAuthorization:
+    | { documentId: string; documentGeneration: number }
+    | undefined;
 
   const previewHotkeys: HotkeyBinding[] = [
     {
@@ -112,11 +103,18 @@
   async function replacePreviewHtml(
     html: string,
     objectUrls: string[],
-    nextSourcePath: string | undefined,
+    nextDocumentId: string | undefined,
+    nextDocumentGeneration: number | undefined,
   ): Promise<void> {
     const previousObjectUrls = activeObjectUrls;
     activeObjectUrls = objectUrls;
-    renderedSourcePath = nextSourcePath;
+    renderedAuthorization =
+      nextDocumentId && nextDocumentGeneration !== undefined
+        ? {
+            documentId: nextDocumentId,
+            documentGeneration: nextDocumentGeneration,
+          }
+        : undefined;
     previewNotice = undefined;
     htmlPreview = html;
     await tick();
@@ -136,7 +134,8 @@
 
   async function postMarkdownRenderRequest(
     nextContent: string,
-    nextSourcePath: string | undefined,
+    nextDocumentId: string | undefined,
+    nextDocumentGeneration: number | undefined,
   ): Promise<void> {
     nextMarkdownRenderRequestId += 1;
     const requestId = nextMarkdownRenderRequestId;
@@ -151,13 +150,23 @@
       // Stale response — a newer request has been sent since this one.
       if (requestId !== latestMarkdownRenderRequestId) return;
 
-      const prepared = await prepareMarkdownPreviewHtml(html, nextSourcePath);
+      const prepared = await prepareMarkdownPreviewHtml(
+        html,
+        nextDocumentId && nextDocumentGeneration !== undefined
+          ? { documentId: nextDocumentId, documentGeneration: nextDocumentGeneration }
+          : undefined,
+      );
       if (requestId !== latestMarkdownRenderRequestId) {
         revokeObjectUrls(prepared.objectUrls);
         return;
       }
 
-      await replacePreviewHtml(prepared.html, prepared.objectUrls, nextSourcePath);
+      await replacePreviewHtml(
+        prepared.html,
+        prepared.objectUrls,
+        nextDocumentId,
+        nextDocumentGeneration,
+      );
     } catch (error) {
       // Stale cancellation — the backend cancelled a superseded render.
       if (requestId !== latestMarkdownRenderRequestId) return;
@@ -173,7 +182,8 @@
 
   $effect(() => {
     const nextContent = content;
-    const nextSourcePath = sourcePath;
+    const nextDocumentId = documentId;
+    const nextDocumentGeneration = documentGeneration;
     clearMarkdownRenderTimer();
 
     if (!nextContent) {
@@ -181,7 +191,7 @@
       hasPostedMarkdownRenderRequest = false;
       htmlPreview = "";
       previewNotice = undefined;
-      renderedSourcePath = undefined;
+      renderedAuthorization = undefined;
       revokeObjectUrls(activeObjectUrls);
       activeObjectUrls = [];
       return;
@@ -192,7 +202,7 @@
       hasPostedMarkdownRenderRequest = false;
       htmlPreview = "";
       previewNotice = "Markdown preview is available for documents up to 5 MB.";
-      renderedSourcePath = undefined;
+      renderedAuthorization = undefined;
       revokeObjectUrls(activeObjectUrls);
       activeObjectUrls = [];
       return;
@@ -204,7 +214,11 @@
 
     markdownRenderTimer = setTimeout(() => {
       markdownRenderTimer = undefined;
-      void postMarkdownRenderRequest(nextContent, nextSourcePath);
+      void postMarkdownRenderRequest(
+        nextContent,
+        nextDocumentId,
+        nextDocumentGeneration,
+      );
     }, delay);
 
     return () => {
@@ -248,42 +262,14 @@
       return;
     }
 
-    const externalHref = href.startsWith("//") ? `https:${href}` : href;
-    let externalUrl: URL | undefined;
     try {
-      externalUrl = new URL(externalHref);
+      await invoke("open_markdown_link", {
+        href,
+        documentId: renderedAuthorization?.documentId,
+        documentGeneration: renderedAuthorization?.documentGeneration,
+      });
     } catch {
-      // A URL without a scheme is a path relative to the Markdown document.
-    }
-
-    if (externalUrl) {
-      if (EXTERNAL_LINK_PROTOCOLS.has(externalUrl.protocol)) {
-        try {
-          await openUrl(externalUrl);
-        } catch {
-          toast.error("Failed to open the link in your browser");
-        }
-      } else {
-        toast.error("This link type is not supported");
-      }
-      return;
-    }
-
-    if (!renderedSourcePath) {
-      toast.error("Save the Markdown file before opening a relative link");
-      return;
-    }
-
-    const resolvedPath = resolveMarkdownLinkPath(renderedSourcePath, href);
-    if (!resolvedPath) {
-      toast.error("The relative link is invalid");
-      return;
-    }
-
-    try {
-      await openPath(resolvedPath);
-    } catch {
-      toast.error("Failed to open the linked file");
+      toast.error("Failed to open the Markdown link");
     }
   }
 
@@ -371,7 +357,7 @@
     activeObjectUrls = [];
     htmlPreview = "";
     previewNotice = undefined;
-    renderedSourcePath = undefined;
+    renderedAuthorization = undefined;
     previewEl = undefined;
     editorView = undefined;
   });
