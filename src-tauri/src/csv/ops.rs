@@ -218,9 +218,7 @@ pub fn apply_ops(model: &mut TableModel, ops: &[TableOp]) {
                 model.rows.extend(new_rows);
                 model.rows.extend(tail);
             }
-            TableOp::BulkColDelete {
-                start, end, ..
-            } => {
+            TableOp::BulkColDelete { start, end, .. } => {
                 let s = *start;
                 let e = *end;
                 let count = e.saturating_sub(s) + 1;

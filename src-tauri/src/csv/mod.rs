@@ -183,10 +183,7 @@ mod tests {
         let mut session = parse_simple("a,b\n1,2\n3,4");
         assert_eq!(session.rows.len(), 2);
 
-        session.mutate(
-            &CsvMutationRequest::AddRow { index: 1 },
-            "add.table",
-        );
+        session.mutate(&CsvMutationRequest::AddRow { index: 1 }, "add.table");
         assert_eq!(session.rows.len(), 3);
         assert_eq!(session.rows[1], vec!["", ""]);
 
@@ -204,10 +201,7 @@ mod tests {
         let mut session = parse_simple("a,b\n1,2\n3,4");
         assert_eq!(session.headers.len(), 2);
 
-        session.mutate(
-            &CsvMutationRequest::AddColumn { index: 1 },
-            "add.table",
-        );
+        session.mutate(&CsvMutationRequest::AddColumn { index: 1 }, "add.table");
         assert_eq!(session.headers.len(), 3);
         assert_eq!(session.headers, vec!["a", "", "b"]);
         assert_eq!(session.rows[0], vec!["1", "", "2"]);
@@ -295,10 +289,7 @@ mod tests {
     #[test]
     fn undo_column_add() {
         let mut session = parse_simple("a,b\n1,2\n3,4");
-        session.mutate(
-            &CsvMutationRequest::AddColumn { index: 2 },
-            "add.table",
-        );
+        session.mutate(&CsvMutationRequest::AddColumn { index: 2 }, "add.table");
         assert_eq!(session.headers.len(), 3);
 
         session.undo();

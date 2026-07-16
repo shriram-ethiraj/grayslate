@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU64, Ordering},
     Arc, Mutex,
 };
 
@@ -15,14 +15,25 @@ use crate::csv::{
 // Session registry — one CSV session per window
 // ---------------------------------------------------------------------------
 
+/// One in-flight cancellable operation for a window, tagged with a monotonic
+/// generation so a stale `finish_cancellable` cannot drop a newer operation's
+/// flag.
+struct CsvCancelEntry {
+    generation: u64,
+    flag: Arc<AtomicBool>,
+}
+
 /// Per-window CSV table session state. Only one session per window at a time.
 /// Uses Arc wrappers so the struct is cheaply Clone-able for moving into
 /// spawn_blocking closures.
 #[derive(Clone, Default)]
 pub struct CsvSessionRegistry {
     sessions: Arc<Mutex<HashMap<String, CsvSession>>>,
-    /// Cancellation flag for long-running init/flush operations.
-    cancel_flags: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
+    /// Cancellation flag for the current long-running init/flush operation
+    /// per window, tagged with a generation (see `CsvCancelEntry`).
+    cancel_flags: Arc<Mutex<HashMap<String, CsvCancelEntry>>>,
+    /// Monotonic source of operation generations, shared across windows.
+    next_generation: Arc<AtomicU64>,
 }
 
 impl CsvSessionRegistry {
@@ -59,26 +70,46 @@ impl CsvSessionRegistry {
         sessions.remove(window_label);
     }
 
-    fn begin_cancellable(&self, window_label: &str) -> Arc<AtomicBool> {
+    /// Begin a cancellable operation for `window_label`. Cancels any previous
+    /// in-flight operation for the same window and returns the new operation's
+    /// generation plus its fresh cancellation flag.
+    fn begin_cancellable(&self, window_label: &str) -> (u64, Arc<AtomicBool>) {
         let mut flags = self.cancel_flags.lock().unwrap_or_else(|p| p.into_inner());
         // Cancel any previous in-flight operation for this window.
         if let Some(old) = flags.get(window_label) {
-            old.store(true, Ordering::Relaxed);
+            old.flag.store(true, Ordering::Relaxed);
         }
+        let generation = self.next_generation.fetch_add(1, Ordering::Relaxed);
         let flag = Arc::new(AtomicBool::new(false));
-        flags.insert(window_label.to_string(), Arc::clone(&flag));
-        flag
+        flags.insert(
+            window_label.to_string(),
+            CsvCancelEntry {
+                generation,
+                flag: Arc::clone(&flag),
+            },
+        );
+        (generation, flag)
     }
 
-    fn finish_cancellable(&self, window_label: &str) {
+    /// Finish the operation identified by `generation`. Only removes the flag
+    /// if it still belongs to that operation — a newer `begin_cancellable` may
+    /// have replaced it, and removing the newer flag would make the newer
+    /// operation uncancellable.
+    fn finish_cancellable(&self, window_label: &str, generation: u64) {
         let mut flags = self.cancel_flags.lock().unwrap_or_else(|p| p.into_inner());
-        flags.remove(window_label);
+        let owns_current = flags
+            .get(window_label)
+            .map(|entry| entry.generation == generation)
+            .unwrap_or(false);
+        if owns_current {
+            flags.remove(window_label);
+        }
     }
 
     fn cancel(&self, window_label: &str) {
         let flags = self.cancel_flags.lock().unwrap_or_else(|p| p.into_inner());
-        if let Some(flag) = flags.get(window_label) {
-            flag.store(true, Ordering::Relaxed);
+        if let Some(entry) = flags.get(window_label) {
+            entry.flag.store(true, Ordering::Relaxed);
         }
     }
 }
@@ -92,9 +123,7 @@ impl CsvSessionRegistry {
 pub enum CsvChannelEvent {
     /// Incremental parsing progress. `parsed_rows` is the count so far.
     #[serde(rename_all = "camelCase")]
-    Progress {
-        parsed_rows: usize,
-    },
+    Progress { parsed_rows: usize },
 }
 
 // ---------------------------------------------------------------------------
@@ -122,7 +151,7 @@ pub async fn csv_initialize(
     on_event: tauri::ipc::Channel<CsvChannelEvent>,
 ) -> Result<CsvTableSnapshot, String> {
     let window_label = window.label().to_string();
-    let cancelled = registry.begin_cancellable(&window_label);
+    let (generation, cancelled) = registry.begin_cancellable(&window_label);
     let registry_clone = registry.inner().clone();
 
     let result = tauri::async_runtime::spawn_blocking(move || {
@@ -133,7 +162,7 @@ pub async fn csv_initialize(
     .await
     .map_err(|e| format!("Failed to join CSV parse task: {}", e))?;
 
-    registry.finish_cancellable(&window_label);
+    registry.finish_cancellable(&window_label, generation);
 
     match result {
         Ok(session) => {
@@ -147,10 +176,7 @@ pub async fn csv_initialize(
 
 /// Dispose the CSV table session for this window, freeing all memory.
 #[tauri::command]
-pub fn csv_dispose(
-    registry: tauri::State<'_, CsvSessionRegistry>,
-    window: Window,
-) {
+pub fn csv_dispose(registry: tauri::State<'_, CsvSessionRegistry>, window: Window) {
     let window_label = window.label();
     registry.cancel(window_label);
     registry.remove(window_label);
@@ -237,9 +263,62 @@ pub async fn csv_flush_text(
 
 /// Cancel any in-flight long-running CSV operation (init or flush).
 #[tauri::command]
-pub fn csv_cancel(
-    registry: tauri::State<'_, CsvSessionRegistry>,
-    window: Window,
-) {
+pub fn csv_cancel(registry: tauri::State<'_, CsvSessionRegistry>, window: Window) {
     registry.cancel(window.label());
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn starting_a_new_op_cancels_the_previous_one() {
+        let registry = CsvSessionRegistry::default();
+        let (_gen_a, flag_a) = registry.begin_cancellable("main");
+        assert!(!flag_a.load(Ordering::Relaxed));
+
+        let (_gen_b, _flag_b) = registry.begin_cancellable("main");
+        // Beginning B must cancel A.
+        assert!(flag_a.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn stale_finish_does_not_drop_a_newer_ops_flag() {
+        let registry = CsvSessionRegistry::default();
+        let (gen_a, _flag_a) = registry.begin_cancellable("main");
+        let (gen_b, flag_b) = registry.begin_cancellable("main");
+        assert_ne!(gen_a, gen_b);
+
+        // A finishes late — it must NOT remove B's still-active flag.
+        registry.finish_cancellable("main", gen_a);
+
+        // cancel() must still reach B (regression: previously the stale finish
+        // removed B's flag and this cancel became a silent no-op).
+        registry.cancel("main");
+        assert!(flag_b.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn owning_finish_removes_the_flag() {
+        let registry = CsvSessionRegistry::default();
+        let (generation, flag) = registry.begin_cancellable("main");
+
+        registry.finish_cancellable("main", generation);
+
+        // After the owning op finishes, cancel is a no-op (flag was removed).
+        registry.cancel("main");
+        assert!(!flag.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn generations_are_unique_across_windows() {
+        let registry = CsvSessionRegistry::default();
+        let (gen_a, _) = registry.begin_cancellable("win-a");
+        let (gen_b, _) = registry.begin_cancellable("win-b");
+        assert_ne!(gen_a, gen_b);
+    }
 }

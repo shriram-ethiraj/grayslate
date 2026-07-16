@@ -88,9 +88,7 @@ where
             Ok(true) => {}
             Ok(false) => break,
             Err(e) => {
-                session
-                    .errors
-                    .push(format!("Row {}: {}", parsed_rows, e));
+                session.errors.push(format!("Row {}: {}", parsed_rows, e));
                 continue;
             }
         }

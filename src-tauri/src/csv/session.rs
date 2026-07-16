@@ -213,8 +213,7 @@ impl CsvSession {
 
     pub fn flush_text(&mut self) -> String {
         if self.serialized_version != self.version as i64 {
-            self.serialized_text =
-                serialize_csv(&self.headers, &self.rows, self.delimiter);
+            self.serialized_text = serialize_csv(&self.headers, &self.rows, self.delimiter);
             self.serialized_version = self.version as i64;
         }
         self.serialized_text.clone()
