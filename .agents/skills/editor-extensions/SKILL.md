@@ -1,6 +1,6 @@
 ---
 name: editor-extensions
-description: Documentation for custom CodeMirror extensions and editor utilities.
+description: Documentation for custom CodeMirror extensions and editor utilities, including the sanitized Markdown preview and its secure link/image handling.
 ---
 
 # Editor Extensions
@@ -326,4 +326,15 @@ interface ScrollAnchor {
 
 Markdown parsing and sanitization run off the UI thread in Rust. `src-tauri/src/markdown_preview.rs` uses `pulldown-cmark` offsets to add `data-line` to generated block elements and safe wrappers around raw HTML blocks, then sanitizes the result with `ammonia`. `MarkdownPreview.svelte` rejects stale IPC responses, resolves saved-file relative images through the bounded `read_markdown_preview_asset` command, adds heading IDs and table overflow wrappers in a detached document, and only then inserts the trusted HTML. `buildAnchorMap` consumes the preserved `data-line` attributes for bidirectional scroll synchronization.
 
-External links must be intercepted by the preview and opened with Tauri's opener plugin. Never allow a rendered anchor to navigate the Grayslate webview itself. Relative images must remain image-only, size-bounded backend reads; do not enable a broad filesystem asset-protocol scope for Markdown content.
+Intercept every Markdown link and route it through the validated Rust
+`open_markdown_link` command; the frontend does not have a general opener
+capability. Show the complete destination in native confirmation before opening
+an arbitrary external URL. Require current window-bound document authorization
+for relative file links. Never allow a rendered anchor to navigate the Grayslate
+webview itself.
+
+Keep relative images behind the image-only, size-bounded
+`read_markdown_preview_asset` command. Do not enable a broad filesystem asset
+protocol scope or relax CSP with `asset:`, remote `https:`, or wildcard image
+sources. Remote Markdown images currently fail closed in the webview until an
+explicit external-open placeholder flow is implemented.
