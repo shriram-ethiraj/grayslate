@@ -2,7 +2,10 @@
 name = "Grayslate"
 version = "0.1.0"
 description = "A fast scratchpad for code, data, and quick thinking."
-authors = ["you"]
+authors = ["Shriram Ethiraj"]
+license = "MIT"
+repository = "https://github.com/shriram-ethiraj/grayslate"
+homepage = "https://grayslate.app"
 edition = "2021"
 
 default-run = "Grayslate"

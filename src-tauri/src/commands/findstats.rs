@@ -171,9 +171,6 @@ pub fn editor_find_selection(
 
 /// Cancel any in-flight editor find scan and clear the cache for this window.
 #[tauri::command]
-pub fn cancel_editor_find(
-    state: tauri::State<'_, EditorFindState>,
-    window: Window,
-) {
+pub fn cancel_editor_find(state: tauri::State<'_, EditorFindState>, window: Window) {
     state.cancel_active(window.label());
 }

@@ -36,7 +36,10 @@ fn platform_memory() -> Result<(u64, u64), String> {
         if GlobalMemoryStatusEx(&mut ms) == 0 {
             return Err("GlobalMemoryStatusEx failed".into());
         }
-        Ok((ms.ull_avail_phys, ms.ull_total_phys.saturating_sub(ms.ull_avail_phys)))
+        Ok((
+            ms.ull_avail_phys,
+            ms.ull_total_phys.saturating_sub(ms.ull_avail_phys),
+        ))
     }
 }
 
@@ -135,8 +138,9 @@ fn platform_memory() -> Result<(u64, u64), String> {
             }
 
             // "Available" ≈ free + inactive + purgeable (matches sysinfo behaviour).
-            let pages =
-                stats.free_count as u64 + stats.inactive_count as u64 + stats.purgeable_count as u64;
+            let pages = stats.free_count as u64
+                + stats.inactive_count as u64
+                + stats.purgeable_count as u64;
             Ok(pages * page_size as u64)
         }
     }
@@ -161,10 +165,9 @@ fn platform_memory() -> Result<(u64, u64), String> {
             .map(|kb| kb * 1024) // convert KB → bytes
     }
 
-    let total = parse_kb(&content, "MemTotal:")
-        .ok_or("MemTotal not found in /proc/meminfo")?;
-    let available = parse_kb(&content, "MemAvailable:")
-        .ok_or("MemAvailable not found in /proc/meminfo")?;
+    let total = parse_kb(&content, "MemTotal:").ok_or("MemTotal not found in /proc/meminfo")?;
+    let available =
+        parse_kb(&content, "MemAvailable:").ok_or("MemAvailable not found in /proc/meminfo")?;
 
     Ok((available, total.saturating_sub(available)))
 }

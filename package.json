@@ -1,8 +1,27 @@
 {
   "name": "Grayslate",
   "version": "0.1.0",
-  "description": "",
+  "description": "A fast scratchpad for code, data, and quick thinking.",
   "type": "module",
+  "author": "Shriram Ethiraj",
+  "homepage": "https://grayslate.app",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/shriram-ethiraj/grayslate.git"
+  },
+  "bugs": {
+    "url": "https://github.com/shriram-ethiraj/grayslate/issues"
+  },
+  "keywords": [
+    "scratchpad",
+    "editor",
+    "tauri",
+    "svelte",
+    "codemirror",
+    "csv",
+    "json",
+    "developer-tools"
+  ],
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",

@@ -20,9 +20,23 @@
     DEFAULT_INDENT_CONFIG,
     type ManagedEditorSession,
   } from "$lib/editor/core/editorSession";
+  import type { IndentConfig } from "$lib/editor/components/IndentationPicker.svelte";
+
+  interface EditorProps {
+    value?: string;
+    documentLength?: number;
+    lineCount?: number;
+    line?: number;
+    col?: number;
+    selectionSize?: number;
+    language?: string;
+    editorView?: EditorView;
+    session?: ManagedEditorSession;
+    indentConfig?: IndentConfig;
+  }
 
   let {
-    value = $bindable(),
+    value = $bindable(""),
     documentLength = $bindable(0),
     lineCount = $bindable(1),
     line = $bindable(1),
@@ -32,7 +46,7 @@
     editorView = $bindable<EditorView | undefined>(undefined),
     session = createManagedEditorSession(),
     indentConfig = DEFAULT_INDENT_CONFIG,
-  } = $props();
+  }: EditorProps = $props();
 
   // $state so the value propagates reactively as a prop to JsonContextMenu.
   let view = $state<EditorView | undefined>(undefined);
@@ -45,7 +59,7 @@
   let skipNextValueUpdate = false;
 
   $effect(() => {
-    attachSessionBindings(session as ManagedEditorSession, {
+    attachSessionBindings(session, {
       setValue: (nextValue) => {
         skipNextValueUpdate = true;
         value = nextValue;
@@ -71,7 +85,7 @@
     });
 
     return () => {
-      detachSessionBindings(session as ManagedEditorSession);
+      detachSessionBindings(session);
     };
   });
 
@@ -88,7 +102,7 @@
   $effect(() => {
     const lang = language;
     if (!view) return;
-    setManagedEditorLanguage(session as ManagedEditorSession, lang);
+    setManagedEditorLanguage(session, lang);
   });
 
   // ---------------------------------------------------------------------------
@@ -110,13 +124,13 @@
   $effect(() => {
     const wrap = editorState.wordWrap;
     if (!view) return;
-    setManagedEditorWordWrap(session as ManagedEditorSession, wrap);
+    setManagedEditorWordWrap(session, wrap);
   });
 
   $effect(() => {
     const fontSize = editorState.fontSize;
     if (!view) return;
-    setManagedEditorFontSize(session as ManagedEditorSession, fontSize);
+    setManagedEditorFontSize(session, fontSize);
   });
 
   // ---------------------------------------------------------------------------
@@ -130,7 +144,7 @@
   $effect(() => {
     const config = indentConfig;
     if (!view) return;
-    setManagedEditorIndent(session as ManagedEditorSession, config);
+    setManagedEditorIndent(session, config);
   });
 
   // ---------------------------------------------------------------------------
@@ -139,7 +153,7 @@
   function editor(node: HTMLElement, initialValue: string) {
     const cmView = new EditorView({
       state: ensureManagedEditorState(
-        session as ManagedEditorSession,
+        session,
         initialValue,
         language,
       ),
@@ -159,7 +173,7 @@
 
     // Assign to both the local $state variable and the bindable prop so
     // both EditorContextMenu and external consumers receive the live view.
-    (session as ManagedEditorSession).view = cmView;
+    (session).view = cmView;
     view = cmView;
     editorView = cmView;
     editorState.activeView = cmView;
@@ -176,7 +190,7 @@
     // there is no need to re-check mutation.attributeName inside the callback.
     observer = new MutationObserver(() => {
       const isDarkNow = document.documentElement.classList.contains("dark");
-      const editorSession = session as ManagedEditorSession;
+      const editorSession = session;
       if (!editorSession.themeCompartment) return;
       const newTheme = createTheme(
         isDarkNow ? andromedaConfig : materialLightConfig,
@@ -219,7 +233,7 @@
         cmView.dom.removeEventListener("pointerdown", activateEditorSurface);
         cmView.dom.removeEventListener("focusin", activateEditorSurface);
         cmView.dom.removeEventListener("contextmenu", activateEditorSurface);
-        captureManagedEditorView(session as ManagedEditorSession, cmView);
+        captureManagedEditorView(session, cmView);
         cmView.destroy();
         if (editorState.activeView === cmView) {
           editorState.activeView = undefined;

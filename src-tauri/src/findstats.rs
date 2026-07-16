@@ -214,7 +214,10 @@ mod tests {
     #[test]
     fn literal_case_sensitive() {
         let c = no_cancel();
-        let opts = FindStatsOptions { case_sensitive: true, ..default_options() };
+        let opts = FindStatsOptions {
+            case_sensitive: true,
+            ..default_options()
+        };
         let (r, _) = scan("Hello hello HELLO", "hello", &opts, 0, 0, &c).unwrap();
         assert_eq!(r.match_count, 1);
     }
@@ -222,7 +225,10 @@ mod tests {
     #[test]
     fn whole_word_match() {
         let c = no_cancel();
-        let opts = FindStatsOptions { whole_word: true, ..default_options() };
+        let opts = FindStatsOptions {
+            whole_word: true,
+            ..default_options()
+        };
         let (r, _) = scan("hello helloworld hello", "hello", &opts, 0, 0, &c).unwrap();
         assert_eq!(r.match_count, 2);
     }
@@ -230,7 +236,10 @@ mod tests {
     #[test]
     fn regex_mode() {
         let c = no_cancel();
-        let opts = FindStatsOptions { use_regex: true, ..default_options() };
+        let opts = FindStatsOptions {
+            use_regex: true,
+            ..default_options()
+        };
         let (r, _) = scan("foo123 bar456 baz", r"\d+", &opts, 0, 0, &c).unwrap();
         assert_eq!(r.match_count, 2);
     }
@@ -238,7 +247,10 @@ mod tests {
     #[test]
     fn regex_invalid() {
         let c = no_cancel();
-        let opts = FindStatsOptions { use_regex: true, ..default_options() };
+        let opts = FindStatsOptions {
+            use_regex: true,
+            ..default_options()
+        };
         let result = scan("text", r"[invalid", &opts, 0, 0, &c);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Invalid regex"));
@@ -297,14 +309,26 @@ mod tests {
     #[test]
     fn multiline_literal() {
         let c = no_cancel();
-        let (r, _) = scan("line1\nline2\nline1\n", "line1", &default_options(), 0, 0, &c).unwrap();
+        let (r, _) = scan(
+            "line1\nline2\nline1\n",
+            "line1",
+            &default_options(),
+            0,
+            0,
+            &c,
+        )
+        .unwrap();
         assert_eq!(r.match_count, 2);
     }
 
     #[test]
     fn regex_whole_word() {
         let c = no_cancel();
-        let opts = FindStatsOptions { use_regex: true, whole_word: true, ..default_options() };
+        let opts = FindStatsOptions {
+            use_regex: true,
+            whole_word: true,
+            ..default_options()
+        };
         let (r, _) = scan("foo foobar foo", r"foo", &opts, 0, 0, &c).unwrap();
         assert_eq!(r.match_count, 2);
     }
