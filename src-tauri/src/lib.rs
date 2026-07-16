@@ -14,6 +14,11 @@ pub mod search;
 pub mod storage;
 pub mod window;
 
+#[cfg(test)]
+mod capability_tests;
+#[cfg(test)]
+mod command_names;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default()

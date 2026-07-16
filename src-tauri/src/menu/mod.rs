@@ -14,7 +14,9 @@ struct MacOsMenuState {
 /// the existing Svelte action handlers can process them unchanged.
 #[cfg(target_os = "macos")]
 pub fn build_native_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
-    use tauri::menu::{CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder, SubmenuBuilder};
+    use tauri::menu::{
+        CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder,
+    };
     use tauri::Manager;
 
     let app_menu = SubmenuBuilder::new(app, "Grayslate")
@@ -59,6 +61,7 @@ pub fn build_native_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::M
         .accelerator("Alt+Z")
         .checked(false)
         .build(app)?;
+    let native_paste_item = PredefinedMenuItem::paste(app, None)?;
 
     // Store the CheckMenuItem handle in managed state so the event handler can
     // toggle it directly without going through the non-recursive menu.get().
@@ -89,11 +92,9 @@ pub fn build_native_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::M
                 .accelerator("CmdOrCtrl+C")
                 .build(app)?,
         )
-        .item(
-            &MenuItemBuilder::with_id("edit-paste", "Paste")
-                .accelerator("CmdOrCtrl+V")
-                .build(app)?,
-        )
+        // Use the OS-native paste role so clipboard contents are delivered as
+        // a trusted paste event; the webview never reads the clipboard itself.
+        .item(&native_paste_item)
         .separator()
         .item(
             &MenuItemBuilder::with_id("edit-go-to-line", "Go To Line...")
@@ -209,9 +210,6 @@ pub fn handle_macos_menu_event(app: &tauri::AppHandle, event: tauri::menu::MenuE
         }
         "edit-copy" => {
             let _ = window.emit("menu://edit-action", "copy");
-        }
-        "edit-paste" => {
-            let _ = window.emit("menu://edit-action", "paste");
         }
         "edit-go-to-line" => {
             let _ = window.emit("menu://edit-action", "goToLine");

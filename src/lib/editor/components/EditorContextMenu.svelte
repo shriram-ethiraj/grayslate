@@ -4,7 +4,6 @@
   import { tick } from "svelte";
   import CopyIcon from "~icons/lucide/copy";
   import Scissors from "~icons/lucide/scissors";
-  import ClipboardPaste from "~icons/lucide/clipboard-paste";
   import KeyRound from "~icons/lucide/key-round";
   import Braces from "~icons/lucide/braces";
   import Link from "~icons/lucide/link";
@@ -15,11 +14,10 @@
     consumeContextMenuData,
     type ContextMenuData,
   } from "$lib/editor/extensions/contextMenuExtension";
-  import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
+  import { writeText } from "@tauri-apps/plugin-clipboard-manager";
   import {
     editorCut,
     editorCopy,
-    editorPaste,
     editorSelectAll,
   } from "$lib/editor/core/actions";
   import { editorState, setEditorWordWrap } from "$lib/state/editor.svelte";
@@ -34,13 +32,11 @@
   let menuRef = $state<HTMLDivElement | null>(null);
   let hasSelection = $state(false);
   let jsonData = $state<ContextMenuData | null>(null);
-  let clipboardHasText = $state(false);
 
   /** Menu-item base classes (enabled state) */
   const itemBase =
     "relative flex w-full items-center rounded-sm px-2 py-1.5 text-sm outline-hidden select-none";
   const itemEnabled = `${itemBase} cursor-pointer hover:bg-accent hover:text-accent-foreground`;
-  const itemDisabled = `${itemBase} opacity-40 cursor-default`;
 
   function openMenu(x: number, y: number) {
     open = true;
@@ -50,16 +46,6 @@
     if (view) {
       hasSelection = !view.state.selection.main.empty;
     }
-
-    // Probe the OS clipboard so we can enable / disable Paste.
-    // This runs async but resolves near-instantly in Tauri.
-    readText()
-      .then((text) => {
-        clipboardHasText = text != null && text.length > 0;
-      })
-      .catch(() => {
-        clipboardHasText = false;
-      });
 
     tick().then(() => {
       if (!menuRef) return;
@@ -149,12 +135,6 @@
     await editorCopy(view);
   }
 
-  async function handlePaste() {
-    if (!clipboardHasText) return;
-    close();
-    await editorPaste(view);
-  }
-
   function handleSelectAll() {
     close();
     editorSelectAll(view);
@@ -231,20 +211,6 @@
         >
       </button>
     {/if}
-
-    <button
-      class={clipboardHasText ? itemEnabled : itemDisabled}
-      role="menuitem"
-      onclick={handlePaste}
-    >
-      <ClipboardPaste class="mr-2 h-4 w-4 shrink-0" />
-      <span>Paste</span>
-      <span class="ml-auto pl-4 text-xs text-muted-foreground"
-        >{formatForDisplay("Mod+V")}</span
-      >
-    </button>
-
-    <div class="my-1 h-px bg-muted"></div>
 
     <button class={itemEnabled} role="menuitem" onclick={handleSelectAll}>
       <TextSelect class="mr-2 h-4 w-4 shrink-0" />

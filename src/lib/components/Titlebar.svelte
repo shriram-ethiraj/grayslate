@@ -38,7 +38,6 @@
     editorRedo,
     editorCut,
     editorCopySelectionOrAll,
-    editorPaste,
     editorSelectAll,
   } from "$lib/editor/core/actions";
   import {
@@ -247,12 +246,6 @@
         if (isCsvTableVisible) return;
         if (!view) return;
         await editorCopySelectionOrAll(view);
-        break;
-      case "paste":
-        if (markdownPreviewActive) return;
-        if (isCsvTableVisible) return;
-        if (!view) return;
-        await editorPaste(view);
         break;
       case "goToLine":
         if (isCsvTableVisible) return;
@@ -463,10 +456,6 @@
         >
         <Menubar.Item onclick={() => handleEdit("copy")}
           >Copy<Menubar.Shortcut>{formatForDisplay("Mod+C")}</Menubar.Shortcut
-          ></Menubar.Item
-        >
-        <Menubar.Item onclick={() => handleEdit("paste")}
-          >Paste<Menubar.Shortcut>{formatForDisplay("Mod+V")}</Menubar.Shortcut
           ></Menubar.Item
         >
         <Menubar.Separator />

@@ -1,6 +1,6 @@
 import type { EditorView } from "codemirror";
 import { undo, redo, selectAll } from "@codemirror/commands";
-import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { toast } from "$lib/components/ui/sonner";
 import { findNext, findPrevious, replaceNext, replaceAll, SearchQuery, setSearchQuery, getSearchQuery } from "@codemirror/search";
 import { editorState } from "$lib/state/editor.svelte";
@@ -127,29 +127,6 @@ export async function editorCopySelectionOrAll(view: EditorView | undefined): Pr
         return editorCopy(view);
     }
     return editorCopyAll(view);
-}
-
-export async function editorPaste(view: EditorView | undefined) {
-    if (!view) return;
-    try {
-        const text = await readText();
-        if (text == null) return;
-        const selection = view.state.selection.main;
-        const insertPos = selection.from;
-        view.dispatch({
-            changes: {
-                from: insertPos,
-                to: selection.to,
-                insert: text,
-            },
-            selection: { anchor: insertPos + text.length },
-            scrollIntoView: true,
-            userEvent: "input.paste",
-        });
-        view.focus();
-    } catch {
-        toast.error("Clipboard permission denied or failed to paste");
-    }
 }
 
 export function editorSelectAll(view: EditorView | undefined) {
