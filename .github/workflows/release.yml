@@ -35,6 +35,10 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         run: test -n "${TAURI_SIGNING_PRIVATE_KEY}"
+      - name: Install Linux test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
       - name: Check frontend
