@@ -1,6 +1,6 @@
 {
   "name": "Grayslate",
-  "version": "0.1.0",
+  "version": "0.1.3",
   "description": "A fast scratchpad for code, data, and quick thinking.",
   "type": "module",
   "packageManager": "pnpm@10.32.1",
@@ -33,6 +33,7 @@
     "preview": "vite preview",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+    "release:version": "node scripts/release/set-version.mjs",
     "test:release-scripts": "node --test scripts/release/release-scripts.test.mjs",
     "tauri": "tauri",
     "e2e:build": "pnpm tauri build --no-bundle --features e2e --config src-tauri/tauri.e2e.conf.json",
