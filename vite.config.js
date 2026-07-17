@@ -27,9 +27,13 @@ const host = process.env.TAURI_DEV_HOST;
  * fs allow-list stays enforced (`server.fs.strict` untouched) for every other
  * request. Production builds never hit this path: Rollup calls `load()` directly
  * and inlines the SVG, so this is dev-only.
+ *
+ * @returns {import("vite").Plugin}
  */
 function serveRawIconsOnWindows() {
   const RAW_ICON_URL_RE = /^\/@id\/~icons\/[^/]+\/[^/?]+\?raw\b/;
+  /** @type {import("vite").TransformOptions & { skipFsCheck: boolean }} */
+  const rawIconTransformOptions = { skipFsCheck: true };
 
   return {
     name: "grayslate:serve-raw-icons",
@@ -45,7 +49,7 @@ function serveRawIconsOnWindows() {
         // `/@id/` is Vite's wrapper for non-file ids; strip it to get the id
         // the plugin container resolves.
         server
-          .transformRequest(url.slice("/@id/".length), { skipFsCheck: true })
+          .transformRequest(url.slice("/@id/".length), rawIconTransformOptions)
           .then((result) => {
             if (!result) {
               next();
