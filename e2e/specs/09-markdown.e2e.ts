@@ -6,9 +6,12 @@ import {
 } from "../helpers/app.js";
 
 async function ensurePreview(): Promise<ReturnType<typeof $>> {
+  const toggle = await $("[data-testid='action-toggle-preview']");
+  await toggle.waitForClickable();
+
   const preview = await $("[data-testid='markdown-preview']");
-  if (!(await preview.isDisplayed().catch(() => false))) {
-    await clickTestId("action-toggle-preview");
+  if ((await toggle.getAttribute("aria-pressed")) !== "true") {
+    await toggle.click();
   }
   await preview.waitForDisplayed();
   return preview;
