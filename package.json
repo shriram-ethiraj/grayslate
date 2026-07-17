@@ -35,7 +35,7 @@
     "e2e:build": "pnpm tauri build --no-bundle --features e2e --config src-tauri/tauri.e2e.conf.json",
     "e2e:check": "tsc --noEmit -p e2e/tsconfig.json",
     "e2e:test": "wdio run e2e/wdio.conf.ts",
-    "e2e:ci": "xvfb-run -a pnpm run e2e:test",
+    "e2e:ci": "xvfb-run -a sh -c 'openbox >/tmp/grayslate-openbox.log 2>&1 & sleep 1; exec pnpm run e2e:test'",
     "e2e:local": "pnpm run e2e:build && pnpm run e2e:test"
   },
   "license": "MIT",
