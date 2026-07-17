@@ -171,7 +171,7 @@
         data-testid="action-save"
         aria-label="Save file"
         title="Save (Ctrl+S)"
-        disabled={editorState.loader.visible || !editorState.isDirty}
+        disabled={editorState.loader.visible || editorState.saveInProgress || !editorState.isDirty}
         onclick={() => {
             void emit("menu://save-file");
         }}

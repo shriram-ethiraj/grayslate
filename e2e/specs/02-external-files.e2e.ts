@@ -18,6 +18,7 @@ import {
   waitForFile,
 } from "../helpers/app.js";
 import { externalRoot } from "../helpers/app.js";
+import { notesRoot } from "../helpers/sandbox.js";
 
 // Opening a file that lives outside the notes root exercises the real
 // `read_file_content` + authorization path (via the `e2e_open_path` shim) and
@@ -108,5 +109,36 @@ describe("Act 2 — external / local files", () => {
     await browser.waitUntil(async () => (await title.getAttribute("title")) === "New Slate", {
       timeoutMsg: "Discarding changes did not finish opening a new slate.",
     });
+  });
+
+  it("coalesces repeated Save shortcuts with autosave into one new slate", async () => {
+    const content = "save serialization regression content";
+    await focusEditor();
+    await typeText(content);
+
+    await pressMod("s");
+    await pressMod("s");
+    await pressMod("s");
+
+    await browser.waitUntil(
+      () => fs.readdirSync(notesRoot).some((name) => {
+        const candidate = path.join(notesRoot, name);
+        return fs.statSync(candidate).isFile() && fs.readFileSync(candidate, "utf8") === content;
+      }),
+      {
+        timeout: 15_000,
+        interval: 200,
+        timeoutMsg: "Repeated Save did not persist the new slate.",
+      },
+    );
+
+    // Let a pending timer autosave settle, then verify it reused the manual
+    // save instead of creating a content-identical suffixed filename.
+    await browser.pause(2_500);
+    const matchingFiles = fs.readdirSync(notesRoot).filter((name) => {
+      const candidate = path.join(notesRoot, name);
+      return fs.statSync(candidate).isFile() && fs.readFileSync(candidate, "utf8") === content;
+    });
+    expect(matchingFiles).toHaveLength(1);
   });
 });

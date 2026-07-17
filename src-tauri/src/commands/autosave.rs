@@ -21,6 +21,7 @@ use crate::autosave::{
 };
 use crate::commands::csv::CsvSessionRegistry;
 use crate::document::{revalidate_source_authority, DocumentAccess, DocumentRegistry};
+use crate::save_coordinator::SaveCoordinator;
 use crate::storage::{AppStorage, FileSource};
 
 use super::{naming::save_new_slate_to_disk, RECENT_FILES_UPDATED_EVENT};
@@ -99,6 +100,7 @@ pub async fn autosave_submit_content(
     registry: tauri::State<'_, AutosaveRegistry>,
     documents: tauri::State<'_, DocumentRegistry>,
     storage: tauri::State<'_, AppStorage>,
+    save_coordinator: tauri::State<'_, SaveCoordinator>,
     request_id: u64,
     generation: u64,
     content: String,
@@ -110,9 +112,30 @@ pub async fn autosave_submit_content(
         return Ok(()); // Silently ignore stale submissions
     }
 
-    let doc_info = registry
+    let initial_info = registry
         .get_document_info(&window_label)
         .ok_or_else(|| "No autosave document registered for this window.".to_string())?;
+    let mut expected_path = initial_info.path;
+    let (_save_guard, doc_info) = loop {
+        let save_lock = match expected_path.as_ref() {
+            Some(path) => save_coordinator.for_path(path),
+            None => save_coordinator.for_untitled_window(&window_label),
+        };
+        let save_guard = save_lock.lock_owned().await;
+
+        // Manual Save replaces the autosave registration, invalidating this
+        // request while it waits. A stale response must never write afterward.
+        if !registry.validate_request(&window_label, request_id) {
+            return Ok(());
+        }
+        let refreshed = registry
+            .get_document_info(&window_label)
+            .ok_or_else(|| "No autosave document registered for this window.".to_string())?;
+        if refreshed.path == expected_path {
+            break (save_guard, refreshed);
+        }
+        expected_path = refreshed.path;
+    };
 
     match doc_info.path {
         Some(path) => {
@@ -163,6 +186,7 @@ pub async fn autosave_submit_content(
                 &app,
                 storage.inner(),
                 documents.inner(),
+                save_coordinator.inner(),
                 &window_label,
                 &content,
                 &doc_info.language_hint,
@@ -213,14 +237,30 @@ pub async fn autosave_flush_before_switch(
     documents: tauri::State<'_, DocumentRegistry>,
     storage: tauri::State<'_, AppStorage>,
     csv_registry: tauri::State<'_, CsvSessionRegistry>,
+    save_coordinator: tauri::State<'_, SaveCoordinator>,
     content: String,
     generation: u64,
 ) -> Result<(), String> {
     let window_label = window.label().to_string();
 
-    let doc_info = match registry.get_document_info(&window_label) {
+    let initial_info = match registry.get_document_info(&window_label) {
         Some(info) => info,
         None => return Ok(()), // No document tracked
+    };
+    let mut expected_path = initial_info.path;
+    let (_save_guard, doc_info) = loop {
+        let save_lock = match expected_path.as_ref() {
+            Some(path) => save_coordinator.for_path(path),
+            None => save_coordinator.for_untitled_window(&window_label),
+        };
+        let save_guard = save_lock.lock_owned().await;
+        let Some(refreshed) = registry.get_document_info(&window_label) else {
+            return Ok(());
+        };
+        if refreshed.path == expected_path {
+            break (save_guard, refreshed);
+        }
+        expected_path = refreshed.path;
     };
 
     // Only flush slate files
@@ -281,6 +321,7 @@ pub async fn autosave_flush_before_switch(
                     &app,
                     storage.inner(),
                     documents.inner(),
+                    save_coordinator.inner(),
                     &window_label,
                     &save_content,
                     &doc_info.language_hint,
@@ -372,6 +413,7 @@ pub async fn prepare_close(
     documents: tauri::State<'_, DocumentRegistry>,
     storage: tauri::State<'_, AppStorage>,
     csv_registry: tauri::State<'_, CsvSessionRegistry>,
+    save_coordinator: tauri::State<'_, SaveCoordinator>,
 ) -> Result<(), String> {
     flush_before_close(
         &app,
@@ -380,6 +422,7 @@ pub async fn prepare_close(
         &documents,
         &storage,
         &csv_registry,
+        &save_coordinator,
     )
     .await;
 
@@ -402,6 +445,7 @@ async fn flush_before_close(
     documents: &DocumentRegistry,
     storage: &AppStorage,
     csv_registry: &CsvSessionRegistry,
+    save_coordinator: &SaveCoordinator,
 ) {
     let label = window.label().to_string();
 
@@ -422,6 +466,14 @@ async fn flush_before_close(
         let Some(path) = doc_info.path.as_ref() else {
             return;
         };
+        let save_lock = save_coordinator.for_path(path);
+        let _save_guard = save_lock.lock().await;
+        let Some(doc_info) = registry.get_document_info(&label) else {
+            return;
+        };
+        if !doc_info.is_dirty || doc_info.path.as_ref() != Some(path) {
+            return;
+        }
         let Some(document_id) = doc_info.document_id.as_deref() else {
             eprintln!("Autosave close-flush: document authorization is missing");
             return;

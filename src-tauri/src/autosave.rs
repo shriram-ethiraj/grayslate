@@ -139,6 +139,7 @@ pub struct DocumentInfo {
     pub document_id: Option<String>,
     pub document_generation: Option<u64>,
     pub source: FileSource,
+    pub generation: u64,
     pub is_dirty: bool,
     pub csv_table_active: bool,
     pub language_hint: String,
@@ -273,6 +274,7 @@ impl AutosaveRegistry {
                     actions.push(SaveAction::CsvDirect {
                         window_label: label.clone(),
                         path: doc.path.clone(),
+                        generation: doc.generation,
                     });
                     doc.save_in_flight = true;
                 } else {
@@ -328,6 +330,7 @@ impl AutosaveRegistry {
             document_id: doc.document_id.clone(),
             document_generation: doc.document_generation,
             source: doc.source,
+            generation: doc.generation,
             is_dirty: doc.is_dirty(),
             csv_table_active: doc.csv_table_active,
             language_hint: doc.language_hint.clone(),
@@ -389,6 +392,7 @@ pub enum SaveAction {
     CsvDirect {
         window_label: String,
         path: Option<PathBuf>,
+        generation: u64,
     },
     /// Text mode — emit an event to the FE requesting content.
     RequestContent {
@@ -672,8 +676,12 @@ pub fn run_timer_loop(app_handle: tauri::AppHandle) {
 
         for action in actions {
             match action {
-                SaveAction::CsvDirect { window_label, path } => {
-                    handle_csv_direct_save(&app_handle, &window_label, path.as_deref());
+                SaveAction::CsvDirect {
+                    window_label,
+                    path,
+                    generation,
+                } => {
+                    handle_csv_direct_save(&app_handle, &window_label, path.as_deref(), generation);
                 }
                 SaveAction::RequestContent {
                     window_label,
@@ -695,7 +703,12 @@ pub fn run_timer_loop(app_handle: tauri::AppHandle) {
 }
 
 /// Serialize from CsvSession and write directly — no frontend roundtrip.
-fn handle_csv_direct_save(app_handle: &tauri::AppHandle, window_label: &str, path: Option<&Path>) {
+fn handle_csv_direct_save(
+    app_handle: &tauri::AppHandle,
+    window_label: &str,
+    path: Option<&Path>,
+    generation: u64,
+) {
     let registry = app_handle.state::<AutosaveRegistry>();
 
     let path = match path {
@@ -709,11 +722,18 @@ fn handle_csv_direct_save(app_handle: &tauri::AppHandle, window_label: &str, pat
             return;
         }
     };
+    let save_coordinator = app_handle.state::<crate::save_coordinator::SaveCoordinator>();
+    let save_lock = save_coordinator.for_path(&path);
+    let _save_guard = save_lock.blocking_lock();
 
     let Some(document_info) = registry.get_document_info(window_label) else {
         registry.clear_in_flight(window_label);
         return;
     };
+    if !document_info.is_dirty || document_info.generation != generation {
+        registry.clear_in_flight(window_label);
+        return;
+    }
     let (Some(document_id), Some(document_generation)) = (
         document_info.document_id.as_deref(),
         document_info.document_generation,
@@ -1174,6 +1194,37 @@ mod tests {
         assert!(registry.validate_request("main", 1));
         assert!(!registry.validate_request("main", 2));
         assert!(!registry.validate_request("main", 0));
+    }
+
+    #[test]
+    fn manual_save_registration_invalidates_pending_autosave_request() {
+        let registry = AutosaveRegistry::default();
+        registry.register("main", None, FileSource::Slates, "auto".into());
+        registry.notify_changed("main", 1);
+
+        let request_id = registry.check_and_trigger_saves();
+        let request_id = match request_id.as_slice() {
+            [SaveAction::RequestContent { request_id, .. }] => *request_id,
+            _ => {
+                let mut map = registry.inner.lock().unwrap();
+                let doc = map.get_mut("main").unwrap();
+                let request_id = doc.allocate_request_id();
+                doc.pending_request_id = Some(request_id);
+                request_id
+            }
+        };
+        assert!(registry.validate_request("main", request_id));
+
+        registry.register_authorized(
+            "main",
+            PathBuf::from("/tmp/saved.txt"),
+            FileSource::Slates,
+            "auto".into(),
+            "document-id".into(),
+            1,
+        );
+
+        assert!(!registry.validate_request("main", request_id));
     }
 
     #[test]

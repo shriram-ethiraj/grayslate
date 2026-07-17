@@ -354,6 +354,17 @@
             documentGeneration,
             detectedLanguage: lang,
           } = event.payload;
+          if (
+            activeDocument.kind === "saved" &&
+            activeDocument.documentId === documentId &&
+            activeDocument.documentGeneration === documentGeneration &&
+            activeDocument.path === path
+          ) {
+            return;
+          }
+          if (activeDocument.kind === "saved") {
+            return;
+          }
           await syncLanguageFromPath(path);
           if (language === "auto" && lang) {
             detectedLanguage = lang;
@@ -1049,9 +1060,70 @@
     return editorSession.state?.doc.toString() ?? value;
   }
 
+  type SaveActionKind = "save" | "save-as";
+
+  let saveActionInFlight: Promise<boolean> | undefined;
+  let trailingSaveRequested = false;
+
+  function currentDocumentNeedsSave(): boolean {
+    if (activeLanguage === "csv" && editorState.csv.showTable) {
+      return true;
+    }
+
+    const currentContent = editorSession.state?.doc.toString() ?? value;
+    return activeDocument.kind === "untitled"
+      ? true
+      : currentContent !== activeDocument.lastSavedValue;
+  }
+
+  function snapshotActiveDocument(): ActiveDocument {
+    return activeDocument;
+  }
+
+  function requestSaveAction(kind: SaveActionKind): Promise<boolean> {
+    if (saveActionInFlight) {
+      if (kind === "save") {
+        trailingSaveRequested = true;
+      }
+      return saveActionInFlight;
+    }
+
+    const operation = runSaveAction(kind).finally(() => {
+      if (saveActionInFlight === operation) {
+        saveActionInFlight = undefined;
+      }
+    });
+    saveActionInFlight = operation;
+    return operation;
+  }
+
+  async function runSaveAction(kind: SaveActionKind): Promise<boolean> {
+    editorState.saveInProgress = true;
+    try {
+      let succeeded = kind === "save"
+        ? await performSaveFile()
+        : await performSaveFileAs();
+
+      // Keep one pending slot rather than queueing every key repeat. If more
+      // edits and Save requests arrive during the trailing write, loop once
+      // more with the newest content while still preserving strict ordering.
+      while (trailingSaveRequested) {
+        trailingSaveRequested = false;
+        if (currentDocumentNeedsSave()) {
+          succeeded = await performSaveFile();
+        }
+      }
+      return succeeded;
+    } finally {
+      trailingSaveRequested = false;
+      editorState.saveInProgress = false;
+    }
+  }
+
   async function writeDocument(
     document: DocumentDescriptor,
     content: string,
+    expectedDocumentKey = getDocumentKey(activeDocument),
   ): Promise<DocumentDescriptor> {
     const previousPath = activeDocument.kind === "saved" ? activeDocument.path : undefined;
     const saved = await invoke<DocumentDescriptor>("write_file_content", {
@@ -1059,6 +1131,10 @@
       documentGeneration: document.generation,
       content,
     });
+
+    if (getDocumentKey(activeDocument) !== expectedDocumentKey) {
+      return saved;
+    }
     await syncLanguageFromPath(saved.displayPath);
 
     activeDocument = {
@@ -1104,11 +1180,6 @@
       },
     );
 
-    // Update detectedLanguage so the status bar reflects the result.
-    if (language === "auto" && result.detectedLanguage) {
-      detectedLanguage = result.detectedLanguage;
-    }
-
     return {
       descriptor: {
         documentId: result.documentId,
@@ -1122,8 +1193,13 @@
     };
   }
 
-  async function saveFile(): Promise<boolean> {
+  function saveFile(): Promise<boolean> {
+    return requestSaveAction("save");
+  }
+
+  async function performSaveFile(): Promise<boolean> {
     try {
+      const expectedDocumentKey = getDocumentKey(activeDocument);
       const content = await getContentForSave();
 
       if (activeDocument.kind === "saved") {
@@ -1138,14 +1214,26 @@
           fileName: await getPathLabel(activeDocument.path),
           source: activeDocument.source,
           writable: true,
-        }, content);
+        }, content, expectedDocumentKey);
         editorView?.focus();
         return true;
       }
 
       const saved = await saveUntitledSlate(content);
       const savePath = saved.descriptor.displayPath;
-      reportLibraryMutation({ kind: "created", path: savePath, source: "slates" });
+      const currentDocument = snapshotActiveDocument();
+      const alreadyApplied = currentDocument.kind === "saved" &&
+        currentDocument.documentId === saved.descriptor.documentId &&
+        currentDocument.path === savePath;
+      if (!alreadyApplied) {
+        reportLibraryMutation({ kind: "created", path: savePath, source: "slates" });
+      }
+      if (alreadyApplied || getDocumentKey(activeDocument) !== expectedDocumentKey) {
+        return true;
+      }
+      if (language === "auto" && saved.detectedLanguage) {
+        detectedLanguage = saved.detectedLanguage;
+      }
       // Transition the document state — writeDocumentToPath would overwrite
       // with write_file_content again, so apply state directly here.
       await syncLanguageFromPath(savePath);
@@ -1174,7 +1262,12 @@
   }
 
   async function saveFileAs(): Promise<void> {
+    await requestSaveAction("save-as");
+  }
+
+  async function performSaveFileAs(): Promise<boolean> {
     try {
+      const expectedDocumentKey = getDocumentKey(activeDocument);
       const content = await getContentForSave();
 
       let suggestedName: string | undefined;
@@ -1203,13 +1296,15 @@
       });
 
       if (!selected) {
-        return;
+        return true;
       }
 
-      await writeDocument(selected, content);
+      await writeDocument(selected, content, expectedDocumentKey);
+      return true;
     } catch (err: unknown) {
       const msg = typeof err === "string" ? err : "Failed to save file.";
       toast.error(msg);
+      return false;
     }
   }
 

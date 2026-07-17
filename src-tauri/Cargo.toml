@@ -77,7 +77,7 @@ grep-searcher = "0.1"
 ignore = "0.4"
 pulldown-cmark = "0.13.4"
 ammonia = "4"
-tokio = { version = "1", features = ["time"] }
+tokio = { version = "1", features = ["rt", "sync", "time"] }
 dprint-core = "0.67.4"
 dprint-plugin-typescript = "0.96.1"
 malva = { version = "0.16.0", features = ["config_serde"] }
