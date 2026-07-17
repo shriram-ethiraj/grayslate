@@ -6,11 +6,17 @@ import {
   ENTER,
   clickTestId,
   ensureSidebarOpen,
+  grantSavePath,
+  invokeInApp,
+  openExternalFixture,
   pressMod,
   readSidebarPaths,
   setFilterTab,
   sidebarCard,
+  waitForFile,
 } from "../helpers/app.js";
+
+const originalSlatePath = path.join(notesRoot, "config.rs");
 
 async function chooseSort(mode: string): Promise<void> {
   await browser.execute(() =>
@@ -31,6 +37,24 @@ async function openCardMenu(filePath: string): Promise<void> {
 }
 
 describe("Act 7 — sidebar library", () => {
+  before(async () => {
+    const descriptor = await grantSavePath(originalSlatePath);
+    if (!descriptor) {
+      throw new Error("Sidebar setup did not receive a slate document grant.");
+    }
+    await invokeInApp("write_file_content", {
+      documentId: descriptor.documentId,
+      documentGeneration: descriptor.generation,
+      content: "pub struct Config;\n",
+    });
+    await waitForFile(originalSlatePath, (content) => content === "pub struct Config;\n");
+    await openExternalFixture("sample.py");
+
+    await ensureSidebarOpen();
+    await setFilterTab("unified");
+    await (await sidebarCard(originalSlatePath)).waitForDisplayed();
+  });
+
   it("sorts visible files by name in both directions", async () => {
     await ensureSidebarOpen();
     await setFilterTab("unified");
@@ -75,18 +99,17 @@ describe("Act 7 — sidebar library", () => {
   });
 
   it("duplicates, renames, and deletes a slate with backend-driven refreshes", async () => {
-    const original = path.join(notesRoot, "config.rs");
     await setFilterTab("slates");
-    await (await sidebarCard(original)).waitForDisplayed();
+    await (await sidebarCard(originalSlatePath)).waitForDisplayed();
 
-    await openCardMenu(original);
+    await openCardMenu(originalSlatePath);
     await clickTestId("sidebar-action-duplicate");
 
     let duplicate = "";
     await browser.waitUntil(() => {
       duplicate = fs.readdirSync(notesRoot)
         .map((name) => path.join(notesRoot, name))
-        .find((value) => value !== original && value.endsWith(".rs")) ?? "";
+        .find((value) => value !== originalSlatePath && value.endsWith(".rs")) ?? "";
       return duplicate.length > 0;
     }, { timeout: 10_000, interval: 200 });
     await (await sidebarCard(duplicate)).waitForDisplayed();

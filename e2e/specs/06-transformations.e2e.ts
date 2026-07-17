@@ -12,6 +12,7 @@ import {
   runTransform,
   waitForEditorText,
   waitForLanguageMode,
+  waitForToastText,
 } from "../helpers/app.js";
 
 describe("Act 6 — transformations", () => {
@@ -52,9 +53,7 @@ describe("Act 6 — transformations", () => {
   it("shows statistics without mutating the document", async () => {
     const before = await readEditorText();
     await runTransform("stats.count-words");
-    const toast = await $("[data-sonner-toast]");
-    await toast.waitForDisplayed();
-    expect((await toast.getText()).toLowerCase()).toContain("word");
+    await waitForToastText("2 words");
     expect(await readEditorText()).toBe(before);
   });
 

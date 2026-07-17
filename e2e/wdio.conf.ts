@@ -2,7 +2,13 @@ import fs from "node:fs";
 import path from "node:path";
 import { browser } from "@wdio/globals";
 import type { TauriCapabilities } from "@wdio/tauri-service";
-import { configureSandboxEnvironment, sandboxRoot } from "./helpers/sandbox.js";
+import { waitForEditorReady } from "./helpers/app.js";
+import {
+  artifactRoot,
+  configureSandboxEnvironment,
+  resetE2eRunDirectory,
+  workerId,
+} from "./helpers/sandbox.js";
 
 // The WDIO worker inherits the sandbox HOME set by the launcher process. Keep
 // the original home available so a Cargo-installed tauri-driver can still be
@@ -24,6 +30,12 @@ const tauriDriverCandidates =
 const tauriDriverPath =
   process.env.TAURI_DRIVER_PATH ??
   tauriDriverCandidates.find((candidate) => fs.existsSync(candidate));
+const isWorkerProcess = process.env.WDIO_WORKER_ID !== undefined;
+if (!isWorkerProcess) {
+  resetE2eRunDirectory();
+}
+// The launcher starts tauri-driver with this environment. Each serial worker
+// then clears the same runtime before its new packaged-app session starts.
 configureSandboxEnvironment();
 
 const appBinaryName = process.platform === "win32" ? "Grayslate.exe" : "Grayslate";
@@ -32,7 +44,7 @@ const appBinaryPath = path.resolve(
   "target/release",
   appBinaryName,
 );
-const artifactDirectory = path.join(sandboxRoot, "artifacts");
+const artifactDirectory = artifactRoot;
 let mainWindowPinned = false;
 const tauriCapabilities: TauriCapabilities = {
   browserName: "tauri",
@@ -41,7 +53,9 @@ const tauriCapabilities: TauriCapabilities = {
   },
 };
 
-fs.mkdirSync(artifactDirectory, { recursive: true });
+if (isWorkerProcess) {
+  fs.mkdirSync(artifactDirectory, { recursive: true });
+}
 
 function artifactStem(title: string): string {
   return title.replace(/[^a-zA-Z0-9_-]+/g, "-").slice(0, 100) || "e2e-test";
@@ -57,37 +71,25 @@ if (!fs.existsSync(appBinaryPath)) {
 export const config: WebdriverIO.Config = {
   runner: "local",
   rootDir: process.cwd(),
-  // Explicit ordering is authoritative: WDIO runs these entries top-to-bottom.
-  // A single glob would sort alphabetically and break the narrative order.
-  //
-  // The functional story shares one native session and one sandbox (wiped once
-  // at config load), so earlier specs seed state that later specs build on.
-  // Security regressions run last in their own clean native session.
-  // Group files that must share one native app session into one worker. A flat
-  // list starts a fresh Tauri process per file even with maxInstances: 1.
-  // The second worker reloads this config and therefore gets a clean sandbox
-  // for the security-only group.
+  // A flat list gives every spec file a fresh packaged-app/WebKit session.
+  // maxInstances: 1 keeps those sessions strictly serial in this one CI job.
   specs: [
-    [
-      "./e2e/specs/00-selectors-smoke.e2e.ts",
-      "./e2e/specs/01-first-run.e2e.ts",
-      "./e2e/specs/02-external-files.e2e.ts",
-      "./e2e/specs/03-language-detection.e2e.ts",
-      "./e2e/specs/04-editor-core.e2e.ts",
-      "./e2e/specs/05-formatting-indent.e2e.ts",
-      "./e2e/specs/06-transformations.e2e.ts",
-      "./e2e/specs/07-sidebar.e2e.ts",
-      "./e2e/specs/08-appearance.e2e.ts",
-      "./e2e/specs/09-markdown.e2e.ts",
-      "./e2e/specs/10-csv.e2e.ts",
-      "./e2e/specs/11-keyboard-shortcuts.e2e.ts",
-      "./e2e/specs/11-app-shell.e2e.ts",
-    ],
-    [
-      "./e2e/specs/security/document-authorization.e2e.ts",
-      "./e2e/specs/security/ipc-capabilities.e2e.ts",
-      "./e2e/specs/security/webview-security.e2e.ts",
-    ],
+    "./e2e/specs/00-selectors-smoke.e2e.ts",
+    "./e2e/specs/01-first-run.e2e.ts",
+    "./e2e/specs/02-external-files.e2e.ts",
+    "./e2e/specs/03-language-detection.e2e.ts",
+    "./e2e/specs/04-editor-core.e2e.ts",
+    "./e2e/specs/05-formatting-indent.e2e.ts",
+    "./e2e/specs/06-transformations.e2e.ts",
+    "./e2e/specs/07-sidebar.e2e.ts",
+    "./e2e/specs/08-appearance.e2e.ts",
+    "./e2e/specs/09-markdown.e2e.ts",
+    "./e2e/specs/10-csv.e2e.ts",
+    "./e2e/specs/11-keyboard-shortcuts.e2e.ts",
+    "./e2e/specs/11-app-shell.e2e.ts",
+    "./e2e/specs/security/document-authorization.e2e.ts",
+    "./e2e/specs/security/ipc-capabilities.e2e.ts",
+    "./e2e/specs/security/webview-security.e2e.ts",
   ],
   maxInstances: 1,
   // Native action commands are verbose at `info`; warnings and failures still
@@ -116,14 +118,22 @@ export const config: WebdriverIO.Config = {
     // the spec so a slow GitHub Actions VM does not abort the whole scenario.
     timeout: 120_000,
   },
+  beforeSession: function (_config, _capabilities, specs, cid) {
+    fs.mkdirSync(artifactDirectory, { recursive: true });
+    fs.writeFileSync(
+      path.join(artifactDirectory, "worker.json"),
+      `${JSON.stringify({ cid, workerId, specs }, null, 2)}\n`,
+      "utf8",
+    );
+  },
   beforeSuite: async function () {
-    // Pin the known production window label once per worker. This avoids
-    // repeated focus discovery and keeps each grouped spec on the same native
-    // window while using the feature-gated E2E bridge.
+    // Pin the known production window label once per worker and wait for the
+    // initial CodeMirror session before the spec starts interacting with it.
     if (!mainWindowPinned) {
       await browser.tauri.switchWindow("main");
       mainWindowPinned = true;
     }
+    await waitForEditorReady();
   },
   afterTest: async function (test, _context, result) {
     if (result.passed) {
@@ -131,6 +141,11 @@ export const config: WebdriverIO.Config = {
     }
 
     const stem = artifactStem(test.title);
+    fs.writeFileSync(
+      path.join(artifactDirectory, `${stem}.json`),
+      `${JSON.stringify({ workerId, title: test.title }, null, 2)}\n`,
+      "utf8",
+    );
     try {
       await browser.saveScreenshot(path.join(artifactDirectory, `${stem}.png`));
     } catch {

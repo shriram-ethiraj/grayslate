@@ -1,26 +1,14 @@
-import { $, browser, expect } from "@wdio/globals";
+import { browser, expect } from "@wdio/globals";
 import {
-  clickTestId,
   openExternalFixture,
   openExternalText,
+  setMarkdownPreview,
 } from "../helpers/app.js";
-
-async function ensurePreview(): Promise<ReturnType<typeof $>> {
-  const toggle = await $("[data-testid='action-toggle-preview']");
-  await toggle.waitForClickable();
-
-  const preview = await $("[data-testid='markdown-preview']");
-  if ((await toggle.getAttribute("aria-pressed")) !== "true") {
-    await toggle.click();
-  }
-  await preview.waitForDisplayed();
-  return preview;
-}
 
 describe("Act 9 — Markdown mode", () => {
   it("renders headings, lists, code, and safe links through the Rust preview", async () => {
     await openExternalFixture("sample.md");
-    const preview = await ensurePreview();
+    const preview = await setMarkdownPreview(true);
     await browser.waitUntil(async () => (await preview.$("h1")).isExisting(), { timeout: 10_000 });
 
     expect(await (await preview.$("h1")).getText()).toBe("Grayslate sample");
@@ -47,7 +35,7 @@ describe("Act 9 — Markdown mode", () => {
       "<img src=\"missing.png\" onerror=\"window.__e2ePwned = true\">\n" +
       "[unsafe](javascript:alert(1))";
     await openExternalText("unsafe.md", unsafe);
-    const preview = await ensurePreview();
+    const preview = await setMarkdownPreview(true);
     await browser.waitUntil(async () => (await preview.getText()).includes("Safe heading"), { timeout: 10_000 });
 
     expect(await (await preview.$$("script")).length).toBe(0);
@@ -63,7 +51,7 @@ describe("Act 9 — Markdown mode", () => {
       `## Section ${index + 1}\n\nParagraph ${index + 1} with enough content for scrolling.`,
     ).join("\n\n");
     await openExternalText("long.md", longMarkdown);
-    const preview = await ensurePreview();
+    const preview = await setMarkdownPreview(true);
 
     await browser.execute(() => {
       const scroller = document.querySelector<HTMLElement>(".cm-scroller");
@@ -77,7 +65,6 @@ describe("Act 9 — Markdown mode", () => {
       interval: 200,
       timeoutMsg: "Markdown preview did not follow the editor scroll.",
     });
-    await clickTestId("action-toggle-preview");
-    await preview.waitForDisplayed({ reverse: true });
+    await setMarkdownPreview(false);
   });
 });

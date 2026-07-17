@@ -11,7 +11,7 @@ import {
   enterCsvTable,
   exitCsvTable,
   focusEditor,
-  invokeInApp,
+  openAuthorizedPath,
   openExternalFixture,
   pressMod,
   readEditorText,
@@ -129,7 +129,7 @@ describe("Act 10 — CSV table lifecycle", () => {
   it("keeps large CSV rendering bounded and returns to text in one undo step", async () => {
     const largePath = path.join(sandboxRoot, "large.csv");
     writeLargeCsv(largePath, 100_001);
-    await invokeInApp("e2e_open_path", { path: largePath });
+    await openAuthorizedPath(largePath);
     await waitForEditorText((text) => text.startsWith("id,name,value"), 30_000);
     const originalStart = (await readEditorText()).slice(0, 80);
 

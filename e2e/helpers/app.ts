@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { $, browser } from "@wdio/globals";
+import { $, $$, browser } from "@wdio/globals";
 import { homeDirectory } from "./sandbox.js";
 
 /** Source fixtures committed under `e2e/fixtures/`. */
@@ -48,6 +48,20 @@ export interface DocumentDescriptor {
   writable: boolean;
 }
 
+export interface EditorReadinessSnapshot {
+  documentPath: string | null;
+  documentLength: number | null;
+  language: string | null;
+  ready: boolean;
+}
+
+interface WaitForEditorReadyOptions {
+  documentPath?: string;
+  documentLength?: number;
+  language?: string;
+  timeoutMs?: number;
+}
+
 async function rawInvoke<T>(
   command: string,
   args: Record<string, unknown> = {},
@@ -76,6 +90,83 @@ export async function invokeInApp<T>(
     throw new Error(`invoke ${command} failed: ${result.error}`);
   }
   return result.value as T;
+}
+
+/** Read readiness from the same visible editor/status state a user sees. */
+export async function readEditorReadiness(): Promise<EditorReadinessSnapshot> {
+  return browser.execute(() => {
+    const editor = document.querySelector<HTMLElement>("[data-testid='editor']");
+    const content = editor?.querySelector<HTMLElement>(".cm-content");
+    const loader = document.querySelector<HTMLElement>("[data-testid='editor-loader']");
+    const title = document.querySelector<HTMLElement>("[data-testid='title-file-name']");
+    const status = document.querySelector<HTMLElement>("[data-testid='status-length']");
+    const language = document.querySelector<HTMLElement>("[data-testid='language-mode']");
+    const rawLength = status?.dataset.docLength;
+    const documentLength = rawLength === undefined ? null : Number(rawLength);
+    const configuredLanguage = language?.dataset.languageMode;
+    const effectiveLanguage = configuredLanguage === "auto"
+      ? language?.dataset.detectedLanguage
+      : configuredLanguage;
+    const editorVisible = content !== undefined && content !== null && content.getClientRects().length > 0;
+
+    return {
+      documentPath: title?.getAttribute("title") ?? null,
+      documentLength: Number.isFinite(documentLength) ? documentLength : null,
+      language: effectiveLanguage ?? null,
+      ready: editor !== null && editorVisible && loader === null && documentLength !== null,
+    };
+  });
+}
+
+/** Wait for a specific editor/document state without relying on arbitrary sleeps. */
+export async function waitForEditorReady(
+  options: WaitForEditorReadyOptions = {},
+): Promise<EditorReadinessSnapshot> {
+  const timeoutMs = options.timeoutMs ?? 30_000;
+  let latest: EditorReadinessSnapshot | undefined;
+  let previousMatch = "";
+  let stableMatches = 0;
+
+  await browser.waitUntil(async () => {
+    latest = await readEditorReadiness();
+    if (!latest.ready) return false;
+    if (options.documentPath !== undefined && latest.documentPath !== options.documentPath) {
+      return false;
+    }
+    if (options.documentLength !== undefined && latest.documentLength !== options.documentLength) {
+      return false;
+    }
+    if (options.language !== undefined && latest.language !== options.language) {
+      return false;
+    }
+
+    const match = JSON.stringify(latest);
+    stableMatches = match === previousMatch ? stableMatches + 1 : 1;
+    previousMatch = match;
+    return stableMatches >= 2;
+  }, {
+    timeout: timeoutMs,
+    interval: 100,
+    timeoutMsg: `Editor did not reach the requested ready state: ${JSON.stringify(options)}`,
+  });
+
+  if (!latest) {
+    throw new Error("Editor readiness completed without a state snapshot.");
+  }
+  return latest;
+}
+
+/** Wait until the frontend has fully mounted the document granted by Rust. */
+export function waitForActiveDocument(
+  descriptor: DocumentDescriptor,
+  timeoutMs = 30_000,
+): Promise<EditorReadinessSnapshot> {
+  const documentLength = fs.readFileSync(descriptor.displayPath, "utf8").length;
+  return waitForEditorReady({
+    documentPath: descriptor.displayPath,
+    documentLength,
+    timeoutMs,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -207,15 +298,27 @@ export function provisionExternalText(name: string, content: string): string {
  */
 export async function openExternalFixture(name: string): Promise<string> {
   const dest = provisionExternalFixture(name);
-  await invokeInApp<DocumentDescriptor | null>("e2e_open_path", { path: dest });
+  await openAuthorizedPath(dest);
   return dest;
 }
 
 /** Provision and open generated text through the real authorized-open path. */
 export async function openExternalText(name: string, content: string): Promise<string> {
   const dest = provisionExternalText(name, content);
-  await invokeInApp<DocumentDescriptor | null>("e2e_open_path", { path: dest });
+  await openAuthorizedPath(dest);
   return dest;
+}
+
+/** Open an existing sandbox path and wait for the matching editor session. */
+export async function openAuthorizedPath(filePath: string): Promise<DocumentDescriptor> {
+  const descriptor = await invokeInApp<DocumentDescriptor | null>("e2e_open_path", {
+    path: filePath,
+  });
+  if (!descriptor) {
+    throw new Error(`Opening '${filePath}' did not return a document grant.`);
+  }
+  await waitForActiveDocument(descriptor);
+  return descriptor;
 }
 
 /** Grant a Save-As target path through the real authorization path. */
@@ -223,10 +326,34 @@ export async function grantSavePath(targetPath: string): Promise<DocumentDescrip
   return invokeInApp<DocumentDescriptor | null>("e2e_save_path", { path: targetPath });
 }
 
-/** Create a fresh untitled slate via the File menu. */
-export async function newSlate(): Promise<void> {
+/** Request a fresh slate without waiting, for flows that intentionally open a guard dialog. */
+export async function requestNewSlate(): Promise<void> {
   await clickTestId("menu-file");
   await clickTestId("menu-new-slate");
+}
+
+/** Create a fresh untitled slate and wait for its CodeMirror session to mount. */
+export async function newSlate(): Promise<void> {
+  const previousEditorMarker = `previous-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  await browser.execute((marker) => {
+    const content = document.querySelector<HTMLElement>("[data-testid='editor'] .cm-content");
+    if (!content) throw new Error("CodeMirror content element is missing.");
+    content.dataset.e2ePreviousEditor = marker;
+  }, previousEditorMarker);
+
+  await requestNewSlate();
+  await browser.waitUntil(async () => browser.execute(
+    (marker) => document.querySelector(`[data-e2e-previous-editor='${marker}']`) === null,
+    previousEditorMarker,
+  ), {
+    timeout: 15_000,
+    interval: 100,
+    timeoutMsg: "The previous CodeMirror view was not replaced for the new slate.",
+  });
+  await waitForEditorReady({
+    documentPath: "New Slate",
+    documentLength: 0,
+  });
 }
 
 /** Wait until a file on disk satisfies `predicate` (defaults to "exists"). */
@@ -316,6 +443,47 @@ export async function runTransform(actionId: string, focus = true): Promise<void
   const item = await $(`[data-testid='transform-item-${actionId}']`);
   await item.waitForDisplayed();
   await item.click();
+}
+
+/** Wait for an exact visible Sonner message, regardless of older overlapping toasts. */
+export async function waitForToastText(expected: string, timeoutMs = 10_000): Promise<void> {
+  await browser.waitUntil(async () => {
+    const toasts = await $$("[data-sonner-toast]");
+    for (const toast of toasts) {
+      if (!(await toast.isDisplayed().catch(() => false))) continue;
+      if ((await toast.getText()).trim() === expected) return true;
+    }
+    return false;
+  }, {
+    timeout: timeoutMs,
+    interval: 100,
+    timeoutMsg: `No visible toast matched '${expected}'.`,
+  });
+}
+
+/** Set Markdown preview visibility from its stateful toggle and wait for the final DOM state. */
+export async function setMarkdownPreview(open: boolean): Promise<ReturnType<typeof $>> {
+  await waitForEditorReady({ language: "markdown" });
+  const desired = String(open);
+  let toggle = await $("[data-testid='action-toggle-preview']");
+  await toggle.waitForClickable();
+  if ((await toggle.getAttribute("aria-pressed")) !== desired) {
+    await toggle.click();
+  }
+
+  await browser.waitUntil(async () => {
+    toggle = await $("[data-testid='action-toggle-preview']");
+    const preview = await $("[data-testid='markdown-preview']");
+    const pressed = await toggle.getAttribute("aria-pressed").catch(() => null);
+    const displayed = await preview.isDisplayed().catch(() => false);
+    return pressed === desired && displayed === open;
+  }, {
+    timeout: 15_000,
+    interval: 100,
+    timeoutMsg: `Markdown preview did not become ${open ? "visible" : "hidden"}.`,
+  });
+
+  return $("[data-testid='markdown-preview']");
 }
 
 // ---------------------------------------------------------------------------
