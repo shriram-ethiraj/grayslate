@@ -151,7 +151,7 @@
         >
             <div class="grid gap-2">
                 <label
-                    class="text-sm font-medium text-foreground"
+                    class="text-sm font-normal text-foreground"
                     for="rename-file-input"
                 >
                     Rename file

@@ -156,7 +156,8 @@
     width: max-content;
     border-collapse: collapse;
     font-size: var(--csv-row-font-size, 13px);
-    font-family: "SF Mono", "Fira Code", "JetBrains Mono", Consolas, monospace;
+    font-family: var(--font-mono);
+    font-variant-ligatures: none;
     table-layout: fixed;
   }
 

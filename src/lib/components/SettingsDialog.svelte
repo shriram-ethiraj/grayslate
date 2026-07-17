@@ -96,7 +96,7 @@
                         <div class="grid gap-2 py-4">
                             <div class="grid gap-0.5">
                                 <label
-                                    class="text-sm font-medium text-foreground"
+                                    class="text-sm font-normal text-foreground"
                                     for="settings-startup"
                                 >
                                     On startup
@@ -128,7 +128,7 @@
                         <!-- Default indentation -->
                         <div class="grid gap-2 py-4">
                             <div class="grid gap-0.5">
-                                <span class="text-sm font-medium text-foreground">
+                                <span class="text-sm font-normal text-foreground">
                                     Default indentation
                                 </span>
                                 <p class="text-xs text-muted-foreground">
@@ -177,7 +177,7 @@
                         <!-- Confirm before delete -->
                         <div class="flex items-center justify-between gap-4 py-4">
                             <div class="grid gap-0.5">
-                                <span class="text-sm font-medium text-foreground">
+                                <span class="text-sm font-normal text-foreground">
                                     Confirm before deleting
                                 </span>
                                 <p class="text-xs text-muted-foreground">

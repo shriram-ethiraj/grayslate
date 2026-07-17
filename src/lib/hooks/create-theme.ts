@@ -124,6 +124,10 @@ export const createTheme = (config: ThemeConfig): Extension => {
                 backgroundColor: config.settings.background,
                 color: config.settings.foreground,
             },
+            '&.cm-editor .cm-scroller': {
+                fontFamily: 'var(--font-mono)',
+                fontVariantLigatures: 'none',
+            },
 
             // Caret
             '&.cm-editor .cm-content': {

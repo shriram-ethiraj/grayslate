@@ -24,6 +24,19 @@ describe("Act 9 — Markdown mode", () => {
     expect(await (await preview.$$("li")).length).toBe(2);
     expect(await (await preview.$("pre code")).getText()).toContain("const answer = 42");
     expect(await (await preview.$("a")).getAttribute("href")).toBe("https://example.com/");
+
+    const families = await browser.execute(() => {
+      const prose = document.querySelector<HTMLElement>("[data-testid='markdown-preview']");
+      const code = prose?.querySelector<HTMLElement>("pre code");
+      if (!prose || !code) throw new Error("Markdown typography elements are missing.");
+      return {
+        prose: getComputedStyle(prose).fontFamily,
+        code: getComputedStyle(code).fontFamily,
+      };
+    });
+    expect(families.prose).toContain("Source Sans 3");
+    expect(families.prose).not.toContain("Commit Mono");
+    expect(families.code).toContain("Commit Mono");
   });
 
   it("removes scripts, event handlers, and javascript URLs", async () => {

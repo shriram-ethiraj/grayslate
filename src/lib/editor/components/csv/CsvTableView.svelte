@@ -64,9 +64,13 @@
   const DEFAULT_CSV_INDEX_FONT_SIZE = 11;
   const DEFAULT_CSV_ROW_HEIGHT = 32;
   const DEFAULT_CSV_HEADER_HEIGHT = 34;
+  const REFERENCE_EDITOR_FONT_SIZE = 14;
 
   function scaleFromEditorFont(baseSize: number): number {
-    return Math.max(8, Math.round((editorState.fontSize * baseSize) / 15));
+    return Math.max(
+      8,
+      Math.round((editorState.fontSize * baseSize) / REFERENCE_EDITOR_FONT_SIZE),
+    );
   }
 
   function applyUpdater<T>(updater: Updater<T>, current: T): T {

@@ -92,6 +92,8 @@
 }
 
 @theme inline {
+  --font-sans: "Source Sans 3", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "Commit Mono", ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);

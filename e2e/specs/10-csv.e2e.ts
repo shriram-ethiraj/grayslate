@@ -78,6 +78,12 @@ describe("Act 10 — CSV table lifecycle", () => {
     const info = await $("[data-testid='status-csv-info']");
     expect(await info.getText()).toContain("3 cols");
     expect((await info.getText()).toLowerCase()).toContain("comma");
+    const tableFamily = await browser.execute(() => {
+      const table = document.querySelector<HTMLElement>("[data-testid='csv-table'] .csv-table");
+      if (!table) throw new Error("CSV typography element is missing.");
+      return getComputedStyle(table).fontFamily;
+    });
+    expect(tableFamily).toContain("Commit Mono");
   });
 
   it("navigates, edits, clears, and undo-redoes cells", async () => {

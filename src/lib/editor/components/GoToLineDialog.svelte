@@ -101,7 +101,7 @@
       }}
     >
       <div class="grid gap-2">
-        <label class="text-sm font-medium text-foreground" for="go-to-line-input">
+        <label class="text-sm font-normal text-foreground" for="go-to-line-input">
           Go to line (1–{maxLine})
         </label>
         <Input

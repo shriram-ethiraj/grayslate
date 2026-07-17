@@ -11,6 +11,30 @@ description: Design system tokens for font sizes, icon sizes, control heights, a
 
 ---
 
+## Font Families
+
+| Role | Family | CSS token | Usage |
+|------|--------|-----------|-------|
+| UI / prose | **Source Sans 3** | `font-sans` / `var(--font-sans)` | App chrome, controls, dialogs, sidebar, status bar, Markdown prose |
+| Code / data | **Commit Mono** | `font-mono` / `var(--font-mono)` | CodeMirror, CSV tables, code blocks, shortcuts, technical excerpts |
+
+Both families are bundled fonts with real Roman and Italic faces.
+Keep platform system fonts only as fallbacks. Do not add OS-specific font-weight
+compensation. Programming ligatures remain disabled for monospace surfaces.
+
+### Weight hierarchy
+
+| Weight | Usage |
+|--------|-------|
+| **400 / normal** | Ordinary controls, labels, menu triggers, inactive file names, and status text |
+| **500 / medium** | Active or selected items, current-file title, section labels, and deliberate emphasis |
+| **600 / semibold** | Dialog titles and intentional group headings |
+
+Do not use medium weight as the default for controls or body copy. Emphasis must
+reflect state or hierarchy rather than compensate for platform font rendering.
+
+---
+
 ## Typography Scale
 
 | Token       | Size  | Tailwind  | Usage                                                      |
@@ -105,7 +129,7 @@ Use `p-6` for full-page dialogs (shadcn default).
 | Component          | Exception                | Reason                              |
 |--------------------|--------------------------|-------------------------------------|
 | CSV table headers  | `var(--csv-header-*)` CSS props | Data grid has its own visual rules |
-| CodeMirror editor  | User-configurable font   | Editor content ≠ UI chrome          |
+| CodeMirror editor  | Commit Mono, 14 px default with user-configurable size | Editor content ≠ UI chrome |
 | Markdown preview   | `@tailwindcss/typography` | Prose rendering, not app chrome     |
 | Window controls    | Platform-specific icons  | Intentional per-OS visual weight    |
 | Layout widths      | `max-w-[44rem]` etc.     | Content constraints, not typography |
