@@ -33,7 +33,7 @@ jobs:
       - name: Install Linux build and WebDriver dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --no-install-recommends libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf webkit2gtk-driver xvfb
+          sudo apt-get install --no-install-recommends libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev openbox patchelf webkit2gtk-driver xvfb
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
       - name: Install Tauri WebDriver bridge
