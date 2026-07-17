@@ -24,6 +24,14 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 # the runtime capability that grants them (`tauri/dynamic-acl`). Enabled only by
 # `pnpm run e2e:build`; a distributed release build must never set this feature.
 e2e = ["tauri/dynamic-acl", "dep:tauri-plugin-wdio"]
+# Keeps the developer-only naming audit CLI out of Tauri's `cargo build --bins`
+# release builds. Enable it explicitly when running the audit tool.
+naming-audit-cli = []
+
+[[bin]]
+name = "name_file"
+path = "src/bin/name_file.rs"
+required-features = ["naming-audit-cli"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

@@ -36,7 +36,7 @@ python audit_repos.py --build
 Or build manually from the `tools/naming-audit/` directory:
 
 ```sh
-cargo build --bin name_file --manifest-path ../../src-tauri/Cargo.toml
+cargo build --bin name_file --features naming-audit-cli --manifest-path ../../src-tauri/Cargo.toml
 ```
 
 ### 2. Configure `repos.txt`
@@ -175,4 +175,3 @@ The `name_file` binary receives content on stdin with **no filename argument**. 
 2. **Naming** — runs the language-appropriate extractor (code symbols, headings, keys, etc.) on the detected language.
 
 This is the exact code path triggered when a user pastes content into an untitled Grayslate slate.
-

@@ -128,12 +128,16 @@ def find_binary() -> Path | None:
 
 def build_binary(manifest_path: Path) -> None:
     """Compile the name_file Rust binary (release profile to match find_binary priority)."""
-    print("Building name_file binary (cargo build --release --bin name_file)…")
+    print(
+        "Building name_file binary "
+        "(cargo build --release --bin name_file --features naming-audit-cli)…"
+    )
     result = subprocess.run(
         [
             "cargo", "build",
             "--release",
             "--bin", "name_file",
+            "--features", "naming-audit-cli",
             "--manifest-path", str(manifest_path),
         ],
         capture_output=True,
@@ -600,4 +604,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
