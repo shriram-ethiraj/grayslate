@@ -8,9 +8,6 @@
 /assets/*
   Cache-Control: public, max-age=31536000, immutable
 
-/latest.json
-  Cache-Control: no-store
-
 /site.js
   Cache-Control: public, max-age=3600
 

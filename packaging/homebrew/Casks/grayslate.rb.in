@@ -14,6 +14,7 @@ cask "grayslate" do
   caveats <<~EOS
     Grayslate is currently ad-hoc signed and is not Apple-notarized. If macOS
     blocks the first launch, open System Settings > Privacy & Security and
-    choose Open Anyway after confirming the download came from this tap.
+    choose Open Anyway after confirming the download came from the official
+    Grayslate GitHub release.
   EOS
 end

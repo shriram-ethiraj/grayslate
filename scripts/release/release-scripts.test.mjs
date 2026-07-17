@@ -134,9 +134,37 @@ test("release scripts stage and assemble every updater platform", async () => {
             /windows-aarch64-setup\.exe$/u,
         );
 
+        const aliases = new Map([
+            [
+                `Grayslate-${version}-macos-universal.dmg`,
+                "grayslate-macos-universal.dmg",
+            ],
+            [
+                `Grayslate-${version}-windows-x86_64-setup.exe`,
+                "grayslate-windows-x86_64-setup.exe",
+            ],
+            [
+                `Grayslate-${version}-windows-aarch64-setup.exe`,
+                "grayslate-windows-aarch64-setup.exe",
+            ],
+            [
+                `Grayslate-${version}-linux-x86_64.AppImage`,
+                "grayslate-linux-x86_64.AppImage",
+            ],
+            [`Grayslate-${version}-linux-x86_64.deb`, "grayslate-linux-x86_64.deb"],
+            [`Grayslate-${version}-linux-x86_64.rpm`, "grayslate-linux-x86_64.rpm"],
+        ]);
+
+        for (const [source, alias] of aliases) {
+            assert.deepEqual(await readFile(join(assets, alias)), await readFile(join(assets, source)));
+        }
+
         const checksums = await readFile(join(assets, "SHA256SUMS"), "utf8");
         assert.match(checksums, /latest\.json/u);
         assert.match(checksums, /macos-universal-homebrew\.dmg/u);
+        for (const alias of aliases.values()) {
+            assert.match(checksums, new RegExp(`  ${alias.replaceAll(".", "\\.")}$`, "mu"));
+        }
         assert.ok((await readFile(join(assets, "grayslate.rb"), "utf8")).includes(version));
     } finally {
         await rm(root, { recursive: true, force: true });

@@ -29,9 +29,12 @@ Platform CTAs use GitHub's stable latest-release asset URLs. Each public release
 
 - `grayslate-macos-universal.dmg`
 - `grayslate-windows-x86_64-setup.exe`
+- `grayslate-windows-aarch64-setup.exe`
 - `grayslate-linux-x86_64.AppImage`
+- `grayslate-linux-x86_64.deb`
+- `grayslate-linux-x86_64.rpm`
 
-The Tauri updater owns `/latest.json`. The release process must place a valid signed updater manifest into the deployed site without allowing a normal website deploy to replace it with stale metadata.
+The Tauri updater manifest is the `latest.json` asset attached to the latest GitHub release. It is not deployed by the website.
 
 ## Product media
 
