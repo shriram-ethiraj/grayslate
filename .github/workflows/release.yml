@@ -1,0 +1,195 @@
+name: Build draft release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CI: "true"
+  CARGO_TERM_COLOR: always
+
+jobs:
+  verify:
+    name: Verify release inputs
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Enable pnpm
+        run: corepack enable
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Verify versions and updater configuration
+        run: node scripts/release/verify-release.mjs "${GITHUB_REF_NAME}"
+      - name: Verify updater signing secret is present
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: test -n "${TAURI_SIGNING_PRIVATE_KEY}"
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Check frontend
+        run: pnpm run check
+      - name: Test Rust workspace
+        run: cargo test --manifest-path src-tauri/Cargo.toml --locked
+
+  build:
+    name: Build ${{ matrix.name }}
+    needs: verify
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS universal
+            os: macos-14
+            rust_targets: aarch64-apple-darwin x86_64-apple-darwin
+            tauri_target: universal-apple-darwin
+            bundles: app,dmg
+            stage_target: macos-universal
+            bundle_root: target/universal-apple-darwin/release/bundle
+            update_policy: self-update
+            system_config: ""
+          - name: macOS universal for Homebrew
+            os: macos-14
+            rust_targets: aarch64-apple-darwin x86_64-apple-darwin
+            tauri_target: universal-apple-darwin
+            bundles: dmg
+            stage_target: macos-universal-system
+            bundle_root: target/universal-apple-darwin/release/bundle
+            update_policy: system-managed
+            system_config: --config src-tauri/tauri.system-package.conf.json
+          - name: Linux AppImage x64
+            os: ubuntu-22.04
+            rust_targets: x86_64-unknown-linux-gnu
+            tauri_target: x86_64-unknown-linux-gnu
+            bundles: appimage
+            stage_target: linux-x86_64-direct
+            bundle_root: target/x86_64-unknown-linux-gnu/release/bundle
+            update_policy: self-update
+            system_config: ""
+          - name: Linux DEB and RPM x64
+            os: ubuntu-22.04
+            rust_targets: x86_64-unknown-linux-gnu
+            tauri_target: x86_64-unknown-linux-gnu
+            bundles: deb,rpm
+            stage_target: linux-x86_64-system
+            bundle_root: target/x86_64-unknown-linux-gnu/release/bundle
+            update_policy: system-managed
+            system_config: --config src-tauri/tauri.system-package.conf.json
+          - name: Windows x64
+            os: windows-2025
+            rust_targets: x86_64-pc-windows-msvc
+            tauri_target: x86_64-pc-windows-msvc
+            bundles: nsis
+            stage_target: windows-x86_64
+            bundle_root: target/x86_64-pc-windows-msvc/release/bundle
+            update_policy: self-update
+            system_config: ""
+          - name: Windows ARM64
+            os: windows-2025
+            rust_targets: aarch64-pc-windows-msvc
+            tauri_target: aarch64-pc-windows-msvc
+            bundles: nsis
+            stage_target: windows-aarch64
+            bundle_root: target/aarch64-pc-windows-msvc/release/bundle
+            update_policy: self-update
+            system_config: ""
+    runs-on: ${{ matrix.os }}
+    env:
+      GRAYSLATE_UPDATE_POLICY: ${{ matrix.update_policy }}
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Enable pnpm
+        run: corepack enable
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf rpm
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Install Rust targets
+        run: rustup target add ${{ matrix.rust_targets }}
+      - name: Build bundles
+        shell: bash
+        run: >-
+          pnpm tauri build --ci
+          --target "${{ matrix.tauri_target }}"
+          --bundles "${{ matrix.bundles }}"
+          ${{ matrix.system_config }}
+      - name: Stage deterministic artifact names
+        shell: bash
+        run: >-
+          node scripts/release/stage-artifacts.mjs
+          --target "${{ matrix.stage_target }}"
+          --version "${GITHUB_REF_NAME#v}"
+          --bundle-root "${{ matrix.bundle_root }}"
+          --output "release-${{ matrix.stage_target }}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-${{ matrix.stage_target }}
+          path: release-${{ matrix.stage_target }}/*
+          if-no-files-found: error
+          retention-days: 7
+
+  draft:
+    name: Assemble draft release
+    needs: build
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: release-*
+          path: release-assets
+          merge-multiple: true
+      - name: Create reproducible source archive
+        run: >-
+          git archive --format=tar
+          --prefix="grayslate-${GITHUB_REF_NAME#v}/"
+          "${GITHUB_SHA}"
+          | gzip -n > "release-assets/Grayslate-${GITHUB_REF_NAME#v}-source.tar.gz"
+      - name: Generate SPDX SBOM
+        uses: anchore/sbom-action@7b36ad622f042cab6f59a75c2ac24ccb256e9b45 # v0.20.4
+        with:
+          path: .
+          format: spdx-json
+          output-file: release-assets/Grayslate-${{ github.ref_name }}.spdx.json
+          upload-artifact: false
+      - name: Render package-manager submission files
+        run: >-
+          node scripts/release/render-package-templates.mjs
+          --version "${GITHUB_REF_NAME#v}"
+          --assets release-assets
+          --output release-assets
+      - name: Assemble updater metadata and checksums
+        run: >-
+          node scripts/release/assemble-release.mjs
+          --version "${GITHUB_REF_NAME#v}"
+          --directory release-assets
+          --repository "${GITHUB_REPOSITORY}"
+      - name: Create or replace the draft release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release upload "${GITHUB_REF_NAME}" release-assets/* --clobber
+          else
+            gh release create "${GITHUB_REF_NAME}" release-assets/* --draft --verify-tag --generate-notes --title "Grayslate ${GITHUB_REF_NAME#v}"
+          fi

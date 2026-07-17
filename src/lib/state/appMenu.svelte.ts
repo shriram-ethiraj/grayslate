@@ -1,6 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "$lib/components/ui/sonner";
-import { appDialogsState, openAboutAppDialog, closeAppDialog } from "$lib/state/appDialogs.svelte";
+import { openAboutAppDialog } from "$lib/state/appDialogs.svelte";
+
+export type UpdatePolicy = "disabled" | "self-update" | "system-managed";
 
 export type UpdateStatus =
     | "idle"
@@ -9,15 +11,11 @@ export type UpdateStatus =
     | "available"
     | "installing"
     | "installed"
-    | "unconfigured"
+    | "disabled"
+    | "system-managed"
     | "error";
 
 type UpdateCheckResponse =
-    | {
-          status: "unconfigured";
-          message: string;
-          current_version: string;
-      }
     | {
           status: "up-to-date";
           message: string;
@@ -39,11 +37,13 @@ type UpdateInstallResponse = {
 type AppInfo = {
     appName: string;
     appVersion: string;
+    updatePolicy: UpdatePolicy;
 };
 
 export const appMenuState = $state({
     appName: "Grayslate",
     appVersion: "",
+    updatePolicy: "disabled" as UpdatePolicy,
     updateStatus: "idle" as UpdateStatus,
     updateMessage: "Check for updates to see whether a newer release is available.",
     currentVersion: "",
@@ -58,6 +58,34 @@ function resetUpdateDetails(): void {
     appMenuState.updatePublishedAt = "";
 }
 
+function applyUpdatePolicy(policy: UpdatePolicy): void {
+    appMenuState.updatePolicy = policy;
+    if (policy === "system-managed") {
+        appMenuState.updateStatus = "system-managed";
+        appMenuState.updateMessage =
+            "Updates for this build are managed by your package manager.";
+    } else if (policy === "disabled") {
+        appMenuState.updateStatus = "disabled";
+        appMenuState.updateMessage = "Updates are unavailable for this build.";
+    }
+}
+
+function commandErrorMessage(error: unknown, fallback: string): string {
+    if (error instanceof Error && error.message) {
+        return error.message;
+    }
+    if (typeof error === "string" && error) {
+        return error;
+    }
+    if (typeof error === "object" && error !== null && "message" in error) {
+        const message = error.message;
+        if (typeof message === "string" && message) {
+            return message;
+        }
+    }
+    return fallback;
+}
+
 export async function ensureAppInfoLoaded(): Promise<void> {
     if (appInfoLoaded) {
         return;
@@ -67,13 +95,16 @@ export async function ensureAppInfoLoaded(): Promise<void> {
     appMenuState.appName = appInfo.appName;
     appMenuState.appVersion = appInfo.appVersion;
     appMenuState.currentVersion = appInfo.appVersion;
+    applyUpdatePolicy(appInfo.updatePolicy);
     appInfoLoaded = true;
 }
 
 export async function openAboutDialog(): Promise<void> {
     await ensureAppInfoLoaded();
     openAboutAppDialog();
-    void checkForAppUpdates({ openDialog: false, notify: false });
+    if (appMenuState.updatePolicy === "self-update") {
+        void checkForAppUpdates({ openDialog: false, notify: false });
+    }
 }
 
 export async function checkForAppUpdates(options?: {
@@ -84,15 +115,23 @@ export async function checkForAppUpdates(options?: {
 
     const shouldNotify = options?.notify ?? true;
 
+    if (options?.openDialog ?? true) {
+        openAboutAppDialog();
+    }
+
+    if (appMenuState.updatePolicy !== "self-update") {
+        applyUpdatePolicy(appMenuState.updatePolicy);
+        if (shouldNotify) {
+            toast.message(appMenuState.updateMessage);
+        }
+        return;
+    }
+
     if (
         appMenuState.updateStatus === "checking" ||
         appMenuState.updateStatus === "installing"
     ) {
         return;
-    }
-
-    if (options?.openDialog ?? true) {
-        openAboutAppDialog();
     }
 
     appMenuState.updateStatus = "checking";
@@ -105,13 +144,6 @@ export async function checkForAppUpdates(options?: {
         appMenuState.currentVersion = result.current_version;
 
         switch (result.status) {
-            case "unconfigured":
-                appMenuState.updateStatus = "unconfigured";
-                appMenuState.updateMessage = result.message;
-                if (shouldNotify) {
-                    toast.message("Updates are not configured for this build.");
-                }
-                return;
             case "up-to-date":
                 appMenuState.updateStatus = "up-to-date";
                 appMenuState.updateMessage = result.message;
@@ -130,8 +162,10 @@ export async function checkForAppUpdates(options?: {
                 return;
         }
     } catch (error) {
-        const message =
-            error instanceof Error ? error.message : "Failed to check for updates.";
+        const message = commandErrorMessage(
+            error,
+            "Failed to check for updates.",
+        );
         appMenuState.updateStatus = "error";
         appMenuState.updateMessage = message;
         if (shouldNotify) {
@@ -141,7 +175,10 @@ export async function checkForAppUpdates(options?: {
 }
 
 export async function installAvailableUpdate(): Promise<void> {
-    if (appMenuState.updateStatus !== "available") {
+    if (
+        appMenuState.updatePolicy !== "self-update" ||
+        appMenuState.updateStatus !== "available"
+    ) {
         return;
     }
 
@@ -158,8 +195,7 @@ export async function installAvailableUpdate(): Promise<void> {
         appMenuState.updateMessage = result.message;
         toast.success(result.message);
     } catch (error) {
-        const message =
-            error instanceof Error ? error.message : "Failed to install update.";
+        const message = commandErrorMessage(error, "Failed to install update.");
         appMenuState.updateStatus = "error";
         appMenuState.updateMessage = message;
         toast.error(message);

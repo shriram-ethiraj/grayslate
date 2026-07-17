@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Grayslate
+Comment=A fast scratchpad for code, data, and quick thinking
+Exec=Grayslate %U
+Icon=app.grayslate.Grayslate
+Terminal=false
+Categories=Development;TextEditor;
+Keywords=scratchpad;editor;JSON;CSV;developer;
+MimeType=text/plain;text/csv;application/json;
+StartupNotify=true
+StartupWMClass=Grayslate

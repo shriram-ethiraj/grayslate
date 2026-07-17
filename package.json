@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "A fast scratchpad for code, data, and quick thinking.",
   "type": "module",
+  "packageManager": "pnpm@10.32.1",
   "author": "Shriram Ethiraj",
   "homepage": "https://grayslate.app",
   "repository": {
@@ -28,6 +29,7 @@
     "preview": "vite preview",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+    "test:release-scripts": "node --test scripts/release/release-scripts.test.mjs",
     "tauri": "tauri",
     "e2e:build": "pnpm tauri build --no-bundle --config src-tauri/tauri.e2e.conf.json",
     "e2e:check": "tsc --noEmit -p e2e/tsconfig.json",

@@ -12,6 +12,7 @@ pub mod menu;
 pub mod naming;
 pub mod search;
 pub mod storage;
+pub mod update_policy;
 pub mod window;
 
 #[cfg(test)]
@@ -63,6 +64,7 @@ pub fn run() {
             app.manage(commands::markdown::MarkdownPreviewState::default());
             app.manage(commands::csv::CsvSessionRegistry::default());
             app.manage(autosave::AutosaveRegistry::default());
+            app.manage(commands::update::UpdateOperationState::default());
 
             // Spawn the background autosave timer thread.
             let timer_handle = app.handle().clone();

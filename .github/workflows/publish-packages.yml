@@ -1,0 +1,54 @@
+name: Publish package-manager builds
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  snap:
+    name: Snap Store x64
+    runs-on: ubuntu-22.04
+    env:
+      SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.release.tag_name }}
+      - name: Record missing credentials
+        if: env.SNAPCRAFT_STORE_CREDENTIALS == ''
+        run: echo "SNAPCRAFT_STORE_CREDENTIALS is not configured; skipping Snap Store upload."
+      - name: Build snap
+        if: env.SNAPCRAFT_STORE_CREDENTIALS != ''
+        id: build
+        uses: canonical/action-build@3bdaa03e1ba6bf59a65f84a751d943d549a54e79 # v1.3.0
+      - name: Publish snap to stable
+        if: env.SNAPCRAFT_STORE_CREDENTIALS != ''
+        uses: snapcore/action-publish@214b86e5ca036ead1668c79afb81e550e6c54d40 # v1.2.0
+        env:
+          SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS }}
+        with:
+          snap: ${{ steps.build.outputs.snap }}
+          release: stable
+
+  homebrew:
+    name: Notify custom Homebrew tap
+    runs-on: ubuntu-22.04
+    env:
+      TAP_DISPATCH_TOKEN: ${{ secrets.HOMEBREW_TAP_DISPATCH_TOKEN }}
+    steps:
+      - name: Record missing token
+        if: env.TAP_DISPATCH_TOKEN == ''
+        run: echo "HOMEBREW_TAP_DISPATCH_TOKEN is not configured; skipping tap dispatch."
+      - name: Dispatch the published version to the tap
+        if: env.TAP_DISPATCH_TOKEN != ''
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_DISPATCH_TOKEN }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: >-
+          gh api --method POST
+          repos/shriram-ethiraj/homebrew-grayslate/dispatches
+          -f event_type=grayslate-release
+          -f "client_payload[tag]=${RELEASE_TAG}"

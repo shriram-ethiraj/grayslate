@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>app.grayslate.Grayslate</id>
+  <name>Grayslate</name>
+  <summary>A fast scratchpad for code, data, and quick thinking</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <developer id="app.grayslate">
+    <name>Shriram Ethiraj</name>
+  </developer>
+  <description>
+    <p>
+      Grayslate is a lightweight developer scratchpad for notes, code, JSON,
+      CSV, Markdown, and text transformations. Files and transformations stay
+      on your machine, with no account, telemetry, or cloud service required.
+    </p>
+  </description>
+  <launchable type="desktop-id">app.grayslate.Grayslate.desktop</launchable>
+  <url type="homepage">https://grayslate.app</url>
+  <url type="bugtracker">https://github.com/shriram-ethiraj/grayslate/issues</url>
+  <url type="vcs-browser">https://github.com/shriram-ethiraj/grayslate</url>
+  <screenshots>
+    <screenshot type="default">
+      <image>https://raw.githubusercontent.com/shriram-ethiraj/grayslate/main/docs/hero.png</image>
+      <caption>Grayslate editing an automatically saved slate</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/shriram-ethiraj/grayslate/main/docs/csv.png</image>
+      <caption>Large CSV data in the virtualized table view</caption>
+    </screenshot>
+  </screenshots>
+  <content_rating type="oars-1.1" />
+  <releases>
+    <release version="0.1.0" date="2026-07-17" />
+  </releases>
+</component>

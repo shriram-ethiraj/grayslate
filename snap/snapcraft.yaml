@@ -1,0 +1,46 @@
+name: grayslate
+title: Grayslate
+summary: A fast scratchpad for code, data, and quick thinking
+description: |
+  Grayslate is a lightweight developer scratchpad for notes, code, JSON, CSV,
+  Markdown, and local text transformations. It has no account, cloud service,
+  or telemetry.
+adopt-info: grayslate
+base: core24
+grade: stable
+confinement: strict
+platforms:
+  amd64:
+
+apps:
+  grayslate:
+    command: usr/bin/Grayslate
+    desktop: usr/share/applications/app.grayslate.Grayslate.desktop
+    extensions: [gnome]
+    plugs:
+      - home
+      - removable-media
+
+parts:
+  grayslate:
+    plugin: nil
+    source: .
+    build-snaps:
+      - node/22/stable
+      - rustup/latest/stable
+    build-packages:
+      - build-essential
+      - libayatana-appindicator3-dev
+      - librsvg2-dev
+      - libssl-dev
+      - libwebkit2gtk-4.1-dev
+      - patchelf
+    override-build: |
+      rustup default stable
+      corepack pnpm install --frozen-lockfile
+      GRAYSLATE_UPDATE_POLICY=system-managed corepack pnpm tauri build --no-bundle
+      craftctl set version="$(node --print "JSON.parse(require('fs').readFileSync('package.json')).version")"
+      install -Dm755 target/release/Grayslate "$CRAFT_PART_INSTALL/usr/bin/Grayslate"
+      install -Dm644 packaging/linux/app.grayslate.Grayslate.desktop "$CRAFT_PART_INSTALL/usr/share/applications/app.grayslate.Grayslate.desktop"
+      install -Dm644 packaging/linux/app.grayslate.Grayslate.metainfo.xml "$CRAFT_PART_INSTALL/usr/share/metainfo/app.grayslate.Grayslate.metainfo.xml"
+      install -Dm644 src-tauri/icons/icon.png "$CRAFT_PART_INSTALL/usr/share/icons/hicolor/512x512/apps/app.grayslate.Grayslate.png"

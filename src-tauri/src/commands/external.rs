@@ -8,6 +8,7 @@ use url::Url;
 use crate::{
     document::{revalidate_source_authority, DocumentAccess, DocumentRegistry},
     storage::AppStorage,
+    update_policy::{current_update_policy, UpdatePolicy},
 };
 
 const MAX_LINK_LENGTH: usize = 8 * 1024;
@@ -21,6 +22,7 @@ const LICENSE_URL: &str = "https://github.com/shriram-ethiraj/grayslate/blob/mai
 pub struct AppInfo {
     app_name: String,
     app_version: String,
+    update_policy: UpdatePolicy,
 }
 
 #[derive(Clone, Copy, Deserialize)]
@@ -42,6 +44,7 @@ pub fn get_app_info(app: tauri::AppHandle) -> AppInfo {
     AppInfo {
         app_name: app.package_info().name.clone(),
         app_version: app.package_info().version.to_string(),
+        update_policy: current_update_policy(),
     }
 }
 

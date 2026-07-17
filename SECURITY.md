@@ -61,13 +61,20 @@ Grayslate is a **local-first desktop application** built on Tauri.
 
 ## Update trust model
 
-Public release updates will use Tauri updater artifacts verified against a
-bundled public signing key and will be installed only after an explicit user
-action. macOS Developer ID signing/notarization and Windows Authenticode are
-also release requirements; updater signatures do not replace operating-system
-code signing.
+Direct-download releases use Tauri updater artifacts verified against a bundled
+public signing key and install only after an explicit user action. Builds from
+DEB, RPM, Homebrew, Flatpak, Snap, and AUR are marked as system-managed at
+compile time; both the frontend and Rust command boundary refuse self-update
+operations in those builds.
 
-The source tree currently contains a placeholder updater key and is not ready
-to distribute updates. Until the release signing workflow and public key are
-configured and tested, updater/signing work remains a release blocker rather
-than a protection claimed by this policy.
+The initial release channel uses ad-hoc signing on macOS and no Authenticode
+certificate on Windows. These builds therefore show Gatekeeper or SmartScreen
+warnings and are not equivalent to Developer ID/notarized or Authenticode-
+signed binaries. The Tauri updater signature authenticates update artifacts,
+but does not replace either operating-system trust system.
+
+The release workflow rejects a missing or placeholder updater public key, a
+missing private-key secret, inconsistent versions, or unsigned updater
+artifacts before it can create a draft release. A public updater channel is
+ready only after the configured key and a full draft-release installation have
+been tested successfully.

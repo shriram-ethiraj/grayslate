@@ -28,6 +28,12 @@
     );
     const isUpToDate = $derived(appMenuState.updateStatus === "up-to-date");
     const isInstalled = $derived(appMenuState.updateStatus === "installed");
+    const usesSystemUpdates = $derived(
+        appMenuState.updateStatus === "system-managed",
+    );
+    const updatesDisabled = $derived(appMenuState.updateStatus === "disabled");
+    const updateFailed = $derived(appMenuState.updateStatus === "error");
+    const canSelfUpdate = $derived(appMenuState.updatePolicy === "self-update");
     const isBusy = $derived(isChecking || isInstalling);
     const currentVersionLabel = $derived(
         appMenuState.currentVersion || appMenuState.appVersion || "Unknown",
@@ -151,6 +157,10 @@
                                     {/if}
                                 </span>
                             </div>
+                        {:else if usesSystemUpdates || updatesDisabled || updateFailed}
+                            <p class={updateFailed ? "text-destructive" : "text-muted-foreground"}>
+                                {appMenuState.updateMessage}
+                            </p>
                         {/if}
 
                         {#if appMenuState.updatePublishedAt && canInstall}
@@ -161,20 +171,22 @@
 
                     </div>
 
-                    <div>
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            class="w-fit self-start"
-                            onclick={() => {
-                                void checkForAppUpdates({ openDialog: false });
-                            }}
-                            disabled={isBusy}
-                        >
-                            <RefreshCw class={isChecking ? "mr-2 size-4 animate-spin" : "mr-2 size-4"} />
-                            Check for updates
-                        </Button>
-                    </div>
+                    {#if canSelfUpdate}
+                        <div>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                class="w-fit self-start"
+                                onclick={() => {
+                                    void checkForAppUpdates({ openDialog: false });
+                                }}
+                                disabled={isBusy}
+                            >
+                                <RefreshCw class={isChecking ? "mr-2 size-4 animate-spin" : "mr-2 size-4"} />
+                                Check for updates
+                            </Button>
+                        </div>
+                    {/if}
                 </div>
 
                 <div class="pt-4 text-xs text-muted-foreground">
