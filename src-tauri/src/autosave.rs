@@ -206,6 +206,26 @@ impl AutosaveRegistry {
             .is_some_and(|doc| matches!(doc.source, FileSource::Slates) && doc.is_dirty())
     }
 
+    /// Allocate a fresh content request for a close-time flush.
+    ///
+    /// This deliberately supersedes any timer-driven request already in flight:
+    /// the close path needs one request ID whose completion it can wait for, and
+    /// stale responses remain rejected by `validate_request`.
+    pub fn begin_close_content_request(&self, window_label: &str) -> Option<u64> {
+        let mut map = self.inner.lock().unwrap_or_else(|p| p.into_inner());
+        let doc = map.get_mut(window_label)?;
+
+        if !matches!(doc.source, FileSource::Slates) || !doc.is_dirty() || doc.csv_table_active {
+            return None;
+        }
+
+        let request_id = doc.allocate_request_id();
+        doc.pending_request_id = Some(request_id);
+        doc.pending_request_at = Some(Instant::now());
+        doc.save_in_flight = true;
+        Some(request_id)
+    }
+
     /// Called by the timer thread to determine which documents need saving.
     pub fn check_and_trigger_saves(&self) -> Vec<SaveAction> {
         let mut map = self.inner.lock().unwrap_or_else(|p| p.into_inner());
@@ -1025,6 +1045,51 @@ mod tests {
         registry.notify_changed("main", 1);
         // has_unsaved_changes only returns true for slates
         assert!(!registry.has_unsaved_changes("main"));
+    }
+
+    #[test]
+    fn test_close_content_request_uses_a_valid_fresh_id() {
+        let registry = AutosaveRegistry::default();
+        registry.register(
+            "main",
+            Some(PathBuf::from("/tmp/test.md")),
+            FileSource::Slates,
+            "auto".into(),
+        );
+        registry.notify_changed("main", 1);
+
+        let first_request_id = registry.begin_close_content_request("main").unwrap();
+        assert!(registry.validate_request("main", first_request_id));
+
+        let replacement_request_id = registry.begin_close_content_request("main").unwrap();
+        assert_ne!(replacement_request_id, first_request_id);
+        assert!(!registry.validate_request("main", first_request_id));
+        assert!(registry.validate_request("main", replacement_request_id));
+    }
+
+    #[test]
+    fn test_close_content_request_ignores_clean_local_and_csv_documents() {
+        let registry = AutosaveRegistry::default();
+        registry.register(
+            "main",
+            Some(PathBuf::from("/tmp/test.md")),
+            FileSource::Slates,
+            "auto".into(),
+        );
+        assert_eq!(registry.begin_close_content_request("main"), None);
+
+        registry.notify_changed("main", 1);
+        registry.set_csv_mode("main", true);
+        assert_eq!(registry.begin_close_content_request("main"), None);
+
+        registry.register(
+            "main",
+            Some(PathBuf::from("/tmp/local.txt")),
+            FileSource::Local,
+            "auto".into(),
+        );
+        registry.notify_changed("main", 1);
+        assert_eq!(registry.begin_close_content_request("main"), None);
     }
 
     #[test]

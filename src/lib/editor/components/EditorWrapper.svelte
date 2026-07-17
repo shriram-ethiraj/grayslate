@@ -381,10 +381,10 @@
         // Rust asks FE to flush before window close
         const unlistenFlushClose = await listen<{ requestId: number }>(
           "autosave://flush-before-close",
-          async () => {
+          async (event) => {
             const content = editorSession.state?.doc.toString() ?? value;
             invoke("autosave_submit_content", {
-              requestId: 0,
+              requestId: event.payload.requestId,
               generation: autosaveGeneration,
               content,
             }).catch(() => {});

@@ -33,6 +33,7 @@ fn main_capability_is_explicit_and_least_privilege() {
         "core:event:allow-listen",
         "core:event:allow-unlisten",
         "core:window:allow-close",
+        "core:window:allow-internal-toggle-maximize",
         "core:window:allow-is-maximized",
         "core:window:allow-minimize",
         "core:window:allow-start-dragging",
