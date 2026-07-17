@@ -19,6 +19,7 @@ env:
 jobs:
   verify:
     name: Verify release inputs
+    environment: release-signing
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -43,6 +44,7 @@ jobs:
 
   build:
     name: Build ${{ matrix.name }}
+    environment: release-signing
     needs: verify
     strategy:
       fail-fast: false
