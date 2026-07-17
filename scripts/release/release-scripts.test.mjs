@@ -170,3 +170,57 @@ test("release scripts stage and assemble every updater platform", async () => {
         await rm(root, { recursive: true, force: true });
     }
 });
+
+test("set-version updates every release-owned version field", async () => {
+    const root = await mkdtemp(join(tmpdir(), "grayslate-version-test-"));
+    try {
+        await fixture(root, "package.json", '{\n  "version": "0.1.0",\n}\n');
+        await fixture(
+            root,
+            "src-tauri/tauri.conf.json",
+            '{\n  "version": "0.1.0",\n}\n',
+        );
+        await fixture(root, "src-tauri/Cargo.toml", '[package]\nversion = "0.1.0"\n');
+        await fixture(
+            root,
+            "Cargo.lock",
+            '[[package]]\nname = "Grayslate"\nversion = "0.1.0"\n',
+        );
+        await fixture(
+            root,
+            "packaging/linux/app.grayslate.Grayslate.metainfo.xml",
+            "<releases>\n    <release version=\"0.1.0\" date=\"2026-01-01\" />\n</releases>\n",
+        );
+
+        await run("set-version.mjs", [
+            "0.1.2",
+            "--root",
+            root,
+            "--date",
+            "2026-07-17",
+        ]);
+
+        assert.match(await readFile(join(root, "package.json"), "utf8"), /"version": "0\.1\.2"/u);
+        assert.match(
+            await readFile(join(root, "src-tauri/tauri.conf.json"), "utf8"),
+            /"version": "0\.1\.2"/u,
+        );
+        assert.match(
+            await readFile(join(root, "src-tauri/Cargo.toml"), "utf8"),
+            /version = "0\.1\.2"/u,
+        );
+        assert.match(
+            await readFile(join(root, "Cargo.lock"), "utf8"),
+            /name = "Grayslate"\nversion = "0\.1\.2"/u,
+        );
+        assert.match(
+            await readFile(
+                join(root, "packaging/linux/app.grayslate.Grayslate.metainfo.xml"),
+                "utf8",
+            ),
+            /<release version="0\.1\.2" date="2026-07-17" \/>/u,
+        );
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
