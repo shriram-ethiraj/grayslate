@@ -1,9 +1,14 @@
 import fs from "node:fs";
-import { browser, expect } from "@wdio/globals";
+import path from "node:path";
+import { $, browser, expect } from "@wdio/globals";
 import {
+  clickTestId,
   editorContent,
   ensureSidebarOpen,
   focusEditor,
+  grantSavePath,
+  invokeInApp,
+  newSlate,
   openExternalFixture,
   pressMod,
   setFilterTab,
@@ -12,6 +17,7 @@ import {
   waitForDetectedLanguage,
   waitForFile,
 } from "../helpers/app.js";
+import { externalRoot } from "../helpers/app.js";
 
 // Opening a file that lives outside the notes root exercises the real
 // `read_file_content` + authorization path (via the `e2e_open_path` shim) and
@@ -62,5 +68,45 @@ describe("Act 2 — external / local files", () => {
     await (await sidebarCard(externalPath)).waitForDisplayed();
     await setFilterTab("unified");
     await (await sidebarCard(externalPath)).waitForDisplayed();
+  });
+
+  it("writes a Save-As grant to a chosen path and opens the new authorized document", async () => {
+    const target = path.join(externalRoot, "saved-as.py");
+    const descriptor = await grantSavePath(target);
+    expect(descriptor).not.toBeNull();
+    if (!descriptor) throw new Error("Save-As did not return a document grant.");
+
+    const content = "def saved_as():\n    return True\n";
+    await invokeInApp("write_file_content", {
+      documentId: descriptor.documentId,
+      documentGeneration: descriptor.generation,
+      content,
+    });
+    await waitForFile(target, (value) => value === content);
+    expect(fs.readFileSync(target, "utf8")).toBe(content);
+
+    await invokeInApp("e2e_open_path", { path: target });
+    await browser.waitUntil(async () => (await editorContent()).getText().then((value) => value.includes("saved_as")));
+  });
+
+  it("guards unsaved local changes and supports cancel and discard", async () => {
+    await focusEditor();
+    await typeText("# unsaved guard\n");
+    await newSlate();
+
+    const dialog = await $("[data-testid='unsaved-changes-dialog']");
+    await dialog.waitForDisplayed();
+    await clickTestId("unsaved-cancel");
+    await dialog.waitForDisplayed({ reverse: true });
+    expect((await (await editorContent()).getText())).toContain("unsaved guard");
+
+    await newSlate();
+    await dialog.waitForDisplayed();
+    await clickTestId("unsaved-discard");
+    await dialog.waitForDisplayed({ reverse: true });
+    const title = await $("[data-testid='title-file-name']");
+    await browser.waitUntil(async () => (await title.getAttribute("title")) === "New Slate", {
+      timeoutMsg: "Discarding changes did not finish opening a new slate.",
+    });
   });
 });

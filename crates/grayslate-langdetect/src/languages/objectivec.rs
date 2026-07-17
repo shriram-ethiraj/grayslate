@@ -4,7 +4,9 @@ use super::ContentFamily;
 pub fn definition()-> LanguageDefinition {
     LanguageDefinition {
         name: "objectivec",
-        extensions: &[".m", ".mm"],
+        // `.mm` is Objective-C++ and must not be claimed here: extension
+        // detection is deterministic and uses the first matching definition.
+        extensions: &[".m"],
         filenames: &[],
         filename_patterns: &[],
         shebangs: &[],

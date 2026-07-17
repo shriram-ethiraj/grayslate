@@ -43,6 +43,7 @@
 
 {#if visible}
     <div
+        data-testid="editor-loader"
         class="absolute inset-0 z-50 flex flex-col items-center justify-center bg-background/72 backdrop-blur-[2px]"
         aria-live="polite"
         aria-label={message}
@@ -98,6 +99,7 @@
                     {/if}
                     {#if onCancel}
                         <Button
+                            data-testid="editor-loader-cancel"
                             variant="ghost"
                             size="sm"
                             onclick={handleCancel}

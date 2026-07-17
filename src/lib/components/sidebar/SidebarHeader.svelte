@@ -187,6 +187,7 @@
                 <Button
                     variant="ghost"
                     size="icon-xs"
+                    data-testid="sidebar-search-case"
                     aria-pressed={searchOptions.caseSensitive}
                     title="Match Case"
                     onclick={() => { searchOptions.caseSensitive = !searchOptions.caseSensitive; }}
@@ -196,6 +197,7 @@
                 <Button
                     variant="ghost"
                     size="icon-xs"
+                    data-testid="sidebar-search-word"
                     aria-pressed={searchOptions.wholeWord}
                     title="Match Whole Word"
                     onclick={() => { searchOptions.wholeWord = !searchOptions.wholeWord; }}
@@ -205,6 +207,7 @@
                 <Button
                     variant="ghost"
                     size="icon-xs"
+                    data-testid="sidebar-search-regex"
                     aria-pressed={searchOptions.useRegex}
                     title="Use Regular Expression"
                     onclick={() => { searchOptions.useRegex = !searchOptions.useRegex; }}
@@ -229,7 +232,7 @@
             <Select.Content class="border-sidebar-border bg-sidebar text-sidebar-foreground">
                 {#each sortOptions as option (option.value)}
                     {@const OptionIcon = option.icon}
-                    <Select.Item value={option.value} label={option.label}>
+                    <Select.Item data-testid={`sidebar-sort-${option.value}`} value={option.value} label={option.label}>
                         <span class="flex items-center gap-2">
                             <OptionIcon class="size-4" />
                             <span>{option.label}</span>

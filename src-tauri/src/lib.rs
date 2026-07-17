@@ -43,6 +43,11 @@ pub fn run() {
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     let builder = builder.plugin(tauri_plugin_window_state::Builder::default().build());
 
+    // Test-only WebdriverIO bridge. The dependency, plugin commands, and ACL
+    // grants are absent unless the dedicated E2E feature is enabled.
+    #[cfg(feature = "e2e")]
+    let builder = builder.plugin(tauri_plugin_wdio::init());
+
     // Attach the native macOS menu bar and its event handler only on macOS.
     // On Windows/Linux the existing in-window shadcn Menubar is used instead.
     #[cfg(target_os = "macos")]

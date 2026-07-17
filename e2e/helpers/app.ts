@@ -12,8 +12,15 @@ export const externalRoot = path.join(homeDirectory, "external");
 const CONTROL = "\uE009";
 const META = "\uE03D";
 const ENTER = "\uE007";
+const SHIFT = "\uE008";
+const ALT = "\uE00A";
+const HOME = "\uE011";
+const ARROW_RIGHT = "\uE014";
+const ARROW_DOWN = "\uE015";
+const DELETE = "\uE017";
 /** The platform modifier the app binds "Mod+" shortcuts to. */
 export const MOD = process.platform === "darwin" ? META : CONTROL;
+export { ALT, ARROW_DOWN, ARROW_RIGHT, DELETE, ENTER, HOME, SHIFT };
 
 // ---------------------------------------------------------------------------
 // Tauri IPC from the webview
@@ -92,12 +99,47 @@ export async function focusEditor(): Promise<void> {
  * drop repeated characters; this preserves the exact bytes.
  */
 export async function typeText(text: string): Promise<void> {
-  const action = browser.action("key");
-  for (const character of text) {
-    const key = character === "\n" ? ENTER : character;
-    action.down(key).pause(25).up(key).pause(25);
+  // Keep action payloads small. WebKitWebDriver can reorder events in a very
+  // long single action sequence under load, which corrupts otherwise valid
+  // CodeMirror input while still reporting success.
+  const batchSize = 24;
+  for (let start = 0; start < text.length; start += batchSize) {
+    const action = browser.action("key");
+    for (const character of text.slice(start, start + batchSize)) {
+      const key = character === "\n" ? ENTER : character;
+      action.down(key).pause(25).up(key).pause(25);
+    }
+    await action.perform();
   }
-  await action.perform();
+}
+
+/** Replace the full CodeMirror document through the same keyboard path a user uses. */
+export async function replaceEditorText(text: string): Promise<void> {
+  await focusEditor();
+  await pressMod("a");
+  await typeText(text);
+  await waitForEditorText((value) => value === text);
+}
+
+/** Read CodeMirror's rendered document text, preserving line breaks. */
+export async function readEditorText(): Promise<string> {
+  return browser.execute(() => {
+    const content = document.querySelector<HTMLElement>("[data-testid='editor'] .cm-content");
+    if (!content) throw new Error("CodeMirror content element is missing.");
+    return content.innerText.replace(/\n$/, "");
+  });
+}
+
+/** Wait until the live CodeMirror document satisfies a predicate. */
+export async function waitForEditorText(
+  predicate: (text: string) => boolean,
+  timeoutMs = 10_000,
+): Promise<void> {
+  await browser.waitUntil(async () => predicate(await readEditorText()), {
+    timeout: timeoutMs,
+    interval: 200,
+    timeoutMsg: "The editor content did not reach the expected state.",
+  });
 }
 
 /** Press the platform modifier plus a key, e.g. `pressMod("s")` for Save. */
@@ -119,9 +161,9 @@ export function languageMode(): ReturnType<typeof $> {
 
 /** Wait until content detection settles on `lang` (the `Auto (...)` value). */
 export async function waitForDetectedLanguage(lang: string, timeoutMs = 10_000): Promise<void> {
-  const el = await languageMode();
-  await el.waitForDisplayed();
-  await browser.waitUntil(async () => (await el.getAttribute("data-detected-language")) === lang, {
+  await (await languageMode()).waitForDisplayed();
+  await browser.waitUntil(async () =>
+    (await languageMode()).getAttribute("data-detected-language").then((value) => value === lang), {
     timeout: timeoutMs,
     interval: 250,
     timeoutMsg: `Detected language never became '${lang}'.`,
@@ -130,8 +172,8 @@ export async function waitForDetectedLanguage(lang: string, timeoutMs = 10_000):
 
 /** Wait until the effective (saved-file) language mode becomes `lang`. */
 export async function waitForLanguageMode(lang: string, timeoutMs = 10_000): Promise<void> {
-  const el = await languageMode();
-  await browser.waitUntil(async () => (await el.getAttribute("data-language-mode")) === lang, {
+  await browser.waitUntil(async () =>
+    (await languageMode()).getAttribute("data-language-mode").then((value) => value === lang), {
     timeout: timeoutMs,
     interval: 250,
     timeoutMsg: `Language mode never became '${lang}'.`,
@@ -150,6 +192,14 @@ export function provisionExternalFixture(name: string): string {
   return dest;
 }
 
+/** Write a generated fixture outside the notes root. */
+export function provisionExternalText(name: string, content: string): string {
+  fs.mkdirSync(externalRoot, { recursive: true });
+  const dest = path.join(externalRoot, name);
+  fs.writeFileSync(dest, content, "utf8");
+  return dest;
+}
+
 /**
  * Open a fixture as an external local file through the real authorized-open
  * path (`e2e_open_path` grants + emits the production open event). Returns the
@@ -157,6 +207,13 @@ export function provisionExternalFixture(name: string): string {
  */
 export async function openExternalFixture(name: string): Promise<string> {
   const dest = provisionExternalFixture(name);
+  await invokeInApp<DocumentDescriptor | null>("e2e_open_path", { path: dest });
+  return dest;
+}
+
+/** Provision and open generated text through the real authorized-open path. */
+export async function openExternalText(name: string, content: string): Promise<string> {
+  const dest = provisionExternalText(name, content);
   await invokeInApp<DocumentDescriptor | null>("e2e_open_path", { path: dest });
   return dest;
 }
@@ -211,11 +268,11 @@ export function writeLargeCsv(filePath: string, rows: number): void {
 
 /** Ensure the library sidebar is expanded (toggles with Mod+B if collapsed). */
 export async function ensureSidebarOpen(): Promise<void> {
-  const search = await $("[data-testid='sidebar-search-input']");
-  const open = await search.isDisplayed().catch(() => false);
+  const tab = await $("[data-testid='sidebar-tab-unified']");
+  const open = await tab.isClickable().catch(() => false);
   if (!open) {
-    await pressMod("b");
-    await search.waitForDisplayed();
+    await clickTestId("sidebar-toggle");
+    await tab.waitForClickable();
   }
 }
 
@@ -236,13 +293,23 @@ export async function openSidebarCard(filePath: string): Promise<void> {
   await openButton.click();
 }
 
+/** Visible sidebar paths in their current rendered order. */
+export async function readSidebarPaths(): Promise<string[]> {
+  return browser.execute(() =>
+    Array.from(document.querySelectorAll<HTMLElement>("[data-card-path]"))
+      .filter((card) => card.offsetParent !== null)
+      .map((card) => card.dataset.cardPath ?? "")
+      .filter(Boolean),
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Transformations
 // ---------------------------------------------------------------------------
 
 /** Open the transformations palette and run one action by id. */
-export async function runTransform(actionId: string): Promise<void> {
-  await focusEditor();
+export async function runTransform(actionId: string, focus = true): Promise<void> {
+  if (focus) await focusEditor();
   await pressMod("k");
   const palette = await $("[data-testid='transformations-palette']");
   await palette.waitForDisplayed();
@@ -267,5 +334,5 @@ export async function exitCsvTable(): Promise<void> {
 
 /** A CSV grid cell at (row, col); col -1 is the row-number gutter. */
 export function csvCell(row: number, col: number): ReturnType<typeof $> {
-  return $(`.csv-cell[data-row='${row}'][data-col='${col}']`);
+  return $(`[data-row='${row}'][data-col='${col}']`);
 }

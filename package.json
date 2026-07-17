@@ -26,6 +26,7 @@
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
+    "build:e2e": "vite build --mode e2e",
     "preview": "vite preview",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
@@ -106,6 +107,7 @@
     "@wdio/mocha-framework": "^9.29.1",
     "@wdio/spec-reporter": "^9.29.1",
     "@wdio/tauri-service": "1.1.0",
+    "@wdio/tauri-plugin": "1.1.0",
     "@types/lodash-es": "^4.17.12",
     "bits-ui": "^2.18.1",
     "clsx": "^2.1.1",
