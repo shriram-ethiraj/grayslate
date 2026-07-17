@@ -51,5 +51,7 @@ const socialImage = new URL(image, site.url);
     <a class="skip-link" href="#main-content">Skip to content</a>
     <slot />
     <script is:inline type="module" src="/site.js"></script>
+    <script is:inline defer src="https://static.cloudflareinsights.com/beacon.min.js"
+      data-cf-beacon='{"token": "1c4655754b014bec998142cc39d75b51"}'></script>
   </body>
 </html>
