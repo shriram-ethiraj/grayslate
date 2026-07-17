@@ -417,7 +417,9 @@
   // Keep the macOS native "Save" menu item enabled state in sync with isDirty.
   $effect(() => {
     if (!isMac) return;
-    invoke("set_menu_save_enabled", { enabled: editorState.isDirty });
+    invoke("set_menu_save_enabled", {
+      enabled: editorState.isDirty && !editorState.saveInProgress,
+    });
   });
 </script>
 
@@ -439,11 +441,19 @@
           <Menubar.Shortcut>{formatForDisplay("Mod+O")}</Menubar.Shortcut>
         </Menubar.Item>
         <Menubar.Separator />
-        <Menubar.Item data-testid="menu-save" onclick={handleSave} disabled={!editorState.isDirty}>
+        <Menubar.Item
+          data-testid="menu-save"
+          onclick={handleSave}
+          disabled={!editorState.isDirty || editorState.saveInProgress}
+        >
           Save
           <Menubar.Shortcut>{formatForDisplay("Mod+S")}</Menubar.Shortcut>
         </Menubar.Item>
-        <Menubar.Item data-testid="menu-save-as" onclick={handleSaveAs}>
+        <Menubar.Item
+          data-testid="menu-save-as"
+          onclick={handleSaveAs}
+          disabled={editorState.saveInProgress}
+        >
           Save As...
           <Menubar.Shortcut>{formatForDisplay("Mod+Shift+S")}</Menubar.Shortcut>
         </Menubar.Item>

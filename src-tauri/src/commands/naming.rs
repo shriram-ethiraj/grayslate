@@ -16,10 +16,14 @@
 use std::path::PathBuf;
 
 use crate::{
-    autosave::atomic_create_to_disk,
-    document::{canonical_notes_root, DocumentRegistry, DocumentRights},
+    autosave::{atomic_create_to_disk, autosave_write_to_disk},
+    document::{
+        canonical_notes_root, revalidate_source_authority, DocumentAccess, DocumentRegistry,
+        DocumentRights,
+    },
     filesystem::{sanitize_filename, unique_path_in_dir},
     naming::{fallback_stem, language_to_extension, suggest_stem_auto},
+    save_coordinator::SaveCoordinator,
     storage::{path_to_display_string, AppStorage, FileSource},
 };
 
@@ -67,14 +71,76 @@ pub async fn save_untitled_slate(
     storage: tauri::State<'_, AppStorage>,
     documents: tauri::State<'_, DocumentRegistry>,
     autosave: tauri::State<'_, crate::autosave::AutosaveRegistry>,
+    save_coordinator: tauri::State<'_, SaveCoordinator>,
     window: tauri::Window,
     content: String,
     language_hint: String,
 ) -> Result<SaveResult, String> {
+    let untitled_lock = save_coordinator.for_untitled_window(window.label());
+    let _untitled_guard = untitled_lock.lock().await;
+
+    // Autosave may have completed the first save while this explicit request
+    // was waiting. Reuse that authorized document and persist the freshest
+    // manual-save content instead of creating a suffixed duplicate.
+    if let Some(info) = autosave.get_document_info(window.label()) {
+        if let Some(path) = info.path {
+            if info.source != FileSource::Slates {
+                return Err("The active document is no longer an untitled slate.".to_string());
+            }
+            let document_id = info
+                .document_id
+                .ok_or_else(|| "Saved slate authorization is missing.".to_string())?;
+            let document_generation = info
+                .document_generation
+                .ok_or_else(|| "Saved slate authorization is missing.".to_string())?;
+            let path_lock = save_coordinator.for_path(&path);
+            let _path_guard = path_lock.lock().await;
+            let authorized = documents.resolve(
+                window.label(),
+                &document_id,
+                document_generation,
+                DocumentAccess::Write,
+            )?;
+            revalidate_source_authority(&app, storage.inner(), &authorized)?;
+            if authorized.path != path || authorized.source != FileSource::Slates {
+                return Err("Saved slate authorization changed during save.".to_string());
+            }
+
+            let path_for_write = path.clone();
+            let content_for_write = content.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                autosave_write_to_disk(&path_for_write, &content_for_write)
+            })
+            .await
+            .map_err(|error| format!("Failed to join file write task: {error}"))??;
+
+            storage.record_file_update(&path, FileSource::Slates)?;
+            autosave.register_authorized(
+                window.label(),
+                path.clone(),
+                FileSource::Slates,
+                language_hint.clone(),
+                document_id.clone(),
+                document_generation,
+            );
+            let (_, effective_language) = suggest_stem_auto(&content, &language_hint, None);
+            let _ = app.emit(RECENT_FILES_UPDATED_EVENT, "saved");
+            return Ok(SaveResult {
+                path: path_to_display_string(&path),
+                authorized_path: path,
+                document_id,
+                document_generation,
+                source: FileSource::Slates.as_str().to_string(),
+                detected_language: effective_language,
+            });
+        }
+    }
+
     let result = save_new_slate_to_disk(
         &app,
         storage.inner(),
         documents.inner(),
+        save_coordinator.inner(),
         window.label(),
         &content,
         &language_hint,
@@ -98,6 +164,7 @@ pub async fn save_new_slate_to_disk(
     app: &tauri::AppHandle,
     storage: &AppStorage,
     documents: &DocumentRegistry,
+    save_coordinator: &SaveCoordinator,
     window_label: &str,
     content: &str,
     language_hint: &str,
@@ -115,21 +182,35 @@ pub async fn save_new_slate_to_disk(
         format!("{}.{}", stem, extension)
     };
     let base_name = sanitize_filename(&base_name);
-    let target_path = unique_path_in_dir(&notes_root, &base_name);
-    let granted = documents.grant_new(
-        window_label,
-        &target_path,
-        FileSource::Slates,
-        DocumentRights::tracked(FileSource::Slates),
-    )?;
+    let (target_path, granted, _path_guard) = loop {
+        let candidate = unique_path_in_dir(&notes_root, &base_name);
+        let path_lock = save_coordinator.for_path(&candidate);
+        let path_guard = path_lock.lock_owned().await;
 
-    let path_for_write = target_path.clone();
-    let content_for_write = content.to_string();
-    tauri::async_runtime::spawn_blocking(move || {
-        atomic_create_to_disk(&path_for_write, &content_for_write)
-    })
-    .await
-    .map_err(|e| format!("Failed to join file write task: {}", e))??;
+        // A different window may have created the same content-derived name
+        // while this operation waited. Retry with the newly deduplicated path
+        // so every physical target is protected by its own lock.
+        if unique_path_in_dir(&notes_root, &base_name) != candidate {
+            drop(path_guard);
+            continue;
+        }
+
+        let granted = documents.grant_new(
+            window_label,
+            &candidate,
+            FileSource::Slates,
+            DocumentRights::tracked(FileSource::Slates),
+        )?;
+
+        let path_for_write = candidate.clone();
+        let content_for_write = content.to_string();
+        tauri::async_runtime::spawn_blocking(move || {
+            atomic_create_to_disk(&path_for_write, &content_for_write)
+        })
+        .await
+        .map_err(|e| format!("Failed to join file write task: {}", e))??;
+        break (candidate, granted, path_guard);
+    };
 
     let created = documents.mark_created(window_label, &granted.id, granted.generation)?;
     storage.record_file_update(&target_path, FileSource::Slates)?;

@@ -966,6 +966,7 @@ pub async fn write_file_content(
     storage: tauri::State<'_, AppStorage>,
     documents: tauri::State<'_, DocumentRegistry>,
     autosave: tauri::State<'_, crate::autosave::AutosaveRegistry>,
+    save_coordinator: tauri::State<'_, crate::save_coordinator::SaveCoordinator>,
     window: tauri::Window,
     document_id: String,
     document_generation: u64,
@@ -981,6 +982,23 @@ pub async fn write_file_content(
         DocumentAccess::Write,
     )?;
     let target_path = document.path.clone();
+    let save_lock = save_coordinator.for_path(&target_path);
+    let _save_guard = save_lock.lock().await;
+
+    // The document may have been renamed, revoked, or replaced while this
+    // request waited behind another writer to the same physical path.
+    let document = resolve_document(
+        &app,
+        storage.inner(),
+        documents.inner(),
+        window.label(),
+        &document_id,
+        document_generation,
+        DocumentAccess::Write,
+    )?;
+    if document.path != target_path {
+        return Err("Document path changed while waiting to save.".to_string());
+    }
 
     // Durable, atomic save via the shared temp-file + rename helper so a crash
     // mid-write cannot truncate or corrupt the destination file.

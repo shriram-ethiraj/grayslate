@@ -10,6 +10,7 @@ pub mod findstats;
 pub mod markdown_preview;
 pub mod menu;
 pub mod naming;
+pub mod save_coordinator;
 pub mod search;
 pub mod storage;
 pub mod update_policy;
@@ -69,6 +70,7 @@ pub fn run() {
             app.manage(commands::markdown::MarkdownPreviewState::default());
             app.manage(commands::csv::CsvSessionRegistry::default());
             app.manage(autosave::AutosaveRegistry::default());
+            app.manage(save_coordinator::SaveCoordinator::default());
             app.manage(commands::update::UpdateOperationState::default());
 
             // Spawn the background autosave timer thread.

@@ -76,6 +76,8 @@ export const editorState = $state<{
     isUntitledDocument: boolean;
     /** True only when the active local file has unsaved changes. */
     isDirty: boolean;
+    /** True while a Save or Save As action (including any trailing save) is running. */
+    saveInProgress: boolean;
     /** Absolute path of the file currently open in the editor, or undefined for untitled documents. */
     currentFilePath: string | undefined;
     /** Opaque Rust-issued authorization for the active saved document. */
@@ -129,6 +131,7 @@ export const editorState = $state<{
     },
     isUntitledDocument: true,
     isDirty: false,
+    saveInProgress: false,
     currentFilePath: undefined,
     currentDocumentId: undefined,
     currentDocumentGeneration: undefined,
