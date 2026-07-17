@@ -37,6 +37,12 @@ if (tauriConfig.identifier !== "app.grayslate.Grayslate") {
     throw new Error("The release identifier must be app.grayslate.Grayslate.");
 }
 
+if (tauriConfig.mainBinaryName !== "Grayslate") {
+    throw new Error(
+        "mainBinaryName must be Grayslate so universal macOS bundles do not select an auxiliary Cargo binary.",
+    );
+}
+
 const updater = tauriConfig.plugins?.updater;
 const publicKey = updater?.pubkey;
 if (
