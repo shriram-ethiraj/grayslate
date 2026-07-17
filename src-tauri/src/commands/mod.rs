@@ -1,6 +1,8 @@
 pub mod autosave;
 pub mod csv;
 pub mod detection;
+#[cfg(feature = "e2e")]
+pub mod e2e;
 pub mod external;
 pub mod file;
 pub mod findstats;

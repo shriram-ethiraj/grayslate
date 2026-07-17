@@ -366,6 +366,7 @@
 <!-- svelte-ignore a11y_no_noninteractive_tabindex a11y_no_static_element_interactions -->
 <div
   bind:this={previewEl}
+  data-testid="markdown-preview"
   use:hotkey={previewHotkeys}
   class="markdown-preview selectable flex-1 min-h-0 w-full min-w-0 bg-background overflow-y-auto overscroll-none p-8 prose prose-sm dark:prose-invert max-w-none prose-pre:bg-[#ffffff] prose-pre:text-[#212121] dark:prose-pre:bg-[#23262E] dark:prose-pre:text-[#D5CED9] prose-code:text-[#212121] dark:prose-code:text-[#D5CED9] prose-pre:border prose-pre:border-border prose-pre:shadow-sm"
   style={`font-size: ${editorState.fontSize}px;`}

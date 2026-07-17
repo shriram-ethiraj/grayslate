@@ -39,7 +39,7 @@
         if (!open && !isDeleting) closeAppDialog();
     }}
 >
-    <Dialog.Content class="sm:max-w-[26rem]">
+    <Dialog.Content data-testid="delete-file-dialog" class="sm:max-w-[26rem]">
         <Dialog.Header>
             <Dialog.Title>Delete file?</Dialog.Title>
             <Dialog.Description>
@@ -61,6 +61,7 @@
                 variant="outline"
                 onclick={closeAppDialog}
                 disabled={isDeleting}
+                data-testid="delete-cancel"
             >
                 Cancel
             </Button>
@@ -68,6 +69,7 @@
                 variant="destructive"
                 onclick={() => void handleDelete()}
                 disabled={isDeleting}
+                data-testid="delete-confirm"
             >
                 {#if isDeleting}
                     Deleting…

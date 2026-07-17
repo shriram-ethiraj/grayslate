@@ -135,6 +135,7 @@
     }}
 >
     <Dialog.Content
+        data-testid="rename-file-dialog"
         class="sm:max-w-[25rem]"
         onOpenAutoFocus={(event) => {
             event.preventDefault();
@@ -183,6 +184,7 @@
                     class="w-full gap-1.5 sm:mr-auto sm:w-auto"
                     disabled={isRenaming || isGenerating}
                     onclick={() => void handleGenerateName()}
+                    data-testid="rename-generate"
                 >
                     <MdiLightbulbAutomaticOutline class="size-4" />
                     Generate name
@@ -192,10 +194,11 @@
                     variant="outline"
                     onclick={closeAppDialog}
                     disabled={isRenaming || isGenerating}
+                    data-testid="rename-cancel"
                 >
                     Cancel
                 </Button>
-                <Button type="submit" disabled={isRenaming || isGenerating}>
+                <Button type="submit" disabled={isRenaming || isGenerating} data-testid="rename-submit">
                     {isRenaming ? "Renaming…" : "Rename"}
                 </Button>
             </Dialog.Footer>

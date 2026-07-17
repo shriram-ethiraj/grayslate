@@ -83,6 +83,7 @@
 <!-- Language picker dialog -->
 <Dialog.Root bind:open>
     <Dialog.Content
+        data-testid="language-picker-dialog"
         class="p-0 sm:max-w-[560px] gap-0"
         showCloseButton={false}
     >
@@ -96,6 +97,7 @@
             <!-- Auto Detect — always visible, outside the scrollable/filtered list -->
             <div class="px-1 pt-1">
                 <button
+                    data-testid="language-item-auto"
                     onclick={() => selectLanguage("auto")}
                     class="flex w-full items-center gap-2 rounded-sm px-2 py-2 text-sm cursor-pointer
                            hover:bg-accent hover:text-accent-foreground transition-colors
@@ -132,6 +134,7 @@
                     {#each languageItems as lang (lang.value)}
                         {@const isActive = lang.value === language}
                         <Command.Item
+                            data-testid={`language-item-${lang.value}`}
                             value={lang.value}
                             keywords={[lang.label, lang.value]}
                             onSelect={() => selectLanguage(lang.value)}

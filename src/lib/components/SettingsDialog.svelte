@@ -57,7 +57,7 @@
         if (!open) closeAppDialog();
     }}
 >
-    <Dialog.Content class="gap-0 overflow-hidden p-0 sm:max-w-[46rem]">
+    <Dialog.Content data-testid="settings-dialog" class="gap-0 overflow-hidden p-0 sm:max-w-[46rem]">
         <!-- Accessible name/description; the visible layout is custom. -->
         <Dialog.Header class="sr-only">
             <Dialog.Title>Settings</Dialog.Title>

@@ -19,6 +19,12 @@ default-run = "Grayslate"
 name = "grayslate_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[features]
+# Compiles the end-to-end test-only IPC shims (`commands/e2e.rs`) and enables
+# the runtime capability that grants them (`tauri/dynamic-acl`). Enabled only by
+# `pnpm run e2e:build`; a distributed release build must never set this feature.
+e2e = ["tauri/dynamic-acl"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

@@ -1,0 +1,6 @@
+{
+  "identifier": "e2e",
+  "description": "Test-only capability granting the e2e fixture open/save shims. Added at runtime under `--features e2e` and never included in a release build.",
+  "windows": ["main"],
+  "permissions": ["allow-e2e-open-path", "allow-e2e-save-path"]
+}

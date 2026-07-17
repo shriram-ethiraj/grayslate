@@ -146,6 +146,7 @@
                     variant="ghost"
                     size="sm"
                     class="gap-1.5 px-2 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                    data-testid="sidebar-clear-search"
                     aria-label="Clear search"
                     title="Clear search and reset options"
                     onclick={() => {
@@ -178,6 +179,7 @@
             <Input
                 bind:ref={searchInput}
                 bind:value={query}
+                data-testid="sidebar-search-input"
                 placeholder="Search library"
                 class="border-sidebar-border bg-sidebar pe-[5.75rem] ps-9 text-sm shadow-none placeholder:text-muted-foreground focus-visible:border-sidebar-ring focus-visible:ring-sidebar-ring"
             />
@@ -214,6 +216,7 @@
 
         <Select.Root type="single" items={sortOptions} bind:value={sortMode}>
             <Select.Trigger
+                data-testid="sidebar-sort-trigger"
                 aria-label={`Sort library: ${activeSortOption.label}`}
                 title={`Sort library: ${activeSortOption.label}`}
                 class="h-9 w-9 justify-center gap-0 border-sidebar-border bg-sidebar px-0 text-sidebar-foreground shadow-none focus-visible:border-sidebar-ring focus-visible:ring-sidebar-ring [&>svg:last-child]:hidden"
@@ -246,6 +249,7 @@
                 {@const Icon = option.icon}
                 <Tabs.Trigger
                     value={option.value}
+                    data-testid={`sidebar-tab-${option.value}`}
                     class="min-w-0 gap-1 overflow-hidden px-2 text-xs text-muted-foreground data-[state=active]:bg-sidebar data-[state=active]:text-sidebar-foreground"
                     title={option.title}
                 >

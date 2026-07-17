@@ -50,6 +50,7 @@
   <div class="flex items-center h-full">
     {#if isCsvTableActive}
       <div
+        data-testid="status-csv-info"
         class="flex items-center gap-3 px-2 h-full cursor-default border-r border-border/40"
       >
         <span>{csvInfo.rows} rows × {csvInfo.cols} cols</span>
@@ -65,10 +66,14 @@
       </div>
     {:else}
       <div class="flex items-center gap-2 h-full px-2 cursor-default">
-        <span>Length {documentLength}, Lines {lineCount}</span>
+        <span
+          data-testid="status-length"
+          data-doc-length={documentLength}
+          data-line-count={lineCount}>Length {documentLength}, Lines {lineCount}</span>
         <span class="text-muted-foreground">|</span>
         <button
           type="button"
+          data-testid="status-goto-line"
           title="Go to line"
           class="hover:bg-muted/50 hover:text-foreground h-full px-1.5 transition-colors cursor-pointer"
           onclick={() => onGoToLine()}
@@ -81,6 +86,7 @@
         <span class="text-muted-foreground">|</span>
         <button
           type="button"
+          data-testid="status-indent"
           title="Select Indentation"
           class="hover:bg-muted/50 hover:text-foreground h-full px-1.5 transition-colors cursor-pointer"
           onclick={() => onOpenIndentPicker()}

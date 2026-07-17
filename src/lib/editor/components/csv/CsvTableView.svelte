@@ -542,6 +542,7 @@
     container={wrapperRef}
   />
   <div
+    data-testid="csv-table"
     class="csv-table-wrapper"
     class:csv-table-refreshing={refreshing}
     style={`--csv-row-font-size: ${csvRowFontSize}px; --csv-header-font-size: ${csvHeaderFontSize}px; --csv-index-font-size: ${csvIndexFontSize}px; --csv-row-height: ${csvRowHeight}px; --csv-header-height: ${csvHeaderHeight}px; --csv-overlay-font-size: ${csvOverlayFontSize}px;`}

@@ -102,14 +102,14 @@
 </script>
 
 <Dialog.Root bind:open>
-  <Dialog.Content class="sm:max-w-88" showCloseButton={true}>
+  <Dialog.Content data-testid="indent-picker" class="sm:max-w-88" showCloseButton={true}>
     <div class="grid gap-4">
       <div class="grid gap-2">
         <label class="text-sm font-medium text-foreground" for="indent-mode-select">
           Indentation
         </label>
         <Select.Root type="single" value={indentSelection.indentMode} onValueChange={handleModeChange}>
-          <Select.Trigger class="w-full" id="indent-mode-select">
+          <Select.Trigger data-testid="indent-mode-trigger" class="w-full" id="indent-mode-select">
             {activeModeLabel}
           </Select.Trigger>
           <Select.Content>
@@ -132,7 +132,7 @@
             value={String(indentSelection.indentSize)}
             onValueChange={handleSizeChange}
           >
-            <Select.Trigger class="w-full" id="indent-size-select">
+            <Select.Trigger data-testid="indent-size-trigger" class="w-full" id="indent-size-select">
               {indentSelection.indentSize}
             </Select.Trigger>
             <Select.Content>

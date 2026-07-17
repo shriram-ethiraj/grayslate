@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { browser, expect } from "@wdio/globals";
-import { sandboxRoot } from "../helpers/sandbox.js";
+import { sandboxRoot } from "../../helpers/sandbox.js";
 
 interface TauriInternals {
   invoke<T>(command: string, args?: Record<string, unknown>): Promise<T>;

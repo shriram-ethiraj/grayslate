@@ -56,7 +56,20 @@ if (!fs.existsSync(appBinaryPath)) {
 export const config: WebdriverIO.Config = {
   runner: "local",
   rootDir: process.cwd(),
-  specs: ["./e2e/specs/**/*.e2e.ts"],
+  // Explicit ordering is authoritative: WDIO runs these entries top-to-bottom.
+  // A single glob would sort alphabetically and break the narrative order.
+  //
+  // The functional story shares one native session and one sandbox (wiped once
+  // at config load), so earlier specs seed state that later specs build on.
+  // Acts 02–10 slot into the numbered gap as they are implemented.
+  // Security regressions run last on the populated sandbox; each is
+  // self-contained and clean-state-independent.
+  specs: [
+    "./e2e/specs/01-first-run.e2e.ts",
+    "./e2e/specs/02-external-files.e2e.ts",
+    "./e2e/specs/11-keyboard-shortcuts.e2e.ts",
+    "./e2e/specs/security/**/*.e2e.ts",
+  ],
   maxInstances: 1,
   // Native action commands are verbose at `info`; warnings and failures still
   // remain visible while keeping local/CI output readable.

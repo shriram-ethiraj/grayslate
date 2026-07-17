@@ -78,6 +78,14 @@ pub fn run() {
 
             #[cfg(target_os = "macos")]
             window::apply_macos_window_styling(app);
+
+            // Test-only: grant the e2e fixture open/save shims at runtime. This
+            // capability lives outside the auto-scanned `capabilities/` dir and
+            // is compiled + added only under `--features e2e`, so a release
+            // build never references it or its permissions.
+            #[cfg(feature = "e2e")]
+            app.add_capability(include_str!("../e2e-capabilities/e2e.json"))?;
+
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -155,6 +163,10 @@ pub fn run() {
             commands::autosave::autosave_flush_before_switch,
             commands::autosave::autosave_set_csv_mode,
             commands::autosave::autosave_set_language_hint,
+            #[cfg(feature = "e2e")]
+            commands::e2e::e2e_open_path,
+            #[cfg(feature = "e2e")]
+            commands::e2e::e2e_save_path,
             menu::set_menu_word_wrap,
             menu::set_menu_save_enabled,
         ])

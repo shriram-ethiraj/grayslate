@@ -79,6 +79,7 @@
 
 <Dialog.Root bind:open>
   <Dialog.Content
+    data-testid="go-to-line-dialog"
     class="sm:max-w-[25rem]"
     onOpenAutoFocus={(event) => {
       event.preventDefault();
@@ -105,6 +106,7 @@
         </label>
         <Input
           id="go-to-line-input"
+          data-testid="go-to-line-input"
           bind:ref={inputRef}
           bind:value={inputValue}
           type="text"

@@ -28,7 +28,7 @@
         if (!open) handleChoice("cancel");
     }}
 >
-    <Dialog.Content class="sm:max-w-[26rem]">
+    <Dialog.Content data-testid="unsaved-changes-dialog" class="sm:max-w-[26rem]">
         <Dialog.Header>
             <Dialog.Title>Save changes?</Dialog.Title>
             <Dialog.Description>
@@ -42,17 +42,20 @@
             <Button
                 variant="outline"
                 onclick={() => handleChoice("cancel")}
+                data-testid="unsaved-cancel"
             >
                 Cancel
             </Button>
             <Button
                 variant="outline"
                 onclick={() => handleChoice("discard")}
+                data-testid="unsaved-discard"
             >
                 Discard
             </Button>
             <Button
                 onclick={() => handleChoice("save")}
+                data-testid="unsaved-save"
             >
                 Save
             </Button>

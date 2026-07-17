@@ -107,6 +107,7 @@
         <Button
             variant="ghost"
             size="icon"
+            data-testid="action-plain-csv"
             aria-label="Plain CSV"
             title="Switch to Plain CSV"
             disabled={editorState.loader.visible}
@@ -125,6 +126,7 @@
         <Button
             variant="ghost"
             size="icon"
+            data-testid="action-table-view"
             aria-label="Table View"
             title="Switch to Table View"
             disabled={editorState.loader.visible}
@@ -146,6 +148,7 @@
     <Button
         variant="ghost"
         size="icon"
+        data-testid="action-toggle-preview"
         aria-label="Toggle Preview"
         title={editorState.markdown.showPreview
             ? "Hide preview"
@@ -165,6 +168,7 @@
     <Button
         variant="ghost"
         size="icon"
+        data-testid="action-save"
         aria-label="Save file"
         title="Save (Ctrl+S)"
         disabled={editorState.loader.visible || !editorState.isDirty}
@@ -179,6 +183,7 @@
 <Button
     variant="ghost"
     size="icon"
+    data-testid="action-copy"
     aria-label="Copy content"
     title={copyTitle}
     disabled={isCopyDisabled}
@@ -196,6 +201,7 @@
 <Button
     variant="ghost"
     size="icon"
+    data-testid="action-transformations"
     aria-label="Transformations"
     title="Open transformations"
     disabled={editorState.loader.visible}

@@ -279,6 +279,7 @@
 {#if editorState.findReplace.visible}
   <!-- Floating Find & Replace Panel -->
   <div
+    data-testid="find-replace-panel"
     class="absolute top-4 right-8 z-50 flex w-fit max-w-[80vw] max-h-[80vh] flex-col gap-2 rounded-md border border-border bg-popover px-2 py-3 shadow-md"
     role="dialog"
     aria-label="Find and Replace"
@@ -303,6 +304,7 @@
           <textarea
             bind:this={findInputRef}
             bind:value={findText}
+            data-testid="find-input"
             use:hotkey={[
               {
                 key: "Enter",
@@ -334,6 +336,7 @@
             variant="ghost"
             size="icon-xs"
             aria-pressed={fr.caseSensitive}
+            data-testid="find-opt-case"
             title="Match Case"
             onclick={() => { fr.caseSensitive = !fr.caseSensitive; }}
           >
@@ -343,6 +346,7 @@
             variant="ghost"
             size="icon-xs"
             aria-pressed={fr.wholeWord}
+            data-testid="find-opt-word"
             title="Match Whole Word"
             onclick={() => { fr.wholeWord = !fr.wholeWord; }}
           >
@@ -352,12 +356,14 @@
             variant="ghost"
             size="icon-xs"
             aria-pressed={fr.useRegex}
+            data-testid="find-opt-regex"
             title="Use Regular Expression"
             onclick={() => { fr.useRegex = !fr.useRegex; }}
           >
             <CodiconRegex class="size-[1.1rem]" />
           </Button>
           <span
+            data-testid="find-match-count"
             class="text-sm pointer-events-none inline-flex shrink-0 items-center justify-center whitespace-nowrap px-1 min-w-[4.5rem] {fr.searchError ? 'text-destructive' : 'text-foreground'}"
           >
             {#if fr.searchError}
@@ -376,6 +382,7 @@
             variant="ghost"
             size="icon-xs"
             onclick={findPreviousNow}
+            data-testid="find-prev"
             title="Previous match ({formatForDisplay('Shift+Enter')})"
             disabled={!canNavigate}
           >
@@ -385,6 +392,7 @@
             variant="ghost"
             size="icon-xs"
             onclick={findNextNow}
+            data-testid="find-next"
             title="Next match ({formatForDisplay('Enter')})"
             disabled={!canNavigate}
           >
@@ -408,6 +416,7 @@
             <textarea
               bind:this={replaceTextareaRef}
               bind:value={replaceText}
+              data-testid="replace-input"
               use:hotkey={[
                 {
                   key: "Enter",
@@ -434,6 +443,7 @@
               variant="ghost"
               size="icon-xs"
               onclick={replaceNextNow}
+              data-testid="find-replace-one"
               title="Replace currently selected match"
               disabled={!canReplace}
             >
@@ -443,6 +453,7 @@
               variant="ghost"
               size="icon-xs"
               onclick={replaceAllNow}
+              data-testid="find-replace-all"
               title="Replace All matches"
               disabled={!canReplaceAll}
             >

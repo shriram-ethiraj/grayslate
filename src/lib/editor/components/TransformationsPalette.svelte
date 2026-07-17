@@ -118,6 +118,7 @@
 
 <Dialog.Root bind:open>
     <Dialog.Content
+        data-testid="transformations-palette"
         class="p-0 sm:max-w-[40rem] gap-0"
         showCloseButton={false}
         onOpenAutoFocus={(event) => {
@@ -146,6 +147,7 @@
                             {#each suggestedActions as action (action.id)}
                                 {@const Icon = getActionIcon(action)}
                                 <Command.Item
+                                    data-testid={`transform-item-${action.id}`}
                                     value={action.title}
                                     keywords={action.keywords}
                                     disabled={editorState.loader.visible}
@@ -175,6 +177,7 @@
                             {#each otherActions as action (action.id)}
                                 {@const Icon = getActionIcon(action)}
                                 <Command.Item
+                                    data-testid={`transform-item-${action.id}`}
                                     value={action.title}
                                     keywords={action.keywords}
                                     disabled={editorState.loader.visible}

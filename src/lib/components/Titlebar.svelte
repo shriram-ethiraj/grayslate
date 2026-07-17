@@ -412,73 +412,74 @@
     onpointerdown={handleMenubarPointerDown}
   >
     <Menubar.Menu>
-      <Menubar.Trigger class="cursor-pointer">File</Menubar.Trigger>
+      <Menubar.Trigger data-testid="menu-file" class="cursor-pointer">File</Menubar.Trigger>
       <Menubar.Content>
-        <Menubar.Item onclick={handleNewFile}>
+        <Menubar.Item data-testid="menu-new-slate" onclick={handleNewFile}>
           New Slate
           <Menubar.Shortcut>{formatForDisplay("Mod+N")}</Menubar.Shortcut>
         </Menubar.Item>
         <Menubar.Separator />
-        <Menubar.Item onclick={handleOpen}>
+        <Menubar.Item data-testid="menu-open-file" onclick={handleOpen}>
           Open File...
           <Menubar.Shortcut>{formatForDisplay("Mod+O")}</Menubar.Shortcut>
         </Menubar.Item>
         <Menubar.Separator />
-        <Menubar.Item onclick={handleSave} disabled={!editorState.isDirty}>
+        <Menubar.Item data-testid="menu-save" onclick={handleSave} disabled={!editorState.isDirty}>
           Save
           <Menubar.Shortcut>{formatForDisplay("Mod+S")}</Menubar.Shortcut>
         </Menubar.Item>
-        <Menubar.Item onclick={handleSaveAs}>
+        <Menubar.Item data-testid="menu-save-as" onclick={handleSaveAs}>
           Save As...
           <Menubar.Shortcut>{formatForDisplay("Mod+Shift+S")}</Menubar.Shortcut>
         </Menubar.Item>
         <Menubar.Separator />
-        <Menubar.Item onclick={handleSettings}>
+        <Menubar.Item data-testid="menu-settings" onclick={handleSettings}>
           Settings...
           <Menubar.Shortcut>{formatForDisplay("Mod+,")}</Menubar.Shortcut>
         </Menubar.Item>
       </Menubar.Content>
     </Menubar.Menu>
     <Menubar.Menu>
-      <Menubar.Trigger class="cursor-pointer">Edit</Menubar.Trigger>
+      <Menubar.Trigger data-testid="menu-edit" class="cursor-pointer">Edit</Menubar.Trigger>
       <Menubar.Content>
-        <Menubar.Item onclick={() => handleEdit("undo")}
+        <Menubar.Item data-testid="menu-undo" onclick={() => handleEdit("undo")}
           >Undo<Menubar.Shortcut>{formatForDisplay("Mod+Z")}</Menubar.Shortcut
           ></Menubar.Item
         >
-        <Menubar.Item onclick={() => handleEdit("redo")}
+        <Menubar.Item data-testid="menu-redo" onclick={() => handleEdit("redo")}
           >Redo<Menubar.Shortcut>{redoShortcut}</Menubar.Shortcut></Menubar.Item
         >
         <Menubar.Separator />
-        <Menubar.Item onclick={() => handleEdit("cut")}
+        <Menubar.Item data-testid="menu-cut" onclick={() => handleEdit("cut")}
           >Cut<Menubar.Shortcut>{formatForDisplay("Mod+X")}</Menubar.Shortcut
           ></Menubar.Item
         >
-        <Menubar.Item onclick={() => handleEdit("copy")}
+        <Menubar.Item data-testid="menu-copy" onclick={() => handleEdit("copy")}
           >Copy<Menubar.Shortcut>{formatForDisplay("Mod+C")}</Menubar.Shortcut
           ></Menubar.Item
         >
         <Menubar.Separator />
-        <Menubar.Item onclick={() => handleEdit("goToLine")}
+        <Menubar.Item data-testid="menu-go-to-line" onclick={() => handleEdit("goToLine")}
           >Go To Line...<Menubar.Shortcut
             >{formatForDisplay("Mod+G")}</Menubar.Shortcut
           ></Menubar.Item
         >
-        <Menubar.Item onclick={() => handleEdit("find")}
+        <Menubar.Item data-testid="menu-find" onclick={() => handleEdit("find")}
           >Find...<Menubar.Shortcut>{formatForDisplay("Mod+F")}</Menubar.Shortcut
           ></Menubar.Item
         >
-        <Menubar.Item onclick={() => handleEdit("findFiles")}
+        <Menubar.Item data-testid="menu-find-files" onclick={() => handleEdit("findFiles")}
           >Find Files...<Menubar.Shortcut
             >{formatForDisplay("Mod+P")}</Menubar.Shortcut
           ></Menubar.Item
         >
-        <Menubar.Item onclick={() => handleEdit("replace")}
+        <Menubar.Item data-testid="menu-replace" onclick={() => handleEdit("replace")}
           >Replace...<Menubar.Shortcut>{replaceShortcut}</Menubar.Shortcut
           ></Menubar.Item
         >
         <Menubar.Separator />
         <Menubar.CheckboxItem
+          data-testid="menu-word-wrap"
           bind:checked={editorState.wordWrap}
           onclick={() => setEditorWordWrap(editorState.wordWrap)}
         >
@@ -491,7 +492,7 @@
           <Menubar.Shortcut>{formatForDisplay("Alt+Z")}</Menubar.Shortcut>
         </Menubar.CheckboxItem>
         <Menubar.Separator />
-        <Menubar.Item onclick={() => handleEdit("selectAll")}
+        <Menubar.Item data-testid="menu-select-all" onclick={() => handleEdit("selectAll")}
           >Select All<Menubar.Shortcut
             >{formatForDisplay("Mod+A")}</Menubar.Shortcut
           ></Menubar.Item
@@ -499,19 +500,19 @@
       </Menubar.Content>
     </Menubar.Menu>
     <Menubar.Menu>
-      <Menubar.Trigger class="cursor-pointer">View</Menubar.Trigger>
+      <Menubar.Trigger data-testid="menu-view" class="cursor-pointer">View</Menubar.Trigger>
       <Menubar.Content>
-        <Menubar.Item onclick={() => handleView("increaseFontSize")}
+        <Menubar.Item data-testid="menu-increase-font" onclick={() => handleView("increaseFontSize")}
           >Increase Font Size<Menubar.Shortcut
             >{increaseFontSizeShortcut}</Menubar.Shortcut
           ></Menubar.Item
         >
-        <Menubar.Item onclick={() => handleView("decreaseFontSize")}
+        <Menubar.Item data-testid="menu-decrease-font" onclick={() => handleView("decreaseFontSize")}
           >Decrease Font Size<Menubar.Shortcut
             >{decreaseFontSizeShortcut}</Menubar.Shortcut
           ></Menubar.Item
         >
-        <Menubar.Item onclick={() => handleView("resetFontSize")}
+        <Menubar.Item data-testid="menu-reset-font" onclick={() => handleView("resetFontSize")}
           >Reset Font Size<Menubar.Shortcut
             >{resetFontSizeShortcut}</Menubar.Shortcut
           ></Menubar.Item
@@ -525,11 +526,11 @@
           >Keyboard Shortcuts...</Menubar.Item
         >
         <Menubar.Separator />
-        <Menubar.Item onclick={handleCheckForUpdates}
+        <Menubar.Item data-testid="menu-check-updates" onclick={handleCheckForUpdates}
           >Check for Updates...</Menubar.Item
         >
         <Menubar.Separator />
-        <Menubar.Item onclick={handleAbout}>About Grayslate</Menubar.Item>
+        <Menubar.Item data-testid="menu-about" onclick={handleAbout}>About Grayslate</Menubar.Item>
       </Menubar.Content>
     </Menubar.Menu>
   </Menubar.Root>

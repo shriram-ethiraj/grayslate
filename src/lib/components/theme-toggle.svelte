@@ -15,6 +15,7 @@
 <Button
     variant="ghost"
     size="icon"
+    data-testid="theme-toggle"
     aria-label="Toggle theme"
     title={isDark ? "Light Mode" : "Dark Mode"}
     onclick={toggleTheme}

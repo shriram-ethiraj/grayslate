@@ -66,3 +66,10 @@ pub const APP_COMMANDS: &[&str] = &[
     "untrack_local_file",
     "write_file_content",
 ];
+
+/// Commands compiled only into the end-to-end test build (`--features e2e`).
+///
+/// `build.rs` appends these to the generated permission manifest when the `e2e`
+/// Cargo feature is active, so their ACL permissions exist for the test-only
+/// runtime capability. They must never reach a release binary.
+pub const E2E_COMMANDS: &[&str] = &["e2e_open_path", "e2e_save_path"];

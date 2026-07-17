@@ -205,6 +205,7 @@
                                     <button
                                         {...dotProps}
                                         type="button"
+                                        data-testid="sidebar-file-options"
                                         title="File options"
                                         class="absolute right-1.5 top-1/2 -translate-y-1/2 flex size-6 items-center justify-center rounded transition-opacity data-[state=open]:opacity-100 hover:bg-sidebar-foreground/10 text-sidebar-foreground {isActive || isHighlighted ? 'opacity-100' : 'opacity-0 group-data-[state=open]:opacity-100'}"
                                     >
