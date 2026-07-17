@@ -157,6 +157,7 @@
                     Rename file
                 </label>
                 <Input
+                    data-testid="rename-input"
                     id="rename-file-input"
                     bind:ref={inputRef}
                     bind:value={inputValue}

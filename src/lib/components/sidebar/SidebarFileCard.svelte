@@ -155,6 +155,7 @@
                             {#if recentFile.source === "local" && showLocalBadge}
                                 <!-- Corner marker for local files. -->
                                 <span
+                                    data-testid="sidebar-local-badge"
                                     aria-hidden="true"
                                     class="pointer-events-none absolute -bottom-0.5 -right-0.5 z-10 flex size-3.5 items-center justify-center rounded-sm {isActive ? 'file-icon-badge-active' : isHighlighted ? 'file-icon-badge-emphasis' : 'file-icon-badge-inactive'}"
                                 >
@@ -219,6 +220,7 @@
                                     class="z-50 min-w-[8rem] overflow-hidden rounded-md border border-sidebar-border bg-sidebar p-1 text-sidebar-foreground shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95"
                                 >
                                     <DropdownMenuPrimitive.Item
+                                        data-testid="sidebar-action-open"
                                         class={ddItemClass}
                                         onclick={() => { onOpen(recentFile.path, recentFile.source); }}
                                     >
@@ -226,6 +228,7 @@
                                         <span>Open</span>
                                     </DropdownMenuPrimitive.Item>
                                     <DropdownMenuPrimitive.Item
+                                        data-testid="sidebar-action-reveal"
                                         class={ddItemClass}
                                         onclick={handleReveal}
                                     >
@@ -233,6 +236,7 @@
                                         <span>{getRevealLabel()}</span>
                                     </DropdownMenuPrimitive.Item>
                                     <DropdownMenuPrimitive.Item
+                                        data-testid="sidebar-action-copy-path"
                                         class={ddItemClass}
                                         onclick={handleCopyPath}
                                     >
@@ -242,6 +246,7 @@
                                     {#if recentFile.source === "local" && onDuplicateAsSlate}
                                         <DropdownMenuPrimitive.Separator class={ddSepClass} />
                                         <DropdownMenuPrimitive.Item
+                                            data-testid="sidebar-action-duplicate-as-slate"
                                             class={ddItemClass}
                                             onclick={() => { onDuplicateAsSlate(recentFile as RecentFileRecord); }}
                                         >
@@ -250,6 +255,7 @@
                                         </DropdownMenuPrimitive.Item>
                                         {#if onUnlink}
                                             <DropdownMenuPrimitive.Item
+                                                data-testid="sidebar-action-unlink"
                                                 class={ddItemClass}
                                                 onclick={() => { onUnlink(recentFile as RecentFileRecord); }}
                                             >
@@ -261,6 +267,7 @@
                                     {#if recentFile.source === "slates" && onDuplicate}
                                         <DropdownMenuPrimitive.Separator class={ddSepClass} />
                                         <DropdownMenuPrimitive.Item
+                                            data-testid="sidebar-action-duplicate"
                                             class={ddItemClass}
                                             onclick={() => { onDuplicate(recentFile as RecentFileRecord); }}
                                         >
@@ -268,6 +275,7 @@
                                             <span>Duplicate</span>
                                         </DropdownMenuPrimitive.Item>
                                         <DropdownMenuPrimitive.Item
+                                            data-testid="sidebar-action-rename"
                                             class={ddItemClass}
                                             onclick={() => { openRenameFileDialog(recentFile as RecentFileRecord); }}
                                         >
@@ -275,6 +283,7 @@
                                             <span>Rename</span>
                                         </DropdownMenuPrimitive.Item>
                                         <DropdownMenuPrimitive.Item
+                                            data-testid="sidebar-action-delete"
                                             class="{ddItemClass} text-destructive data-highlighted:bg-destructive/10 dark:data-highlighted:bg-destructive/20 data-highlighted:text-destructive"
                                             onclick={() => { requestDeleteFile(recentFile as RecentFileRecord); }}
                                         >

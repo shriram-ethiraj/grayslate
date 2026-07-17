@@ -65,6 +65,7 @@
     }}
 >
     <Dialog.Content
+        data-testid="about-dialog"
         class="p-0 sm:max-w-[44rem]"
         onOpenAutoFocus={(event) => {
             event.preventDefault();

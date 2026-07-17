@@ -72,4 +72,5 @@ pub const APP_COMMANDS: &[&str] = &[
 /// `build.rs` appends these to the generated permission manifest when the `e2e`
 /// Cargo feature is active, so their ACL permissions exist for the test-only
 /// runtime capability. They must never reach a release binary.
+#[cfg_attr(not(feature = "e2e"), allow(dead_code))]
 pub const E2E_COMMANDS: &[&str] = &["e2e_open_path", "e2e_save_path"];

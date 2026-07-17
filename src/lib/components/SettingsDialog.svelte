@@ -76,6 +76,7 @@
                 {#each panes as pane (pane.id)}
                     <button
                         type="button"
+                        data-testid={`settings-pane-${pane.id}`}
                         class="flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground data-[active=true]:bg-accent data-[active=true]:font-medium data-[active=true]:text-accent-foreground"
                         data-active={activePane === pane.id}
                         onclick={() => (activePane = pane.id)}
@@ -109,7 +110,7 @@
                                 value={appSettingsState.startupBehavior}
                                 onValueChange={(v) => setStartupBehavior(v as StartupBehavior)}
                             >
-                                <Select.Trigger class="w-full" id="settings-startup">
+                                <Select.Trigger data-testid="settings-startup" class="w-full" id="settings-startup">
                                     {startupLabel}
                                 </Select.Trigger>
                                 <Select.Content>
@@ -141,7 +142,7 @@
                                     onValueChange={(v) =>
                                         setDefaultIndentMode(v as DefaultIndentMode)}
                                 >
-                                    <Select.Trigger class="w-full" aria-label="Indent mode">
+                                    <Select.Trigger data-testid="settings-indent-mode" class="w-full" aria-label="Indent mode">
                                         {indentModeLabel}
                                     </Select.Trigger>
                                     <Select.Content>
@@ -157,7 +158,7 @@
                                     value={String(appSettingsState.defaultIndentSize)}
                                     onValueChange={(v) => setDefaultIndentSize(Number(v))}
                                 >
-                                    <Select.Trigger class="w-full" aria-label={indentSizeLabel}>
+                                    <Select.Trigger data-testid="settings-indent-size" class="w-full" aria-label={indentSizeLabel}>
                                         {appSettingsState.defaultIndentSize}
                                     </Select.Trigger>
                                     <Select.Content>
@@ -184,6 +185,7 @@
                                 </p>
                             </div>
                             <Switch
+                                data-testid="settings-confirm-delete"
                                 checked={appSettingsState.confirmBeforeDelete}
                                 onCheckedChange={(checked) => setConfirmBeforeDelete(checked)}
                                 aria-label="Confirm before deleting"

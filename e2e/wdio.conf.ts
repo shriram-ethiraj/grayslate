@@ -33,6 +33,7 @@ const appBinaryPath = path.resolve(
   appBinaryName,
 );
 const artifactDirectory = path.join(sandboxRoot, "artifacts");
+let mainWindowPinned = false;
 const tauriCapabilities: TauriCapabilities = {
   browserName: "tauri",
   "tauri:options": {
@@ -61,14 +62,32 @@ export const config: WebdriverIO.Config = {
   //
   // The functional story shares one native session and one sandbox (wiped once
   // at config load), so earlier specs seed state that later specs build on.
-  // Acts 02–10 slot into the numbered gap as they are implemented.
-  // Security regressions run last on the populated sandbox; each is
-  // self-contained and clean-state-independent.
+  // Security regressions run last in their own clean native session.
+  // Group files that must share one native app session into one worker. A flat
+  // list starts a fresh Tauri process per file even with maxInstances: 1.
+  // The second worker reloads this config and therefore gets a clean sandbox
+  // for the security-only group.
   specs: [
-    "./e2e/specs/01-first-run.e2e.ts",
-    "./e2e/specs/02-external-files.e2e.ts",
-    "./e2e/specs/11-keyboard-shortcuts.e2e.ts",
-    "./e2e/specs/security/**/*.e2e.ts",
+    [
+      "./e2e/specs/00-selectors-smoke.e2e.ts",
+      "./e2e/specs/01-first-run.e2e.ts",
+      "./e2e/specs/02-external-files.e2e.ts",
+      "./e2e/specs/03-language-detection.e2e.ts",
+      "./e2e/specs/04-editor-core.e2e.ts",
+      "./e2e/specs/05-formatting-indent.e2e.ts",
+      "./e2e/specs/06-transformations.e2e.ts",
+      "./e2e/specs/07-sidebar.e2e.ts",
+      "./e2e/specs/08-appearance.e2e.ts",
+      "./e2e/specs/09-markdown.e2e.ts",
+      "./e2e/specs/10-csv.e2e.ts",
+      "./e2e/specs/11-keyboard-shortcuts.e2e.ts",
+      "./e2e/specs/11-app-shell.e2e.ts",
+    ],
+    [
+      "./e2e/specs/security/document-authorization.e2e.ts",
+      "./e2e/specs/security/ipc-capabilities.e2e.ts",
+      "./e2e/specs/security/webview-security.e2e.ts",
+    ],
   ],
   maxInstances: 1,
   // Native action commands are verbose at `info`; warnings and failures still
@@ -96,6 +115,15 @@ export const config: WebdriverIO.Config = {
     // and debounced autosave. Keep this separate from the individual waits in
     // the spec so a slow GitHub Actions VM does not abort the whole scenario.
     timeout: 120_000,
+  },
+  beforeSuite: async function () {
+    // Pin the known production window label once per worker. This avoids
+    // repeated focus discovery and keeps each grouped spec on the same native
+    // window while using the feature-gated E2E bridge.
+    if (!mainWindowPinned) {
+      await browser.tauri.switchWindow("main");
+      mainWindowPinned = true;
+    }
   },
   afterTest: async function (test, _context, result) {
     if (result.passed) {

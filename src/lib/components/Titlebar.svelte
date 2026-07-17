@@ -545,13 +545,14 @@
   <div class="pointer-events-none absolute inset-0 z-5 flex items-center justify-center">
     <div class="relative max-w-[40%]">
       <span
+        data-testid="title-file-name"
         class="block truncate text-xs font-medium text-foreground pr-3"
         title={editorState.currentFilePath ?? displayName}
       >
         {displayName}
       </span>
       {#if showDirtyIndicator}
-        <span class="absolute right-0 top-0 bottom-0 flex items-center text-xs font-medium">*</span>
+        <span data-testid="title-dirty-indicator" class="absolute right-0 top-0 bottom-0 flex items-center text-xs font-medium">*</span>
       {/if}
     </div>
   </div>

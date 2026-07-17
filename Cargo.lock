@@ -53,6 +53,7 @@ dependencies = [
  "tauri-plugin-os",
  "tauri-plugin-prevent-default",
  "tauri-plugin-updater",
+ "tauri-plugin-wdio",
  "tauri-plugin-window-state",
  "tokio",
  "unicode-segmentation",
@@ -5480,6 +5481,23 @@ dependencies = [
  "url",
  "windows-sys 0.60.2",
  "zip",
+]
+
+[[package]]
+name = "tauri-plugin-wdio"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5d111fbda86b36bca74a9a80b253bbb17bdea05b8cdbd12d26f0bb5fad9dc651"
+dependencies = [
+ "log",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin",
+ "thiserror 1.0.69",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]

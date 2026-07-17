@@ -1,0 +1,54 @@
+name: Desktop E2E
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CI: "true"
+  CARGO_TERM_COLOR: always
+
+jobs:
+  linux:
+    name: Linux packaged app
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Enable pnpm
+        run: corepack enable
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install Linux build and WebDriver dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf webkit2gtk-driver xvfb
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Install Tauri WebDriver bridge
+        run: cargo install tauri-driver --locked
+      - name: Type-check E2E suite
+        run: pnpm run e2e:check
+      - name: Build test-only packaged app
+        run: pnpm run e2e:build
+      - name: Run native desktop E2E
+        run: pnpm run e2e:ci
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: grayslate-e2e-failure
+          path: .e2e-tmp/artifacts/
+          if-no-files-found: ignore
+          retention-days: 7

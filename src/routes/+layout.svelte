@@ -28,6 +28,15 @@
 
 	const { children } = $props();
 
+	// The WebdriverIO guest bridge is bundled and initialized only by the
+	// dedicated `vite --mode e2e` build. Normal development and release bundles
+	// do not import this test-only command surface.
+	onMount(() => {
+		if (import.meta.env.MODE === "e2e") {
+			void import("@wdio/tauri-plugin");
+		}
+	});
+
 	let sidebarPane: ReturnType<typeof ResizablePane> | undefined = $state();
 	let sidebarOpen = $state(false);
 
@@ -217,7 +226,7 @@
 							class="relative flex h-12 w-full shrink-0 items-center justify-between border-b bg-background px-4"
 						>
 							<div class="relative z-10 flex items-center gap-1">
-								<Sidebar.Trigger class="-ml-1" />
+								<Sidebar.Trigger data-testid="sidebar-toggle" class="-ml-1" />
 								<Button
 									variant="ghost"
 									size="icon"

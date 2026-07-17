@@ -49,6 +49,17 @@ carries them:
   `sidebarCard`, `setFilterTab`, `runTransform`, `enterCsvTable`, `csvCell`, and
   `invokeInApp` (webview IPC via `__TAURI_INTERNALS__`).
 
-Spec execution order is fixed explicitly in `wdio.conf.ts` (`specs` array):
-numbered functional specs run first as a shared-session story, then the
-`security/` group runs last on the populated sandbox.
+Spec execution order is fixed explicitly in `wdio.conf.ts`. Numbered
+functional specs are grouped into one WDIO worker so they genuinely share one
+native app session. The security specs run in a second worker; reloading the
+configuration wipes the sandbox before that isolated group starts.
+
+The functional story covers first-run autosave/naming, external files and
+Save-As authorization, the detector/naming language matrix, core editing,
+formatting, transformations (including chunked large text), sidebar search and
+mutations, appearance/settings, Markdown sanitization/scroll sync, CSV table
+editing and the >100k-row handoff, keyboard help, and native shell lifecycle.
+
+CI runs the same packaged suite on Linux through
+`.github/workflows/e2e.yml`. Failure screenshots and page source are uploaded
+from `.e2e-tmp/artifacts/`.
