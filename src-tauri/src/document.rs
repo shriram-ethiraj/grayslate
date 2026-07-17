@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 use crate::{
     filesystem::resolve_notes_root_path,
-    storage::{AppStorage, FileSource},
+    storage::{path_is_within_root, path_to_display_string, AppStorage, FileSource},
 };
 
 const INVALID_GRANT: &str = "Document authorization is invalid or expired.";
@@ -53,7 +53,7 @@ impl AuthorizedDocument {
         DocumentDescriptor {
             document_id: self.id.clone(),
             generation: self.generation,
-            display_path: self.path.to_string_lossy().into_owned(),
+            display_path: path_to_display_string(&self.path),
             file_name: self
                 .path
                 .file_name()
@@ -133,7 +133,7 @@ pub fn classify_existing_document(
 ) -> Result<(PathBuf, FileSource), String> {
     let canonical = validate_existing_regular_file(path)?;
     let source = match canonical_notes_root(app, storage, false) {
-        Ok(root) if canonical.starts_with(&root) => FileSource::Slates,
+        Ok(root) if path_is_within_root(&canonical, &root)? => FileSource::Slates,
         _ => FileSource::Local,
     };
     Ok((canonical, source))
@@ -146,7 +146,7 @@ pub fn classify_new_document(
 ) -> Result<(PathBuf, FileSource), String> {
     let candidate = validate_new_file_path(path)?;
     let source = match canonical_notes_root(app, storage, false) {
-        Ok(root) if candidate.starts_with(&root) => FileSource::Slates,
+        Ok(root) if path_is_within_root(&candidate, &root)? => FileSource::Slates,
         _ => FileSource::Local,
     };
     Ok((candidate, source))
@@ -161,7 +161,7 @@ pub fn revalidate_source_authority(
         return Ok(());
     }
     let root = canonical_notes_root(app, storage, false)?;
-    if !document.path.starts_with(&root) || document.path == root {
+    if !path_is_within_root(&document.path, &root)? || document.path == root {
         return Err("Managed document escaped the authorized notes root.".to_string());
     }
     Ok(())

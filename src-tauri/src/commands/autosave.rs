@@ -171,7 +171,7 @@ pub async fn autosave_submit_content(
 
             registry.update_authorization(
                 &window_label,
-                result.path.clone().into(),
+                result.authorized_path.clone(),
                 result.document_id.clone(),
                 result.document_generation,
             );
@@ -289,7 +289,7 @@ pub async fn autosave_flush_before_switch(
 
                 registry.update_authorization(
                     &window_label,
-                    result.path.clone().into(),
+                    result.authorized_path.clone(),
                     result.document_id.clone(),
                     result.document_generation,
                 );
