@@ -11,7 +11,7 @@ import {
   enterCsvTable,
   exitCsvTable,
   focusEditor,
-  invokeInApp,
+  openAuthorizedPath,
   openExternalFixture,
   pressMod,
   readEditorText,
@@ -78,6 +78,12 @@ describe("Act 10 — CSV table lifecycle", () => {
     const info = await $("[data-testid='status-csv-info']");
     expect(await info.getText()).toContain("3 cols");
     expect((await info.getText()).toLowerCase()).toContain("comma");
+    const tableFamily = await browser.execute(() => {
+      const table = document.querySelector<HTMLElement>("[data-testid='csv-table'] .csv-table");
+      if (!table) throw new Error("CSV typography element is missing.");
+      return getComputedStyle(table).fontFamily;
+    });
+    expect(tableFamily).toContain("Commit Mono");
   });
 
   it("navigates, edits, clears, and undo-redoes cells", async () => {
@@ -123,7 +129,7 @@ describe("Act 10 — CSV table lifecycle", () => {
   it("keeps large CSV rendering bounded and returns to text in one undo step", async () => {
     const largePath = path.join(sandboxRoot, "large.csv");
     writeLargeCsv(largePath, 100_001);
-    await invokeInApp("e2e_open_path", { path: largePath });
+    await openAuthorizedPath(largePath);
     await waitForEditorText((text) => text.startsWith("id,name,value"), 30_000);
     const originalStart = (await readEditorText()).slice(0, 80);
 

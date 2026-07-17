@@ -7,6 +7,38 @@
 
 @import "./shadcn.css";
 
+@font-face {
+  font-family: "Source Sans 3";
+  src: url("/fonts/source-sans-3/SourceSans3VF-Upright.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 200 900;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Source Sans 3";
+  src: url("/fonts/source-sans-3/SourceSans3VF-Italic.woff2") format("woff2");
+  font-style: italic;
+  font-weight: 200 900;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Commit Mono";
+  src: url("/fonts/commit-mono/CommitMonoVariable.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 200 700;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Commit Mono";
+  src: url("/fonts/commit-mono/CommitMonoVariable.woff2") format("woff2");
+  font-style: italic;
+  font-weight: 200 700;
+  font-display: swap;
+}
+
 /*
   Register UI selection color vars as typed CSS properties.
   Chrome 131+ changed highlight inheritance so that unregistered custom properties
@@ -40,7 +72,8 @@
 
   /* Production Desktop App Foundation */
   html, body {
-    @apply h-dvh w-dvw overflow-hidden antialiased;
+    @apply h-dvh w-dvw overflow-hidden font-sans antialiased;
+    font-synthesis: none;
     
     /* Prevent default web behaviors for a native feel */
     -webkit-user-select: none;
@@ -54,6 +87,11 @@
   body {
     @apply bg-background text-foreground flex flex-col;
     cursor: default;
+  }
+
+  code, kbd, samp, pre, .font-mono {
+    font-family: var(--font-mono);
+    font-variant-ligatures: none;
   }
 
   /* Restore explicit input behaviors */

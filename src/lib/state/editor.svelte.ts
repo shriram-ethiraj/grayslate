@@ -2,7 +2,7 @@ import type { EditorView } from "codemirror";
 import type { RecentFileSource } from "$lib/files/recentFiles";
 import { saveSetting } from "$lib/state/appSettings.svelte";
 
-export const DEFAULT_EDITOR_FONT_SIZE = 15;
+export const DEFAULT_EDITOR_FONT_SIZE = 14;
 export const MIN_EDITOR_FONT_SIZE = 10;
 export const MAX_EDITOR_FONT_SIZE = 24;
 

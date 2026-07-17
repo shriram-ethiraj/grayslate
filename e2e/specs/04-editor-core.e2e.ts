@@ -92,6 +92,9 @@ describe("Act 4 — core editor editing", () => {
     await browser.waitUntil(async () => (await content.getCSSProperty("font-size")).value !== fontBefore.value);
     await clickTestId("menu-view");
     await clickTestId("menu-reset-font");
+    await browser.waitUntil(
+      async () => (await content.getCSSProperty("font-size")).value === "14px",
+    );
 
     await replaceEditorText("undo-base");
     await focusEditor();

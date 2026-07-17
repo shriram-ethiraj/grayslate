@@ -1,13 +1,28 @@
 import fs from "node:fs";
 import path from "node:path";
 
-export const sandboxRoot = path.resolve(process.cwd(), ".e2e-tmp");
+export const e2eRunRoot = path.resolve(process.cwd(), ".e2e-tmp");
+export const workersRoot = path.join(e2eRunRoot, "workers");
+export const runtimeRoot = path.join(e2eRunRoot, "runtime");
+export const workerId = (process.env.WDIO_WORKER_ID ?? "launcher")
+  .replace(/[^a-zA-Z0-9_-]+/g, "-");
+// tauri-driver is started once by the WDIO launcher when maxInstances is 1.
+// Every serial worker resets this shared runtime before tauri-driver launches
+// that worker's fresh app session. Artifacts remain worker-specific below.
+export const sandboxRoot = runtimeRoot;
+export const artifactRoot = path.join(workersRoot, workerId, "artifacts");
 export const homeDirectory = path.join(sandboxRoot, "home");
 export const configDirectory = path.join(sandboxRoot, "config");
 export const dataDirectory = path.join(sandboxRoot, "data");
 export const cacheDirectory = path.join(sandboxRoot, "cache");
 export const stateDirectory = path.join(sandboxRoot, "state");
 export const notesRoot = path.join(homeDirectory, "Documents", "Grayslate");
+
+/** Remove stale E2E output once, before WDIO starts any worker process. */
+export function resetE2eRunDirectory(): void {
+  fs.rmSync(e2eRunRoot, { recursive: true, force: true });
+  fs.mkdirSync(workersRoot, { recursive: true });
+}
 
 /**
  * A small, deterministic Rust document that exercises both the detector and

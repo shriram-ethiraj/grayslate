@@ -105,7 +105,7 @@
   <Dialog.Content data-testid="indent-picker" class="sm:max-w-88" showCloseButton={true}>
     <div class="grid gap-4">
       <div class="grid gap-2">
-        <label class="text-sm font-medium text-foreground" for="indent-mode-select">
+        <label class="text-sm font-normal text-foreground" for="indent-mode-select">
           Indentation
         </label>
         <Select.Root type="single" value={indentSelection.indentMode} onValueChange={handleModeChange}>
@@ -124,7 +124,7 @@
 
       {#if indentSelection.indentMode === IndentMode.Spaces || indentSelection.indentMode === IndentMode.Tab}
         <div class="grid gap-2">
-          <label class="text-sm font-medium text-foreground" for="indent-size-select">
+          <label class="text-sm font-normal text-foreground" for="indent-size-select">
             {sizeLabel}
           </label>
           <Select.Root

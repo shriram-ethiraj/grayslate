@@ -127,6 +127,7 @@
         variant="outline"
         size="sm"
         data-sidebar-highlighted={isHighlighted || undefined}
+        data-sidebar-active={isActive || undefined}
         data-card-path={recentFile.path}
         class="border-0 p-0 shadow-none [transform:translateZ(0)] {isActive ? 'ring-1 ring-inset ring-sidebar-ring bg-sidebar-foreground/[0.03]' : 'ring-1 ring-inset ring-sidebar-border/65 bg-sidebar/35'}"
     >
@@ -167,7 +168,7 @@
                         <Item.Content class="min-w-0 gap-2.5">
                             <div class="flex items-start justify-between gap-3">
                                 <div class="min-w-0 flex-1">
-                                    <Item.Title title={recentFile.path} class="truncate text-sm leading-tight {isActive ? 'text-black dark:text-white' : isHighlighted ? 'text-sidebar-accent-foreground' : 'text-sidebar-foreground group-data-[state=open]:text-sidebar-accent-foreground'}">
+                                    <Item.Title title={recentFile.path} class="truncate text-sm leading-tight {isActive ? 'font-medium text-black dark:text-white' : isHighlighted ? 'font-normal text-sidebar-accent-foreground' : 'font-normal text-sidebar-foreground group-data-[state=open]:text-sidebar-accent-foreground'}">
                                         {#if searchResult && searchResult.filename_fragments.length > 0}
                                             {#each searchResult.filename_fragments as fragment}
                                                 {#if fragment.is_match}<mark class="bg-[var(--selection-match-bg)] text-inherit rounded-sm px-0.5 ring-1 ring-inset ring-[var(--selection-match-border)]">{fragment.text}</mark>{:else}{fragment.text}{/if}

@@ -31,7 +31,7 @@ export interface AppSettings {
 }
 
 export const DEFAULT_THEME: ThemeSetting = "dark";
-export const DEFAULT_FONT_SIZE = 15;
+export const DEFAULT_FONT_SIZE = 14;
 export const DEFAULT_WORD_WRAP = false;
 export const DEFAULT_SIDEBAR_WIDTH = 20;
 export const DEFAULT_SIDEBAR_OPEN = false;

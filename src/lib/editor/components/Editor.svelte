@@ -160,6 +160,16 @@
       parent: node,
     });
     let observer: MutationObserver | undefined;
+    let destroyed = false;
+
+    // Font loading can change character metrics after CodeMirror's initial
+    // measurement. Re-measure once the bundled fonts are ready so line
+    // wrapping, gutters, and sticky editor elements share the final geometry.
+    void document.fonts.ready.then(() => {
+      if (!destroyed) {
+        cmView.requestMeasure();
+      }
+    });
 
     function activateEditorSurface() {
       editorState.activeSurface = "editor";
@@ -229,6 +239,7 @@
         }
       },
       destroy() {
+        destroyed = true;
         observer?.disconnect();
         cmView.dom.removeEventListener("pointerdown", activateEditorSurface);
         cmView.dom.removeEventListener("focusin", activateEditorSurface);

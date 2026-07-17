@@ -8,9 +8,10 @@ import {
   focusEditor,
   grantSavePath,
   invokeInApp,
-  newSlate,
+  openAuthorizedPath,
   openExternalFixture,
   pressMod,
+  requestNewSlate,
   setFilterTab,
   sidebarCard,
   typeText,
@@ -86,14 +87,14 @@ describe("Act 2 — external / local files", () => {
     await waitForFile(target, (value) => value === content);
     expect(fs.readFileSync(target, "utf8")).toBe(content);
 
-    await invokeInApp("e2e_open_path", { path: target });
+    await openAuthorizedPath(target);
     await browser.waitUntil(async () => (await editorContent()).getText().then((value) => value.includes("saved_as")));
   });
 
   it("guards unsaved local changes and supports cancel and discard", async () => {
     await focusEditor();
     await typeText("# unsaved guard\n");
-    await newSlate();
+    await requestNewSlate();
 
     const dialog = await $("[data-testid='unsaved-changes-dialog']");
     await dialog.waitForDisplayed();
@@ -101,7 +102,7 @@ describe("Act 2 — external / local files", () => {
     await dialog.waitForDisplayed({ reverse: true });
     expect((await (await editorContent()).getText())).toContain("unsaved guard");
 
-    await newSlate();
+    await requestNewSlate();
     await dialog.waitForDisplayed();
     await clickTestId("unsaved-discard");
     await dialog.waitForDisplayed({ reverse: true });
