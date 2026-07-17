@@ -79,7 +79,49 @@ Your files and transformations stay on your machine. No account, no cloud sync, 
 
 ## Download
 
-Grab a build for your platform from [grayslate.app](https://grayslate.app), or from the [Releases page](https://github.com/shriram-ethiraj/grayslate/releases).
+### macOS
+
+Download the [universal DMG](https://github.com/shriram-ethiraj/grayslate/releases/latest/download/grayslate-macos-universal.dmg) for Apple Silicon and Intel Macs.
+
+Or install with Homebrew:
+
+```bash
+brew install --cask shriram-ethiraj/grayslate/grayslate
+```
+
+Grayslate is currently ad-hoc signed and not Apple-notarized. If macOS blocks the first launch, open **System Settings → Privacy & Security** and choose **Open Anyway** after confirming the download came from the Grayslate release.
+
+### Windows
+
+Choose the installer for your Windows device:
+
+- [Windows x64](https://github.com/shriram-ethiraj/grayslate/releases/latest/download/grayslate-windows-x86_64-setup.exe)
+- [Windows ARM64](https://github.com/shriram-ethiraj/grayslate/releases/latest/download/grayslate-windows-aarch64-setup.exe)
+
+### Linux
+
+Current Linux packages target x86_64. Choose the package for your distribution:
+
+- [AppImage](https://github.com/shriram-ethiraj/grayslate/releases/latest/download/grayslate-linux-x86_64.AppImage) — download it, then run:
+
+  ```bash
+  chmod +x grayslate-linux-x86_64.AppImage
+  ./grayslate-linux-x86_64.AppImage
+  ```
+
+- [DEB](https://github.com/shriram-ethiraj/grayslate/releases/latest/download/grayslate-linux-x86_64.deb) — after downloading:
+
+  ```bash
+  sudo apt install ./grayslate-linux-x86_64.deb
+  ```
+
+- [RPM](https://github.com/shriram-ethiraj/grayslate/releases/latest/download/grayslate-linux-x86_64.rpm) — after downloading:
+
+  ```bash
+  sudo dnf install ./grayslate-linux-x86_64.rpm
+  ```
+
+All versioned artifacts and checksums are available on the [Releases page](https://github.com/shriram-ethiraj/grayslate/releases).
 
 ## Transformations
 

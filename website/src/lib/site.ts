@@ -1,5 +1,11 @@
 export type SupportedOS = "macos" | "windows" | "linux";
 
+export interface DownloadAlternative {
+  label: string;
+  format: string;
+  href: string;
+}
+
 export interface DownloadTarget {
   os: SupportedOS;
   label: string;
@@ -8,6 +14,9 @@ export interface DownloadTarget {
   architecture: string;
   href: string;
   fallbackHref: string;
+  installCommand?: string;
+  installAnchor?: string;
+  alternatives?: readonly DownloadAlternative[];
 }
 
 const REPOSITORY_URL = "https://github.com/shriram-ethiraj/grayslate";
@@ -36,15 +45,24 @@ export const downloads: readonly DownloadTarget[] = [
     architecture: "Apple Silicon + Intel",
     href: `${LATEST_RELEASE_URL}/download/grayslate-macos-universal.dmg`,
     fallbackHref: LATEST_RELEASE_URL,
+    installCommand: "brew install --cask shriram-ethiraj/grayslate/grayslate",
+    installAnchor: "#download-macos",
   },
   {
     os: "windows",
     label: "Download for Windows",
     shortLabel: "Windows",
-    format: "EXE",
-    architecture: "64-bit",
+    format: "x64 EXE",
+    architecture: "x64 + ARM64",
     href: `${LATEST_RELEASE_URL}/download/grayslate-windows-x86_64-setup.exe`,
     fallbackHref: LATEST_RELEASE_URL,
+    alternatives: [
+      {
+        label: "Windows on ARM",
+        format: "ARM64",
+        href: `${LATEST_RELEASE_URL}/download/grayslate-windows-aarch64-setup.exe`,
+      },
+    ],
   },
   {
     os: "linux",
@@ -54,6 +72,18 @@ export const downloads: readonly DownloadTarget[] = [
     architecture: "x86_64",
     href: `${LATEST_RELEASE_URL}/download/grayslate-linux-x86_64.AppImage`,
     fallbackHref: LATEST_RELEASE_URL,
+    alternatives: [
+      {
+        label: "Debian / Ubuntu",
+        format: "DEB",
+        href: `${LATEST_RELEASE_URL}/download/grayslate-linux-x86_64.deb`,
+      },
+      {
+        label: "Fedora / RHEL",
+        format: "RPM",
+        href: `${LATEST_RELEASE_URL}/download/grayslate-linux-x86_64.rpm`,
+      },
+    ],
   },
 ] as const;
 

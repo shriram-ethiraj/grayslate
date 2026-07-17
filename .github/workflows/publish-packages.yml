@@ -10,6 +10,7 @@ permissions:
 jobs:
   snap:
     name: Snap Store x64
+    if: github.event.release.prerelease == false
     runs-on: ubuntu-22.04
     env:
       SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS }}
@@ -35,15 +36,14 @@ jobs:
 
   homebrew:
     name: Notify custom Homebrew tap
+    if: github.event.release.prerelease == false
     runs-on: ubuntu-22.04
     env:
       TAP_DISPATCH_TOKEN: ${{ secrets.HOMEBREW_TAP_DISPATCH_TOKEN }}
     steps:
-      - name: Record missing token
-        if: env.TAP_DISPATCH_TOKEN == ''
-        run: echo "HOMEBREW_TAP_DISPATCH_TOKEN is not configured; skipping tap dispatch."
+      - name: Require tap dispatch token
+        run: test -n "${TAP_DISPATCH_TOKEN}"
       - name: Dispatch the published version to the tap
-        if: env.TAP_DISPATCH_TOKEN != ''
         env:
           GH_TOKEN: ${{ secrets.HOMEBREW_TAP_DISPATCH_TOKEN }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}

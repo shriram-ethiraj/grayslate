@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFile, readdir, writeFile } from "node:fs/promises";
+import { copyFile, readFile, readdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
 function option(name, fallback) {
@@ -22,6 +22,28 @@ const assets = {
     "windows-x86_64": `Grayslate-${version}-windows-x86_64-setup.exe`,
     "windows-aarch64": `Grayslate-${version}-windows-aarch64-setup.exe`,
 };
+
+const stableAliases = new Map([
+    [`Grayslate-${version}-macos-universal.dmg`, "grayslate-macos-universal.dmg"],
+    [
+        `Grayslate-${version}-windows-x86_64-setup.exe`,
+        "grayslate-windows-x86_64-setup.exe",
+    ],
+    [
+        `Grayslate-${version}-windows-aarch64-setup.exe`,
+        "grayslate-windows-aarch64-setup.exe",
+    ],
+    [
+        `Grayslate-${version}-linux-x86_64.AppImage`,
+        "grayslate-linux-x86_64.AppImage",
+    ],
+    [`Grayslate-${version}-linux-x86_64.deb`, "grayslate-linux-x86_64.deb"],
+    [`Grayslate-${version}-linux-x86_64.rpm`, "grayslate-linux-x86_64.rpm"],
+]);
+
+for (const [source, alias] of stableAliases) {
+    await copyFile(join(directory, source), join(directory, alias));
+}
 
 const platforms = {};
 for (const [platform, filename] of Object.entries(assets)) {

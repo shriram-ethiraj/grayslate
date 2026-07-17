@@ -65,15 +65,48 @@ if (detectedOS) {
   const primaryDownload = document.querySelector("[data-primary-download]");
   const label = source?.getAttribute("data-label");
   const href = source?.getAttribute("data-href");
+  const installAnchor = source?.getAttribute("data-install-anchor");
 
   if (primaryDownload instanceof HTMLAnchorElement && label && href) {
-    primaryDownload.href = href;
+    primaryDownload.href = installAnchor || href;
     const labelElement = primaryDownload.querySelector("[data-download-label]");
-    if (labelElement) labelElement.textContent = label;
+    if (labelElement) {
+      labelElement.textContent = installAnchor ? label.replace("Download", "Install") : label;
+    }
   }
 
   document.querySelector(`[data-platform-download="${detectedOS}"]`)?.setAttribute("data-recommended", "true");
 }
+
+document.querySelectorAll("[data-copy-command]").forEach((button) => {
+  button.addEventListener("click", async () => {
+    const container = button.closest(".install-method");
+    const code = container?.querySelector("code");
+    const label = button.querySelector("[data-copy-label]");
+    const status = container?.querySelector("[data-copy-status]");
+    const command = code?.textContent?.trim();
+    if (!command) return;
+
+    try {
+      await navigator.clipboard.writeText(command);
+      if (label) label.textContent = "Copied";
+      if (status) status.textContent = "Command copied to clipboard.";
+    } catch {
+      const selection = window.getSelection();
+      const range = document.createRange();
+      range.selectNodeContents(code);
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      if (label) label.textContent = "Selected";
+      if (status) status.textContent = "Press Command+C to copy.";
+    }
+
+    window.setTimeout(() => {
+      if (label) label.textContent = "Copy";
+      if (status) status.textContent = "";
+    }, 2500);
+  });
+});
 
 const stage = document.querySelector("[data-product-stage]");
 const slides = [...document.querySelectorAll("[data-product-slide]")];
