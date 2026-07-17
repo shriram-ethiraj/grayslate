@@ -7,19 +7,24 @@ Static Astro landing page for [grayslate.app](https://grayslate.app).
 From the repository root:
 
 ```sh
-pnpm --filter @grayslate/website dev
-pnpm --filter @grayslate/website check
-pnpm --filter @grayslate/website build
+pnpm run dev:website      # start the dev server
+pnpm run build:website    # production build to website/dist
+pnpm run preview:website  # serve the built site locally
+pnpm --filter @grayslate/website check  # type-check
 ```
 
-The production output is written to `website/dist`.
+`dev:website` and `build:website` run `svelte-kit sync` first. This generates the
+root app's `.svelte-kit/tsconfig.json`, which the shared root `tsconfig.json`
+extends; without it the Astro build (rolldown) fails resolving the root tsconfig on
+a clean checkout. The production output is written to `website/dist`.
 
 ## Cloudflare Pages
 
 - Root directory: repository root
-- Build command: `pnpm --filter @grayslate/website build`
+- Build command: `pnpm run build:website`
 - Build output directory: `website/dist`
 - Production branch: `main`
+- Environment variables: `NODE_VERSION=24.14.0`, `PNPM_VERSION=10.32.1`
 
 Connect the Git repository in Cloudflare Pages, add `grayslate.app` as the custom domain, and configure `www.grayslate.app` to redirect to the apex domain.
 
