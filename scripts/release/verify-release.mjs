@@ -39,7 +39,25 @@ if (tauriConfig.identifier !== "app.grayslate.Grayslate") {
 
 if (tauriConfig.mainBinaryName !== "Grayslate") {
     throw new Error(
-        "mainBinaryName must be Grayslate so universal macOS bundles do not select an auxiliary Cargo binary.",
+        "mainBinaryName must be Grayslate for deterministic application executable naming.",
+    );
+}
+
+const binarySections = cargoToml
+    .split(/^\[\[bin\]\]\s*$/m)
+    .slice(1)
+    .map((section) => section.split(/^\[/m, 1)[0]);
+const namingAuditTarget = binarySections.find((section) =>
+    /^name\s*=\s*"name_file"\s*$/m.test(section),
+);
+if (
+    !namingAuditTarget ||
+    !/^required-features\s*=\s*\[\s*"naming-audit-cli"\s*\]\s*$/m.test(
+        namingAuditTarget,
+    )
+) {
+    throw new Error(
+        "The name_file audit binary must require naming-audit-cli so Tauri excludes it from release bundles.",
     );
 }
 
