@@ -47,6 +47,7 @@ pub const APP_COMMANDS: &[&str] = &[
     "pick_document",
     "pick_notes_root",
     "pick_save_document",
+    "prepare_close",
     "read_file_content",
     "read_markdown_preview_asset",
     "rename_file",

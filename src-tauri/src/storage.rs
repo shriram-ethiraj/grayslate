@@ -753,15 +753,69 @@ impl AppStorage {
 pub fn normalize_path_key(path: &Path) -> Result<String, String> {
     let normalized = normalize_path_buf(path)?;
     #[cfg(windows)]
-    let key = normalized
-        .to_string_lossy()
-        .replace('\\', "/")
-        .to_ascii_lowercase();
+    let key = normalize_windows_path_key(
+        normalized
+            .to_string_lossy()
+            .replace('\\', "/")
+            .to_ascii_lowercase(),
+    );
 
     #[cfg(not(windows))]
     let key = normalized.to_string_lossy().replace('\\', "/");
 
     Ok(key)
+}
+
+#[cfg(windows)]
+fn normalize_windows_path_key(key: String) -> String {
+    if let Some(rest) = key.strip_prefix("//?/unc/") {
+        return format!("//{rest}");
+    }
+    if let Some(rest) = key
+        .strip_prefix("//?/")
+        .filter(|rest| is_windows_drive_path(rest))
+    {
+        return rest.to_string();
+    }
+    key
+}
+
+#[cfg(windows)]
+fn is_windows_drive_path(value: &str) -> bool {
+    value.as_bytes().get(1) == Some(&b':')
+}
+
+/// Returns a stable user-facing path spelling. Windows authorization keeps
+/// canonical verbatim paths internally, but the frontend and SQLite should not
+/// observe the `\\?\` namespace prefix because it makes one file look like two.
+pub fn path_to_display_string(path: &Path) -> String {
+    let value = path.to_string_lossy().into_owned();
+
+    #[cfg(windows)]
+    {
+        let slashed = value.replace('\\', "/");
+        let lowercase = slashed.to_ascii_lowercase();
+        if lowercase.starts_with("//?/unc/") {
+            return format!("\\\\{}", slashed[8..].replace('/', "\\"));
+        }
+        if let Some(rest) = slashed
+            .get(4..)
+            .filter(|_| lowercase.starts_with("//?/"))
+            .filter(|rest| is_windows_drive_path(rest))
+        {
+            return rest.replace('/', "\\");
+        }
+        return slashed.replace('/', "\\");
+    }
+
+    #[cfg(not(windows))]
+    value
+}
+
+pub fn path_is_within_root(path: &Path, root: &Path) -> Result<bool, String> {
+    let path_key = normalize_path_key(path)?;
+    let root_key = normalize_path_key(root)?;
+    Ok(path_key == root_key || path_key.starts_with(&(root_key + "/")))
 }
 
 fn normalize_path_buf(path: &Path) -> Result<PathBuf, String> {
@@ -803,7 +857,7 @@ fn build_file_snapshot(path: &Path) -> Result<FileMetadataSnapshot, String> {
         .filter(|value| !value.is_empty());
 
     Ok(FileMetadataSnapshot {
-        path: normalized.to_string_lossy().into_owned(),
+        path: path_to_display_string(&normalized),
         path_key,
         file_name,
         extension,
@@ -958,12 +1012,14 @@ mod tests {
         let (storage, dir) = temp_storage();
         let path = dir.join("local.txt");
         write_file(&path, b"original");
+        let authorized_path = std::fs::canonicalize(&path).unwrap();
 
         assert!(storage
-            .record_file_open_if_untracked(&path, FileSource::Local)
+            .record_file_open_if_untracked(&authorized_path, FileSource::Local)
             .unwrap());
 
         let first = storage.get_tracked_file(&path).unwrap().unwrap();
+        assert_eq!(first.path, path_to_display_string(&authorized_path));
         assert_eq!(first.source, "local");
         assert!(first.file_modified_app_at.is_some());
 
@@ -971,7 +1027,7 @@ mod tests {
         write_file(&path, b"changed after first open");
 
         assert!(!storage
-            .record_file_open_if_untracked(&path, FileSource::Local)
+            .record_file_open_if_untracked(&authorized_path, FileSource::Local)
             .unwrap());
 
         let reopened = storage.get_tracked_file(&path).unwrap().unwrap();
@@ -1045,5 +1101,90 @@ mod tests {
         assert_eq!(recent[1].path, untouched.to_string_lossy().to_string());
         assert!(recent[0].file_modified_app_at.is_some());
         assert!(recent[1].file_modified_app_at.is_none());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_verbatim_drive_and_unc_paths_share_normal_keys() {
+        let drive = Path::new(r"C:\Users\Prasa\OneDrive\Documents\Grayslate\note.txt");
+        let verbatim_drive = Path::new(r"\\?\C:\Users\Prasa\OneDrive\Documents\Grayslate\note.txt");
+        assert_eq!(
+            normalize_path_key(drive).unwrap(),
+            normalize_path_key(verbatim_drive).unwrap()
+        );
+        assert_eq!(
+            path_to_display_string(verbatim_drive),
+            drive.to_string_lossy()
+        );
+        assert_eq!(
+            path_to_display_string(Path::new(
+                "C:/Users/Prasa/OneDrive/Documents/Grayslate/note.txt"
+            )),
+            drive.to_string_lossy()
+        );
+
+        let unc = Path::new(r"\\server\share\Grayslate\note.txt");
+        let verbatim_unc = Path::new(r"\\?\UNC\server\share\Grayslate\note.txt");
+        assert_eq!(
+            normalize_path_key(unc).unwrap(),
+            normalize_path_key(verbatim_unc).unwrap()
+        );
+        assert_eq!(path_to_display_string(verbatim_unc), unc.to_string_lossy());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_root_membership_ignores_verbatim_prefix_and_case() {
+        let root = Path::new(r"C:\Users\Prasa\OneDrive\Documents\Grayslate");
+        let slate = Path::new(r"\\?\c:\users\prasa\onedrive\documents\grayslate\creating.txt");
+        let sibling =
+            Path::new(r"\\?\C:\Users\Prasa\OneDrive\Documents\Grayslate-other\creating.txt");
+
+        assert!(path_is_within_root(slate, root).unwrap());
+        assert!(!path_is_within_root(sibling, root).unwrap());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn canonical_save_updates_the_existing_normal_path_row() {
+        let (storage, dir) = temp_storage();
+        let path = dir.join("canonical-save.txt");
+        write_file(&path, b"before");
+        storage.upsert_slates_file_for_sync(&path).unwrap();
+
+        let canonical = std::fs::canonicalize(&path).unwrap();
+        storage
+            .record_file_update(&canonical, FileSource::Slates)
+            .unwrap();
+
+        let rows = storage.list_recent_files(10).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].path, path_to_display_string(&canonical));
+        assert!(rows[0].file_modified_app_at.is_some());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn rename_updates_a_row_created_with_the_noncanonical_path() {
+        let (storage, dir) = temp_storage();
+        let old_path = dir.join("before-rename.txt");
+        let new_path = dir.join("after-rename.txt");
+        write_file(&old_path, b"content");
+        storage
+            .record_file_update(&old_path, FileSource::Slates)
+            .unwrap();
+        let canonical_old = std::fs::canonicalize(&old_path).unwrap();
+
+        std::fs::rename(&old_path, &new_path).unwrap();
+        let canonical_new = std::fs::canonicalize(&new_path).unwrap();
+        storage
+            .rename_tracked_file(&canonical_old, &canonical_new)
+            .unwrap();
+
+        let rows = storage.list_recent_files(10).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].path, path_to_display_string(&canonical_new));
+        assert_eq!(rows[0].file_name, "after-rename.txt");
+        assert!(rows[0].file_modified_app_at.is_some());
     }
 }

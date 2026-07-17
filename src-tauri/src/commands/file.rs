@@ -22,10 +22,10 @@ use crate::filesystem::{
     unique_path_in_dir_excluding,
 };
 use crate::storage::{
-    normalize_path_key, AppStorage, FileSource, RecentFileRecord, SETTING_CONFIRM_BEFORE_DELETE,
-    SETTING_DEFAULT_INDENT_MODE, SETTING_DEFAULT_INDENT_SIZE, SETTING_FONT_SIZE,
-    SETTING_LAST_ACTIVE_FILE, SETTING_NOTES_ROOT, SETTING_SIDEBAR_OPEN, SETTING_SIDEBAR_WIDTH,
-    SETTING_STARTUP_BEHAVIOR, SETTING_THEME, SETTING_WORD_WRAP,
+    normalize_path_key, path_to_display_string, AppStorage, FileSource, RecentFileRecord,
+    SETTING_CONFIRM_BEFORE_DELETE, SETTING_DEFAULT_INDENT_MODE, SETTING_DEFAULT_INDENT_SIZE,
+    SETTING_FONT_SIZE, SETTING_LAST_ACTIVE_FILE, SETTING_NOTES_ROOT, SETTING_SIDEBAR_OPEN,
+    SETTING_SIDEBAR_WIDTH, SETTING_STARTUP_BEHAVIOR, SETTING_THEME, SETTING_WORD_WRAP,
 };
 
 use super::RECENT_FILES_UPDATED_EVENT;
@@ -575,9 +575,7 @@ pub fn reveal_document(
 #[tauri::command]
 pub fn resolve_default_notes_root(app: tauri::AppHandle) -> Result<String, String> {
     let path = resolve_default_notes_root_path(&app)?;
-    path.into_os_string()
-        .into_string()
-        .map_err(|_| "Default notes root contains invalid UTF-8.".to_string())
+    Ok(path_to_display_string(&path))
 }
 
 #[tauri::command]
@@ -586,9 +584,7 @@ pub fn resolve_notes_root(
     storage: tauri::State<'_, AppStorage>,
 ) -> Result<String, String> {
     let path = resolve_notes_root_path(&app, storage.inner())?;
-    path.into_os_string()
-        .into_string()
-        .map_err(|_| "Notes root contains invalid UTF-8.".to_string())
+    Ok(path_to_display_string(&path))
 }
 
 #[tauri::command]
@@ -618,7 +614,7 @@ pub async fn pick_notes_root(
     validate_notes_root_choice(&path)?;
     let canonical = std::fs::canonicalize(path)
         .map_err(|error| format!("Cannot resolve selected notes folder: {error}"))?;
-    let value = canonical.to_string_lossy().into_owned();
+    let value = path_to_display_string(&canonical);
     storage.set_setting(SETTING_NOTES_ROOT, Some(&value))?;
     Ok(Some(value))
 }
@@ -694,8 +690,8 @@ pub fn set_last_active_document(
                 generation,
                 DocumentAccess::Read,
             )?;
-            let path = document.path.to_string_lossy();
-            storage.set_setting(SETTING_LAST_ACTIVE_FILE, Some(path.as_ref()))
+            let path = path_to_display_string(&document.path);
+            storage.set_setting(SETTING_LAST_ACTIVE_FILE, Some(&path))
         }
         _ => Err("Document ID and generation must be provided together.".to_string()),
     }

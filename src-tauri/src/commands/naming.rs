@@ -20,7 +20,7 @@ use crate::{
     document::{canonical_notes_root, DocumentRegistry, DocumentRights},
     filesystem::{sanitize_filename, unique_path_in_dir},
     naming::{fallback_stem, language_to_extension, suggest_stem_auto},
-    storage::{AppStorage, FileSource},
+    storage::{path_to_display_string, AppStorage, FileSource},
 };
 
 use tauri::Emitter;
@@ -33,6 +33,8 @@ use super::RECENT_FILES_UPDATED_EVENT;
 #[serde(rename_all = "camelCase")]
 pub struct SaveResult {
     pub path: String,
+    #[serde(skip)]
+    pub authorized_path: PathBuf,
     pub document_id: String,
     pub document_generation: u64,
     pub source: String,
@@ -80,7 +82,7 @@ pub async fn save_untitled_slate(
     .await?;
     autosave.register_authorized(
         window.label(),
-        PathBuf::from(&result.path),
+        result.authorized_path.clone(),
         FileSource::Slates,
         language_hint,
         result.document_id.clone(),
@@ -133,17 +135,14 @@ pub async fn save_new_slate_to_disk(
     storage.record_file_update(&target_path, FileSource::Slates)?;
     let _ = app.emit(RECENT_FILES_UPDATED_EVENT, ());
 
-    target_path
-        .into_os_string()
-        .into_string()
-        .map(|path| SaveResult {
-            path,
-            document_id: created.id,
-            document_generation: created.generation,
-            source: FileSource::Slates.as_str().to_string(),
-            detected_language: effective_language,
-        })
-        .map_err(|_| "Saved path contains invalid UTF-8.".to_string())
+    Ok(SaveResult {
+        path: path_to_display_string(&created.path),
+        authorized_path: created.path,
+        document_id: created.id,
+        document_generation: created.generation,
+        source: FileSource::Slates.as_str().to_string(),
+        detected_language: effective_language,
+    })
 }
 
 // ---------------------------------------------------------------------------

@@ -109,11 +109,26 @@
     });
 
     // Guard window close when there are unsaved local-file changes.
+    //
+    // `preventDefault()` is unconditional: it only stops @tauri-apps/api from
+    // calling `window.destroy()` itself, which would race the backend's
+    // close-time slate flush and usually win, dropping the final save. Closing
+    // is delegated to `prepare_close`, which flushes first and then destroys
+    // the window from Rust. Returning early therefore leaves the window open.
     unlistenCloseRequested = await appWindow.onCloseRequested(async (event) => {
+      event.preventDefault();
+
       const canClose = await confirmBeforeLeavingDocument();
       if (!canClose) {
-        event.preventDefault();
+        return;
       }
+
+      // Resolves only if the teardown itself failed: on success the webview is
+      // already gone, so this promise never settles. Flush failures are logged
+      // backend-side and deliberately do not block the close.
+      await invoke("prepare_close").catch((error: unknown) => {
+        console.error("Close: prepare_close failed:", error);
+      });
     });
 
     // On macOS, the in-window Menubar is hidden and the system menu bar is
