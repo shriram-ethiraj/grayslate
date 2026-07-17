@@ -17,6 +17,7 @@
 
 use pulldown_cmark::{Alignment, CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 use std::borrow::Cow;
+use std::collections::HashSet;
 use std::fmt::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -372,6 +373,10 @@ fn heading_level_to_u8(level: HeadingLevel) -> u8 {
 /// other attributes required by the preview surface.
 fn sanitize_preview_html(html: &str) -> String {
     ammonia::Builder::new()
+        // Keep rendered link schemes aligned with `open_markdown_link`. The
+        // broader Ammonia defaults include handlers such as magnet:, ssh:, and
+        // irc: that Grayslate intentionally does not open.
+        .url_schemes(HashSet::from(["ftp", "http", "https", "mailto", "tel"]))
         .add_generic_attributes(&["data-line"])
         .add_tags(&["input", "picture", "source"])
         .add_tag_attributes("input", &["type", "checked", "disabled"])
@@ -702,6 +707,56 @@ mod tests {
 
         assert!(!html.contains("align=\"evil\""), "html: {html}");
         assert!(!html.contains("javascript:"), "html: {html}");
+    }
+
+    #[test]
+    fn sanitizer_keeps_only_supported_url_schemes() {
+        let html = sanitize_preview_html(
+            r##"<a href="#section">fragment</a>
+<a href="mailto:security@example.com">mail</a>
+<a href="JaVaScRiPt:alert(1)">script</a>
+<a href="ssh://example.com/repo">ssh</a>
+<img src="docs/%2E%2E/hero.png" alt="encoded relative path" />
+<img src="data:image/png;base64,AAAA" alt="data image" />
+<img src="http://[::1" alt="malformed URL" />"##,
+        );
+
+        assert!(html.contains("href=\"#section\""), "html: {html}");
+        assert!(
+            html.contains("href=\"mailto:security@example.com\""),
+            "html: {html}"
+        );
+        assert!(
+            html.contains("src=\"docs/%2E%2E/hero.png\""),
+            "html: {html}"
+        );
+        assert!(
+            !html.to_ascii_lowercase().contains("javascript:"),
+            "html: {html}"
+        );
+        assert!(!html.contains("ssh://"), "html: {html}");
+        assert!(!html.contains("data:image"), "html: {html}");
+        assert!(!html.contains("http://[::1"), "html: {html}");
+    }
+
+    #[test]
+    fn srcset_rejects_unsafe_fragments_schemes_and_malformed_urls() {
+        assert!(is_safe_srcset(
+            "docs/hero.png 1x, https://example.com/hero.png 2x"
+        ));
+        assert!(is_safe_srcset("docs/%2E%2E/hero.png 1x"));
+        assert!(is_safe_srcset("//cdn.example.com/hero.png 2x"));
+
+        assert!(!is_safe_srcset("#fragment 1x"));
+        assert!(!is_safe_srcset("/absolute/path.png 1x"));
+        assert!(!is_safe_srcset("JaVaScRiPt:alert(1) 1x"));
+        assert!(!is_safe_srcset("data:image/png;base64,AAAA 1x"));
+        assert!(!is_safe_srcset("http://[::1 1x"));
+
+        let sanitized = sanitize_preview_html(
+            r#"<picture><source srcset="safe.png 1x, javascript:alert(1) 2x"></picture>"#,
+        );
+        assert!(!sanitized.contains("srcset="), "html: {sanitized}");
     }
 
     #[test]

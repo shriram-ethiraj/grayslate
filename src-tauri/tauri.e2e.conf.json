@@ -3,6 +3,7 @@
   "app": {
     "windows": [
       {
+        "create": false,
         "title": "Grayslate",
         "width": 800,
         "height": 600,

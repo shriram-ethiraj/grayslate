@@ -72,6 +72,8 @@ pub fn run() {
             app.handle()
                 .plugin(tauri_plugin_updater::Builder::new().build())?;
 
+            window::create_main_window(app)?;
+
             #[cfg(target_os = "macos")]
             window::apply_macos_window_styling(app);
             Ok(())
