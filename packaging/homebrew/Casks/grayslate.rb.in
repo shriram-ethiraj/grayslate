@@ -5,9 +5,9 @@ cask "grayslate" do
   url "https://github.com/shriram-ethiraj/grayslate/releases/download/v#{version}/Grayslate-#{version}-macos-universal-homebrew.dmg"
   name "Grayslate"
   desc "Fast scratchpad for code, data, and quick thinking"
-  homepage "https://grayslate.app"
+  homepage "https://grayslate.app/"
 
-  depends_on macos: ">= :big_sur"
+  depends_on macos: :big_sur
 
   app "Grayslate.app"
 
