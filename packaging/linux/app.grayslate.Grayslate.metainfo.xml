@@ -16,6 +16,13 @@
     </p>
   </description>
   <launchable type="desktop-id">app.grayslate.Grayslate.desktop</launchable>
+  <categories>
+    <category>Development</category>
+    <category>TextEditor</category>
+  </categories>
+  <provides>
+    <binary>Grayslate</binary>
+  </provides>
   <url type="homepage">https://grayslate.app</url>
   <url type="bugtracker">https://github.com/shriram-ethiraj/grayslate/issues</url>
   <url type="vcs-browser">https://github.com/shriram-ethiraj/grayslate</url>

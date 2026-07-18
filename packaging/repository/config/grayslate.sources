@@ -1,0 +1,7 @@
+Types: deb
+URIs: https://packages.grayslate.app/apt
+Suites: stable
+Components: main
+Architectures: amd64
+Signed-By: /etc/apt/keyrings/grayslate-archive-keyring.gpg
+

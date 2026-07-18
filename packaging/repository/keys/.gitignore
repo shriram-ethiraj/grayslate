@@ -1,0 +1,4 @@
+# Private signing-key material must never enter the repository.
+*.key
+*.private.*
+*secret*

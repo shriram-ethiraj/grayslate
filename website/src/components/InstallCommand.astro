@@ -1,0 +1,25 @@
+---
+interface Props {
+  command: string;
+  label: string;
+  primary?: boolean;
+}
+
+const { command, label, primary = false } = Astro.props;
+---
+
+<div class={primary ? "install-method install-method--primary" : "install-method"}>
+  <span class="method-label">{label}</span>
+  <div class="install-command">
+    <code>{command}</code>
+    <button type="button" data-copy-command aria-label={`Copy ${label} command`} title="Copy command">
+      <svg data-copy-icon viewBox="0 0 24 24" aria-hidden="true">
+        <rect width="14" height="14" x="8" y="8" rx="2"></rect>
+        <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path>
+      </svg>
+      <svg class="copy-icon--hidden" data-copied-icon viewBox="0 0 24 24" aria-hidden="true">
+        <path d="m5 12 4 4L19 6"></path>
+      </svg>
+    </button>
+  </div>
+</div>

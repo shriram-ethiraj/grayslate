@@ -37,13 +37,37 @@
     "active": true,
     "targets": "all",
     "createUpdaterArtifacts": true,
+    "license": "MIT",
+    "category": "DeveloperTool",
+    "shortDescription": "A fast scratchpad for code, data, and quick thinking.",
+    "longDescription": "Grayslate is a local developer scratchpad for notes, code, JSON, CSV, Markdown, and text transformations.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "linux": {
+      "deb": {
+        "section": "editors",
+        "priority": "optional",
+        "desktopTemplate": "../packaging/linux/tauri-hidden.desktop.hbs",
+        "files": {
+          "/usr/share/applications/app.grayslate.Grayslate.desktop": "../packaging/linux/app.grayslate.Grayslate.desktop",
+          "/usr/share/metainfo/app.grayslate.Grayslate.metainfo.xml": "../packaging/linux/app.grayslate.Grayslate.metainfo.xml",
+          "/usr/share/icons/hicolor/512x512/apps/app.grayslate.Grayslate.png": "icons/icon.png"
+        }
+      },
+      "rpm": {
+        "desktopTemplate": "../packaging/linux/tauri-hidden.desktop.hbs",
+        "files": {
+          "/usr/share/applications/app.grayslate.Grayslate.desktop": "../packaging/linux/app.grayslate.Grayslate.desktop",
+          "/usr/share/metainfo/app.grayslate.Grayslate.metainfo.xml": "../packaging/linux/app.grayslate.Grayslate.metainfo.xml",
+          "/usr/share/icons/hicolor/512x512/apps/app.grayslate.Grayslate.png": "icons/icon.png"
+        }
+      }
+    }
   },
   "plugins": {
     "updater": {

@@ -1,8 +1,8 @@
 export type SupportedOS = "macos" | "windows" | "linux";
 
 export interface DownloadAlternative {
-  label: string;
   format: string;
+  subtitle: string;
   href: string;
 }
 
@@ -11,10 +11,13 @@ export interface DownloadTarget {
   label: string;
   shortLabel: string;
   format: string;
+  downloadSubtitle: string;
   architecture: string;
   href: string;
   fallbackHref: string;
   installCommand?: string;
+  installLabel?: string;
+  installPrimary?: boolean;
   installAnchor?: string;
   alternatives?: readonly DownloadAlternative[];
 }
@@ -22,6 +25,7 @@ export interface DownloadTarget {
 const REPOSITORY_URL = "https://github.com/shriram-ethiraj/grayslate";
 const RELEASES_URL = `${REPOSITORY_URL}/releases`;
 const LATEST_RELEASE_URL = `${RELEASES_URL}/latest`;
+const PACKAGES_URL = "https://packages.grayslate.app";
 
 export const site = {
   name: "Grayslate",
@@ -34,6 +38,7 @@ export const site = {
   licenseUrl: `${REPOSITORY_URL}/blob/main/LICENSE`,
   releasesUrl: RELEASES_URL,
   latestReleaseUrl: LATEST_RELEASE_URL,
+  packagesUrl: PACKAGES_URL,
 } as const;
 
 export const downloads: readonly DownloadTarget[] = [
@@ -42,24 +47,27 @@ export const downloads: readonly DownloadTarget[] = [
     label: "Download for macOS",
     shortLabel: "macOS",
     format: "DMG",
+    downloadSubtitle: "For Apple Silicon and Intel Macs",
     architecture: "Apple Silicon + Intel",
     href: `${LATEST_RELEASE_URL}/download/grayslate-macos-universal.dmg`,
     fallbackHref: LATEST_RELEASE_URL,
     installCommand: "brew install --cask shriram-ethiraj/grayslate/grayslate",
+    installLabel: "Install with Homebrew",
     installAnchor: "#download-macos",
   },
   {
     os: "windows",
     label: "Download for Windows",
     shortLabel: "Windows",
-    format: "x64 EXE",
+    format: "x64",
+    downloadSubtitle: "For most Windows PCs",
     architecture: "x64 + ARM64",
     href: `${LATEST_RELEASE_URL}/download/grayslate-windows-x86_64-setup.exe`,
     fallbackHref: LATEST_RELEASE_URL,
     alternatives: [
       {
-        label: "Windows on ARM",
         format: "ARM64",
+        subtitle: "Windows on ARM",
         href: `${LATEST_RELEASE_URL}/download/grayslate-windows-aarch64-setup.exe`,
       },
     ],
@@ -69,21 +77,14 @@ export const downloads: readonly DownloadTarget[] = [
     label: "Download for Linux",
     shortLabel: "Linux",
     format: "AppImage",
+    downloadSubtitle: "Standalone",
     architecture: "x86_64",
     href: `${LATEST_RELEASE_URL}/download/grayslate-linux-x86_64.AppImage`,
     fallbackHref: LATEST_RELEASE_URL,
-    alternatives: [
-      {
-        label: "Debian / Ubuntu",
-        format: "DEB",
-        href: `${LATEST_RELEASE_URL}/download/grayslate-linux-x86_64.deb`,
-      },
-      {
-        label: "Fedora / RHEL",
-        format: "RPM",
-        href: `${LATEST_RELEASE_URL}/download/grayslate-linux-x86_64.rpm`,
-      },
-    ],
+    installCommand: `curl -fsSL ${PACKAGES_URL}/install.sh | sh`,
+    installLabel: "Install on Debian / Fedora",
+    installPrimary: true,
+    installAnchor: "#download-linux",
   },
 ] as const;
 

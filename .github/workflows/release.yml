@@ -38,11 +38,16 @@ jobs:
       - name: Install Linux test dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --no-install-recommends libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev
+          sudo apt-get install --no-install-recommends appstream libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
       - name: Check frontend
         run: pnpm run check
+      - name: Test release and package-repository scripts
+        run: |
+          pnpm run test:release-scripts
+          pnpm run test:package-repository
+          appstreamcli validate --no-net packaging/linux/app.grayslate.Grayslate.metainfo.xml
       - name: Test Rust workspace
         run: cargo test --manifest-path src-tauri/Cargo.toml --locked
 
