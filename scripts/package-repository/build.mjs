@@ -36,8 +36,20 @@ if (debs.length === 0 || rpms.length === 0) {
 const aptRoot = join(output, "apt");
 const rpmRoot = join(output, "rpm", "stable", "x86_64");
 const aptPool = join(aptRoot, "pool", "main", "g", "grayslate");
+const rpmKeyDatabase = join(process.env.GNUPGHOME, "rpmdb");
 await mkdir(aptPool, { recursive: true });
 await mkdir(rpmRoot, { recursive: true });
+await mkdir(rpmKeyDatabase, { recursive: true });
+
+// GPG and RPM maintain separate key stores. rpmsign reads the private key from
+// GNUPGHOME, while rpm --checksig requires the public key in an RPM database.
+// Keep that verification database isolated with the ephemeral signing home so
+// the workflow never changes the runner's global RPM trust configuration.
+await command("rpm", ["--dbpath", rpmKeyDatabase, "--initdb"]);
+await command("rpm", [
+    "--dbpath", rpmKeyDatabase,
+    "--import", join(publicKeys, "grayslate-archive-key.asc"),
+]);
 
 const debPackages = [];
 for (const source of debs) {
@@ -206,7 +218,7 @@ async function signRpm(path) {
     }
     arguments_.push("--addsign", path);
     await command("rpmsign", arguments_);
-    await command("rpm", ["--checksig", path]);
+    await command("rpm", ["--dbpath", rpmKeyDatabase, "--checksig", path]);
 }
 
 async function gpg(arguments_) {
