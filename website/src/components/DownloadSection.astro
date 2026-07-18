@@ -1,5 +1,6 @@
 ---
 import { downloads, site } from "../lib/site";
+import InstallCommand from "./InstallCommand.astro";
 ---
 
 <section class="section download-section" id="download" itemscope itemtype="https://schema.org/SoftwareApplication">
@@ -39,40 +40,49 @@ import { downloads, site } from "../lib/site";
             </span>
           </div>
 
+          {download.installCommand && download.installPrimary && (
+            <InstallCommand
+              command={download.installCommand}
+              label={download.installLabel ?? "Install command"}
+              primary
+            />
+          )}
+
           <div class="platform-actions">
-            <a class="platform-primary" href={download.href} itemprop="downloadUrl">
-              Download {download.format}
+            <a
+              class={download.installPrimary ? "platform-secondary" : "platform-primary"}
+              href={download.href}
+              itemprop="downloadUrl"
+            >
+              <span class="platform-action-copy">
+                <span>Download {download.format}</span>
+                <small>{download.downloadSubtitle}</small>
+              </span>
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v12m0 0 4-4m-4 4-4-4M5 21h14"></path></svg>
             </a>
             {download.alternatives?.map((alternative) => (
-              <a class="platform-alternative" href={alternative.href} itemprop="downloadUrl">
-                {alternative.format}<span>{alternative.label}</span>
+              <a class="platform-secondary" href={alternative.href} itemprop="downloadUrl">
+                <span class="platform-action-copy">
+                  <span>Download {alternative.format}</span>
+                  <small>{alternative.subtitle}</small>
+                </span>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v12m0 0 4-4m-4 4-4-4M5 21h14"></path></svg>
               </a>
             ))}
           </div>
 
-          {download.installCommand && (
-            <div class="install-method">
-              <span class="method-label">Install with Homebrew</span>
-              <div class="install-command">
-                <code>{download.installCommand}</code>
-                <button
-                  type="button"
-                  data-copy-command
-                  aria-label="Copy Homebrew install command"
-                >
-                  <span data-copy-label>Copy</span>
-                </button>
-              </div>
-              <p class="copy-status" data-copy-status aria-live="polite"></p>
-            </div>
+          {download.installCommand && !download.installPrimary && (
+            <InstallCommand
+              command={download.installCommand}
+              label={download.installLabel ?? "Install command"}
+            />
           )}
 
           {download.os === "macos" && (
             <p class="platform-note">Ad-hoc signed; macOS may require Open Anyway on first launch.</p>
           )}
           {download.os === "linux" && (
-            <p class="platform-note">Packages currently target x86_64.</p>
+            <p class="platform-note">Repository installs receive system updates. AppImage remains standalone. Packages currently target x86_64.</p>
           )}
         </article>
       ))}

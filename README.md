@@ -4,26 +4,14 @@
   <p><strong>A fast scratchpad for code, data, and quick thinking.</strong></p>
 
   <p>
-    <a href="https://grayslate.app">
-      <img src="https://img.shields.io/badge/Download-macOS-000000?style=flat-square&logo=apple&logoColor=white" alt="Download for macOS" />
+    <a href="https://grayslate.app/#download">
+      <img src="https://img.shields.io/badge/Download-Latest-brightgreen?style=flat-square&amp;logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjZmZmIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCI%2BPHBhdGggZD0iTTIxIDE1djRhMiAyIDAgMCAxLTIgMkg1YTIgMiAwIDAgMS0yLTJ2LTRNNyAxMGw1IDUgNS01TTEyIDE1VjMiLz48L3N2Zz4%3D" alt="Download the latest Grayslate release" />
     </a>
-    <a href="https://grayslate.app">
-      <img src="https://img.shields.io/badge/Download-Windows-0078D6?style=flat-square&logo=windows&logoColor=white" alt="Download for Windows" />
+    <a href="https://github.com/shriram-ethiraj/grayslate/releases/latest">
+      <img src="https://img.shields.io/github/v/release/shriram-ethiraj/grayslate?display_name=tag&amp;sort=semver&amp;style=flat-square&amp;label=version&amp;color=brightgreen&amp;logo=github&amp;logoColor=white" alt="Latest Grayslate version" />
     </a>
-    <a href="https://grayslate.app">
-      <img src="https://img.shields.io/badge/Download-Linux-FCC624?style=flat-square&logo=linux&logoColor=black" alt="Download for Linux" />
-    </a>
-  </p>
-
-  <p>
-    <a href="https://github.com/shriram-ethiraj/grayslate/blob/main/LICENSE">
-      <img src="https://img.shields.io/github/license/shriram-ethiraj/grayslate?style=flat-square" alt="License" />
-    </a>
-    <a href="https://github.com/shriram-ethiraj/grayslate/issues">
-      <img src="https://img.shields.io/github/issues/shriram-ethiraj/grayslate?style=flat-square" alt="Issues" />
-    </a>
-    <a href="https://github.com/shriram-ethiraj/grayslate/stargazers">
-      <img src="https://img.shields.io/github/stars/shriram-ethiraj/grayslate?style=flat-square" alt="Stars" />
+    <a href="https://github.com/shriram-ethiraj/grayslate/actions/workflows/e2e.yml">
+      <img src="https://img.shields.io/github/actions/workflow/status/shriram-ethiraj/grayslate/e2e.yml?branch=main&amp;style=flat-square&amp;label=Build&amp;logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjZmZmIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCI%2BPHBhdGggZD0iTTE0LjcgNi4zYTEgMSAwIDAgMCAwIDEuNGwxLjYgMS42YTEgMSAwIDAgMCAxLjQgMGwzLjc3LTMuNzdhNiA2IDAgMCAxLTcuOTQgNy45NGwtNi45MSA2LjkxYTIuMTIgMi4xMiAwIDAgMS0zLTNsNi45MS02LjkxYTYgNiAwIDAgMSA3Ljk0LTcuOTRaIi8%2BPC9zdmc%2B" alt="Build status" />
     </a>
   </p>
 
@@ -100,28 +88,29 @@ Choose the installer for your Windows device:
 
 ### Linux
 
-Current Linux packages target x86_64. Choose the package for your distribution:
+Current Linux packages target x86_64. The recommended installer detects
+Debian/Ubuntu/Mint or Fedora/RHEL-compatible systems, adds the official signed
+APT or DNF repository, and installs Grayslate:
 
-- [AppImage](https://github.com/shriram-ethiraj/grayslate/releases/latest/download/grayslate-linux-x86_64.AppImage) — download it, then run:
+```bash
+curl -fsSL https://packages.grayslate.app/install.sh | sh
+```
 
-  ```bash
-  chmod +x grayslate-linux-x86_64.AppImage
-  ./grayslate-linux-x86_64.AppImage
-  ```
+Future versions then arrive through your normal system package manager and
+Linux graphical update tools.
 
-- [DEB](https://github.com/shriram-ethiraj/grayslate/releases/latest/download/grayslate-linux-x86_64.deb) — after downloading:
+Prefer a standalone file? Download the
+[AppImage](https://github.com/shriram-ethiraj/grayslate/releases/latest/download/grayslate-linux-x86_64.AppImage), then run:
 
-  ```bash
-  sudo apt install ./grayslate-linux-x86_64.deb
-  ```
+```bash
+chmod +x grayslate-linux-x86_64.AppImage
+./grayslate-linux-x86_64.AppImage
+```
 
-- [RPM](https://github.com/shriram-ethiraj/grayslate/releases/latest/download/grayslate-linux-x86_64.rpm) — after downloading:
-
-  ```bash
-  sudo dnf install ./grayslate-linux-x86_64.rpm
-  ```
-
-All versioned artifacts and checksums are available on the [Releases page](https://github.com/shriram-ethiraj/grayslate/releases).
+Standalone versioned DEB/RPM files, all other artifacts, and checksums remain
+available on the [Releases page](https://github.com/shriram-ethiraj/grayslate/releases).
+Manual APT/DNF enrollment and troubleshooting steps are documented in the
+[Linux package repository runbook](docs/linux-package-repository.md).
 
 ## Transformations
 

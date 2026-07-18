@@ -64,7 +64,24 @@ The first milestone intentionally has OS trust warnings:
 
 ## Store and package-manager channels
 
-Publishing the GitHub release triggers `.github/workflows/publish-packages.yml`.
+Publishing the GitHub release triggers `.github/workflows/publish-packages.yml`
+and `.github/workflows/publish-linux-repositories.yml`. The latter rebuilds the
+official signed APT and RPM repositories on Cloudflare R2 from every stable,
+versioned GitHub Release package. See
+[`docs/linux-package-repository.md`](linux-package-repository.md) for Cloudflare,
+signing-key, recovery, and verification instructions.
+
+Linux Mint/Ubuntu/Debian users who enroll the APT repository receive updates
+through APT and their graphical Update/Software Manager. Fedora/RHEL-compatible
+users receive them through DNF and compatible software applications. AppStream
+and DEP-11 indexes provide the name, description, icon, screenshots, and release
+history used by graphical stores. The standalone DEB/RPM release assets remain
+available, but installing one directly does not enroll the repository.
+The recommended public enrollment path is
+`curl -fsSL https://packages.grayslate.app/install.sh | sh`; AppImage remains
+the secondary standalone Linux option.
+
+Publishing also triggers `.github/workflows/publish-packages.yml`.
 If `SNAPCRAFT_STORE_CREDENTIALS` is configured, it builds the strict x64 snap
 from the published tag and releases it to `stable`. If
 `HOMEBREW_TAP_DISPATCH_TOKEN` is configured, it dispatches the tag to the

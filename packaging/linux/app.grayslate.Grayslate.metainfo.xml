@@ -16,6 +16,13 @@
     </p>
   </description>
   <launchable type="desktop-id">app.grayslate.Grayslate.desktop</launchable>
+  <categories>
+    <category>Development</category>
+    <category>TextEditor</category>
+  </categories>
+  <provides>
+    <binary>Grayslate</binary>
+  </provides>
   <url type="homepage">https://grayslate.app</url>
   <url type="bugtracker">https://github.com/shriram-ethiraj/grayslate/issues</url>
   <url type="vcs-browser">https://github.com/shriram-ethiraj/grayslate</url>
@@ -31,6 +38,7 @@
   </screenshots>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="0.1.5" date="2026-07-18" />
     <release version="0.1.4" date="2026-07-18" />
     <release version="0.1.3" date="2026-07-17" />
     <release version="0.1.2" date="2026-07-17" />

@@ -79,31 +79,42 @@ if (detectedOS) {
 }
 
 document.querySelectorAll("[data-copy-command]").forEach((button) => {
+  const defaultLabel = button.getAttribute("aria-label") || "Copy command";
+  let resetTimer;
+
   button.addEventListener("click", async () => {
     const container = button.closest(".install-method");
     const code = container?.querySelector("code");
-    const label = button.querySelector("[data-copy-label]");
-    const status = container?.querySelector("[data-copy-status]");
+    const copyIcon = button.querySelector("[data-copy-icon]");
+    const copiedIcon = button.querySelector("[data-copied-icon]");
     const command = code?.textContent?.trim();
     if (!command) return;
 
     try {
       await navigator.clipboard.writeText(command);
-      if (label) label.textContent = "Copied";
-      if (status) status.textContent = "Command copied to clipboard.";
+      copyIcon?.classList.add("copy-icon--hidden");
+      copiedIcon?.classList.remove("copy-icon--hidden");
+      button.classList.add("copy-button--copied");
+      button.setAttribute("aria-label", "Command copied");
+      button.setAttribute("title", "Copied");
     } catch {
       const selection = window.getSelection();
       const range = document.createRange();
       range.selectNodeContents(code);
       selection?.removeAllRanges();
       selection?.addRange(range);
-      if (label) label.textContent = "Selected";
-      if (status) status.textContent = "Press Command+C to copy.";
+      button.classList.remove("copy-button--copied");
+      button.setAttribute("aria-label", "Command selected; copy it with your keyboard");
+      button.setAttribute("title", "Command selected");
     }
 
-    window.setTimeout(() => {
-      if (label) label.textContent = "Copy";
-      if (status) status.textContent = "";
+    window.clearTimeout(resetTimer);
+    resetTimer = window.setTimeout(() => {
+      copyIcon?.classList.remove("copy-icon--hidden");
+      copiedIcon?.classList.add("copy-icon--hidden");
+      button.classList.remove("copy-button--copied");
+      button.setAttribute("aria-label", defaultLabel);
+      button.setAttribute("title", "Copy command");
     }, 2500);
   });
 });

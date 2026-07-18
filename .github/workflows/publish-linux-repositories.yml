@@ -1,0 +1,88 @@
+name: Publish Linux package repositories
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-package-repositories
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Rebuild and publish APT/RPM repositories
+    if: github.event_name == 'workflow_dispatch' || github.event.release.prerelease == false
+    environment: release-signing
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      GRAYSLATE_R2_BUCKET: ${{ secrets.GRAYSLATE_R2_BUCKET }}
+      LINUX_REPOSITORY_GPG_FINGERPRINT: ${{ secrets.LINUX_REPOSITORY_GPG_FINGERPRINT }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.release.tag_name || github.ref }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      - name: Install repository tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends apt-utils appstream createrepo-c dpkg-dev gnupg rpm xz-utils
+          npm install --global wrangler@4.112.0
+      - name: Import and verify the repository signing key
+        env:
+          REPOSITORY_PRIVATE_KEY: ${{ secrets.LINUX_REPOSITORY_GPG_PRIVATE_KEY }}
+          REPOSITORY_PASSPHRASE: ${{ secrets.LINUX_REPOSITORY_GPG_PASSPHRASE }}
+        run: |
+          test -n "${REPOSITORY_PRIVATE_KEY}"
+          test -n "${LINUX_REPOSITORY_GPG_FINGERPRINT}"
+          test -n "${GRAYSLATE_R2_BUCKET}"
+          test -f packaging/repository/keys/grayslate-archive-key.asc
+          test -f packaging/repository/keys/grayslate-archive-keyring.gpg
+          export GNUPGHOME="${RUNNER_TEMP}/grayslate-repository-gnupg"
+          mkdir -m 0700 "${GNUPGHOME}"
+          printf '%s' "${REPOSITORY_PRIVATE_KEY}" | gpg --batch --import
+          printf '%s' "${REPOSITORY_PASSPHRASE}" > "${RUNNER_TEMP}/grayslate-repository-passphrase"
+          chmod 0600 "${RUNNER_TEMP}/grayslate-repository-passphrase"
+          expected="$(printf '%s' "${LINUX_REPOSITORY_GPG_FINGERPRINT}" | tr -d ' ' | tr '[:lower:]' '[:upper:]')"
+          actual="$(gpg --batch --with-colons --fingerprint "${expected}" | awk -F: '$1 == "fpr" { print $10; exit }')"
+          test "${actual}" = "${expected}"
+          committed="$(gpg --batch --show-keys --with-colons packaging/repository/keys/grayslate-archive-key.asc | awk -F: '$1 == "fpr" { print $10; exit }')"
+          test "${committed}" = "${expected}"
+          echo "GNUPGHOME=${GNUPGHOME}" >> "${GITHUB_ENV}"
+          echo "LINUX_REPOSITORY_GPG_PASSPHRASE_FILE=${RUNNER_TEMP}/grayslate-repository-passphrase" >> "${GITHUB_ENV}"
+      - name: Download every stable Linux package release
+        run: >-
+          node scripts/package-repository/fetch-releases.mjs
+          --repository "${GITHUB_REPOSITORY}"
+          --output "${RUNNER_TEMP}/grayslate-packages"
+      - name: Build and sign both repositories
+        run: >-
+          node scripts/package-repository/build.mjs
+          --packages "${RUNNER_TEMP}/grayslate-packages"
+          --output "${RUNNER_TEMP}/grayslate-package-repository"
+          --public-keys packaging/repository/keys
+      - name: Verify repository signatures and indexes
+        run: >-
+          node scripts/package-repository/verify.mjs
+          --directory "${RUNNER_TEMP}/grayslate-package-repository"
+      - name: Upload immutable payloads, then live indexes, to R2
+        run: >-
+          node scripts/package-repository/publish-r2.mjs
+          --directory "${RUNNER_TEMP}/grayslate-package-repository"
+          --bucket "${GRAYSLATE_R2_BUCKET}"
+      - name: Smoke-test the public repository
+        run: |
+          curl --fail --silent --show-error --retry 8 --retry-all-errors --output "${RUNNER_TEMP}/InRelease" https://packages.grayslate.app/apt/dists/stable/InRelease
+          gpgv --keyring packaging/repository/keys/grayslate-archive-keyring.gpg "${RUNNER_TEMP}/InRelease"
+          curl --fail --silent --show-error --retry 8 --retry-all-errors https://packages.grayslate.app/config/grayslate.sources
+          curl --fail --silent --show-error --retry 8 --retry-all-errors https://packages.grayslate.app/config/grayslate.repo
+          curl --fail --silent --show-error --retry 8 --retry-all-errors --output "${RUNNER_TEMP}/grayslate-install.sh" https://packages.grayslate.app/install.sh
+          sh -n "${RUNNER_TEMP}/grayslate-install.sh"

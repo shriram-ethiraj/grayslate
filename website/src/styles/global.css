@@ -1029,7 +1029,8 @@ a.icon-button svg {
 }
 
 .platform-icon svg,
-.platform-primary svg {
+.platform-primary svg,
+.platform-secondary svg {
   width: 1.05rem;
   height: 1.05rem;
 }
@@ -1089,24 +1090,37 @@ a.icon-button svg {
 
 .install-method {
   display: grid;
-  gap: 0.4rem;
+  min-height: 4.25rem;
+  gap: 0.25rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: transparent;
+}
+
+.install-method--primary {
+  border-color: var(--foreground);
+  background: var(--foreground);
+  color: var(--background);
 }
 
 .method-label {
-  color: var(--muted-foreground);
-  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
-  font-size: 0.65rem;
+  color: var(--foreground);
+  font-size: 0.75rem;
   font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+}
+
+.install-method--primary .method-label {
+  color: var(--background);
 }
 
 .install-command {
   display: flex;
   min-width: 0;
+  min-height: 1.75rem;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.65rem 0.5rem 0.65rem 0.7rem;
+  gap: 0.4rem;
+  padding: 0.2rem 0.25rem 0.2rem 0.5rem;
   border: 1px solid var(--border-soft);
   border-radius: var(--radius-sm);
   background: var(--surface);
@@ -1116,22 +1130,24 @@ a.icon-button svg {
   min-width: 0;
   flex: 1;
   overflow-x: auto;
-  padding-bottom: 0.35rem;
-  color: var(--foreground);
+  padding-bottom: 0.1rem;
+  color: var(--muted-foreground);
   font-size: 0.68rem;
   white-space: nowrap;
   scrollbar-width: thin;
 }
 
 .install-command button {
-  min-height: 1.8rem;
-  padding-inline: 0.55rem;
+  display: grid;
+  width: 1.5rem;
+  height: 1.5rem;
+  flex: 0 0 1.5rem;
+  place-items: center;
+  padding: 0;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--background-elevated);
   color: var(--muted-foreground);
-  font-size: 0.65rem;
-  font-weight: 700;
 }
 
 .install-command button:hover {
@@ -1139,24 +1155,32 @@ a.icon-button svg {
   color: var(--foreground);
 }
 
-.copy-status {
-  min-height: 0.8rem;
-  margin: 0;
-  color: var(--quiet-foreground);
-  font-size: 0.65rem;
+.install-command button.copy-button--copied {
+  border-color: var(--cyan);
+  color: var(--cyan);
 }
 
-.copy-status:empty {
+.install-command button svg {
+  width: 0.8rem;
+  height: 0.8rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+.install-command button .copy-icon--hidden {
   display: none;
 }
 
 .platform-actions {
   display: grid;
-  gap: 0.5rem;
+  gap: 1rem;
 }
 
 .platform-primary,
-.platform-alternative {
+.platform-secondary {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1165,7 +1189,7 @@ a.icon-button svg {
 }
 
 .platform-primary {
-  min-height: 2.5rem;
+  min-height: 4.25rem;
   padding: 0.65rem 0.75rem;
   background: var(--foreground);
   color: var(--background);
@@ -1177,23 +1201,39 @@ a.icon-button svg {
   background: color-mix(in srgb, var(--foreground) 88%, var(--cyan));
 }
 
-.platform-alternative {
-  padding: 0.5rem 0.7rem;
-  border: 1px solid var(--border-soft);
-  color: var(--foreground);
-  font-size: 0.72rem;
-  font-weight: 700;
+.platform-action-copy {
+  display: grid;
+  min-width: 0;
+  gap: 0.1rem;
 }
 
-.platform-alternative:hover {
-  border-color: var(--cyan);
-  background: var(--surface);
+.platform-action-copy > span {
+  line-height: 1.25;
 }
 
-.platform-alternative span {
+.platform-action-copy small {
   color: var(--quiet-foreground);
   font-size: 0.65rem;
   font-weight: 400;
+  line-height: 1.25;
+}
+
+.platform-primary .platform-action-copy small {
+  color: color-mix(in srgb, var(--background) 68%, transparent);
+}
+
+.platform-secondary {
+  border: 1px solid var(--border-soft);
+  color: var(--foreground);
+  font-size: 0.75rem;
+  font-weight: 700;
+  min-height: 4.25rem;
+  padding: 0.65rem 0.75rem;
+}
+
+.platform-secondary:hover {
+  border-color: var(--cyan);
+  background: var(--surface);
 }
 
 .platform-note {
@@ -1329,6 +1369,7 @@ a.icon-button svg {
     grid-template-columns: 1fr;
     max-width: 28rem;
   }
+
 }
 
 @media (max-width: 720px) {
