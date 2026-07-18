@@ -5,9 +5,6 @@
   <summary>A fast scratchpad for code, data, and quick thinking</summary>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>MIT</project_license>
-  <developer id="app.grayslate">
-    <name>Shriram Ethiraj</name>
-  </developer>
   <description>
     <p>
       Grayslate is a lightweight developer scratchpad for notes, code, JSON,
@@ -25,7 +22,6 @@
   </provides>
   <url type="homepage">https://grayslate.app</url>
   <url type="bugtracker">https://github.com/shriram-ethiraj/grayslate/issues</url>
-  <url type="vcs-browser">https://github.com/shriram-ethiraj/grayslate</url>
   <screenshots>
     <screenshot type="default">
       <image>https://raw.githubusercontent.com/shriram-ethiraj/grayslate/main/docs/hero.png</image>
