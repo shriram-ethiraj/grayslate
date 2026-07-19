@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and troubleshooting
+    url: https://github.com/shriram-ethiraj/grayslate/discussions
+    about: Ask how-to questions and get help from the Grayslate community.
+  - name: Report a security vulnerability
+    url: https://github.com/shriram-ethiraj/grayslate/security/advisories/new
+    about: Report security problems privately. Do not open a public issue.
