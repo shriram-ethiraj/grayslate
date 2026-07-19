@@ -7,9 +7,3 @@
 
 /assets/*
   Cache-Control: public, max-age=31536000, immutable
-
-/site.js
-  Cache-Control: public, max-age=3600
-
-/theme-init.js
-  Cache-Control: public, max-age=3600

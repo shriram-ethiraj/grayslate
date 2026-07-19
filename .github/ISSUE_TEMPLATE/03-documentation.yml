@@ -1,0 +1,57 @@
+name: Documentation issue
+description: Report missing, incorrect, or confusing Grayslate documentation
+title: "[Docs]: "
+labels:
+  - documentation
+  - needs-triage
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form for the README, website, installation instructions, or other user-facing documentation.
+
+  - type: dropdown
+    id: documentation-area
+    attributes:
+      label: Documentation area
+      options:
+        - README
+        - Website
+        - Installation or packaging guide
+        - In-app text or help
+        - Security policy
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: location
+    attributes:
+      label: Page or section
+      description: Link to the page or name the relevant section.
+      placeholder: "For example: README — Building from source"
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is missing, incorrect, or confusing?
+    validations:
+      required: true
+
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested improvement
+      description: Describe the correction or wording you would find clearer.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Submission checklist
+      options:
+        - label: I checked the latest version of the documentation.
+          required: true
+        - label: I searched existing open and closed issues for duplicates.
+          required: true

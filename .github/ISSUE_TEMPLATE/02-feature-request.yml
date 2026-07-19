@@ -1,0 +1,67 @@
+name: Feature request
+description: Suggest an improvement or a new capability for Grayslate
+title: "[Feature]: "
+labels:
+  - enhancement
+  - needs-triage
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for sharing an idea. Describe the workflow or problem first so the best solution remains open for discussion.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or workflow
+      description: What are you trying to accomplish, and what makes it difficult today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed-solution
+    attributes:
+      label: Proposed solution
+      description: Describe how you would like Grayslate to address this need.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: affected-area
+    attributes:
+      label: Relevant area
+      options:
+        - Editor
+        - CSV table
+        - Transformations
+        - Markdown preview
+        - File opening or saving
+        - Library or search
+        - Updates or installation
+        - Window, menus, or shortcuts
+        - New area or capability
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives or workarounds
+      description: How do you handle this workflow currently? Include other approaches you considered.
+
+  - type: textarea
+    id: examples
+    attributes:
+      label: Examples or mockups
+      description: Add links, screenshots, sketches, or sample input and output if useful. Remove sensitive information first.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Submission checklist
+      options:
+        - label: I searched existing open and closed issues for a similar request.
+          required: true
+        - label: This request describes one focused feature or improvement.
+          required: true

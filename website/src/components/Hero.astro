@@ -54,6 +54,7 @@ import { downloads, site } from "../lib/site";
             alt="Grayslate showing a JSON document and automatically saved slates"
             loading="eager"
             fetchpriority="high"
+            sizes="(max-width: 720px) calc(100vw - 2rem), (max-width: 1184px) calc(100vw - 3rem), 1120px"
           />
           <figcaption><span>01</span> Paste, recognize, name, and save automatically</figcaption>
         </figure>
@@ -62,6 +63,8 @@ import { downloads, site } from "../lib/site";
             dark={transformsImage}
             light={transformsLightImage}
             alt="Grayslate transformations palette with JSON actions"
+            fetchpriority="low"
+            sizes="(max-width: 720px) calc(100vw - 2rem), (max-width: 1184px) calc(100vw - 3rem), 1120px"
           />
           <figcaption><span>02</span> Get transformations suggested for your content</figcaption>
         </figure>
@@ -70,6 +73,8 @@ import { downloads, site } from "../lib/site";
             dark={jsonImage}
             light={jsonLightImage}
             alt="Grayslate JSON context menu with copy actions"
+            fetchpriority="low"
+            sizes="(max-width: 720px) calc(100vw - 2rem), (max-width: 1184px) calc(100vw - 3rem), 1120px"
           />
           <figcaption><span>03</span> Copy exactly the JSON detail you need</figcaption>
         </figure>

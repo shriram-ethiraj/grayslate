@@ -1,0 +1,133 @@
+name: Bug report
+description: Report a reproducible problem with Grayslate
+title: "[Bug]: "
+labels:
+  - bug
+  - needs-triage
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve Grayslate. Please search existing issues before submitting a report.
+
+        **Do not report security vulnerabilities here.** Use [private vulnerability reporting](https://github.com/shriram-ethiraj/grayslate/security/advisories/new) instead.
+
+  - type: input
+    id: version
+    attributes:
+      label: Grayslate version
+      description: Find this in Grayslate's About dialog or on the downloaded release.
+      placeholder: "For example: 0.1.5"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: operating-system
+    attributes:
+      label: Operating system
+      options:
+        - macOS
+        - Windows
+        - Linux
+    validations:
+      required: true
+
+  - type: input
+    id: operating-system-version
+    attributes:
+      label: Operating system version
+      placeholder: "For example: macOS 15.5, Windows 11 24H2, or Ubuntu 24.04"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: installation-method
+    attributes:
+      label: Installation method
+      options:
+        - macOS DMG
+        - Homebrew
+        - Windows installer
+        - APT or DNF repository
+        - AppImage
+        - Other release artifact
+        - Built from source
+    validations:
+      required: true
+
+  - type: dropdown
+    id: affected-area
+    attributes:
+      label: Affected area
+      options:
+        - Editor
+        - CSV table
+        - Transformations
+        - Markdown preview
+        - File opening or saving
+        - Library or search
+        - Updates or installation
+        - Window, menus, or shortcuts
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the problem and its impact clearly.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction-steps
+    attributes:
+      label: Steps to reproduce
+      description: Include the smallest reliable sequence that triggers the problem.
+      placeholder: |
+        1. Open ...
+        2. Paste or select ...
+        3. Choose ...
+        4. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: Expected behavior
+      description: What did you expect Grayslate to do?
+    validations:
+      required: true
+
+  - type: textarea
+    id: sample-content
+    attributes:
+      label: Sample content or file details
+      description: If relevant, provide a small sanitized example and the file type or approximate size. Do not include secrets or private data.
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Paste relevant log output after removing secrets and personal data. This field is formatted as code automatically.
+      render: shell
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots or recordings
+      description: Drag files here if they help explain the problem. Remove sensitive information first.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Submission checklist
+      options:
+        - label: I searched existing open and closed issues for duplicates.
+          required: true
+        - label: I reproduced the problem on the latest available Grayslate release.
+          required: true
+        - label: I removed secrets, personal data, and confidential content from this report.
+          required: true

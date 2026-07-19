@@ -1,5 +1,8 @@
 ---
 import "../styles/global.css";
+import { getImage } from "astro:assets";
+import brandIcon from "../assets/brand-icon.png";
+import themeInitUrl from "../scripts/theme-init.js?url";
 import { site } from "../lib/site";
 
 interface Props {
@@ -15,6 +18,10 @@ const {
 } = Astro.props;
 const canonical = new URL(Astro.url.pathname, site.url);
 const socialImage = new URL(image, site.url);
+const [favicon, appleTouchIcon] = await Promise.all([
+  getImage({ src: brandIcon, width: 64, format: "png" }),
+  getImage({ src: brandIcon, width: 180, format: "png" }),
+]);
 ---
 
 <!doctype html>
@@ -27,8 +34,8 @@ const socialImage = new URL(image, site.url);
     <meta name="theme-color" content="#1b1e26" />
     <meta name="color-scheme" content="light dark" />
     <link rel="canonical" href={canonical} />
-    <link rel="icon" href="/favicon.png" type="image/png" />
-    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="icon" href={favicon.src} type="image/png" sizes="64x64" />
+    <link rel="apple-touch-icon" href={appleTouchIcon.src} sizes="180x180" />
 
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content={site.name} />
@@ -44,13 +51,13 @@ const socialImage = new URL(image, site.url);
     <meta name="twitter:description" content={description} />
     <meta name="twitter:image" content={socialImage} />
 
-    <script is:inline src="/theme-init.js"></script>
+    <script is:inline src={themeInitUrl}></script>
     <title>{title}</title>
   </head>
   <body>
     <a class="skip-link" href="#main-content">Skip to content</a>
     <slot />
-    <script is:inline type="module" src="/site.js"></script>
+    <script src="../scripts/site.js"></script>
     <script is:inline defer src="https://static.cloudflareinsights.com/beacon.min.js"
       data-cf-beacon='{"token": "1c4655754b014bec998142cc39d75b51"}'></script>
   </body>

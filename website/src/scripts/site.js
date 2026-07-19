@@ -16,10 +16,11 @@ function setTheme(theme, persist) {
   themeMeta?.setAttribute("content", theme === "dark" ? "#1b1e26" : "#f0f2f7");
 
   document.querySelectorAll("[data-theme-picture]").forEach((picture) => {
-    const lightSource = picture.querySelector('[data-theme-source="light"]');
-    if (lightSource instanceof HTMLSourceElement) {
-      lightSource.media = theme === "light" ? "all" : "not all";
-    }
+    picture.querySelectorAll('[data-theme-source="light"]').forEach((lightSource) => {
+      if (lightSource instanceof HTMLSourceElement) {
+        lightSource.media = theme === "light" ? "all" : "not all";
+      }
+    });
   });
 
   const toggle = document.querySelector("[data-theme-toggle]");
