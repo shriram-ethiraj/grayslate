@@ -21,10 +21,14 @@
     let showCopySuccess = $state(false);
     let copySuccessTimer: ReturnType<typeof setTimeout> | undefined;
 
+    const isCsvTableMode = $derived(
+        editorState.fileType === "csv" && editorState.csv.showTable,
+    );
+
     const isCopyDisabled = $derived.by(() => {
         if (
             editorState.loader.visible ||
-            (editorState.fileType === "csv" && editorState.csv.showTable) ||
+            isCsvTableMode ||
             editorState.currentDocumentLength === 0
         ) {
             return true;
@@ -204,7 +208,7 @@
     data-testid="action-transformations"
     aria-label="Transformations"
     title="Open transformations"
-    disabled={editorState.loader.visible}
+    disabled={editorState.loader.visible || isCsvTableMode}
     onclick={() => {
         openTransformationsPalette();
     }}
