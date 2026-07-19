@@ -1,4 +1,7 @@
 ---
+import { Image } from "astro:assets";
+import brandIcon from "../assets/brand-icon.png";
+
 interface Props {
   compact?: boolean;
 }
@@ -7,6 +10,15 @@ const { compact = false } = Astro.props;
 ---
 
 <span class:list={["brand", { "brand--compact": compact }]}> 
-  <img src="/brand-icon.png" alt="" width="40" height="40" />
+  <Image
+    src={brandIcon}
+    alt=""
+    width={40}
+    height={40}
+    densities={[1, 2]}
+    format="webp"
+    quality={90}
+    loading="eager"
+  />
   <span>Grayslate</span>
 </span>
