@@ -488,6 +488,10 @@
       return false;
     }
 
+    if (editorState.fileType === "csv" && editorState.csv.showTable) {
+      return false;
+    }
+
     if (!editorSession.state) {
       toast.error("No editor document is ready for transformations.");
       return false;

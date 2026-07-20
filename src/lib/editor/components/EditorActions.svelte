@@ -23,10 +23,14 @@
     let showCopySuccess = $state(false);
     let copySuccessTimer: ReturnType<typeof setTimeout> | undefined;
 
+    const isCsvTableMode = $derived(
+        editorState.fileType === "csv" && editorState.csv.showTable,
+    );
+
     const isCopyDisabled = $derived.by(() => {
         if (
             editorState.loader.visible ||
-            (editorState.fileType === "csv" && editorState.csv.showTable) ||
+            isCsvTableMode ||
             editorState.currentDocumentLength === 0
         ) {
             return true;
@@ -220,9 +224,8 @@
     size="icon"
     data-testid="action-transformations"
     aria-label="Transformations"
-    tooltip={formatShortcutTooltip("Open transformations", "transformations", platformState.osType)}
-    disabledTooltip="Unavailable while loading"
-    disabled={editorState.loader.visible}
+    tooltip="Open transformations"
+    disabled={editorState.loader.visible || isCsvTableMode}
     onclick={() => {
         openTransformationsPalette();
     }}
