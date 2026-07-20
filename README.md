@@ -173,7 +173,10 @@ Yes. Free and open source.
 
 ## Contributing
 
-Issues and pull requests are welcome. If you hit a bug or have an idea, open an issue.
+Contributions are welcome. If you find a bug or have an idea, open an issue. To
+propose a change, fork the repository and open a pull request against `main`.
+Please read the [contribution guide](CONTRIBUTING.md) for setup instructions,
+project checks, and pull request expectations.
 
 ## License
 
