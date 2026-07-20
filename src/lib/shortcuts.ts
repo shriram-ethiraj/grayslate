@@ -104,6 +104,7 @@ export const shortcutCategories = [
             { id: "csv-move-column-right", label: "Move Selected Columns Right", keys: ["Alt+ArrowRight"] },
             { id: "csv-insert-row-above", label: "Insert Row Above", keys: ["Mod+Alt+ArrowUp"] },
             { id: "csv-insert-row-below", label: "Insert Row Below", keys: ["Mod+Alt+ArrowDown"] },
+            { id: "csv-duplicate-row", label: "Duplicate Row", keys: ["Mod+Alt+C"] },
             { id: "csv-insert-column-left", label: "Insert Column Left", keys: ["Mod+Alt+ArrowLeft"] },
             { id: "csv-insert-column-right", label: "Insert Column Right", keys: ["Mod+Alt+ArrowRight"] },
             { id: "csv-start-edit", label: "Edit Focused Cell", keys: ["Enter", "F2"] },

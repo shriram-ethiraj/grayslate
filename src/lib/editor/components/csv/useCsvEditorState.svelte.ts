@@ -68,6 +68,7 @@ export function useCsvEditorState(
         if (userEvent === "delete.table.row") return { message: "Deleting row…", subMessage };
         if (userEvent === "input.table.column-add") return { message: "Adding column…", subMessage };
         if (userEvent === "input.table.row-add") return { message: "Adding row…", subMessage };
+        if (userEvent === "duplicate.table.row") return { message: "Duplicating row…", subMessage };
         if (userEvent === "move.table.column") return { message: "Moving columns…", subMessage };
         if (userEvent === "move.table.row") return { message: "Moving rows…", subMessage };
         if (userEvent === "undo.table") return { message: "Undoing table change…", subMessage };
@@ -441,6 +442,34 @@ export function useCsvEditorState(
         deleteSelection();
     }
 
+    function duplicateSelectedRows() {
+        const range = getSelectedRowRange();
+        if (!range) return;
+
+        focusGrid?.();
+        const dupCount = range.end - range.start + 1;
+        void runAsyncAction("duplicate.table.row", async () => {
+            const applied = await controller.runMutation(
+                { type: "duplicate-rows", start: range.start, end: range.end },
+                "duplicate.table.row",
+            );
+            if (applied) {
+                // Select the newly inserted duplicate rows below the originals.
+                const newStart = range.end + 1;
+                const newEnd = newStart + dupCount - 1;
+                focusedCell = { rowIndex: newStart, colIndex: 0 };
+                selectionBlock = {
+                    startRow: newStart,
+                    endRow: newEnd,
+                    startCol: 0,
+                    endCol: Math.max(0, columns().length - 1),
+                };
+                navigateAndFocus();
+            }
+            return applied;
+        });
+    }
+
     function addColumnAt(index: number) {
         focusGrid?.();
         void runAsyncAction("input.table.column-add", async () => {
@@ -702,6 +731,12 @@ export function useCsvEditorState(
         {
             key: "Alt+ArrowRight",
             callback: () => moveSelectedColumns(1),
+            options: { preventDefault: true, ignoreInputs: true },
+        },
+        // Duplicate row shortcut
+        {
+            key: "Mod+Alt+C",
+            callback: () => duplicateSelectedRows(),
             options: { preventDefault: true, ignoreInputs: true },
         },
         // Insert shortcuts: Mod+Alt+Arrow mirrors Alt+Arrow (move) with Mod = "insert"
@@ -1039,6 +1074,7 @@ export function useCsvEditorState(
         addRowAbove,
         addRowBelow,
         deleteSelectedRows,
+        duplicateSelectedRows,
         addColumnLeft,
         addColumnRight,
         deleteSelectedColumns,
