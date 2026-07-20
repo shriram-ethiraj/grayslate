@@ -114,6 +114,7 @@
       errors: 0,
       liveMirrorEnabled: false,
     }),
+    hasUnsavedChanges = $bindable(false),
     onMirrorReset,
     onMirrorUpdate,
   } = $props();
@@ -190,6 +191,7 @@
     snapshot = { ...snapshot, version };
     lastSyncedContent = text;
     content = text;
+    hasUnsavedChanges = false;
     return { text, version };
   }
 
@@ -251,7 +253,11 @@
         userEvent: response.mirrorUserEvent,
         version: response.snapshot.version,
       };
+      lastSyncedContent = response.mirrorText;
+      content = response.mirrorText;
       onMirrorUpdate?.(update);
+    } else if (response.applied) {
+      hasUnsavedChanges = true;
     }
 
     snapshot = response.snapshot;
@@ -298,6 +304,7 @@
     if (isInitial) {
       initialLoading = true;
       refreshing = false;
+      hasUnsavedChanges = false;
       startLoaderTicker("Parsing CSV…", "Starting…", {
         ceiling: 85,
         factor: 0.05,

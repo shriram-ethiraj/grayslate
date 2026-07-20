@@ -211,11 +211,14 @@
   );
   let activeDocument = $state.raw<ActiveDocument>(createUntitledDocument());
   let activeFilePath = $derived(getDocumentKey(activeDocument));
+  
+  let csvHasUnsavedChanges = $state(false);
+  
   // Managed slates are persisted by the backend autosave flow, including
   // untitled slates that are flushed before a document switch. "Dirty" is
   // therefore reserved for local files that need an explicit save.
   let isDirty = $derived(
-    activeDocument.source === "local" && value !== activeDocument.lastSavedValue,
+    activeDocument.source === "local" && (value !== activeDocument.lastSavedValue || csvHasUnsavedChanges),
   );
 
   // Sync activeLanguage to global editorState
@@ -667,11 +670,15 @@
       ensureManagedEditorState(editorSession, value, activeLanguage);
     }
 
-    dispatchManagedEditorTextChange(editorSession, update.text, {
+    const changed = dispatchManagedEditorTextChange(editorSession, update.text, {
       userEvent: update.userEvent,
       focus: false,
       separateUndoStep: true,
     });
+
+    if (changed || value !== update.text) {
+      value = update.text;
+    }
   }
 
   function drainCsvMirrorQueueSlice(deadline?: IdleDeadline): void {
@@ -1566,6 +1573,7 @@
             bind:this={csvTableView}
             bind:content={value}
             bind:tableInfo={csvInfo}
+            bind:hasUnsavedChanges={csvHasUnsavedChanges}
             onMirrorReset={handleCsvMirrorReset}
             onMirrorUpdate={handleCsvMirrorUpdate}
           />
