@@ -13,7 +13,7 @@
 import { codeFolding, syntaxTree } from "@codemirror/language";
 import { Prec } from "@codemirror/state";
 import type { EditorState } from "@codemirror/state";
-import type { EditorView } from "@codemirror/view";
+import { hoverTooltip, type EditorView } from "@codemirror/view";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -180,13 +180,15 @@ function placeholderDOM(
     span.className = "cm-foldPlaceholder";
     span.addEventListener("click", onclick);
 
+    let tooltipText: string;
+
     if (info.type === "array") {
         const isCapped = info.count === Infinity;
         const displayCount = isCapped ? `${MAX_SCAN_CHILDREN}+` : info.count;
         const label = info.count === 1 ? "1 item" : `${displayCount} items`;
 
         span.textContent = `… ${displayCount}`;
-        span.title = `Click to unfold (${label})`;
+        tooltipText = `Click to unfold (${label})`;
 
     } else if (info.type === "object") {
         const { preview, total } = info;
@@ -201,16 +203,46 @@ function placeholderDOM(
         // without doubling up the braces.
         const pairs = preview.map(({ key, value }) => `${key}: ${value}`).join(", ");
         span.textContent = ` ${pairs}${hasMore ? ", …" : " "}`;
-        span.title = `Click to unfold (${displayTotal} ${total === 1 ? "key" : "keys"})`;
+        tooltipText = `Click to unfold (${displayTotal} ${total === 1 ? "key" : "keys"})`;
 
     } else {
         // Fallback for non-JSON fold targets.
         span.textContent = "…";
-        span.title = "Click to unfold";
+        tooltipText = "Click to unfold";
     }
+
+    span.dataset.tooltip = tooltipText;
+    span.setAttribute("aria-label", tooltipText);
 
     return span;
 }
+
+const jsonFoldTooltip = hoverTooltip(
+    (view, pos) => {
+        const domAtPosition = view.domAtPos(pos);
+        const element = domAtPosition.node instanceof Element
+            ? domAtPosition.node
+            : domAtPosition.node.parentElement;
+        const placeholder = element?.closest<HTMLElement>(".cm-foldPlaceholder[data-tooltip]");
+
+        if (!placeholder || !view.dom.contains(placeholder)) return null;
+
+        const content = placeholder.dataset.tooltip;
+        if (!content) return null;
+
+        return {
+            pos,
+            above: true,
+            create() {
+                const dom = document.createElement("div");
+                dom.className = "cm-json-fold-tooltip";
+                dom.textContent = content;
+                return { dom };
+            },
+        };
+    },
+    { hoverTime: 250 },
+);
 
 // ---------------------------------------------------------------------------
 // Export
@@ -223,6 +255,7 @@ function placeholderDOM(
  * `basicSetup` installs, since `combineConfig` takes the first-defined value
  * for each option key.
  */
-export const jsonFoldWidget = Prec.highest(
-    codeFolding({ preparePlaceholder, placeholderDOM }),
-);
+export const jsonFoldWidget = [
+    Prec.highest(codeFolding({ preparePlaceholder, placeholderDOM })),
+    jsonFoldTooltip,
+];

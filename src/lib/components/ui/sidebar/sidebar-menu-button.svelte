@@ -48,13 +48,11 @@
 		variant = "default",
 		size = "default",
 		isActive = false,
-		tooltipContent,
 		...restProps
 	}: WithElementRef<HTMLAttributes<HTMLButtonElement>, HTMLButtonElement> & {
 		isActive?: boolean;
 		variant?: SidebarMenuButtonVariant;
 		size?: SidebarMenuButtonSize;
-		tooltipContent?: Snippet | string;
 		child?: Snippet<[{ props: Record<string, unknown> }]>;
 	} = $props();
 
@@ -66,7 +64,6 @@
 		"data-sidebar": "menu-button",
 		"data-size": size,
 		"data-active": isActive,
-		title: typeof tooltipContent === "string" ? tooltipContent : undefined,
 		...restProps,
 	});
 </script>

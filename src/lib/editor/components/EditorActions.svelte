@@ -4,7 +4,7 @@
         editorState,
         openTransformationsPalette,
     } from "$lib/state/editor.svelte";
-    import { Button } from "$lib/components/ui/button/index.js";
+    import { TooltipButton } from "$lib/components/ui/tooltip/index.js";
     import Table2 from "~icons/lucide/table-2";
     import FileText from "~icons/lucide/file-text";
     import Eye from "~icons/lucide/eye";
@@ -15,6 +15,8 @@
     import { editorCopySelectionOrAll } from "$lib/editor/core/actions";
     import { copyMarkdownPreviewSelectionOrAll } from "$lib/editor/components/markdown/previewActions";
     import { emit } from "@tauri-apps/api/event";
+    import { formatShortcutTooltip } from "$lib/shortcuts";
+    import { platformState } from "$lib/state/platform.svelte";
 
     const COPY_SUCCESS_DURATION_MS = 1200;
 
@@ -31,35 +33,45 @@
         }
     });
 
+    const isSaveDisabled = $derived(
+        editorState.loader.visible || editorState.saveInProgress || !editorState.isDirty,
+    );
+
+    const saveDisabledTooltip = $derived.by(() => {
+        if (editorState.saveInProgress) return "Saving…";
+        if (editorState.loader.visible) return "Unavailable while loading";
+        return "No changes to save";
+    });
+
     const copyTitle = $derived.by(() => {
         if (showCopySuccess) {
             return "Copied";
         }
 
-        if (isCopyDisabled) {
-            return "Nothing to copy";
+        if (editorState.loader.visible) return "Unavailable while loading";
+        if (editorState.fileType === "csv" && editorState.csv.showTable) {
+            return "Not available in CSV table mode";
         }
+        if (editorState.currentDocumentLength === 0) return "Nothing to copy";
+
+        let label = "Copy all content";
 
         if (editorState.currentSelectionSize > 0) {
-            return "Copy selection";
-        }
-
-        if (
+            label = "Copy selection";
+        } else if (
             editorState.fileType === "markdown" &&
             editorState.markdown.showPreview &&
             editorState.activeSurface === "markdown-preview"
         ) {
-            return "Copy preview text";
-        }
-
-        if (
+            label = "Copy preview text";
+        } else if (
             editorState.markdown.showPreview &&
             editorState.fileType === "markdown"
         ) {
-            return "Copy markdown source";
+            label = "Copy markdown source";
         }
 
-        return "Copy all content";
+        return formatShortcutTooltip(label, "copy", platformState.osType);
     });
 
     function resetCopySuccessTimer() {
@@ -104,12 +116,13 @@
 {#if editorState.fileType === "csv"}
     {#if editorState.csv.showTable}
         <!-- In Table Mode: Show button to switch to Plain CSV -->
-        <Button
+        <TooltipButton
             variant="ghost"
             size="icon"
             data-testid="action-plain-csv"
             aria-label="Plain CSV"
-            title="Switch to Plain CSV"
+            tooltip="Switch to plain CSV"
+            disabledTooltip="Unavailable while loading"
             disabled={editorState.loader.visible}
             onclick={() => {
                 if (editorState.csv.requestShowTable) {
@@ -120,15 +133,16 @@
             }}
         >
             <FileText class="size-4 transition-all" />
-        </Button>
+        </TooltipButton>
     {:else}
         <!-- In Text Mode: Show button to switch to Table -->
-        <Button
+        <TooltipButton
             variant="ghost"
             size="icon"
             data-testid="action-table-view"
             aria-label="Table View"
-            title="Switch to Table View"
+            tooltip="Switch to table view"
+            disabledTooltip="Unavailable while loading"
             disabled={editorState.loader.visible}
             onclick={() => {
                 if (editorState.csv.requestShowTable) {
@@ -139,20 +153,21 @@
             }}
         >
             <Table2 class="size-4 transition-all" />
-        </Button>
+        </TooltipButton>
     {/if}
 {/if}
 
 {#if editorState.fileType === "markdown"}
     <!-- Markdown Preview toggle -->
-    <Button
+    <TooltipButton
         variant="ghost"
         size="icon"
         data-testid="action-toggle-preview"
         aria-label="Toggle Preview"
-        title={editorState.markdown.showPreview
+        tooltip={editorState.markdown.showPreview
             ? "Hide preview"
             : "Show preview"}
+        disabledTooltip="Unavailable while loading"
         disabled={editorState.loader.visible}
         aria-pressed={editorState.markdown.showPreview}
         onclick={() => {
@@ -161,31 +176,33 @@
         }}
     >
         <Eye class="size-4 transition-all" />
-    </Button>
+    </TooltipButton>
 {/if}
 
 {#if editorState.currentFileSource === "local"}
-    <Button
+    <TooltipButton
         variant="ghost"
         size="icon"
         data-testid="action-save"
         aria-label="Save file"
-        title="Save (Ctrl+S)"
-        disabled={editorState.loader.visible || editorState.saveInProgress || !editorState.isDirty}
+        tooltip={formatShortcutTooltip("Save", "save-file", platformState.osType)}
+        disabledTooltip={saveDisabledTooltip}
+        disabled={isSaveDisabled}
         onclick={() => {
             void emit("menu://save-file");
         }}
     >
         <Save class="size-4" />
-    </Button>
+    </TooltipButton>
 {/if}
 
-<Button
+<TooltipButton
     variant="ghost"
     size="icon"
     data-testid="action-copy"
     aria-label="Copy content"
-    title={copyTitle}
+    tooltip={copyTitle}
+    disabledTooltip={copyTitle}
     disabled={isCopyDisabled}
     onclick={() => {
         void handleCopyContent();
@@ -196,18 +213,19 @@
     {:else}
         <Copy class="size-4 transition-all" />
     {/if}
-</Button>
+</TooltipButton>
 
-<Button
+<TooltipButton
     variant="ghost"
     size="icon"
     data-testid="action-transformations"
     aria-label="Transformations"
-    title="Open transformations"
+    tooltip={formatShortcutTooltip("Open transformations", "transformations", platformState.osType)}
+    disabledTooltip="Unavailable while loading"
     disabled={editorState.loader.visible}
     onclick={() => {
         openTransformationsPalette();
     }}
 >
     <Zap class="size-4 transition-all" />
-</Button>
+</TooltipButton>

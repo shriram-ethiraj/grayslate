@@ -1,6 +1,48 @@
 import { $, browser, expect } from "@wdio/globals";
+import { formatForDisplay } from "@tanstack/hotkeys";
+
+const displayPlatform = process.platform === "darwin"
+  ? "mac"
+  : process.platform === "win32"
+    ? "windows"
+    : "linux";
+
+function displayShortcut(key: string): string {
+  return formatForDisplay(key, { platform: displayPlatform });
+}
+
+async function expectTooltip(testId: string, expectedText: string): Promise<void> {
+  const trigger = await $(`[data-testid='${testId}']`);
+  await trigger.moveTo();
+  await browser.execute((id) => {
+    const element = document.querySelector<HTMLElement>(`[data-testid='${id}']`);
+    if (!element) throw new Error(`Tooltip trigger ${id} is missing.`);
+    element.dispatchEvent(new PointerEvent("pointerenter", {
+      bubbles: true,
+      pointerType: "mouse",
+    }));
+  }, testId);
+
+  await browser.waitUntil(async () => {
+    const tooltip = await $("[role='tooltip']");
+    return (await tooltip.isDisplayed()) && (await tooltip.getText()) === expectedText;
+  }, {
+    timeoutMsg: `Tooltip for ${testId} did not show '${expectedText}'.`,
+  });
+}
 
 describe("keyboard shortcuts help", () => {
+  it("shows primary platform shortcuts in actionable tooltips", async () => {
+    await expectTooltip(
+      "action-transformations",
+      `Open transformations (${displayShortcut("Mod+K")})`,
+    );
+    await expectTooltip(
+      "status-goto-line",
+      `Go to line (${displayShortcut("Mod+G")})`,
+    );
+  });
+
   it("opens from Help and searches all shortcut sections", async () => {
     const helpMenu = await $("[data-testid='app-help-menu']");
     await helpMenu.waitForDisplayed();

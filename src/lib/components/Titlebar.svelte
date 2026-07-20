@@ -4,6 +4,7 @@
   import { invoke } from "@tauri-apps/api/core";
   import { onMount, onDestroy } from "svelte";
   import * as Menubar from "$lib/components/ui/menubar/index.js";
+  import { AppTooltip } from "$lib/components/ui/tooltip/index.js";
   import Check from "~icons/lucide/check";
   import Minus from "~icons/lucide/minus";
   import X from "~icons/lucide/x";
@@ -569,13 +570,19 @@
   <!-- Centered file name: pointer-events-none so drag-region below remains active -->
   <div class="pointer-events-none absolute inset-0 z-5 flex items-center justify-center">
     <div class="relative max-w-[40%]">
-      <span
-        data-testid="title-file-name"
-        class="block truncate text-xs font-medium text-foreground pr-3"
-        title={editorState.currentFilePath ?? displayName}
-      >
-        {displayName}
-      </span>
+      <AppTooltip content={editorState.currentFilePath ?? displayName} side="bottom">
+        {#snippet trigger({ props })}
+          <span
+            {...props}
+            data-tauri-drag-region
+            data-testid="title-file-name"
+            data-document-path={editorState.currentFilePath ?? displayName}
+            class="pointer-events-auto block truncate pr-3 text-xs font-medium text-foreground"
+          >
+            {displayName}
+          </span>
+        {/snippet}
+      </AppTooltip>
       {#if showDirtyIndicator}
         <span data-testid="title-dirty-indicator" class="absolute right-0 top-0 bottom-0 flex items-center text-xs font-medium">*</span>
       {/if}
@@ -607,68 +614,92 @@
     <div class="pointer-events-none z-10 flex h-full items-center">
       {#if isLinux}
         <div class="flex h-full items-center gap-1.5 pr-2">
-          <button
-            class="pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full text-foreground transition-colors hover:bg-foreground/10 focus:outline-none"
-            onclick={() => appWindow.minimize()}
-            aria-label="Minimize"
-            title="Minimize"
-          >
-            <Minus class="h-4 w-4" />
-          </button>
+          <AppTooltip content="Minimize" side="bottom">
+            {#snippet trigger({ props })}
+              <button
+                {...props}
+                class="pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full text-foreground transition-colors hover:bg-foreground/10 focus:outline-none"
+                onclick={() => appWindow.minimize()}
+                aria-label="Minimize"
+              >
+                <Minus class="h-4 w-4" />
+              </button>
+            {/snippet}
+          </AppTooltip>
 
-          <button
-            class="pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full text-foreground transition-colors hover:bg-foreground/10 focus:outline-none"
-            onclick={() => appWindow.toggleMaximize()}
-            aria-label={isMaximized ? "Restore" : "Maximize"}
-            title={isMaximized ? "Restore" : "Maximize"}
-          >
-            {#if isMaximized}
-              <CodiconChromeRestore class="h-4.5 w-4.5" />
-            {:else}
-              <CodiconChromeMaximize class="h-3.5 w-3.5" />
-            {/if}
-          </button>
+          <AppTooltip content={isMaximized ? "Restore" : "Maximize"} side="bottom">
+            {#snippet trigger({ props })}
+              <button
+                {...props}
+                class="pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full text-foreground transition-colors hover:bg-foreground/10 focus:outline-none"
+                onclick={() => appWindow.toggleMaximize()}
+                aria-label={isMaximized ? "Restore" : "Maximize"}
+              >
+                {#if isMaximized}
+                  <CodiconChromeRestore class="h-4.5 w-4.5" />
+                {:else}
+                  <CodiconChromeMaximize class="h-3.5 w-3.5" />
+                {/if}
+              </button>
+            {/snippet}
+          </AppTooltip>
 
-          <button
-            class="pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full text-foreground transition-colors hover:bg-foreground/10 focus:outline-none"
-            onclick={() => appWindow.close()}
-            aria-label="Close"
-            title="Close"
-          >
-            <X class="h-4 w-4" />
-          </button>
+          <AppTooltip content="Close" side="bottom">
+            {#snippet trigger({ props })}
+              <button
+                {...props}
+                class="pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full text-foreground transition-colors hover:bg-foreground/10 focus:outline-none"
+                onclick={() => appWindow.close()}
+                aria-label="Close"
+              >
+                <X class="h-4 w-4" />
+              </button>
+            {/snippet}
+          </AppTooltip>
         </div>
       {:else}
-        <button
-          class="pointer-events-auto inline-flex h-full w-12 items-center justify-center text-foreground transition-colors hover:bg-foreground/10 focus:outline-none"
-          onclick={() => appWindow.minimize()}
-          aria-label="Minimize"
-          title="Minimize"
-        >
-          <Minus class="h-4 w-4" />
-        </button>
+        <AppTooltip content="Minimize" side="bottom">
+          {#snippet trigger({ props })}
+            <button
+              {...props}
+              class="pointer-events-auto inline-flex h-full w-12 items-center justify-center text-foreground transition-colors hover:bg-foreground/10 focus:outline-none"
+              onclick={() => appWindow.minimize()}
+              aria-label="Minimize"
+            >
+              <Minus class="h-4 w-4" />
+            </button>
+          {/snippet}
+        </AppTooltip>
 
-        <button
-          class="pointer-events-auto inline-flex h-full w-12 items-center justify-center text-foreground transition-colors hover:bg-foreground/10 focus:outline-none"
-          onclick={() => appWindow.toggleMaximize()}
-          aria-label={isMaximized ? "Restore" : "Maximize"}
-          title={isMaximized ? "Restore" : "Maximize"}
-        >
-          {#if isMaximized}
-            <CodiconChromeRestore class="h-4.5 w-4.5" />
-          {:else}
-            <CodiconChromeMaximize class="h-3.5 w-3.5" />
-          {/if}
-        </button>
+        <AppTooltip content={isMaximized ? "Restore" : "Maximize"} side="bottom">
+          {#snippet trigger({ props })}
+            <button
+              {...props}
+              class="pointer-events-auto inline-flex h-full w-12 items-center justify-center text-foreground transition-colors hover:bg-foreground/10 focus:outline-none"
+              onclick={() => appWindow.toggleMaximize()}
+              aria-label={isMaximized ? "Restore" : "Maximize"}
+            >
+              {#if isMaximized}
+                <CodiconChromeRestore class="h-4.5 w-4.5" />
+              {:else}
+                <CodiconChromeMaximize class="h-3.5 w-3.5" />
+              {/if}
+            </button>
+          {/snippet}
+        </AppTooltip>
 
-        <button
-          class="pointer-events-auto inline-flex h-full w-12 items-center justify-center text-foreground transition-colors hover:bg-[#c42b1c] hover:text-white focus:outline-none"
-          onclick={() => appWindow.close()}
-          aria-label="Close"
-          title="Close"
-        >
-          <X class="h-4 w-4" />
-        </button>
+        <AppTooltip content="Close" side="bottom">
+          {#snippet trigger({ props })}
+            <button
+              {...props}
+              class="pointer-events-auto inline-flex h-full w-12 items-center justify-center text-foreground transition-colors hover:bg-[#c42b1c] hover:text-white focus:outline-none"
+              onclick={() => appWindow.close()}
+              aria-label="Close"
+            >
+              <X class="h-4 w-4" />
+            </button>
+          {/snippet}
+        </AppTooltip>
       {/if}
     </div>
   {/if}

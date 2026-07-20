@@ -1,25 +1,23 @@
 <script lang="ts">
     import { onDestroy, tick } from "svelte";
-    import { formatForDisplay } from "@tanstack/hotkeys";
     import * as Command from "$lib/components/ui/command/index.js";
     import * as Dialog from "$lib/components/ui/dialog/index.js";
     import { closeAppDialog, appDialogsState } from "$lib/state/appDialogs.svelte";
     import { platformState } from "$lib/state/platform.svelte";
     import {
-        getShortcutPlatform,
+        formatShortcutKey,
         shortcutCategories,
         type ShortcutDefinition,
         type ShortcutKey,
     } from "$lib/shortcuts";
 
     const isOpen = $derived(appDialogsState.active.type === "keyboard-shortcuts");
-    const displayPlatform = $derived(getShortcutPlatform(platformState.osType));
 
     let query = $state("");
     let inputRef = $state<HTMLInputElement | null>(null);
 
     function formatShortcut(key: ShortcutKey): string {
-        return formatForDisplay(key, { platform: displayPlatform });
+        return formatShortcutKey(key, platformState.osType);
     }
 
     function getShortcutKeywords(

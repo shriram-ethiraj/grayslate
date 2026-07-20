@@ -14,6 +14,7 @@
     import type { LanguageIcon } from "$lib/editor/config/languageIconMap";
     import * as ContextMenu from "$lib/components/ui/context-menu/index.js";
     import * as Item from "$lib/components/ui/item/index.js";
+    import { AppTooltip, TooltipButton } from "$lib/components/ui/tooltip/index.js";
     import { DropdownMenu as DropdownMenuPrimitive } from "bits-ui";
     import { getPlatformOsType } from "$lib/state/platform.svelte";
     import { openRenameFileDialog } from "$lib/state/appDialogs.svelte";
@@ -143,40 +144,48 @@
                             class="flex w-full min-w-0 items-start gap-3 px-3.5 py-3 pr-9 text-left outline-none"
                             onclick={() => onOpen(recentFile.path, recentFile.source)}
                         >
-                        <Item.Media
-                            variant="icon"
-                            title={fileLanguageLabel}
-                            class="relative mt-0.5 {isActive ? 'border-sidebar-ring/40 bg-sidebar-foreground/[0.04] text-sidebar-foreground' : isHighlighted ? 'border-sidebar-background/60 bg-sidebar/80 text-sidebar-accent-foreground' : 'border-sidebar-border/70 bg-sidebar-accent/45 text-muted-foreground group-data-[state=open]:border-sidebar-background/60 group-data-[state=open]:bg-sidebar/80 group-data-[state=open]:text-sidebar-accent-foreground'}"
-                        >
-                            {#if FileIcon}
-                                <FileIcon class="size-4.5" />
-                            {:else}
-                                <Files class="size-4.5" />
-                            {/if}
-                            {#if recentFile.source === "local" && showLocalBadge}
-                                <!-- Corner marker for local files. -->
-                                <span
-                                    data-testid="sidebar-local-badge"
-                                    aria-hidden="true"
-                                    class="pointer-events-none absolute -bottom-0.5 -right-0.5 z-10 flex size-3.5 items-center justify-center rounded-sm {isActive ? 'file-icon-badge-active' : isHighlighted ? 'file-icon-badge-emphasis' : 'file-icon-badge-inactive'}"
+                        <AppTooltip content={fileLanguageLabel} triggerTabindex={-1}>
+                            {#snippet trigger({ props })}
+                                <Item.Media
+                                    {...props}
+                                    variant="icon"
+                                    class="relative mt-0.5 {isActive ? 'border-sidebar-ring/40 bg-sidebar-foreground/[0.04] text-sidebar-foreground' : isHighlighted ? 'border-sidebar-background/60 bg-sidebar/80 text-sidebar-accent-foreground' : 'border-sidebar-border/70 bg-sidebar-accent/45 text-muted-foreground group-data-[state=open]:border-sidebar-background/60 group-data-[state=open]:bg-sidebar/80 group-data-[state=open]:text-sidebar-accent-foreground'}"
                                 >
-                                    <LucideHardDrive class="!size-3" />
-                                </span>
-                            {/if}
-                        </Item.Media>
+                                    {#if FileIcon}
+                                        <FileIcon class="size-4.5" />
+                                    {:else}
+                                        <Files class="size-4.5" />
+                                    {/if}
+                                    {#if recentFile.source === "local" && showLocalBadge}
+                                        <!-- Corner marker for local files. -->
+                                        <span
+                                            data-testid="sidebar-local-badge"
+                                            aria-hidden="true"
+                                            class="pointer-events-none absolute -bottom-0.5 -right-0.5 z-10 flex size-3.5 items-center justify-center rounded-sm {isActive ? 'file-icon-badge-active' : isHighlighted ? 'file-icon-badge-emphasis' : 'file-icon-badge-inactive'}"
+                                        >
+                                            <LucideHardDrive class="!size-3" />
+                                        </span>
+                                    {/if}
+                                </Item.Media>
+                            {/snippet}
+                        </AppTooltip>
 
                         <Item.Content class="min-w-0 gap-2.5">
                             <div class="flex items-start justify-between gap-3">
                                 <div class="min-w-0 flex-1">
-                                    <Item.Title title={recentFile.path} class="truncate text-sm leading-tight {isActive ? 'font-medium text-black dark:text-white' : isHighlighted ? 'font-normal text-sidebar-accent-foreground' : 'font-normal text-sidebar-foreground group-data-[state=open]:text-sidebar-accent-foreground'}">
-                                        {#if searchResult && searchResult.filename_fragments.length > 0}
-                                            {#each searchResult.filename_fragments as fragment}
-                                                {#if fragment.is_match}<mark class="bg-[var(--selection-match-bg)] text-inherit rounded-sm px-0.5 ring-1 ring-inset ring-[var(--selection-match-border)]">{fragment.text}</mark>{:else}{fragment.text}{/if}
-                                            {/each}
-                                        {:else}
-                                            {recentFile.file_name}
-                                        {/if}
-                                    </Item.Title>
+                                    <AppTooltip content={recentFile.path} triggerTabindex={-1}>
+                                        {#snippet trigger({ props })}
+                                            <Item.Title {...props} class="truncate text-sm leading-tight {isActive ? 'font-medium text-black dark:text-white' : isHighlighted ? 'font-normal text-sidebar-accent-foreground' : 'font-normal text-sidebar-foreground group-data-[state=open]:text-sidebar-accent-foreground'}">
+                                                {#if searchResult && searchResult.filename_fragments.length > 0}
+                                                    {#each searchResult.filename_fragments as fragment}
+                                                        {#if fragment.is_match}<mark class="bg-[var(--selection-match-bg)] text-inherit rounded-sm px-0.5 ring-1 ring-inset ring-[var(--selection-match-border)]">{fragment.text}</mark>{:else}{fragment.text}{/if}
+                                                    {/each}
+                                                {:else}
+                                                    {recentFile.file_name}
+                                                {/if}
+                                            </Item.Title>
+                                        {/snippet}
+                                    </AppTooltip>
                                 </div>
 
                                 {#if searchResult && searchResult.match_count > 0}
@@ -193,26 +202,33 @@
                                     <span class="truncate whitespace-nowrap">{fileSize}</span>
                                     <span aria-hidden="true" class="shrink-0">•</span>
                                 {/if}
-                                <span class="truncate whitespace-nowrap" title={formatTimestampFull(getRecencyTimestamp(recentFile))}>
-                                    {formatTimestamp(getRecencyTimestamp(recentFile))}
-                                </span>
+                                <AppTooltip content={formatTimestampFull(getRecencyTimestamp(recentFile))} triggerTabindex={-1}>
+                                    {#snippet trigger({ props })}
+                                        <span {...props} class="truncate whitespace-nowrap">
+                                            {formatTimestamp(getRecencyTimestamp(recentFile))}
+                                        </span>
+                                    {/snippet}
+                                </AppTooltip>
                             </div>
                         </Item.Content>
                         </button>
 
-                        <!-- Three-dot options button (visible on hover / when active) -->
+                        <!-- Keep file actions discoverable; the open state is forwarded by the dropdown trigger. -->
                         <DropdownMenuPrimitive.Root>
                             <DropdownMenuPrimitive.Trigger>
                                 {#snippet child({ props: dotProps })}
-                                    <button
+                                    <TooltipButton
                                         {...dotProps}
                                         type="button"
+                                        variant="ghost"
+                                        size="icon-sm"
                                         data-testid="sidebar-file-options"
-                                        title="File options"
-                                        class="absolute right-1.5 top-1/2 -translate-y-1/2 flex size-6 items-center justify-center rounded transition-opacity data-[state=open]:opacity-100 hover:bg-sidebar-foreground/10 text-sidebar-foreground {isActive || isHighlighted ? 'opacity-100' : 'opacity-0 group-data-[state=open]:opacity-100'}"
+                                        aria-label="File options"
+                                        tooltip="File options"
+                                        class="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:bg-sidebar-foreground/10 hover:text-sidebar-foreground data-[state=open]:bg-sidebar-foreground/10 data-[state=open]:text-sidebar-foreground"
                                     >
                                         <Ellipsis class="size-4" />
-                                    </button>
+                                    </TooltipButton>
                                 {/snippet}
                             </DropdownMenuPrimitive.Trigger>
                             <DropdownMenuPrimitive.Portal>
@@ -302,19 +318,23 @@
             {#if searchResult && searchResult.matched_lines.length > 0}
                 <div class="border-t border-sidebar-border/40 px-3 py-1.5">
                     {#each visibleMatchedLines as hit (hit.line_number)}
-                        <button
-                            type="button"
-                            class="flex w-full min-w-0 items-baseline gap-2.5 rounded px-1.5 py-1 text-left transition-colors hover:bg-sidebar-accent/50"
-                            title="Go to line {hit.line_number}"
-                            onclick={() => onOpen(recentFile.path, recentFile.source, hit.line_number)}
-                        >
-                            <span class="shrink-0 select-none tabular-nums text-xs text-disabled-foreground">{hit.line_number}</span>
-                            <span class="min-w-0 truncate font-mono text-[0.8rem] leading-relaxed text-muted-foreground">
-                                {#each hit.fragments as fragment}
-                                    {#if fragment.is_match}<mark class="bg-[var(--selection-match-bg)] text-inherit rounded-sm px-0.5 ring-1 ring-inset ring-[var(--selection-match-border)]">{fragment.text}</mark>{:else}{fragment.text}{/if}
-                                {/each}
-                            </span>
-                        </button>
+                        <AppTooltip content={`Go to line ${hit.line_number}`}>
+                            {#snippet trigger({ props })}
+                                <button
+                                    {...props}
+                                    type="button"
+                                    class="flex w-full min-w-0 items-baseline gap-2.5 rounded px-1.5 py-1 text-left transition-colors hover:bg-sidebar-accent/50"
+                                    onclick={() => onOpen(recentFile.path, recentFile.source, hit.line_number)}
+                                >
+                                    <span class="shrink-0 select-none tabular-nums text-xs text-disabled-foreground">{hit.line_number}</span>
+                                    <span class="min-w-0 truncate font-mono text-[0.8rem] leading-relaxed text-muted-foreground">
+                                        {#each hit.fragments as fragment}
+                                            {#if fragment.is_match}<mark class="bg-[var(--selection-match-bg)] text-inherit rounded-sm px-0.5 ring-1 ring-inset ring-[var(--selection-match-border)]">{fragment.text}</mark>{:else}{fragment.text}{/if}
+                                        {/each}
+                                    </span>
+                                </button>
+                            {/snippet}
+                        </AppTooltip>
                     {/each}
                     {#if hiddenMatchedLinesCount > 0}
                         <div

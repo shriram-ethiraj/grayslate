@@ -110,7 +110,7 @@ export async function readEditorReadiness(): Promise<EditorReadinessSnapshot> {
     const editorVisible = content !== undefined && content !== null && content.getClientRects().length > 0;
 
     return {
-      documentPath: title?.getAttribute("title") ?? null,
+      documentPath: title?.dataset.documentPath ?? null,
       documentLength: Number.isFinite(documentLength) ? documentLength : null,
       language: effectiveLanguage ?? null,
       ready: editor !== null && editorVisible && loader === null && documentLength !== null,

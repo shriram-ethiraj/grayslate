@@ -1,4 +1,5 @@
 import type { AppOs } from "$lib/state/platform.svelte";
+import { formatForDisplay } from "@tanstack/hotkeys";
 
 /** Platform names accepted by TanStack Hotkeys' display formatter. */
 export type ShortcutPlatform = "mac" | "windows" | "linux";
@@ -130,6 +131,19 @@ export const shortcutCategories = [
 ] as const satisfies readonly ShortcutCategory[];
 
 export type ShortcutCategoryId = (typeof shortcutCategories)[number]["id"];
+export type ShortcutId = (typeof shortcutCategories)[number]["shortcuts"][number]["id"];
+
+/** Return the canonical catalog entry for a shortcut-bearing application action. */
+export function getShortcutDefinition(id: ShortcutId): ShortcutDefinition {
+    for (const category of shortcutCategories) {
+        const shortcut = category.shortcuts.find((candidate) => candidate.id === id);
+        if (shortcut) return shortcut;
+    }
+
+    // ShortcutId is derived from shortcutCategories, so this only guards against
+    // a future runtime mutation or an incorrectly deserialized identifier.
+    throw new Error(`Unknown shortcut: ${id}`);
+}
 
 /** Convert Tauri's OS names to the names expected by formatForDisplay. */
 export function getShortcutPlatform(osType: AppOs | undefined): ShortcutPlatform {
@@ -142,4 +156,26 @@ export function getShortcutPlatform(osType: AppOs | undefined): ShortcutPlatform
         default:
             return "windows";
     }
+}
+
+/** Format a canonical hotkey string with TanStack's OS-specific labels/symbols. */
+export function formatShortcutKey(
+    key: ShortcutKey,
+    osType: AppOs | undefined,
+): string {
+    return formatForDisplay(key, { platform: getShortcutPlatform(osType) });
+}
+
+/** Build a compact action tooltip using the action's primary catalog shortcut. */
+export function formatShortcutTooltip(
+    label: string,
+    shortcutId: ShortcutId,
+    osType: AppOs | undefined,
+): string {
+    const primaryKey = getShortcutDefinition(shortcutId).keys[0];
+    if (!primaryKey) {
+        throw new Error(`Shortcut has no keys: ${shortcutId}`);
+    }
+
+    return `${label} (${formatShortcutKey(primaryKey, osType)})`;
 }

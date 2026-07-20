@@ -68,6 +68,22 @@ async function csvCellText(row: number, col: number): Promise<string> {
   row, col);
 }
 
+async function expectTooltip(testId: string, expectedText: string): Promise<void> {
+  const trigger = await $(`[data-testid='${testId}']`);
+  await trigger.moveTo();
+  await browser.execute((id) => {
+    const element = document.querySelector<HTMLElement>(`[data-testid='${id}']`);
+    if (!element) throw new Error(`Tooltip trigger ${id} is missing.`);
+    element.dispatchEvent(new PointerEvent("pointerenter", {
+      bubbles: true,
+      pointerType: "mouse",
+    }));
+  }, testId);
+  const tooltip = await $("[role='tooltip']");
+  await tooltip.waitForDisplayed();
+  await expect(tooltip).toHaveText(expectedText);
+}
+
 describe("Act 10 — CSV table lifecycle", () => {
   let csvPath = "";
 
@@ -84,6 +100,23 @@ describe("Act 10 — CSV table lifecycle", () => {
       return getComputedStyle(table).fontFamily;
     });
     expect(tableFamily).toContain("Commit Mono");
+  });
+
+  it("explains unavailable toolbar actions in table mode", async () => {
+    const transformations = await $("[data-testid='action-transformations']");
+    expect(await transformations.getAttribute("aria-disabled")).toBe("true");
+    await expectTooltip("action-transformations", "Not available in CSV table mode");
+
+    const copy = await $("[data-testid='action-copy']");
+    expect(await copy.getAttribute("aria-disabled")).toBe("true");
+    await expectTooltip("action-copy", "Not available in CSV table mode");
+
+    await transformations.click();
+    await expect(await $("[data-testid='transformations-palette']")).not.toBeDisplayed();
+
+    const save = await $("[data-testid='action-save']");
+    expect(await save.getAttribute("aria-disabled")).toBe("true");
+    await expectTooltip("action-save", "No changes to save");
   });
 
   it("navigates, edits, clears, and undo-redoes cells", async () => {
