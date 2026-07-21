@@ -5,13 +5,22 @@
 
   <p>
     <a href="https://grayslate.app/#download">
-      <img src="https://img.shields.io/badge/Download-Latest-brightgreen?style=flat-square&amp;logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjZmZmIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCI%2BPHBhdGggZD0iTTIxIDE1djRhMiAyIDAgMCAxLTIgMkg1YTIgMiAwIDAgMS0yLTJ2LTRNNyAxMGw1IDUgNS01TTEyIDE1VjMiLz48L3N2Zz4%3D" alt="Download the latest Grayslate release" />
+      <img src="https://img.shields.io/badge/Download-Latest-brightgreen?style=flat-square&amp;logo=github&amp;logoColor=white" alt="Download the latest Grayslate release" />
     </a>
     <a href="https://github.com/shriram-ethiraj/grayslate/releases/latest">
       <img src="https://img.shields.io/github/v/release/shriram-ethiraj/grayslate?display_name=tag&amp;sort=semver&amp;style=flat-square&amp;label=version&amp;color=brightgreen&amp;logo=github&amp;logoColor=white" alt="Latest Grayslate version" />
     </a>
+    <a href="https://github.com/shriram-ethiraj/grayslate/stargazers">
+      <img src="https://img.shields.io/github/stars/shriram-ethiraj/grayslate?style=flat-square&amp;label=stars&amp;color=brightgreen&amp;logo=github&amp;logoColor=white" alt="GitHub stars" />
+    </a>
+    <a href="LICENSE">
+      <img src="https://img.shields.io/github/license/shriram-ethiraj/grayslate?style=flat-square&amp;label=license&amp;color=brightgreen" alt="MIT license" />
+    </a>
+    <a href="https://github.com/shriram-ethiraj/grayslate/releases">
+      <img src="https://img.shields.io/github/downloads/shriram-ethiraj/grayslate/total?style=flat-square&amp;label=downloads&amp;color=brightgreen&amp;logo=github&amp;logoColor=white" alt="Total GitHub release downloads" />
+    </a>
     <a href="https://github.com/shriram-ethiraj/grayslate/actions/workflows/e2e.yml">
-      <img src="https://img.shields.io/github/actions/workflow/status/shriram-ethiraj/grayslate/e2e.yml?branch=main&amp;style=flat-square&amp;label=Build&amp;logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjZmZmIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCI%2BPHBhdGggZD0iTTE0LjcgNi4zYTEgMSAwIDAgMCAwIDEuNGwxLjYgMS42YTEgMSAwIDAgMCAxLjQgMGwzLjc3LTMuNzdhNiA2IDAgMCAxLTcuOTQgNy45NGwtNi45MSA2LjkxYTIuMTIgMi4xMiAwIDAgMS0zLTNsNi45MS02LjkxYTYgNiAwIDAgMSA3Ljk0LTcuOTRaIi8%2BPC9zdmc%2B" alt="Build status" />
+      <img src="https://github.com/shriram-ethiraj/grayslate/actions/workflows/e2e.yml/badge.svg?branch=main" alt="Build status" />
     </a>
   </p>
 
