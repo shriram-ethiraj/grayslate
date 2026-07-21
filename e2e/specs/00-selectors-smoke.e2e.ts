@@ -41,4 +41,15 @@ describe("E2E selector contract", () => {
     }
     await browser.keys("Escape");
   });
+
+  it("does not expose browser-native tooltips in app-owned UI", async () => {
+    const titledElements = await browser.execute(() =>
+      Array.from(document.querySelectorAll<HTMLElement>("[title]")).map((element) => ({
+        tag: element.tagName,
+        title: element.getAttribute("title"),
+      })),
+    );
+
+    expect(titledElements).toEqual([]);
+  });
 });

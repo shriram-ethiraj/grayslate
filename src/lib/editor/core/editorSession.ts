@@ -3,6 +3,7 @@ import { indentLess, indentMore, isolateHistory, redo } from "@codemirror/comman
 import { indentUnit } from "@codemirror/language";
 import { EditorView, gutters, keymap } from "@codemirror/view";
 import { basicSetup } from "codemirror";
+import { codeMirrorTooltips } from "$lib/editor/extensions/codeMirrorTooltips";
 import { search } from "@codemirror/search";
 import { scrollPastEnd } from "@codemirror/view";
 import { createTheme } from "$lib/hooks/create-theme";
@@ -250,6 +251,7 @@ export function ensureManagedEditorState(
             createSearchKeymap(),
             gutters(),
             basicSetup,
+            codeMirrorTooltips,
             search({}),
             scrollPastEnd(),
             session.themeCompartment.of(initialThemeExt),
