@@ -1,0 +1,4 @@
+interface:
+  display_name: "Release Workflow"
+  short_description: "Bump, verify, tag, and recover Grayslate releases"
+  default_prompt: "Use $release-workflow to prepare and verify the next Grayslate release."
