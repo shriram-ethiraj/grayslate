@@ -79,9 +79,12 @@ async function expectTooltip(testId: string, expectedText: string): Promise<void
       pointerType: "mouse",
     }));
   }, testId);
-  const tooltip = await $("[role='tooltip']");
-  await tooltip.waitForDisplayed();
-  await expect(tooltip).toHaveText(expectedText);
+  await browser.waitUntil(async () => browser.execute((text) =>
+    Array.from(document.querySelectorAll<HTMLElement>("[role='tooltip']")).some((tooltip) =>
+      tooltip.getClientRects().length > 0 && tooltip.textContent?.trim() === text,
+    ), expectedText), {
+    timeoutMsg: `Tooltip for ${testId} did not show '${expectedText}'.`,
+  });
 }
 
 describe("Act 10 — CSV table lifecycle", () => {

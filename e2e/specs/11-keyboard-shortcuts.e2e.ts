@@ -23,10 +23,10 @@ async function expectTooltip(testId: string, expectedText: string): Promise<void
     }));
   }, testId);
 
-  await browser.waitUntil(async () => {
-    const tooltip = await $("[role='tooltip']");
-    return (await tooltip.isDisplayed()) && (await tooltip.getText()) === expectedText;
-  }, {
+  await browser.waitUntil(async () => browser.execute((text) =>
+    Array.from(document.querySelectorAll<HTMLElement>("[role='tooltip']")).some((tooltip) =>
+      tooltip.getClientRects().length > 0 && tooltip.textContent?.trim() === text,
+    ), expectedText), {
     timeoutMsg: `Tooltip for ${testId} did not show '${expectedText}'.`,
   });
 }

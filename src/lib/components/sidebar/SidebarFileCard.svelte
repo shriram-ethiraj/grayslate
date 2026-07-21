@@ -175,7 +175,7 @@
                                 <div class="min-w-0 flex-1">
                                     <AppTooltip content={recentFile.path} triggerTabindex={-1}>
                                         {#snippet trigger({ props })}
-                                            <Item.Title {...props} class="truncate text-sm leading-tight {isActive ? 'font-medium text-black dark:text-white' : isHighlighted ? 'font-normal text-sidebar-accent-foreground' : 'font-normal text-sidebar-foreground group-data-[state=open]:text-sidebar-accent-foreground'}">
+                                            <Item.Title {...props} data-testid="sidebar-file-title" class="truncate text-sm leading-tight {isActive ? 'font-medium text-black dark:text-white' : isHighlighted ? 'font-normal text-sidebar-accent-foreground' : 'font-normal text-sidebar-foreground group-data-[state=open]:text-sidebar-accent-foreground'}">
                                                 {#if searchResult && searchResult.filename_fragments.length > 0}
                                                     {#each searchResult.filename_fragments as fragment}
                                                         {#if fragment.is_match}<mark class="bg-[var(--selection-match-bg)] text-inherit rounded-sm px-0.5 ring-1 ring-inset ring-[var(--selection-match-border)]">{fragment.text}</mark>{:else}{fragment.text}{/if}

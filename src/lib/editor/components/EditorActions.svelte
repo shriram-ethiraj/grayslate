@@ -47,6 +47,12 @@
         return "No changes to save";
     });
 
+    const transformationsDisabledTooltip = $derived(
+        isCsvTableMode
+            ? "Not available in CSV table mode"
+            : "Unavailable while loading",
+    );
+
     const copyTitle = $derived.by(() => {
         if (showCopySuccess) {
             return "Copied";
@@ -224,7 +230,8 @@
     size="icon"
     data-testid="action-transformations"
     aria-label="Transformations"
-    tooltip="Open transformations"
+    tooltip={formatShortcutTooltip("Open transformations", "transformations", platformState.osType)}
+    disabledTooltip={transformationsDisabledTooltip}
     disabled={editorState.loader.visible || isCsvTableMode}
     onclick={() => {
         openTransformationsPalette();
