@@ -20,6 +20,7 @@
   import CsvContextMenu from "./CsvContextMenu.svelte";
   import { invoke, invokeText } from "$lib/ipc";
   import { Channel } from "@tauri-apps/api/core";
+  import { copyCsvSessionToClipboard } from "$lib/clipboard";
   import type {
     CsvMirrorTextUpdate,
     CsvMutationRequest,
@@ -125,6 +126,7 @@
 
   let lastSyncedContent = $state(content);
   let latestRowWindowToken = 0;
+  let pendingMutation: Promise<boolean> | undefined;
 
   let tableContainerRef = $state<HTMLDivElement | undefined>(undefined);
   let contextMenu = $state<{
@@ -161,6 +163,7 @@
     latestRowWindowToken += 1;
     snapshot = EMPTY_SNAPSHOT;
     rowWindow = EMPTY_ROW_WINDOW;
+    pendingMutation = undefined;
     lastSyncedContent = "";
     prevHeaderKey = "";
     stableColumns = [];
@@ -191,6 +194,19 @@
     lastSyncedContent = text;
     content = text;
     return { text, version };
+  }
+
+  async function copyAllCsv(): Promise<boolean> {
+    try {
+      await pendingMutation;
+    } catch {
+      return false;
+    }
+    const copied = await copyCsvSessionToClipboard(content.length);
+    if (copied) {
+      wrapperRef?.focus();
+    }
+    return copied;
   }
 
   function getVisibleRow(index: number): string[] | undefined {
@@ -261,6 +277,16 @@
     return true;
   }
 
+  function trackMutation(operation: Promise<boolean>): Promise<boolean> {
+    const tracked = operation.finally(() => {
+      if (pendingMutation === tracked) {
+        pendingMutation = undefined;
+      }
+    });
+    pendingMutation = tracked;
+    return tracked;
+  }
+
   const controller: CsvTableController = {
     getSnapshot: () => snapshot,
     getCachedCellValue(rowIndex: number, colIndex: number) {
@@ -275,20 +301,22 @@
       }
       return invoke<string>("csv_get_cell", { rowIndex, colIndex });
     },
-    async runMutation(mutation, userEvent) {
-      const response = await invoke<CsvMutationResponse>("csv_mutate", {
-        mutation,
-        userEvent,
-      });
-      return applyMutationResponse(response);
+    runMutation(mutation, userEvent) {
+      return trackMutation(
+        invoke<CsvMutationResponse>("csv_mutate", { mutation, userEvent }).then(
+          applyMutationResponse,
+        ),
+      );
     },
-    async undo() {
-      const response = await invoke<CsvMutationResponse>("csv_undo");
-      return applyMutationResponse(response);
+    undo() {
+      return trackMutation(
+        invoke<CsvMutationResponse>("csv_undo").then(applyMutationResponse),
+      );
     },
-    async redo() {
-      const response = await invoke<CsvMutationResponse>("csv_redo");
-      return applyMutationResponse(response);
+    redo() {
+      return trackMutation(
+        invoke<CsvMutationResponse>("csv_redo").then(applyMutationResponse),
+      );
     },
   };
 
@@ -392,15 +420,19 @@
     () => {
       wrapperRef?.focus();
     },
+    copyAllCsv,
   );
 
   $effect(() => {
+    const copyFn = () => csvEditorState.handleCopy();
     const undoFn = () => csvEditorState.handleUndo();
     const redoFn = () => csvEditorState.handleRedo();
+    editorState.csv.copy = copyFn;
     editorState.csv.undo = undoFn;
     editorState.csv.redo = redoFn;
 
     return () => {
+      if (editorState.csv.copy === copyFn) editorState.csv.copy = undefined;
       if (editorState.csv.undo === undoFn) editorState.csv.undo = undefined;
       if (editorState.csv.redo === redoFn) editorState.csv.redo = undefined;
     };

@@ -31,6 +31,7 @@ export function useCsvEditorState(
     scrollToIndex: (index: number, options?: { align?: "auto" | "start" | "center" | "end" }) => void,
     onColumnsReordered?: (start: number, end: number, target: number) => void,
     focusGrid?: () => void,
+    copyAllCsv?: () => Promise<boolean>,
 ) {
     let editingCell = $state<{ rowIndex: number; colIndex: number } | null>(null);
     let focusedCell = $state<{ rowIndex: number; colIndex: number } | null>(null);
@@ -637,7 +638,19 @@ export function useCsvEditorState(
         focusCurrentCell();
     }
 
+    async function handleCopy(): Promise<boolean> {
+        commitEdit();
+        return (await copyAllCsv?.()) ?? false;
+    }
+
     const editHotkeys: HotkeyBinding[] = [
+        {
+            key: "Mod+C",
+            callback: () => {
+                void handleCopy();
+            },
+            options: { preventDefault: true, ignoreInputs: false },
+        },
         {
             key: "Enter",
             callback: () => {
@@ -681,6 +694,13 @@ export function useCsvEditorState(
     ];
 
     const cellHotkeys: HotkeyBinding[] = [
+        {
+            key: "Mod+C",
+            callback: () => {
+                void handleCopy();
+            },
+            options: { preventDefault: true, ignoreInputs: true },
+        },
         { key: "Mod+Z", callback: handleUndo, options: { preventDefault: true, ignoreInputs: true } },
         { key: "Mod+Shift+Z", callback: handleRedo, options: { preventDefault: true, ignoreInputs: true } },
         { key: "Mod+Y", callback: handleRedo, options: { preventDefault: true, ignoreInputs: true } },
@@ -1052,6 +1072,7 @@ export function useCsvEditorState(
         canMoveSelectedColumnsRight: () => canMoveSelectedColumns(1),
         handleUndo,
         handleRedo,
+        handleCopy,
         cellHotkeys,
         editHotkeys,
         handleCellKeydown,

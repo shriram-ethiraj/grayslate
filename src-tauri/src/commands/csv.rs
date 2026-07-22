@@ -5,7 +5,7 @@ use std::sync::{
 };
 
 use serde::Serialize;
-use tauri::Window;
+use tauri::{AppHandle, Window};
 
 use crate::csv::{
     self, CsvMutationRequest, CsvMutationResponse, CsvRowWindow, CsvSession, CsvTableSnapshot,
@@ -259,6 +259,34 @@ pub async fn csv_flush_text(
 
     let (text, _version) = result;
     Ok(tauri::ipc::Response::new(text.into_bytes()))
+}
+
+/// Serialize the current table state and write it directly to the native
+/// clipboard. Both serialization and the clipboard call run off the async
+/// runtime so a large table cannot stall the webview UI thread.
+#[tauri::command]
+pub async fn csv_copy_to_clipboard(
+    registry: tauri::State<'_, CsvSessionRegistry>,
+    window: Window,
+    app: AppHandle,
+) -> Result<CsvFlushResponse, String> {
+    let window_label = window.label().to_string();
+    let registry = registry.inner().clone();
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let (text, version) = registry.with_session(&window_label, |session| {
+            let text = session.flush_text();
+            let version = session.flush_version();
+            (text, version)
+        })?;
+        let byte_length = crate::commands::clipboard::write_text(&app, text)?;
+        Ok(CsvFlushResponse {
+            version,
+            byte_length,
+        })
+    })
+    .await
+    .map_err(|error| format!("Failed to join CSV clipboard task: {error}"))?
 }
 
 /// Cancel any in-flight long-running CSV operation (init or flush).

@@ -255,11 +255,15 @@
         await editorCut(view);
         break;
       case "copy":
+        if (editorState.copyInProgress) return;
         if (markdownPreviewActive) {
           await copyMarkdownPreviewSelectionOrAll();
           return;
         }
-        if (isCsvTableVisible) return;
+        if (isCsvTableVisible) {
+          await editorState.csv.copy?.();
+          return;
+        }
         if (!view) return;
         await editorCopySelectionOrAll(view);
         break;
@@ -480,7 +484,10 @@
           >Cut<Menubar.Shortcut>{formatForDisplay("Mod+X")}</Menubar.Shortcut
           ></Menubar.Item
         >
-        <Menubar.Item data-testid="menu-copy" onclick={() => handleEdit("copy")}
+        <Menubar.Item
+          data-testid="menu-copy"
+          disabled={editorState.copyInProgress}
+          onclick={() => handleEdit("copy")}
           >Copy<Menubar.Shortcut>{formatForDisplay("Mod+C")}</Menubar.Shortcut
           ></Menubar.Item
         >

@@ -28,13 +28,10 @@
     );
 
     const isCopyDisabled = $derived.by(() => {
-        if (
-            editorState.loader.visible ||
-            isCsvTableMode ||
-            editorState.currentDocumentLength === 0
-        ) {
-            return true;
-        }
+        if (editorState.copyInProgress) return true;
+        if (editorState.loader.visible) return true;
+        if (isCsvTableMode) return editorState.csv.copy === undefined;
+        return editorState.currentDocumentLength === 0;
     });
 
     const isSaveDisabled = $derived(
@@ -54,13 +51,17 @@
     );
 
     const copyTitle = $derived.by(() => {
+        if (editorState.copyInProgress) {
+            return "Copy in progress";
+        }
+
         if (showCopySuccess) {
             return "Copied";
         }
 
         if (editorState.loader.visible) return "Unavailable while loading";
-        if (editorState.fileType === "csv" && editorState.csv.showTable) {
-            return "Not available in CSV table mode";
+        if (isCsvTableMode) {
+            return formatShortcutTooltip("Copy CSV content", "copy", platformState.osType);
         }
         if (editorState.currentDocumentLength === 0) return "Nothing to copy";
 
@@ -103,7 +104,9 @@
     async function handleCopyContent() {
         let copied = false;
 
-        if (
+        if (isCsvTableMode) {
+            copied = (await editorState.csv.copy?.()) ?? false;
+        } else if (
             editorState.fileType === "markdown" &&
             editorState.markdown.showPreview &&
             editorState.activeSurface === "markdown-preview"
@@ -218,7 +221,7 @@
         void handleCopyContent();
     }}
 >
-    {#if showCopySuccess}
+    {#if showCopySuccess && !editorState.copyInProgress}
         <Check class="size-4 transition-all" />
     {:else}
         <Copy class="size-4 transition-all" />

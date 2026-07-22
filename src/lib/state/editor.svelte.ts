@@ -89,11 +89,14 @@ export const editorState = $state<{
     requestSaveCurrentDocument?: () => Promise<boolean>;
     currentDocumentLength: number;
     currentSelectionSize: number;
+    /** True while a large or slow native clipboard copy is in progress. */
+    copyInProgress: boolean;
     fileType: FileType;
     fontSize: number;
     wordWrap: boolean;
     csv: {
         showTable: boolean;
+        copy?: () => Promise<boolean>;
         undo?: () => void;
         redo?: () => void;
         requestShowTable?: (showTable: boolean) => void | Promise<void>;
@@ -138,11 +141,13 @@ export const editorState = $state<{
     currentFileSource: undefined,
     currentDocumentLength: 0,
     currentSelectionSize: 0,
+    copyInProgress: false,
     fileType: "text",
     fontSize: DEFAULT_EDITOR_FONT_SIZE,
     wordWrap: false,
     csv: {
         showTable: false,
+        copy: undefined,
         undo: undefined,
         redo: undefined,
         requestShowTable: undefined,
