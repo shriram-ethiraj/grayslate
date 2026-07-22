@@ -227,6 +227,10 @@ export function ensureManagedEditorState(
     language: string,
 ): EditorState {
     if (session.state) {
+        setManagedEditorTheme(
+            session,
+            document.documentElement.classList.contains("dark"),
+        );
         return session.state;
     }
 
@@ -275,6 +279,28 @@ export function ensureManagedEditorState(
 
     syncBindings(session, session.state);
     return session.state;
+}
+
+export function setManagedEditorTheme(
+    session: ManagedEditorSession,
+    isDark: boolean,
+) {
+    if (!session.themeCompartment) {
+        return;
+    }
+
+    const effect = session.themeCompartment.reconfigure(
+        createTheme(isDark ? andromedaConfig : materialLightConfig),
+    );
+
+    if (session.view) {
+        session.view.dispatch({ effects: effect });
+        return;
+    }
+
+    if (session.state) {
+        session.state = session.state.update({ effects: effect }).state;
+    }
 }
 
 export function setManagedEditorLanguage(

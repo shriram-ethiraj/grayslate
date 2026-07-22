@@ -12,6 +12,7 @@ import {
   exitCsvTable,
   focusEditor,
   openAuthorizedPath,
+  openExternalText,
   pressMod,
   provisionExternalText,
   readEditorText,
@@ -80,6 +81,14 @@ async function csvCellText(row: number, col: number): Promise<string> {
       `[data-row='${targetRow}'][data-col='${targetCol}'] .csv-cell-content`,
     )?.textContent ?? "",
   row, col);
+}
+
+async function editorBackground(): Promise<string> {
+  return browser.execute(() => {
+    const editor = document.querySelector<HTMLElement>("[data-testid='editor'] .cm-editor");
+    if (!editor) throw new Error("CodeMirror is not mounted.");
+    return getComputedStyle(editor).backgroundColor;
+  });
 }
 
 async function expectTooltip(testId: string, expectedText: string): Promise<void> {
@@ -201,6 +210,37 @@ describe("Act 10 — CSV table lifecycle", () => {
     await pressMod("s");
     await waitForFile(csvPath, (content) => content.includes("Alice E2E"));
     expect(fs.readFileSync(csvPath, "utf8")).toContain("Alice E2E");
+  });
+
+  it("remounts text mode with a theme changed while table mode is active", async () => {
+    const root = await $("html");
+    const rootIsDark = async () =>
+      (await root.getAttribute("class") ?? "").split(/\s+/).includes("dark");
+
+    if (await rootIsDark()) {
+      await clickTestId("theme-toggle");
+      await browser.waitUntil(async () => !(await rootIsDark()));
+    }
+
+    await openExternalText(
+      "theme-remount.csv",
+      "id,name,city\n1,Alice,Paris\n2,Bob,London\n",
+    );
+    const originalText = await readEditorText();
+    const lightBackground = await editorBackground();
+    expect(lightBackground).toBe("rgb(255, 255, 255)");
+
+    await enterCsvTable();
+    await clickTestId("theme-toggle");
+    await browser.waitUntil(rootIsDark);
+    await exitCsvTable();
+    await waitForEditorText((text) => text.includes("Alice"));
+
+    const remountedText = await readEditorText();
+    const darkBackground = await editorBackground();
+    expect(darkBackground).toBe("rgb(27, 30, 38)");
+    expect(darkBackground).not.toBe(lightBackground);
+    expect(remountedText.trimEnd()).toBe(originalText.trimEnd());
   });
 
   it("keeps large CSV rendering bounded and returns to text in one undo step", async () => {
