@@ -50,7 +50,7 @@ await replaceExactlyOnce(
 );
 await replaceExactlyOnce(
     "Cargo.lock",
-    /(\[\[package\]\]\nname = "Grayslate"\nversion = ")[^"]+("\n)/u,
+    /(\[\[package\]\]\r?\nname = "Grayslate"\r?\nversion = ")[^"]+("\r?\n)/u,
     `$1${version}$2`,
 );
 
@@ -66,7 +66,10 @@ let updatedAppstream;
 if (existingRelease.test(appstream)) {
     updatedAppstream = appstream.replace(existingRelease, release);
 } else if ((appstream.match(/<releases>/gu) ?? []).length === 1) {
-    updatedAppstream = appstream.replace(/<releases>\n/u, `<releases>\n    ${release}\n`);
+    updatedAppstream = appstream.replace(
+        /(<releases>)(\r?\n)/u,
+        `$1$2    ${release}$2`,
+    );
 } else {
     throw new Error("Linux AppStream metadata must contain exactly one <releases> section.");
 }
