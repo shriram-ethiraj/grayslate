@@ -3,7 +3,7 @@
     import * as Sidebar from "$lib/components/ui/sidebar/index.js";
     import * as Select from "$lib/components/ui/select/index.js";
     import * as Tabs from "$lib/components/ui/tabs/index.js";
-    import { Button } from "$lib/components/ui/button/index.js";
+    import { AppTooltip, TooltipButton } from "$lib/components/ui/tooltip/index.js";
     import Input from "$lib/components/ui/input/input.svelte";
     import type { FilterMode, SortMode } from "$lib/files/sidebarUtils";
     import { DEFAULT_SEARCH_OPTIONS, type SearchOptions } from "$lib/files/recentFiles";
@@ -86,8 +86,8 @@
         title: string;
         icon: typeof Files;
     }> = [
-        { value: "unified", label: "All", title: "Show all recently modified files", icon: Files },
-        { value: "slates", label: "Slates", title: "Show Grayslate documents only", icon: RiCodeBoxLine },
+        { value: "unified", label: "All", title: "Show all Grayslate and local files", icon: Files },
+        { value: "slates", label: "Slates", title: "Show Grayslate files only", icon: RiCodeBoxLine },
         { value: "local", label: "Local", title: "Show tracked local files only", icon: LucideHardDrive },
     ];
 
@@ -142,13 +142,13 @@
         <div class="min-w-0 truncate text-sm font-medium">Library</div>
         <div class="flex items-center gap-1">
             {#if query || hasActiveOptions}
-                <Button
+                <TooltipButton
                     variant="ghost"
                     size="sm"
                     class="gap-1.5 px-2 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                     data-testid="sidebar-clear-search"
                     aria-label="Clear search"
-                    title="Clear search and reset options"
+                    tooltip="Clear search and reset options"
                     onclick={() => {
                         query = "";
                         searchOptions = { ...DEFAULT_SEARCH_OPTIONS };
@@ -158,18 +158,18 @@
                     <span class="flex items-center gap-1.5">
                         <X class="size-4 shrink-0" />
                     </span>
-                </Button>
+                </TooltipButton>
             {/if}
-            <Button
+            <TooltipButton
                 variant="ghost"
                 size="icon-sm"
                 class="hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                 aria-label="Refresh recent files"
-                title="Refresh recent files"
+                tooltip="Refresh recent files"
                 onclick={onRefresh}
             >
                 <RefreshCcw class={isLoading || isSearchLoading ? "size-4 animate-spin" : "size-4"} />
-            </Button>
+            </TooltipButton>
         </div>
     </div>
 
@@ -184,51 +184,55 @@
                 class="border-sidebar-border bg-sidebar pe-[5.75rem] ps-9 text-sm shadow-none placeholder:text-muted-foreground focus-visible:border-sidebar-ring focus-visible:ring-sidebar-ring"
             />
             <div class="absolute right-1.5 top-1/2 z-10 flex -translate-y-1/2 items-center gap-0.5">
-                <Button
+                <TooltipButton
                     variant="ghost"
                     size="icon-xs"
                     data-testid="sidebar-search-case"
                     aria-pressed={searchOptions.caseSensitive}
-                    title="Match Case"
+                    tooltip="Match case"
                     onclick={() => { searchOptions.caseSensitive = !searchOptions.caseSensitive; }}
                 >
                     <MaterialSymbolsMatchCaseRounded class="size-[1.2rem]" />
-                </Button>
-                <Button
+                </TooltipButton>
+                <TooltipButton
                     variant="ghost"
                     size="icon-xs"
                     data-testid="sidebar-search-word"
                     aria-pressed={searchOptions.wholeWord}
-                    title="Match Whole Word"
+                    tooltip="Match whole word"
                     onclick={() => { searchOptions.wholeWord = !searchOptions.wholeWord; }}
                 >
                     <MaterialSymbolsMatchWordRounded class="size-[1.2rem]" />
-                </Button>
-                <Button
+                </TooltipButton>
+                <TooltipButton
                     variant="ghost"
                     size="icon-xs"
                     data-testid="sidebar-search-regex"
                     aria-pressed={searchOptions.useRegex}
-                    title="Use Regular Expression"
+                    tooltip="Use regular expression"
                     onclick={() => { searchOptions.useRegex = !searchOptions.useRegex; }}
                 >
                     <CodiconRegex class="size-[1.1rem]" />
-                </Button>
+                </TooltipButton>
             </div>
         </div>
 
         <Select.Root type="single" items={sortOptions} bind:value={sortMode}>
-            <Select.Trigger
-                data-testid="sidebar-sort-trigger"
-                aria-label={`Sort library: ${activeSortOption.label}`}
-                title={`Sort library: ${activeSortOption.label}`}
-                class="h-9 w-9 justify-center gap-0 border-sidebar-border bg-sidebar px-0 text-sidebar-foreground shadow-none focus-visible:border-sidebar-ring focus-visible:ring-sidebar-ring [&>svg:last-child]:hidden"
-            >
-                {@const ActiveSortIcon = activeSortOption.icon}
-                <span class="flex items-center justify-center">
-                    <ActiveSortIcon class="size-4 text-sidebar-foreground" />
-                </span>
-            </Select.Trigger>
+            <AppTooltip content={`Sort library: ${activeSortOption.label}`}>
+                {#snippet trigger({ props })}
+                    <Select.Trigger
+                        {...props}
+                        data-testid="sidebar-sort-trigger"
+                        aria-label={`Sort library: ${activeSortOption.label}`}
+                        class="h-9 w-9 justify-center gap-0 border-sidebar-border bg-sidebar px-0 text-sidebar-foreground shadow-none focus-visible:border-sidebar-ring focus-visible:ring-sidebar-ring [&>svg:last-child]:hidden"
+                    >
+                        {@const ActiveSortIcon = activeSortOption.icon}
+                        <span class="flex items-center justify-center">
+                            <ActiveSortIcon class="size-4 text-sidebar-foreground" />
+                        </span>
+                    </Select.Trigger>
+                {/snippet}
+            </AppTooltip>
             <Select.Content class="border-sidebar-border bg-sidebar text-sidebar-foreground">
                 {#each sortOptions as option (option.value)}
                     {@const OptionIcon = option.icon}
@@ -250,15 +254,19 @@
         <Tabs.List class="grid h-10 w-full grid-cols-3 bg-sidebar-accent/45 px-1">
             {#each filterOptions as option (option.value)}
                 {@const Icon = option.icon}
-                <Tabs.Trigger
-                    value={option.value}
-                    data-testid={`sidebar-tab-${option.value}`}
-                    class="min-w-0 gap-1 overflow-hidden px-2 text-xs text-muted-foreground data-[state=active]:bg-sidebar data-[state=active]:text-sidebar-foreground"
-                    title={option.title}
-                >
-                    <Icon class="size-3.5" />
-                    <span class="min-w-0 truncate">{option.label}</span>
-                </Tabs.Trigger>
+                <AppTooltip content={option.title}>
+                    {#snippet trigger({ props })}
+                        <Tabs.Trigger
+                            {...props}
+                            value={option.value}
+                            data-testid={`sidebar-tab-${option.value}`}
+                            class="min-w-0 gap-1 overflow-hidden px-2 text-xs text-muted-foreground data-[state=active]:bg-sidebar data-[state=active]:text-sidebar-foreground"
+                        >
+                            <Icon class="size-3.5" />
+                            <span class="min-w-0 truncate">{option.label}</span>
+                        </Tabs.Trigger>
+                    {/snippet}
+                </AppTooltip>
             {/each}
         </Tabs.List>
     </Tabs.Root>

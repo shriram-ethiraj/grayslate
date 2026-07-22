@@ -215,16 +215,34 @@
     background-color: var(--cm-hint-bg-hover, rgba(128, 128, 128, 0.2)) !important;
   }
 
+  .cm-json-fold-tooltip {
+    @apply px-2 py-1.5 font-sans text-xs text-popover-foreground;
+  }
+
+  .cm-foldGutter [data-cm-tooltip] {
+    position: relative;
+  }
+
+  .cm-foldGutter [data-cm-tooltip]::after {
+    @apply pointer-events-none absolute left-full top-1/2 z-50 ml-2 -translate-y-1/2 whitespace-nowrap rounded-lg border border-border bg-popover px-2 py-1.5 font-sans text-xs text-popover-foreground opacity-0 shadow-md;
+    content: attr(data-cm-tooltip);
+    visibility: hidden;
+    transition: opacity 100ms ease, visibility 0ms linear 100ms;
+  }
+
+  .cm-foldGutter [data-cm-tooltip]:hover::after {
+    opacity: 1;
+    visibility: visible;
+    transition-delay: 250ms;
+  }
+
   /* JSON Key Path Tooltip */
   .cm-tooltip.cm-tooltip-hover {
     @apply !border !border-border !bg-popover !text-popover-foreground !shadow-md !rounded-lg !overflow-hidden;
   }
 
   .cm-json-key-path-tooltip {
-    @apply cursor-pointer transition-colors;
-    font-family: monospace;
-    font-size: 0.82em;
-    padding: 3px 10px;
+    @apply cursor-pointer px-2 py-1.5 font-mono text-xs transition-colors;
     color: var(--cm-hint-color, #888);
     user-select: text;
     white-space: nowrap;
@@ -237,10 +255,7 @@
   /* CSV Column Header Tooltip (text-mode hover: "Col N: Header") */
   /* Outer wrapper inherits .cm-tooltip.cm-tooltip-hover border/bg/shadow. */
   .cm-csv-header-tooltip {
-    @apply cursor-pointer;
-    font-family: monospace;
-    font-size: 0.82em;
-    padding: 3px 10px;
+    @apply cursor-pointer px-2 py-1.5 font-mono text-xs;
     user-select: text;
     white-space: nowrap;
   }

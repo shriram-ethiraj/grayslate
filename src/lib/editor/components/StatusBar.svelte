@@ -2,6 +2,9 @@
   import LanguagePicker from "./LanguagePicker.svelte";
   import { IndentMode, type IndentConfig } from "./IndentationPicker.svelte";
   import { DEFAULT_INDENT_CONFIG } from "$lib/editor/core/editorSession";
+  import { AppTooltip } from "$lib/components/ui/tooltip/index.js";
+  import { formatShortcutTooltip } from "$lib/shortcuts";
+  import { platformState } from "$lib/state/platform.svelte";
 
   let {
     documentLength = 0,
@@ -71,28 +74,36 @@
           data-doc-length={documentLength}
           data-line-count={lineCount}>Length {documentLength}, Lines {lineCount}</span>
         <span class="text-muted-foreground">|</span>
-        <button
-          type="button"
-          data-testid="status-goto-line"
-          title="Go to line"
-          class="hover:bg-muted/50 hover:text-foreground h-full px-1.5 transition-colors cursor-pointer"
-          onclick={() => onGoToLine()}
-        >
-          Ln {line}, Col {col}
-        </button>
+        <AppTooltip content={formatShortcutTooltip("Go to line", "go-to-line", platformState.osType)}>
+          {#snippet trigger({ props })}
+            <button
+              {...props}
+              type="button"
+              data-testid="status-goto-line"
+              class="hover:bg-muted/50 hover:text-foreground h-full px-1.5 transition-colors cursor-pointer"
+              onclick={() => onGoToLine()}
+            >
+              Ln {line}, Col {col}
+            </button>
+          {/snippet}
+        </AppTooltip>
         {#if selectionSize > 0}
           <span>({selectionSize} selected)</span>
         {/if}
         <span class="text-muted-foreground">|</span>
-        <button
-          type="button"
-          data-testid="status-indent"
-          title="Select Indentation"
-          class="hover:bg-muted/50 hover:text-foreground h-full px-1.5 transition-colors cursor-pointer"
-          onclick={() => onOpenIndentPicker()}
-        >
-          {indentLabel}
-        </button>
+        <AppTooltip content="Select indentation">
+          {#snippet trigger({ props })}
+            <button
+              {...props}
+              type="button"
+              data-testid="status-indent"
+              class="hover:bg-muted/50 hover:text-foreground h-full px-1.5 transition-colors cursor-pointer"
+              onclick={() => onOpenIndentPicker()}
+            >
+              {indentLabel}
+            </button>
+          {/snippet}
+        </AppTooltip>
       </div>
     {/if}
     <span class="text-muted-foreground">|</span>

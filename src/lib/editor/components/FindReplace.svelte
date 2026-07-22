@@ -14,9 +14,10 @@
     editorReplaceAll,
     editorSetSearchQuery,
   } from "$lib/editor/core/actions";
-  import { Button } from "$lib/components/ui/button";
+  import { TooltipButton } from "$lib/components/ui/tooltip";
   import { hotkey, registerHotkey } from "$lib/hotkeys";
-  import { formatForDisplay } from "@tanstack/hotkeys";
+  import { formatShortcutTooltip } from "$lib/shortcuts";
+  import { platformState } from "$lib/state/platform.svelte";
   import ArrowUp from "~icons/lucide/arrow-up";
   import ArrowDown from "~icons/lucide/arrow-down";
   import X from "~icons/lucide/x";
@@ -55,6 +56,31 @@
   const canNavigate = $derived(fr.matchCount > 1);
   const canReplace = $derived(fr.matchCount > 0 && replaceText.length > 0);
   const canReplaceAll = $derived(fr.matchCount > 1 && replaceText.length > 0);
+
+  const navigationDisabledTooltip = $derived.by(() => {
+    if (!findText) return "Enter a search term";
+    if (fr.searching && !hasResolvedSearch) return "Searching…";
+    if (fr.searchError) return "Fix the invalid regular expression";
+    if (fr.matchCount === 0) return "No matches";
+    return "Only one match";
+  });
+
+  const replaceDisabledTooltip = $derived.by(() => {
+    if (!findText) return "Enter a search term";
+    if (fr.searching && !hasResolvedSearch) return "Searching…";
+    if (fr.searchError) return "Fix the invalid regular expression";
+    if (fr.matchCount === 0) return "No matches to replace";
+    return "Enter replacement text";
+  });
+
+  const replaceAllDisabledTooltip = $derived.by(() => {
+    if (!findText) return "Enter a search term";
+    if (fr.searching && !hasResolvedSearch) return "Searching…";
+    if (fr.searchError) return "Fix the invalid regular expression";
+    if (fr.matchCount === 0) return "No matches to replace";
+    if (!replaceText) return "Enter replacement text";
+    return "Only one match; use Replace";
+  });
 
   let findInputRef: HTMLTextAreaElement | null = $state(null);
   let replaceTextareaRef: HTMLTextAreaElement | null = $state(null);
@@ -287,19 +313,20 @@
     <div class="flex flex-col gap-3 w-full h-full">
       <!-- Find Row -->
       <div class="flex items-start gap-1.5">
-        <Button
+        <TooltipButton
           variant="ghost"
           size="icon-xs"
           class="shrink-0 self-center"
           onclick={toggleReplaceMode}
-          title="Toggle Replace"
+          aria-label="Toggle replace"
+          tooltip="Toggle replace"
         >
           {#if fr.replaceMode}
             <ChevronDown class="h-4 w-4" />
           {:else}
             <ChevronRight class="h-4 w-4" />
           {/if}
-        </Button>
+        </TooltipButton>
         <div class="relative flex">
           <textarea
             bind:this={findInputRef}
@@ -332,36 +359,39 @@
           {@render resizeGrip()}
         </div>
         <div class="flex items-center gap-0.5 self-stretch border-l pl-1.5">
-          <Button
+          <TooltipButton
             variant="ghost"
             size="icon-xs"
             aria-pressed={fr.caseSensitive}
             data-testid="find-opt-case"
-            title="Match Case"
+            aria-label="Match case"
+            tooltip="Match case"
             onclick={() => { fr.caseSensitive = !fr.caseSensitive; }}
           >
             <MaterialSymbolsMatchCaseRounded class="size-[1.2rem]" />
-          </Button>
-          <Button
+          </TooltipButton>
+          <TooltipButton
             variant="ghost"
             size="icon-xs"
             aria-pressed={fr.wholeWord}
             data-testid="find-opt-word"
-            title="Match Whole Word"
+            aria-label="Match whole word"
+            tooltip="Match whole word"
             onclick={() => { fr.wholeWord = !fr.wholeWord; }}
           >
             <MaterialSymbolsMatchWordRounded class="size-[1.2rem]" />
-          </Button>
-          <Button
+          </TooltipButton>
+          <TooltipButton
             variant="ghost"
             size="icon-xs"
             aria-pressed={fr.useRegex}
             data-testid="find-opt-regex"
-            title="Use Regular Expression"
+            aria-label="Use regular expression"
+            tooltip="Use regular expression"
             onclick={() => { fr.useRegex = !fr.useRegex; }}
           >
             <CodiconRegex class="size-[1.1rem]" />
-          </Button>
+          </TooltipButton>
           <span
             data-testid="find-match-count"
             class="text-sm pointer-events-none inline-flex shrink-0 items-center justify-center whitespace-nowrap px-1 min-w-[4.5rem] {fr.searchError ? 'text-destructive' : 'text-foreground'}"
@@ -378,34 +408,39 @@
               No results
             {/if}
           </span>
-          <Button
+          <TooltipButton
             variant="ghost"
             size="icon-xs"
             onclick={findPreviousNow}
             data-testid="find-prev"
-            title="Previous match ({formatForDisplay('Shift+Enter')})"
+            aria-label="Previous match"
+            tooltip={formatShortcutTooltip("Previous match", "find-previous", platformState.osType)}
+            disabledTooltip={navigationDisabledTooltip}
             disabled={!canNavigate}
           >
             <ArrowUp class="size-4" />
-          </Button>
-          <Button
+          </TooltipButton>
+          <TooltipButton
             variant="ghost"
             size="icon-xs"
             onclick={findNextNow}
             data-testid="find-next"
-            title="Next match ({formatForDisplay('Enter')})"
+            aria-label="Next match"
+            tooltip={formatShortcutTooltip("Next match", "find-next", platformState.osType)}
+            disabledTooltip={navigationDisabledTooltip}
             disabled={!canNavigate}
           >
             <ArrowDown class="size-4" />
-          </Button>
-          <Button
+          </TooltipButton>
+          <TooltipButton
             variant="ghost"
             size="icon-xs"
             onclick={close}
-            title="Close ({formatForDisplay('Escape')})"
+            aria-label="Close find and replace"
+            tooltip={formatShortcutTooltip("Close", "find-replace-close", platformState.osType)}
           >
             <X class="size-4" />
-          </Button>
+          </TooltipButton>
         </div>
       </div>
 
@@ -439,26 +474,30 @@
             {@render resizeGrip()}
           </div>
           <div class="flex items-center gap-0.5 self-stretch border-l pl-1.5">
-            <Button
+            <TooltipButton
               variant="ghost"
               size="icon-xs"
               onclick={replaceNextNow}
               data-testid="find-replace-one"
-              title="Replace currently selected match"
+              aria-label="Replace current match"
+              tooltip="Replace current match"
+              disabledTooltip={replaceDisabledTooltip}
               disabled={!canReplace}
             >
               <CodIconReplace class="size-4" />
-            </Button>
-            <Button
+            </TooltipButton>
+            <TooltipButton
               variant="ghost"
               size="icon-xs"
               onclick={replaceAllNow}
               data-testid="find-replace-all"
-              title="Replace All matches"
+              aria-label="Replace all matches"
+              tooltip="Replace all matches"
+              disabledTooltip={replaceAllDisabledTooltip}
               disabled={!canReplaceAll}
             >
               <CodIconReplaceAll class="size-4" />
-            </Button>
+            </TooltipButton>
           </div>
         </div>
       {/if}

@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { Button } from "$lib/components/ui/button/index.js";
+    import { TooltipButton } from "$lib/components/ui/tooltip/index.js";
     import Sun from "~icons/lucide/sun";
     import Moon from "~icons/lucide/moon";
     import { applyTheme, getThemeFromLocalStorage } from "$lib/state/appSettings.svelte";
@@ -12,12 +12,12 @@
     }
 </script>
 
-<Button
+<TooltipButton
     variant="ghost"
     size="icon"
     data-testid="theme-toggle"
     aria-label="Toggle theme"
-    title={isDark ? "Light Mode" : "Dark Mode"}
+    tooltip={isDark ? "Use light theme" : "Use dark theme"}
     onclick={toggleTheme}
 >
     {#if isDark}
@@ -25,4 +25,4 @@
     {:else}
         <Moon class="size-4 transition-all" />
     {/if}
-</Button>
+</TooltipButton>

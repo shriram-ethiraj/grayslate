@@ -3,6 +3,7 @@ import { indentLess, indentMore, isolateHistory, redo } from "@codemirror/comman
 import { indentUnit } from "@codemirror/language";
 import { EditorView, gutters, keymap } from "@codemirror/view";
 import { basicSetup } from "codemirror";
+import { codeMirrorTooltips } from "$lib/editor/extensions/codeMirrorTooltips";
 import { search } from "@codemirror/search";
 import { scrollPastEnd } from "@codemirror/view";
 import { createTheme } from "$lib/hooks/create-theme";
@@ -226,6 +227,10 @@ export function ensureManagedEditorState(
     language: string,
 ): EditorState {
     if (session.state) {
+        setManagedEditorTheme(
+            session,
+            document.documentElement.classList.contains("dark"),
+        );
         return session.state;
     }
 
@@ -250,6 +255,7 @@ export function ensureManagedEditorState(
             createSearchKeymap(),
             gutters(),
             basicSetup,
+            codeMirrorTooltips,
             search({}),
             scrollPastEnd(),
             session.themeCompartment.of(initialThemeExt),
@@ -273,6 +279,28 @@ export function ensureManagedEditorState(
 
     syncBindings(session, session.state);
     return session.state;
+}
+
+export function setManagedEditorTheme(
+    session: ManagedEditorSession,
+    isDark: boolean,
+) {
+    if (!session.themeCompartment) {
+        return;
+    }
+
+    const effect = session.themeCompartment.reconfigure(
+        createTheme(isDark ? andromedaConfig : materialLightConfig),
+    );
+
+    if (session.view) {
+        session.view.dispatch({ effects: effect });
+        return;
+    }
+
+    if (session.state) {
+        session.state = session.state.update({ effects: effect }).state;
+    }
 }
 
 export function setManagedEditorLanguage(

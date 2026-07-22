@@ -1,8 +1,5 @@
 <script lang="ts">
   import { EditorView } from "codemirror";
-  import { createTheme } from "$lib/hooks/create-theme";
-  import { andromedaConfig } from "$lib/themes/andromeda";
-  import { materialLightConfig } from "$lib/themes/material-light";
   import EditorContextMenu from "$lib/editor/components/EditorContextMenu.svelte";
   import FindReplace from "$lib/editor/components/FindReplace.svelte";
   import { editorState } from "$lib/state/editor.svelte";
@@ -16,6 +13,7 @@
     setManagedEditorIndent,
     ensureManagedEditorState,
     setManagedEditorLanguage,
+    setManagedEditorTheme,
     setManagedEditorWordWrap,
     DEFAULT_INDENT_CONFIG,
     type ManagedEditorSession,
@@ -200,14 +198,7 @@
     // there is no need to re-check mutation.attributeName inside the callback.
     observer = new MutationObserver(() => {
       const isDarkNow = document.documentElement.classList.contains("dark");
-      const editorSession = session;
-      if (!editorSession.themeCompartment) return;
-      const newTheme = createTheme(
-        isDarkNow ? andromedaConfig : materialLightConfig,
-      );
-      cmView.dispatch({
-        effects: editorSession.themeCompartment.reconfigure(newTheme),
-      });
+      setManagedEditorTheme(session, isDarkNow);
     });
 
     observer.observe(document.documentElement, {
