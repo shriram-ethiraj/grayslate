@@ -11,6 +11,7 @@ import {
   typeText,
   waitForEditorText,
 } from "../helpers/app.js";
+import { waitForClipboardText } from "../helpers/clipboard.js";
 
 const FIND_TEXT = "alpha\nbeta alpha\nALPHA\nalphabet";
 
@@ -109,5 +110,12 @@ describe("Act 4 — core editor editing", () => {
     }
     await waitForEditorText((text) => text === "undo-base-change");
     expect(await readEditorText()).toBe("undo-base-change");
+  });
+
+  it("copies the complete text document through the native clipboard", async () => {
+    const text = "first line\nsecond line with commas, quotes, and symbols: []{}";
+    await replaceEditorText(text);
+    await clickTestId("action-copy");
+    await waitForClipboardText(text);
   });
 });

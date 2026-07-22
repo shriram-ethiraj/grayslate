@@ -12,14 +12,15 @@ import {
   exitCsvTable,
   focusEditor,
   openAuthorizedPath,
-  openExternalFixture,
   pressMod,
+  provisionExternalText,
   readEditorText,
   waitForEditorText,
   waitForFile,
   writeLargeCsv,
 } from "../helpers/app.js";
 import { sandboxRoot } from "../helpers/sandbox.js";
+import { waitForClipboardText } from "../helpers/clipboard.js";
 
 async function waitForCsvInfo(fragment: string): Promise<void> {
   const info = await $("[data-testid='status-csv-info']");
@@ -30,7 +31,7 @@ async function waitForCsvInfo(fragment: string): Promise<void> {
   });
 }
 
-async function editCsvCell(row: number, col: number, value: string): Promise<void> {
+async function openCsvCellEditor(row: number, col: number): Promise<void> {
   await browser.execute((targetRow, targetCol) => {
     const cell = document.querySelector<HTMLElement>(
       `[data-row='${targetRow}'][data-col='${targetCol}']`,
@@ -45,6 +46,19 @@ async function editCsvCell(row: number, col: number, value: string): Promise<voi
   }, row, col);
   const input = await $(".csv-edit-input");
   await input.waitForDisplayed();
+}
+
+async function setActiveCsvEditValue(value: string): Promise<void> {
+  await browser.execute((nextValue) => {
+    const activeInput = document.querySelector<HTMLInputElement>(".csv-edit-input");
+    if (!activeInput) throw new Error("CSV edit input disappeared before the value could be applied.");
+    activeInput.value = nextValue;
+    activeInput.dispatchEvent(new Event("input", { bubbles: true }));
+  }, value);
+}
+
+async function editCsvCell(row: number, col: number, value: string): Promise<void> {
+  await openCsvCellEditor(row, col);
   await browser.executeAsync((nextValue, done) => {
     const activeInput = document.querySelector<HTMLInputElement>(".csv-edit-input");
     if (!activeInput) {
@@ -91,7 +105,11 @@ describe("Act 10 — CSV table lifecycle", () => {
   let csvPath = "";
 
   it("enters table view and reports rows, columns, and delimiter", async () => {
-    csvPath = await openExternalFixture("sample.csv");
+    const fixtureText = fs
+      .readFileSync(path.resolve(process.cwd(), "e2e", "fixtures", "sample.csv"), "utf8")
+      .replace(/\r\n?/g, "\n");
+    csvPath = provisionExternalText("sample.csv", fixtureText);
+    await openAuthorizedPath(csvPath);
     await enterCsvTable();
     await waitForCsvInfo("3 rows");
     const info = await $("[data-testid='status-csv-info']");
@@ -105,14 +123,15 @@ describe("Act 10 — CSV table lifecycle", () => {
     expect(tableFamily).toContain("Commit Mono");
   });
 
-  it("explains unavailable toolbar actions in table mode", async () => {
+  it("copies the current CSV while explaining unavailable table actions", async () => {
     const transformations = await $("[data-testid='action-transformations']");
     expect(await transformations.getAttribute("aria-disabled")).toBe("true");
     await expectTooltip("action-transformations", "Not available in CSV table mode");
 
     const copy = await $("[data-testid='action-copy']");
-    expect(await copy.getAttribute("aria-disabled")).toBe("true");
-    await expectTooltip("action-copy", "Not available in CSV table mode");
+    expect(await copy.getAttribute("aria-disabled")).not.toBe("true");
+    await copy.click();
+    await waitForClipboardText(fs.readFileSync(csvPath, "utf8"));
 
     await transformations.click();
     await expect(await $("[data-testid='transformations-palette']")).not.toBeDisplayed();
@@ -120,6 +139,28 @@ describe("Act 10 — CSV table lifecycle", () => {
     const save = await $("[data-testid='action-save']");
     expect(await save.getAttribute("aria-disabled")).toBe("true");
     await expectTooltip("action-save", "No changes to save");
+  });
+
+  it("commits an active cell edit before copying the complete CSV", async () => {
+    const nextName = 'Alice, "quoted"';
+    await openCsvCellEditor(0, 1);
+    await setActiveCsvEditValue(nextName);
+    await pressMod("c");
+
+    await browser.waitUntil(async () => (await csvCellText(0, 1)) === nextName, {
+      timeoutMsg: "Copy did not commit the active CSV cell edit.",
+    });
+    await waitForClipboardText(
+      'id,name,city\n1,"Alice, ""quoted""",Paris\n2,Bob,London\n3,Carol,Berlin',
+    );
+
+    await (await csvCell(0, 1)).click();
+    await pressMod("z");
+    await browser.waitUntil(async () => (await csvCellText(0, 1)) === "Alice");
+
+    await exitCsvTable();
+    await waitForEditorText((text) => text.includes("1,Alice,Paris"));
+    await enterCsvTable();
   });
 
   it("navigates, edits, clears, and undo-redoes cells", async () => {

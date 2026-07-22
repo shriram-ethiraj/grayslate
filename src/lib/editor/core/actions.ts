@@ -2,6 +2,7 @@ import type { EditorView } from "codemirror";
 import { undo, redo, selectAll } from "@codemirror/commands";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { toast } from "$lib/components/ui/sonner";
+import { copyEditorRangeToClipboard } from "$lib/clipboard";
 import { findNext, findPrevious, replaceNext, replaceAll, SearchQuery, setSearchQuery, getSearchQuery } from "@codemirror/search";
 import { editorState } from "$lib/state/editor.svelte";
 import { invoke } from "$lib/ipc";
@@ -96,29 +97,12 @@ export async function editorCopy(view: EditorView | undefined): Promise<boolean>
     if (!view) return false;
     const selection = view.state.selection.main;
     if (selection.empty) return false;
-    const text = view.state.sliceDoc(selection.from, selection.to);
-    try {
-        await writeText(text);
-        view.focus();
-        return true;
-    } catch {
-        toast.error("Failed to copy text");
-        return false;
-    }
+    return copyEditorRangeToClipboard(view, selection.from, selection.to);
 }
 
 export async function editorCopyAll(view: EditorView | undefined): Promise<boolean> {
     if (!view) return false;
-    const text = getEditorAllText(view);
-    if (!text) return false;
-    try {
-        await writeText(text);
-        view.focus();
-        return true;
-    } catch {
-        toast.error("Failed to copy text");
-        return false;
-    }
+    return copyEditorRangeToClipboard(view, 0, view.state.doc.length);
 }
 
 export async function editorCopySelectionOrAll(view: EditorView | undefined): Promise<boolean> {

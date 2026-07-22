@@ -1,4 +1,5 @@
 pub mod autosave;
+pub mod clipboard;
 pub mod csv;
 pub mod detection;
 #[cfg(feature = "e2e")]

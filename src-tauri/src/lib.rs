@@ -69,6 +69,7 @@ pub fn run() {
             app.manage(commands::findstats::EditorFindState::default());
             app.manage(commands::markdown::MarkdownPreviewState::default());
             app.manage(commands::csv::CsvSessionRegistry::default());
+            app.manage(commands::clipboard::ClipboardCopyRegistry::default());
             app.manage(autosave::AutosaveRegistry::default());
             app.manage(save_coordinator::SaveCoordinator::default());
             app.manage(commands::update::UpdateOperationState::default());
@@ -142,7 +143,9 @@ pub fn run() {
             commands::csv::csv_undo,
             commands::csv::csv_redo,
             commands::csv::csv_flush_text,
+            commands::csv::csv_copy_to_clipboard,
             commands::csv::csv_cancel,
+            commands::clipboard::clipboard_write_chunk,
             commands::search::cancel_sidebar_search,
             commands::search::search_sidebar_files,
             commands::transform::cancel_transformation,
