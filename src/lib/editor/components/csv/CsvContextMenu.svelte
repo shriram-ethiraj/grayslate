@@ -6,6 +6,7 @@
   import ArrowUp from "~icons/lucide/arrow-up";
   import ArrowDown from "~icons/lucide/arrow-down";
   import Trash2 from "~icons/lucide/trash-2";
+  import CopyPlus from "~icons/lucide/copy-plus";
   import type { useCsvEditorState } from "./useCsvEditorState.svelte";
   import { registerHotkey } from "$lib/hotkeys";
   import { formatForDisplay } from "@tanstack/hotkeys";
@@ -146,6 +147,16 @@
         >
       </button>
     {:else if isRowSelection}
+      <button class={itemEnabled} role="menuitem" onclick={() => {
+        close();
+        editorState.duplicateSelectedRows();
+      }}>
+        <CopyPlus class="mr-2 h-4 w-4 shrink-0" />
+        <span>Duplicate Row</span>
+        <span class="ml-auto pl-4 text-xs text-muted-foreground"
+          >{formatForDisplay("Mod+Alt+C")}</span
+        >
+      </button>
       <button class={itemEnabled} role="menuitem" onclick={handleInsertColumnLeft}>
         <MaterialSymbolsAddColumnRightOutlineRounded class="mr-2 h-4 w-4 shrink-0" />
         <span>Insert Column Left</span>
