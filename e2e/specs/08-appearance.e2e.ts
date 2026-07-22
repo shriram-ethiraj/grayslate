@@ -64,10 +64,10 @@ async function typographySnapshot(): Promise<{
     const title = uiElements[1];
     const status = uiElements[3];
     const activeFile = document.querySelector<HTMLElement>(
-      "[data-sidebar-active='true'] [data-slot='item-title']",
+      "[data-sidebar-active='true'] [data-testid='sidebar-file-title']",
     );
     const inactiveFile = document.querySelector<HTMLElement>(
-      "[data-card-path]:not([data-sidebar-active]) [data-slot='item-title']",
+      "[data-card-path]:not([data-sidebar-active]) [data-testid='sidebar-file-title']",
     );
     const content = document.querySelector<HTMLElement>(
       "[data-testid='editor'] .cm-content",

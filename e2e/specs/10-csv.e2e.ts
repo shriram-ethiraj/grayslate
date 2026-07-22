@@ -13,6 +13,7 @@ import {
   focusEditor,
   openAuthorizedPath,
   openExternalFixture,
+  openExternalText,
   pressMod,
   readEditorText,
   waitForEditorText,
@@ -68,6 +69,33 @@ async function csvCellText(row: number, col: number): Promise<string> {
   row, col);
 }
 
+async function editorBackground(): Promise<string> {
+  return browser.execute(() => {
+    const editor = document.querySelector<HTMLElement>("[data-testid='editor'] .cm-editor");
+    if (!editor) throw new Error("CodeMirror is not mounted.");
+    return getComputedStyle(editor).backgroundColor;
+  });
+}
+
+async function expectTooltip(testId: string, expectedText: string): Promise<void> {
+  const trigger = await $(`[data-testid='${testId}']`);
+  await trigger.moveTo();
+  await browser.execute((id) => {
+    const element = document.querySelector<HTMLElement>(`[data-testid='${id}']`);
+    if (!element) throw new Error(`Tooltip trigger ${id} is missing.`);
+    element.dispatchEvent(new PointerEvent("pointerenter", {
+      bubbles: true,
+      pointerType: "mouse",
+    }));
+  }, testId);
+  await browser.waitUntil(async () => browser.execute((text) =>
+    Array.from(document.querySelectorAll<HTMLElement>("[role='tooltip']")).some((tooltip) =>
+      tooltip.getClientRects().length > 0 && tooltip.textContent?.trim() === text,
+    ), expectedText), {
+    timeoutMsg: `Tooltip for ${testId} did not show '${expectedText}'.`,
+  });
+}
+
 describe("Act 10 — CSV table lifecycle", () => {
   let csvPath = "";
 
@@ -84,6 +112,23 @@ describe("Act 10 — CSV table lifecycle", () => {
       return getComputedStyle(table).fontFamily;
     });
     expect(tableFamily).toContain("Commit Mono");
+  });
+
+  it("explains unavailable toolbar actions in table mode", async () => {
+    const transformations = await $("[data-testid='action-transformations']");
+    expect(await transformations.getAttribute("aria-disabled")).toBe("true");
+    await expectTooltip("action-transformations", "Not available in CSV table mode");
+
+    const copy = await $("[data-testid='action-copy']");
+    expect(await copy.getAttribute("aria-disabled")).toBe("true");
+    await expectTooltip("action-copy", "Not available in CSV table mode");
+
+    await transformations.click();
+    await expect(await $("[data-testid='transformations-palette']")).not.toBeDisplayed();
+
+    const save = await $("[data-testid='action-save']");
+    expect(await save.getAttribute("aria-disabled")).toBe("true");
+    await expectTooltip("action-save", "No changes to save");
   });
 
   it("navigates, edits, clears, and undo-redoes cells", async () => {
@@ -124,6 +169,37 @@ describe("Act 10 — CSV table lifecycle", () => {
     await pressMod("s");
     await waitForFile(csvPath, (content) => content.includes("Alice E2E"));
     expect(fs.readFileSync(csvPath, "utf8")).toContain("Alice E2E");
+  });
+
+  it("remounts text mode with a theme changed while table mode is active", async () => {
+    const root = await $("html");
+    const rootIsDark = async () =>
+      (await root.getAttribute("class") ?? "").split(/\s+/).includes("dark");
+
+    if (await rootIsDark()) {
+      await clickTestId("theme-toggle");
+      await browser.waitUntil(async () => !(await rootIsDark()));
+    }
+
+    await openExternalText(
+      "theme-remount.csv",
+      "id,name,city\n1,Alice,Paris\n2,Bob,London\n",
+    );
+    const originalText = await readEditorText();
+    const lightBackground = await editorBackground();
+    expect(lightBackground).toBe("rgb(255, 255, 255)");
+
+    await enterCsvTable();
+    await clickTestId("theme-toggle");
+    await browser.waitUntil(rootIsDark);
+    await exitCsvTable();
+    await waitForEditorText((text) => text.includes("Alice"));
+
+    const remountedText = await readEditorText();
+    const darkBackground = await editorBackground();
+    expect(darkBackground).toBe("rgb(27, 30, 38)");
+    expect(darkBackground).not.toBe(lightBackground);
+    expect(remountedText.trimEnd()).toBe(originalText.trimEnd());
   });
 
   it("keeps large CSV rendering bounded and returns to text in one undo step", async () => {

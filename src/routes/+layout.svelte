@@ -5,7 +5,8 @@
 	import ThemeToggle from "$lib/components/theme-toggle.svelte";
 	import Titlebar from "$lib/components/Titlebar.svelte";
 	import * as Sidebar from "$lib/components/ui/sidebar/index.js";
-	import { Button } from "$lib/components/ui/button/index.js";
+	import * as Tooltip from "$lib/components/ui/tooltip/index.js";
+	import { TooltipButton } from "$lib/components/ui/tooltip/index.js";
 	import {
 		editorState,
 		openFindReplacePanel,
@@ -22,6 +23,7 @@
 	import EditorActions from "$lib/editor/components/EditorActions.svelte";
 	import { registerHotkeys } from "$lib/hotkeys";
 	import { initPlatformState, platformState } from "$lib/state/platform.svelte";
+	import { formatShortcutTooltip } from "$lib/shortcuts";
 	import { loadAllSettings, applyTheme, hydrateAppSettingsState } from "$lib/state/appSettings.svelte";
 	import LucideFilePlusCorner from '~icons/lucide/file-plus-corner';
 	import "./layout.css";
@@ -181,6 +183,7 @@
 	});
 </script>
 
+<Tooltip.Provider delayDuration={500} skipDelayDuration={300} disableHoverableContent>
 <div class="flex h-screen w-full flex-col overflow-hidden">
 	<Titlebar />
 	<!-- Sidebar.Provider supplies open/close state & Ctrl+B shortcut.
@@ -227,18 +230,19 @@
 						>
 							<div class="relative z-10 flex items-center gap-1">
 								<Sidebar.Trigger data-testid="sidebar-toggle" class="-ml-1" />
-								<Button
+								<TooltipButton
 									variant="ghost"
 									size="icon"
 									aria-label="New slate"
-									title={isNewFileDisabled ? "Already on a new slate" : "New slate"}
+									tooltip={formatShortcutTooltip("New slate", "new-slate", platformState.osType)}
+									disabledTooltip="Already on a blank slate"
 									disabled={isNewFileDisabled}
 									onclick={() => {
 										void handleNewFile();
 									}}
 								>
 									<LucideFilePlusCorner class="size-4 transition-all" />
-								</Button>
+								</TooltipButton>
 							</div>
 							<div class="relative z-10 flex items-center gap-2">
 								<EditorActions />
@@ -257,3 +261,4 @@
 	</div>
 </div>
 <Toaster position="top-right" offset={{ top: "96px", right: "24px" }} mobileOffset={{ top: "96px", right: "16px", left: "16px" }} />
+</Tooltip.Provider>

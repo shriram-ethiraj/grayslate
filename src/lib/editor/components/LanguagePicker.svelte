@@ -8,6 +8,7 @@
         syncEditorPopupOpenState,
     } from "$lib/state/editor.svelte";
     import Check from "~icons/lucide/check";
+    import { AppTooltip } from "$lib/components/ui/tooltip/index.js";
 
     let {
         language = $bindable("auto"),
@@ -65,20 +66,24 @@
 </script>
 
 <!-- Status bar trigger button -->
-<button
-    onclick={openEditorLanguagePicker}
-    class="flex items-center hover:bg-muted/50 hover:text-foreground h-full px-2 transition-colors cursor-pointer rounded-none bg-transparent text-xs gap-1.5"
-    title="Select Language Mode"
-    data-testid="language-mode"
-    data-language-mode={language}
-    data-detected-language={detectedLanguage}
->
-    {#if selectedLabel.icon}
-        {@const Icon = selectedLabel.icon}
-        <Icon class="w-3.5 h-3.5 shrink-0 self-center" />
-    {/if}
-    {selectedLabel.label}
-</button>
+<AppTooltip content="Select language mode">
+    {#snippet trigger({ props })}
+        <button
+            {...props}
+            onclick={openEditorLanguagePicker}
+            class="flex items-center hover:bg-muted/50 hover:text-foreground h-full px-2 transition-colors cursor-pointer rounded-none bg-transparent text-xs gap-1.5"
+            data-testid="language-mode"
+            data-language-mode={language}
+            data-detected-language={detectedLanguage}
+        >
+            {#if selectedLabel.icon}
+                {@const Icon = selectedLabel.icon}
+                <Icon class="w-3.5 h-3.5 shrink-0 self-center" />
+            {/if}
+            {selectedLabel.label}
+        </button>
+    {/snippet}
+</AppTooltip>
 
 <!-- Language picker dialog -->
 <Dialog.Root bind:open>

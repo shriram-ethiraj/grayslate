@@ -16,6 +16,7 @@ import {
   sidebarCard,
   typeText,
   waitForDetectedLanguage,
+  waitForEditorReady,
   waitForFile,
 } from "../helpers/app.js";
 import { externalRoot } from "../helpers/app.js";
@@ -106,9 +107,9 @@ describe("Act 2 — external / local files", () => {
     await dialog.waitForDisplayed();
     await clickTestId("unsaved-discard");
     await dialog.waitForDisplayed({ reverse: true });
-    const title = await $("[data-testid='title-file-name']");
-    await browser.waitUntil(async () => (await title.getAttribute("title")) === "New Slate", {
-      timeoutMsg: "Discarding changes did not finish opening a new slate.",
+    await waitForEditorReady({
+      documentPath: "New Slate",
+      documentLength: 0,
     });
   });
 
