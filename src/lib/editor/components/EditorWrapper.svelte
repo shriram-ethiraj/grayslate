@@ -211,11 +211,14 @@
   );
   let activeDocument = $state.raw<ActiveDocument>(createUntitledDocument());
   let activeFilePath = $derived(getDocumentKey(activeDocument));
+  let csvTableDirty = $state(false);
   // Managed slates are persisted by the backend autosave flow, including
   // untitled slates that are flushed before a document switch. "Dirty" is
   // therefore reserved for local files that need an explicit save.
   let isDirty = $derived(
-    activeDocument.source === "local" && value !== activeDocument.lastSavedValue,
+    activeDocument.source === "local" &&
+      (value !== activeDocument.lastSavedValue ||
+        (activeLanguage === "csv" && editorState.csv.showTable && csvTableDirty)),
   );
 
   // Sync activeLanguage to global editorState
@@ -301,7 +304,10 @@
     const currentValue = value;
     if (currentValue !== previousAutosaveValue) {
       previousAutosaveValue = currentValue;
-      if (activeDocument.source === "slates") {
+      if (
+        activeDocument.source === "slates" &&
+        !(activeLanguage === "csv" && editorState.csv.showTable)
+      ) {
         autosaveGeneration += 1;
         invoke("autosave_notify_changed", { generation: autosaveGeneration }).catch(() => {});
       }
@@ -332,12 +338,7 @@
         const unlistenRequestContent = await listen<{ requestId: number }>(
           "autosave://request-content",
           async (event) => {
-            const content = editorSession.state?.doc.toString() ?? value;
-            invoke("autosave_submit_content", {
-              requestId: event.payload.requestId,
-              generation: autosaveGeneration,
-              content,
-            }).catch((err) => console.error("Autosave submit failed:", err));
+            await submitCurrentContentForAutosave(event.payload.requestId);
           },
         );
 
@@ -393,12 +394,7 @@
         const unlistenFlushClose = await listen<{ requestId: number }>(
           "autosave://flush-before-close",
           async (event) => {
-            const content = editorSession.state?.doc.toString() ?? value;
-            invoke("autosave_submit_content", {
-              requestId: event.payload.requestId,
-              generation: autosaveGeneration,
-              content,
-            }).catch(() => {});
+            await submitCurrentContentForAutosave(event.payload.requestId);
           },
         );
 
@@ -422,9 +418,32 @@
   let csvTableView = $state<
     | {
         flushToTextHistory: () => Promise<CsvTableFlushResult>;
+        markSaved: (version: number, historyStateId: number) => void;
       }
     | undefined
   >(undefined);
+
+  async function getContentForAutosave(): Promise<string> {
+    if (activeLanguage === "csv" && editorState.csv.showTable && csvTableView) {
+      return (await csvTableView.flushToTextHistory()).text;
+    }
+
+    return editorSession.state?.doc.toString() ?? value;
+  }
+
+  async function submitCurrentContentForAutosave(requestId: number): Promise<void> {
+    try {
+      const content = await getContentForAutosave();
+      await invoke("autosave_submit_content", {
+        requestId,
+        generation: autosaveGeneration,
+        content,
+      });
+    } catch (error) {
+      console.error("Autosave submit failed:", error);
+    }
+  }
+
   let csvMirrorQueue = $state.raw<CsvMirrorTextUpdate[]>([]);
   let csvMirrorDrainHandle = $state.raw<
     | { kind: "idle"; id: number }
@@ -432,6 +451,9 @@
     | undefined
   >(undefined);
   let fileOpenRequestVersion = 0;
+  let csvCheckpointBeingSaved:
+    | Pick<CsvTableFlushResult, "version" | "historyStateId">
+    | undefined;
 
   function beginFileOpenRequest(): number {
     fileOpenRequestVersion += 1;
@@ -776,6 +798,13 @@
     scheduleCsvMirrorDrain();
   }
 
+  function handleCsvMutationApplied(): void {
+    if (activeDocument.source !== "slates") return;
+
+    autosaveGeneration += 1;
+    invoke("autosave_notify_changed", { generation: autosaveGeneration }).catch(() => {});
+  }
+
   function clearCsvMirrorState(): void {
     cancelCsvMirrorDrain();
     csvMirrorQueue = [];
@@ -1047,6 +1076,7 @@
   }
 
   async function getContentForSave(): Promise<string> {
+    csvCheckpointBeingSaved = undefined;
     if (activeLanguage === "csv" && editorState.csv.showTable && csvTableView) {
       if (csvInfo.liveMirrorEnabled) {
         await drainCsvMirrorQueueNow();
@@ -1055,13 +1085,24 @@
         csvMirrorQueue = [];
       }
 
-      const { text } = await csvTableView.flushToTextHistory();
+      const { text, version, historyStateId } = await csvTableView.flushToTextHistory();
+      csvCheckpointBeingSaved = { version, historyStateId };
       return text;
     }
 
     // Read directly from CM state for freshness — `value` may lag
     // behind by up to VALUE_SYNC_DEBOUNCE_MS for large documents.
     return editorSession.state?.doc.toString() ?? value;
+  }
+
+  function markCsvTableSaved(): void {
+    if (csvCheckpointBeingSaved) {
+      csvTableView?.markSaved(
+        csvCheckpointBeingSaved.version,
+        csvCheckpointBeingSaved.historyStateId,
+      );
+      csvCheckpointBeingSaved = undefined;
+    }
   }
 
   type SaveActionKind = "save" | "save-as";
@@ -1208,6 +1249,7 @@
 
       if (activeDocument.kind === "saved") {
         if (content === activeDocument.lastSavedValue) {
+          markCsvTableSaved();
           return true;
         }
 
@@ -1219,6 +1261,7 @@
           source: activeDocument.source,
           writable: true,
         }, content, expectedDocumentKey);
+        markCsvTableSaved();
         editorView?.focus();
         return true;
       }
@@ -1304,6 +1347,7 @@
       }
 
       await writeDocument(selected, content, expectedDocumentKey);
+      markCsvTableSaved();
       return true;
     } catch (err: unknown) {
       const msg = typeof err === "string" ? err : "Failed to save file.";
@@ -1413,15 +1457,24 @@
       return;
     }
 
-    // Notify autosave backend of CSV mode changes
-    invoke("autosave_set_csv_mode", { active: showTable }).catch(() => {});
-
     if (showTable) {
-      editorState.csv.showTable = true;
+      try {
+        // Establish the backend ownership boundary before mounting the table.
+        // A slate close/switch after this point must flush CsvSession, not the
+        // preserved CodeMirror text that the table is about to supersede.
+        await invoke("autosave_set_csv_mode", { active: true });
+        csvTableDirty = false;
+        editorState.csv.showTable = true;
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : "Failed to open CSV table mode.",
+        );
+      }
       return;
     }
 
     if (activeLanguage !== "csv" || !csvTableView) {
+      await invoke("autosave_set_csv_mode", { active: false }).catch(() => {});
       editorState.csv.showTable = false;
       return;
     }
@@ -1464,6 +1517,10 @@
           addToHistory: useLiveMirror ? false : undefined,
         });
       }
+
+      // Keep CsvSession authoritative until both the Svelte value and the
+      // preserved CodeMirror session contain the final serialized table text.
+      await invoke("autosave_set_csv_mode", { active: false });
 
       completeEditorLoader("CSV text ready", "", 120, () => {
         editorState.csv.showTable = false;
@@ -1566,8 +1623,10 @@
             bind:this={csvTableView}
             bind:content={value}
             bind:tableInfo={csvInfo}
+            bind:dirty={csvTableDirty}
             onMirrorReset={handleCsvMirrorReset}
             onMirrorUpdate={handleCsvMirrorUpdate}
+            onMutationApplied={handleCsvMutationApplied}
           />
         </div>
       {:else}

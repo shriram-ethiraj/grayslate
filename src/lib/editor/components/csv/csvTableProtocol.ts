@@ -31,6 +31,7 @@ export type CsvMirrorTextUpdate = {
 export type CsvTableFlushResult = {
     text: string;
     version: number;
+    historyStateId: number;
 };
 
 export type CsvMutationRequest =

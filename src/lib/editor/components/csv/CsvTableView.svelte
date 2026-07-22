@@ -59,6 +59,7 @@
   };
 
   const VIEWPORT_PREFETCH_ROWS = 80;
+  const MAX_TABLE_HISTORY = 200;
   const DEFAULT_CSV_ROW_FONT_SIZE = 13;
   const DEFAULT_CSV_HEADER_FONT_SIZE = 12;
   const DEFAULT_CSV_INDEX_FONT_SIZE = 11;
@@ -114,8 +115,10 @@
       errors: 0,
       liveMirrorEnabled: false,
     }),
+    dirty = $bindable(false),
     onMirrorReset,
     onMirrorUpdate,
+    onMutationApplied,
   } = $props();
 
   let snapshot = $state.raw<CsvTableSnapshot>(EMPTY_SNAPSHOT);
@@ -125,6 +128,12 @@
 
   let lastSyncedContent = $state(content);
   let latestRowWindowToken = 0;
+  let pendingMutation: Promise<boolean> | undefined;
+  let nextHistoryStateId = 1;
+  let currentHistoryStateId = 0;
+  let savedHistoryStateId = 0;
+  let undoStateIds: number[] = [];
+  let redoStateIds: number[] = [];
 
   let tableContainerRef = $state<HTMLDivElement | undefined>(undefined);
   let contextMenu = $state<{
@@ -185,12 +194,101 @@
   }
 
   export async function flushToTextHistory(): Promise<CsvTableFlushResult> {
+    await pendingMutation;
     const text = await invokeText("csv_flush_text");
     const version = snapshot.version;
     snapshot = { ...snapshot, version };
     lastSyncedContent = text;
     content = text;
-    return { text, version };
+    return { text, version, historyStateId: currentHistoryStateId };
+  }
+
+  export function markSaved(version: number, historyStateId: number): void {
+    if (snapshot.version >= version) {
+      savedHistoryStateId = historyStateId;
+      dirty = currentHistoryStateId !== savedHistoryStateId;
+    }
+  }
+
+  function resetDirtyHistory(): void {
+    nextHistoryStateId = 1;
+    currentHistoryStateId = 0;
+    savedHistoryStateId = 0;
+    undoStateIds = [];
+    redoStateIds = [];
+    dirty = false;
+  }
+
+  function recordMutationApplied(): void {
+    undoStateIds.push(currentHistoryStateId);
+    if (undoStateIds.length > MAX_TABLE_HISTORY) undoStateIds.shift();
+    currentHistoryStateId = nextHistoryStateId++;
+    redoStateIds = [];
+    dirty = currentHistoryStateId !== savedHistoryStateId;
+  }
+
+  function recordHistoryApplied(command: "csv_undo" | "csv_redo"): void {
+    if (command === "csv_undo") {
+      const previousStateId = undoStateIds.pop();
+      if (previousStateId !== undefined) {
+        redoStateIds.push(currentHistoryStateId);
+        currentHistoryStateId = previousStateId;
+      }
+    } else {
+      const nextStateId = redoStateIds.pop();
+      if (nextStateId !== undefined) {
+        undoStateIds.push(currentHistoryStateId);
+        currentHistoryStateId = nextStateId;
+      }
+    }
+    dirty = currentHistoryStateId !== savedHistoryStateId;
+  }
+
+  function applyOptimisticMutation(mutation: CsvMutationRequest): void {
+    if (mutation.type === "edit-header") {
+      const headers = [...snapshot.headers];
+      headers[mutation.colIndex] = mutation.newValue;
+      snapshot = { ...snapshot, headers };
+      return;
+    }
+
+    if (mutation.type !== "edit-cell" && mutation.type !== "clear-cell") {
+      return;
+    }
+
+    const offset = mutation.rowIndex - rowWindow.start;
+    const currentRow = rowWindow.rows[offset];
+    if (!currentRow) return;
+
+    const rows = [...rowWindow.rows];
+    const row = [...currentRow];
+    row[mutation.colIndex] = mutation.type === "edit-cell" ? mutation.newValue : "";
+    rows[offset] = row;
+    rowWindow = { ...rowWindow, rows };
+  }
+
+  function runHistoryMutation(command: "csv_undo" | "csv_redo"): Promise<boolean> {
+    const wasDirty = dirty;
+    dirty = true;
+
+    const operation = invoke<CsvMutationResponse>(command).then(async (response) => {
+      const applied = await applyMutationResponse(response);
+      if (applied) {
+        recordHistoryApplied(command);
+      } else {
+        dirty = wasDirty;
+      }
+      return applied;
+    }).catch((error: unknown) => {
+      dirty = wasDirty;
+      throw error;
+    }).finally(() => {
+      if (pendingMutation === operation) {
+        pendingMutation = undefined;
+      }
+    });
+    pendingMutation = operation;
+    return operation;
   }
 
   function getVisibleRow(index: number): string[] | undefined {
@@ -246,6 +344,7 @@
     // Forward mirror text to EditorWrapper before updating snapshot,
     // so the mirror queue receives the update before viewport refresh.
     if (response.mirrorText != null && response.mirrorUserEvent) {
+      lastSyncedContent = response.mirrorText;
       const update: CsvMirrorTextUpdate = {
         text: response.mirrorText,
         userEvent: response.mirrorUserEvent,
@@ -255,6 +354,7 @@
     }
 
     snapshot = response.snapshot;
+    onMutationApplied?.(snapshot.version);
     // Do NOT clear rowWindow here — the stale rows stay visible while the
     // new viewport window is fetched via IPC, preventing a flash to empty.
     await refreshViewportRows(true);
@@ -276,19 +376,43 @@
       return invoke<string>("csv_get_cell", { rowIndex, colIndex });
     },
     async runMutation(mutation, userEvent) {
-      const response = await invoke<CsvMutationResponse>("csv_mutate", {
+      const previousSnapshot = snapshot;
+      const previousRowWindow = rowWindow;
+      const wasDirty = dirty;
+      applyOptimisticMutation(mutation);
+      dirty = true;
+
+      const operation = invoke<CsvMutationResponse>("csv_mutate", {
         mutation,
         userEvent,
+      }).then(async (response) => {
+        const applied = await applyMutationResponse(response);
+        if (applied) {
+          recordMutationApplied();
+        } else {
+          snapshot = previousSnapshot;
+          rowWindow = previousRowWindow;
+          dirty = wasDirty;
+        }
+        return applied;
+      }).catch((error: unknown) => {
+        snapshot = previousSnapshot;
+        rowWindow = previousRowWindow;
+        dirty = wasDirty;
+        throw error;
+      }).finally(() => {
+        if (pendingMutation === operation) {
+          pendingMutation = undefined;
+        }
       });
-      return applyMutationResponse(response);
+      pendingMutation = operation;
+      return operation;
     },
     async undo() {
-      const response = await invoke<CsvMutationResponse>("csv_undo");
-      return applyMutationResponse(response);
+      return runHistoryMutation("csv_undo");
     },
     async redo() {
-      const response = await invoke<CsvMutationResponse>("csv_redo");
-      return applyMutationResponse(response);
+      return runHistoryMutation("csv_redo");
     },
   };
 
@@ -326,6 +450,7 @@
 
       resetReplayState(text);
       snapshot = initSnapshot;
+      resetDirtyHistory();
       rowWindow = { ...EMPTY_ROW_WINDOW, version: snapshot.version };
       latestRowWindowToken += 1;
       await refreshViewportRows(true);

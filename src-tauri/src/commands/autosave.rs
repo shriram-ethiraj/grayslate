@@ -273,7 +273,7 @@ pub async fn autosave_flush_before_switch(
     let (save_content, save_generation) = if doc_info.csv_table_active {
         // Serialize directly from CsvSession
         match csv_registry.try_flush_for_autosave(&window_label) {
-            Some((version, text)) => (text, version),
+            Some((_version, text)) => (text, doc_info.generation),
             None => (content.clone(), generation),
         }
     } else {
@@ -457,10 +457,10 @@ async fn flush_before_close(
         return;
     }
 
-    if doc_info.csv_table_active {
+    if doc_info.csv_table_active && doc_info.path.is_some() {
         // CSV table mode owns the authoritative rows, so serialize straight
         // from the session instead of asking the frontend for text.
-        let Some((version, content)) = csv_registry.try_flush_for_autosave(&label) else {
+        let Some((_version, content)) = csv_registry.try_flush_for_autosave(&label) else {
             return;
         };
         let Some(path) = doc_info.path.as_ref() else {
@@ -519,7 +519,7 @@ async fn flush_before_close(
                     );
                 }
                 let _ = app.emit(RECENT_FILES_UPDATED_EVENT, "saved");
-                registry.complete_save(&label, version);
+                registry.complete_save(&label, doc_info.generation);
             }
             Ok(Err(error)) => eprintln!("Autosave close-flush: {}", error),
             Err(error) => eprintln!("Autosave close-flush task failed: {}", error),

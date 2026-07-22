@@ -216,7 +216,10 @@ impl AutosaveRegistry {
         let mut map = self.inner.lock().unwrap_or_else(|p| p.into_inner());
         let doc = map.get_mut(window_label)?;
 
-        if !matches!(doc.source, FileSource::Slates) || !doc.is_dirty() || doc.csv_table_active {
+        if !matches!(doc.source, FileSource::Slates)
+            || !doc.is_dirty()
+            || (doc.csv_table_active && doc.path.is_some())
+        {
             return None;
         }
 
@@ -270,7 +273,10 @@ impl AutosaveRegistry {
             let should_save = idle_ms >= IDLE_DEBOUNCE_MS || since_last_save_ms >= MAX_LATENCY_MS;
 
             if should_save {
-                if doc.csv_table_active {
+                // Named CSV slates can serialize directly from CsvSession.
+                // Untitled CSV slates still need the content-request path so
+                // the naming pipeline can create and authorize their file.
+                if doc.csv_table_active && doc.path.is_some() {
                     actions.push(SaveAction::CsvDirect {
                         window_label: label.clone(),
                         path: doc.path.clone(),
@@ -769,7 +775,7 @@ fn handle_csv_direct_save(
     let flush_result = csv_registry.try_flush_for_autosave(window_label);
 
     match flush_result {
-        Some((version, content)) => match autosave_write_to_disk(&path, &content) {
+        Some((_version, content)) => match autosave_write_to_disk(&path, &content) {
             Ok(()) => {
                 if let Err(error) = storage.record_file_update(&path, FileSource::Slates) {
                     eprintln!(
@@ -778,7 +784,10 @@ fn handle_csv_direct_save(
                     );
                 }
                 let _ = app_handle.emit(RECENT_FILES_UPDATED_EVENT, "saved");
-                registry.complete_save(window_label, version);
+                // AutosaveRegistry generations are frontend edit generations,
+                // while CsvSession versions are session-local mutation counters.
+                // They are deliberately separate domains.
+                registry.complete_save(window_label, generation);
             }
             Err(e) => {
                 eprintln!("{}", e);
@@ -1088,7 +1097,7 @@ mod tests {
     }
 
     #[test]
-    fn test_close_content_request_ignores_clean_local_and_csv_documents() {
+    fn test_close_content_request_routes_untitled_csv_through_frontend() {
         let registry = AutosaveRegistry::default();
         registry.register(
             "main",
@@ -1101,6 +1110,13 @@ mod tests {
         registry.notify_changed("main", 1);
         registry.set_csv_mode("main", true);
         assert_eq!(registry.begin_close_content_request("main"), None);
+
+        registry.register("main", None, FileSource::Slates, "csv".into());
+        registry.notify_changed("main", 1);
+        registry.set_csv_mode("main", true);
+        let request_id = registry.begin_close_content_request("main");
+        assert!(request_id.is_some());
+        assert!(registry.validate_request("main", request_id.unwrap()));
 
         registry.register(
             "main",
@@ -1366,6 +1382,27 @@ mod tests {
         assert!(
             matches!(&actions[0], SaveAction::CsvDirect { window_label, .. } if window_label == "main")
         );
+    }
+
+    #[test]
+    fn test_untitled_csv_mode_requests_content_for_naming() {
+        let registry = AutosaveRegistry::default();
+        registry.register("main", None, FileSource::Slates, "csv".into());
+        registry.set_csv_mode("main", true);
+        registry.notify_changed("main", 1);
+
+        {
+            let mut map = registry.inner.lock().unwrap();
+            let doc = map.get_mut("main").unwrap();
+            doc.last_notified_at = Some(Instant::now() - Duration::from_secs(5));
+        }
+
+        let actions = registry.check_and_trigger_saves();
+        assert_eq!(actions.len(), 1);
+        assert!(matches!(
+            &actions[0],
+            SaveAction::RequestContent { window_label, .. } if window_label == "main"
+        ));
     }
 
     #[test]

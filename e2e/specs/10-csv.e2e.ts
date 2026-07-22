@@ -15,11 +15,12 @@ import {
   openExternalFixture,
   pressMod,
   readEditorText,
+  replaceEditorText,
   waitForEditorText,
   waitForFile,
   writeLargeCsv,
 } from "../helpers/app.js";
-import { sandboxRoot } from "../helpers/sandbox.js";
+import { notesRoot, sandboxRoot } from "../helpers/sandbox.js";
 
 async function waitForCsvInfo(fragment: string): Promise<void> {
   const info = await $("[data-testid='status-csv-info']");
@@ -122,25 +123,48 @@ describe("Act 10 — CSV table lifecycle", () => {
     await expectTooltip("action-save", "No changes to save");
   });
 
+  it("shows an external cell edit immediately and saves without leaving table mode", async () => {
+    await editCsvCell(0, 1, "Alice E2E");
+    expect(await csvCellText(0, 1)).toBe("Alice E2E");
+
+    const save = await $("[data-testid='action-save']");
+    await browser.waitUntil(async () => (await save.getAttribute("aria-disabled")) === "false", {
+      timeoutMsg: "Save did not become enabled after the table edit.",
+    });
+    await (await $("[data-testid='title-dirty-indicator']")).waitForDisplayed();
+
+    await save.click();
+    await waitForFile(csvPath, (content) => content.includes("Alice E2E"));
+    await browser.waitUntil(async () => (await save.getAttribute("aria-disabled")) === "true", {
+      timeoutMsg: "Save did not become disabled after persisting the table edit.",
+    });
+    await (await $("[data-testid='title-dirty-indicator']")).waitForExist({ reverse: true });
+    await expect(await $("[data-testid='csv-table']")).toBeDisplayed();
+  });
+
   it("navigates, edits, clears, and undo-redoes cells", async () => {
     const first = await csvCell(0, 0);
     await first.click();
     await browser.keys(ARROW_DOWN);
     expect(await (await csvCell(1, 0)).getAttribute("aria-selected")).toBe("true");
 
-    await editCsvCell(0, 1, "Alice E2E");
-    await browser.waitUntil(async () => (await csvCellText(0, 1)) === "Alice E2E");
-
     await editCsvCell(0, 1, "");
     await browser.waitUntil(async () => (await csvCellText(0, 1)) === "");
+    const save = await $("[data-testid='action-save']");
+    await browser.waitUntil(async () => (await save.getAttribute("aria-disabled")) === "false");
     await (await csvCell(0, 2)).click();
     await pressMod("z");
     await browser.waitUntil(async () => (await csvCellText(0, 1)) === "Alice E2E");
+    await browser.waitUntil(async () => (await save.getAttribute("aria-disabled")) === "true", {
+      timeoutMsg: "Undoing to the saved table state did not clear dirty state.",
+    });
     await (await csvCell(0, 2)).click();
     await browser.keys([MOD, SHIFT, "z"]);
     await browser.waitUntil(async () => (await csvCellText(0, 1)) === "");
+    await browser.waitUntil(async () => (await save.getAttribute("aria-disabled")) === "false");
     await (await csvCell(0, 2)).click();
     await pressMod("z");
+    await browser.waitUntil(async () => (await save.getAttribute("aria-disabled")) === "true");
   });
 
   it("inserts and moves a row, then returns all edits to text mode", async () => {
@@ -162,6 +186,61 @@ describe("Act 10 — CSV table lifecycle", () => {
     expect(fs.readFileSync(csvPath, "utf8")).toContain("Alice E2E");
   });
 
+  it("autosaves slate table edits while remaining in table mode", async () => {
+    const slatePath = path.join(notesRoot, "table-autosave.csv");
+    fs.writeFileSync(slatePath, "id,name\n1,Original\n", "utf8");
+    await openAuthorizedPath(slatePath);
+    await enterCsvTable();
+
+    await (await $("[data-testid='action-save']")).waitForExist({ reverse: true });
+    await editCsvCell(0, 1, "Slate E2E");
+    expect(await csvCellText(0, 1)).toBe("Slate E2E");
+
+    await waitForFile(slatePath, (content) => content.includes("Slate E2E"));
+    expect(fs.readFileSync(slatePath, "utf8")).toContain("Slate E2E");
+    await expect(await $("[data-testid='csv-table']")).toBeDisplayed();
+
+    await exitCsvTable();
+    await waitForEditorText((text) => text.includes("Slate E2E"));
+    await replaceEditorText("id,name\n1,Slate text edit");
+    await waitForFile(slatePath, (content) => content.includes("Slate text edit"));
+
+    await enterCsvTable();
+    expect(await csvCellText(0, 1)).toBe("Slate text edit");
+    await expect(await $("[data-testid='csv-table']")).toBeDisplayed();
+  });
+
+  it("preserves external dirty state through text and table mode switches", async () => {
+    const modeSwitchPath = path.join(sandboxRoot, "mode-switch.csv");
+    fs.writeFileSync(modeSwitchPath, "id,name\n1,Original\n", "utf8");
+    await openAuthorizedPath(modeSwitchPath);
+    await waitForEditorText((text) => text.includes("Original"));
+
+    const save = await $("[data-testid='action-save']");
+    await replaceEditorText("id,name\n1,Text edit");
+    await browser.waitUntil(async () => (await save.getAttribute("aria-disabled")) === "false");
+    await (await $("[data-testid='title-dirty-indicator']")).waitForDisplayed();
+
+    await enterCsvTable();
+    expect(await csvCellText(0, 1)).toBe("Text edit");
+    expect(await save.getAttribute("aria-disabled")).toBe("false");
+
+    await editCsvCell(0, 1, "Table edit");
+    expect(await csvCellText(0, 1)).toBe("Table edit");
+    await exitCsvTable();
+    await waitForEditorText((text) => text.includes("Table edit"));
+    expect(await save.getAttribute("aria-disabled")).toBe("false");
+
+    await save.click();
+    await waitForFile(modeSwitchPath, (content) => content.includes("Table edit"));
+    await browser.waitUntil(async () => (await save.getAttribute("aria-disabled")) === "true");
+    await (await $("[data-testid='title-dirty-indicator']")).waitForExist({ reverse: true });
+
+    await enterCsvTable();
+    expect(await csvCellText(0, 1)).toBe("Table edit");
+    expect(await save.getAttribute("aria-disabled")).toBe("true");
+  });
+
   it("keeps large CSV rendering bounded and returns to text in one undo step", async () => {
     const largePath = path.join(sandboxRoot, "large.csv");
     writeLargeCsv(largePath, 100_001);
@@ -177,8 +256,14 @@ describe("Act 10 — CSV table lifecycle", () => {
     expect(renderedRows).toBeLessThanOrEqual(200 * 4);
 
     await editCsvCell(0, 1, "large-edit");
+    const save = await $("[data-testid='action-save']");
+    await browser.waitUntil(async () => (await save.getAttribute("aria-disabled")) === "false", {
+      timeoutMsg: "Large non-mirrored table edit did not enable Save.",
+    });
+    await (await $("[data-testid='title-dirty-indicator']")).waitForDisplayed();
     await exitCsvTable();
     await waitForEditorText((text) => text.includes("large-edit"), 30_000);
+    expect(await save.getAttribute("aria-disabled")).toBe("false");
 
     await focusEditor();
     await pressMod("z");
