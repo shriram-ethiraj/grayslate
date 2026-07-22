@@ -29,6 +29,12 @@ pub fn build_native_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::M
                 .accelerator("Cmd+,")
                 .build(app)?,
         )
+        .separator()
+        .item(
+            &MenuItemBuilder::with_id("quit", "Quit Grayslate")
+                .accelerator("Cmd+Q")
+                .build(app)?,
+        )
         .build()?;
 
     let save_file_item = MenuItemBuilder::with_id("save-file", "Save")
@@ -180,6 +186,12 @@ pub fn handle_macos_menu_event(app: &tauri::AppHandle, event: tauri::menu::MenuE
         }
         "settings" => {
             let _ = window.emit("menu://settings", true);
+        }
+        "quit" => {
+            // Request a normal window close so the frontend's CloseRequested
+            // guard can offer Save / Discard / Cancel before `prepare_close`
+            // flushes autosave state and destroys the window.
+            let _ = window.close();
         }
         "keyboard-shortcuts" => {
             let _ = window.emit("menu://keyboard-shortcuts", true);
