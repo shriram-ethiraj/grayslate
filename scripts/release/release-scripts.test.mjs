@@ -184,12 +184,12 @@ test("set-version updates every release-owned version field", async () => {
         await fixture(
             root,
             "Cargo.lock",
-            '[[package]]\nname = "Grayslate"\nversion = "0.1.0"\n',
+            '[[package]]\r\nname = "Grayslate"\r\nversion = "0.1.0"\r\n',
         );
         await fixture(
             root,
             "packaging/linux/app.grayslate.Grayslate.metainfo.xml",
-            "<releases>\n    <release version=\"0.1.0\" date=\"2026-01-01\" />\n</releases>\n",
+            "<releases>\r\n    <release version=\"0.1.0\" date=\"2026-01-01\" />\r\n</releases>\r\n",
         );
 
         await run("set-version.mjs", [
@@ -211,7 +211,7 @@ test("set-version updates every release-owned version field", async () => {
         );
         assert.match(
             await readFile(join(root, "Cargo.lock"), "utf8"),
-            /name = "Grayslate"\nversion = "0\.1\.2"/u,
+            /name = "Grayslate"\r\nversion = "0\.1\.2"/u,
         );
         assert.match(
             await readFile(
