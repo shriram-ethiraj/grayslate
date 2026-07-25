@@ -152,29 +152,29 @@ describe("Act 12 — line endings", () => {
     await dialog.waitForDisplayed({ reverse: true });
   });
 
-  it("keeps the EOL control usable in CSV table mode without dirtying the file", async () => {
+  it("hides the EOL control in CSV table mode without dirtying the file", async () => {
     const original = "id,name\r\n1,Alice\r\n2,Bob\r\n";
     const filePath = await openExternalText("crlf-table.csv", original);
     await waitForEol("crlf");
 
-    // The line ending belongs to the file, so the control stays available even
-    // though the table view owns the surface.
+    // Table mode owns the surface and intentionally hides text-mode metadata
+    // controls. Leaving table mode restores the document's detected EOL.
     await enterCsvTable();
-    await waitForEol("crlf");
+    expect(await $("[data-testid='status-eol']").isExisting()).toBe(false);
     await exitCsvTable();
+    await waitForEol("crlf");
 
     // Round-tripping through the CSV session must not rewrite the file: the
     // session serializes canonical LF and conversion happens only on write.
     expect(fs.readFileSync(filePath)).toEqual(Buffer.from(original, "utf8"));
   });
 
-  it("keeps autosave generations monotonic across a CSV EOL change and later text edit", async () => {
+  it("keeps autosave generations monotonic after an EOL change and CSV round-trip", async () => {
     const filePath = path.join(notesRoot, "eol-generation.csv");
     fs.writeFileSync(filePath, "id,name\n1,Alice\n", "utf8");
     await openAuthorizedPath(filePath);
     await waitForEol("lf");
 
-    await enterCsvTable();
     await selectEol("crlf");
     await waitForFile(
       filePath,
@@ -182,7 +182,10 @@ describe("Act 12 — line endings", () => {
       20_000,
     );
 
+    await enterCsvTable();
+    expect(await $("[data-testid='status-eol']").isExisting()).toBe(false);
     await exitCsvTable();
+    await waitForEol("crlf");
     await replaceEditorText("id,name\n1,Alice\n2,Bob");
 
     // This edit must advance beyond the generation completed by the CSV EOL
