@@ -30,8 +30,7 @@ fn main() {
     let suggested_ext = naming::language_to_extension(&detected_lang);
 
     // Naming uses the detected language; no filename context.
-    let suggested_name = naming::suggest_stem(&content, &detected_lang)
-        .unwrap_or_default();
+    let suggested_name = naming::suggest_stem(&content, &detected_lang).unwrap_or_default();
 
     let json = format!(
         "{{\"content_detected_lang\":{},\"content_suggested_ext\":{},\"suggested_name\":{}}}",

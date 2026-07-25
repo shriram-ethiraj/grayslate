@@ -1,5 +1,7 @@
 <script lang="ts">
   import LanguagePicker from "./LanguagePicker.svelte";
+  import EolPicker from "./EolPicker.svelte";
+  import type { Eol } from "$lib/state/appSettings.svelte";
   import { IndentMode, type IndentConfig } from "./IndentationPicker.svelte";
   import { DEFAULT_INDENT_CONFIG } from "$lib/editor/core/editorSession";
   import { AppTooltip } from "$lib/components/ui/tooltip/index.js";
@@ -18,8 +20,10 @@
     isCsvTableActive = false,
     csvInfo = { rows: 0, cols: 0, delimiter: "", errors: 0 },
     indentConfig = DEFAULT_INDENT_CONFIG,
+    eol = "lf",
     onGoToLine = () => {},
     onOpenIndentPicker = () => {},
+    onEolChange = () => {},
   }: {
     documentLength?: number;
     lineCount?: number;
@@ -34,8 +38,10 @@
     indentConfig: IndentConfig;
     indentMode?: never;
     indentSize?: never;
+    eol?: Eol;
     onGoToLine?: () => void;
     onOpenIndentPicker?: () => void;
+    onEolChange?: (next: Eol) => void;
   } = $props();
 
   const indentLabel = $derived.by(() => {
@@ -80,7 +86,7 @@
               {...props}
               type="button"
               data-testid="status-goto-line"
-              class="hover:bg-muted/50 hover:text-foreground h-full px-1.5 transition-colors cursor-pointer"
+              class="ui-state h-full px-1.5 cursor-pointer"
               onclick={() => onGoToLine()}
             >
               Ln {line}, Col {col}
@@ -97,7 +103,7 @@
               {...props}
               type="button"
               data-testid="status-indent"
-              class="hover:bg-muted/50 hover:text-foreground h-full px-1.5 transition-colors cursor-pointer"
+              class="ui-state h-full px-1.5 cursor-pointer"
               onclick={() => onOpenIndentPicker()}
             >
               {indentLabel}
@@ -105,6 +111,10 @@
           {/snippet}
         </AppTooltip>
       </div>
+    {/if}
+    {#if !isCsvTableActive}
+      <span class="text-muted-foreground">|</span>
+      <EolPicker {eol} onChange={onEolChange} />
     {/if}
     <span class="text-muted-foreground">|</span>
     <LanguagePicker bind:language {detectedLanguage} />

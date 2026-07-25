@@ -103,6 +103,13 @@ export const createTheme = (config: ThemeConfig): Extension => {
     // Propagate the search-match color to a CSS variable so non-editor UI
     // (e.g. sidebar search highlights) stays in sync with the active theme.
     // The guard makes this SSR-safe for the SvelteKit static adapter.
+    //
+    // These five names are a RESERVED CHANNEL: writing to
+    // documentElement.style outranks every stylesheet rule, so nothing else may
+    // claim them. In particular the `--state-*` interaction tokens (shadcn.css)
+    // must never be set here — surface blocks in layout.css re-point those on
+    // descendants, and a descendant declaration beats an inline style set on an
+    // ancestor, so the two systems would silently fight.
     if (typeof document !== 'undefined') {
         document.documentElement.style.setProperty('--search-match-bg', config.settings.searchMatch);
         // Propagate selectionMatch colors so non-editor UI (sidebar text matches)

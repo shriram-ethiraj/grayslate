@@ -625,7 +625,7 @@
             {#snippet trigger({ props })}
               <button
                 {...props}
-                class="pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full text-foreground transition-colors hover:bg-foreground/10 focus:outline-none"
+                class="pointer-events-auto ui-state flex h-8 w-8 items-center justify-center rounded-full text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 onclick={() => appWindow.minimize()}
                 aria-label="Minimize"
               >
@@ -638,7 +638,7 @@
             {#snippet trigger({ props })}
               <button
                 {...props}
-                class="pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full text-foreground transition-colors hover:bg-foreground/10 focus:outline-none"
+                class="pointer-events-auto ui-state flex h-8 w-8 items-center justify-center rounded-full text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 onclick={() => appWindow.toggleMaximize()}
                 aria-label={isMaximized ? "Restore" : "Maximize"}
               >
@@ -655,7 +655,7 @@
             {#snippet trigger({ props })}
               <button
                 {...props}
-                class="pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full text-foreground transition-colors hover:bg-foreground/10 focus:outline-none"
+                class="pointer-events-auto ui-state flex h-8 w-8 items-center justify-center rounded-full text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 onclick={() => appWindow.close()}
                 aria-label="Close"
               >
@@ -669,7 +669,7 @@
           {#snippet trigger({ props })}
             <button
               {...props}
-              class="pointer-events-auto inline-flex h-full w-12 items-center justify-center text-foreground transition-colors hover:bg-foreground/10 focus:outline-none"
+              class="pointer-events-auto ui-state inline-flex h-full w-12 items-center justify-center text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               onclick={() => appWindow.minimize()}
               aria-label="Minimize"
             >
@@ -682,7 +682,7 @@
           {#snippet trigger({ props })}
             <button
               {...props}
-              class="pointer-events-auto inline-flex h-full w-12 items-center justify-center text-foreground transition-colors hover:bg-foreground/10 focus:outline-none"
+              class="pointer-events-auto ui-state inline-flex h-full w-12 items-center justify-center text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               onclick={() => appWindow.toggleMaximize()}
               aria-label={isMaximized ? "Restore" : "Maximize"}
             >
@@ -699,7 +699,7 @@
           {#snippet trigger({ props })}
             <button
               {...props}
-              class="pointer-events-auto inline-flex h-full w-12 items-center justify-center text-foreground transition-colors hover:bg-[#c42b1c] hover:text-white focus:outline-none"
+              class="pointer-events-auto inline-flex h-full w-12 items-center justify-center text-foreground transition-colors hover:bg-[#c42b1c] hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               onclick={() => appWindow.close()}
               aria-label="Close"
             >

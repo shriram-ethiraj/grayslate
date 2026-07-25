@@ -44,6 +44,8 @@
         isActive: boolean;
         /** Keyboard-navigated highlight (ArrowUp/Down from the search input). */
         isHighlighted?: boolean;
+        /** True while the highlight is keyboard-driven, so the cursor reads differently from hover. */
+        isKeyboardNavigating?: boolean;
         onOpen: (path: string, source: RecentFileSource, lineNumber?: number) => void;
         /** Called when the pointer enters this card — lets the parent sync highlightedIndex. */
         onHover?: () => void;
@@ -60,6 +62,7 @@
         showLocalBadge = true,
         isActive,
         isHighlighted = false,
+        isKeyboardNavigating = false,
         onOpen,
         onHover,
         onDuplicate,
@@ -88,7 +91,9 @@
     );
 
     /** Shared CSS class for dropdown menu items. */
-    const ddItemClass = "data-highlighted:bg-accent data-highlighted:text-accent-foreground relative flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden select-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4";
+    // `data-highlighted` is the menu cursor, so `.ui-state` gives it hover weight —
+    // never the chip. The destructive override at the call site still wins by layer.
+    const ddItemClass = "ui-state relative flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden select-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4";
     const ddSepClass = "bg-border -mx-1 my-1 h-px";
 
     // ---------------------------------------------------------------------------
@@ -129,18 +134,25 @@
         size="sm"
         data-sidebar-highlighted={isHighlighted || undefined}
         data-sidebar-active={isActive || undefined}
+        data-active={isActive}
+        data-keyboard-cursor={(isHighlighted && isKeyboardNavigating) || undefined}
         data-card-path={recentFile.path}
-        class="border-0 p-0 shadow-none [transform:translateZ(0)] {isActive ? 'ring-1 ring-inset ring-sidebar-ring bg-sidebar-foreground/[0.03]' : 'ring-1 ring-inset ring-sidebar-border/65 bg-sidebar/35'}"
+        data-testid={isActive ? "sidebar-active-file" : undefined}
+        class="ui-state ui-state-selected ui-state-cursor border-transparent p-0 text-sidebar-foreground
+               bg-transparent data-[active=false]:hover:bg-state-hover data-[keyboard-cursor=true]:bg-state-hover data-[active=true]:bg-state-selected
+               shadow-none data-[active=true]:shadow-[var(--state-selected-card-shadow)]
+               transition-[color,background-color,box-shadow] [transform:translateZ(0)]"
     >
         <div role="presentation" class="w-full overflow-hidden rounded-[inherit]" onmouseenter={() => onHover?.()}>
             <ContextMenu.Trigger>
                 {#snippet child({ props })}
                     <div
                         {...props}
-                        class="group relative transition-colors {isActive ? 'bg-sidebar-foreground/[0.04] text-sidebar-foreground' : isHighlighted ? 'bg-sidebar-accent/70 text-sidebar-accent-foreground' : 'data-[state=open]:bg-sidebar-accent/70 data-[state=open]:text-sidebar-accent-foreground'}"
+                        class="group relative"
                     >
                         <button
                             type="button"
+                            aria-current={isActive ? "true" : undefined}
                             class="flex w-full min-w-0 items-start gap-3 px-3.5 py-3 pr-9 text-left outline-none"
                             onclick={() => onOpen(recentFile.path, recentFile.source)}
                         >
@@ -149,19 +161,19 @@
                                 <Item.Media
                                     {...props}
                                     variant="icon"
-                                    class="relative mt-0.5 {isActive ? 'border-sidebar-ring/40 bg-sidebar-foreground/[0.04] text-sidebar-foreground' : isHighlighted ? 'border-sidebar-background/60 bg-sidebar/80 text-sidebar-accent-foreground' : 'border-sidebar-border/70 bg-sidebar-accent/45 text-muted-foreground group-data-[state=open]:border-sidebar-background/60 group-data-[state=open]:bg-sidebar/80 group-data-[state=open]:text-sidebar-accent-foreground'}"
+                                    class="relative mt-0.5 border-state-inset-border bg-state-inset text-state-muted-foreground"
                                 >
                                     {#if FileIcon}
-                                        <FileIcon class="size-4.5" />
+                                        <FileIcon class="size-4" />
                                     {:else}
-                                        <Files class="size-4.5" />
+                                        <Files class="size-4" />
                                     {/if}
                                     {#if recentFile.source === "local" && showLocalBadge}
                                         <!-- Corner marker for local files. -->
                                         <span
                                             data-testid="sidebar-local-badge"
                                             aria-hidden="true"
-                                            class="pointer-events-none absolute -bottom-0.5 -right-0.5 z-10 flex size-3.5 items-center justify-center rounded-sm {isActive ? 'file-icon-badge-active' : isHighlighted ? 'file-icon-badge-emphasis' : 'file-icon-badge-inactive'}"
+                                            class="file-icon-badge pointer-events-none absolute -bottom-0.5 -right-0.5 z-10 flex size-3.5 items-center justify-center rounded-sm"
                                         >
                                             <LucideHardDrive class="!size-3" />
                                         </span>
@@ -175,7 +187,11 @@
                                 <div class="min-w-0 flex-1">
                                     <AppTooltip content={recentFile.path} triggerTabindex={-1}>
                                         {#snippet trigger({ props })}
-                                            <Item.Title {...props} data-testid="sidebar-file-title" class="truncate text-sm leading-tight {isActive ? 'font-medium text-black dark:text-white' : isHighlighted ? 'font-normal text-sidebar-accent-foreground' : 'font-normal text-sidebar-foreground group-data-[state=open]:text-sidebar-accent-foreground'}">
+                                            <Item.Title
+                                                {...props}
+                                                data-testid="sidebar-file-title"
+                                                class="truncate text-sm leading-tight {isActive ? 'font-medium' : 'font-normal'}"
+                                            >
                                                 {#if searchResult && searchResult.filename_fragments.length > 0}
                                                     {#each searchResult.filename_fragments as fragment}
                                                         {#if fragment.is_match}<mark class="bg-[var(--selection-match-bg)] text-inherit rounded-sm px-0.5 ring-1 ring-inset ring-[var(--selection-match-border)]">{fragment.text}</mark>{:else}{fragment.text}{/if}
@@ -197,7 +213,7 @@
                                 {/if}
                             </div>
 
-                            <div class="flex min-w-0 flex-nowrap items-center gap-2 overflow-hidden text-xs {isActive ? 'text-muted-foreground' : isHighlighted ? 'text-sidebar-accent-foreground' : 'text-muted-foreground group-data-[state=open]:text-sidebar-accent-foreground'}">
+                            <div class="flex min-w-0 flex-nowrap items-center gap-2 overflow-hidden text-xs font-normal text-state-muted-foreground">
                                 {#if fileSize}
                                     <span class="truncate whitespace-nowrap">{fileSize}</span>
                                     <span aria-hidden="true" class="shrink-0">•</span>
@@ -225,7 +241,7 @@
                                         data-testid="sidebar-file-options"
                                         aria-label="File options"
                                         tooltip="File options"
-                                        class="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:bg-sidebar-foreground/10 hover:text-sidebar-foreground data-[state=open]:bg-sidebar-foreground/10 data-[state=open]:text-sidebar-foreground"
+                                        class="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground"
                                     >
                                         <Ellipsis class="size-4" />
                                     </TooltipButton>
@@ -323,7 +339,7 @@
                                 <button
                                     {...props}
                                     type="button"
-                                    class="flex w-full min-w-0 items-baseline gap-2.5 rounded px-1.5 py-1 text-left transition-colors hover:bg-sidebar-accent/50"
+                                    class="flex w-full min-w-0 items-baseline gap-2.5 rounded px-1.5 py-1 text-left transition-colors ui-state"
                                     onclick={() => onOpen(recentFile.path, recentFile.source, hit.line_number)}
                                 >
                                     <span class="shrink-0 select-none tabular-nums text-xs text-disabled-foreground">{hit.line_number}</span>
@@ -403,19 +419,12 @@
 
 <style>
     /*
-     * The media background uses translucent layers. These opaque equivalents
-     * match the final rendered surface while covering the media border behind
-     * the transparent hard-drive SVG.
+     * Opaque fill behind the transparent hard-drive SVG, so the media border
+     * doesn't show through it. `--state-inset` is already opaque and is
+     * shared by active and inactive cards, so this single rule replaces the
+     * former active/inactive/emphasis triplet.
      */
-    .file-icon-badge-active {
-        background-color: color-mix(in srgb, var(--sidebar-foreground) 11%, var(--sidebar));
-    }
-
-    .file-icon-badge-inactive {
-        background-color: color-mix(in srgb, var(--sidebar-accent) 45%, var(--sidebar));
-    }
-
-    .file-icon-badge-emphasis {
-        background-color: color-mix(in srgb, var(--sidebar-accent) 14%, var(--sidebar));
+    .file-icon-badge {
+        background-color: var(--state-inset);
     }
 </style>

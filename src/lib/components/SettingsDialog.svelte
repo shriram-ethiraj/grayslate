@@ -1,29 +1,31 @@
 <script lang="ts">
     import * as Dialog from "$lib/components/ui/dialog/index.js";
     import * as Select from "$lib/components/ui/select/index.js";
+    import { Button } from "$lib/components/ui/button/index.js";
     import { Switch } from "$lib/components/ui/switch/index.js";
     import { Separator } from "$lib/components/ui/separator/index.js";
     import type { Component } from "svelte";
     import SettingsIcon from "~icons/lucide/settings";
+    import FileCodeIcon from "~icons/lucide/file-code";
     import { appDialogsState, closeAppDialog } from "$lib/state/appDialogs.svelte";
     import {
         appSettingsState,
         setConfirmBeforeDelete,
         setDefaultIndentMode,
         setDefaultIndentSize,
+        setDefaultLineEnding,
         setStartupBehavior,
         type DefaultIndentMode,
+        type DefaultLineEnding,
         type StartupBehavior,
     } from "$lib/state/appSettings.svelte";
 
     const isOpen = $derived(appDialogsState.active.type === "settings");
 
-    // Settings panes. Only "general" ships today; Git sync and Themes are
-    // planned future panes — adding one is a matter of appending to this list
-    // and rendering another branch in the content area.
-    type PaneId = "general";
+    type PaneId = "general" | "editor";
     const panes: { id: PaneId; label: string; icon: Component }[] = [
-        { id: "general", label: "General", icon: SettingsIcon},
+        { id: "general", label: "General", icon: SettingsIcon },
+        { id: "editor", label: "Editor", icon: FileCodeIcon },
     ];
     let activePane = $state<PaneId>("general");
 
@@ -39,6 +41,12 @@
         value: String(i + 1),
         label: String(i + 1),
     }));
+    // Applies to new documents only — an existing file always keeps whatever
+    // line ending was detected when it was opened.
+    const lineEndingOptions: { value: DefaultLineEnding; label: string }[] = [
+        { value: "lf", label: "LF (Unix, macOS, Linux)" },
+        { value: "crlf", label: "CRLF (Windows)" },
+    ];
 
     const startupLabel = $derived(
         startupOptions.find((o) => o.value === appSettingsState.startupBehavior)?.label ?? "",
@@ -48,6 +56,9 @@
     );
     const indentSizeLabel = $derived(
         appSettingsState.defaultIndentMode === "tab" ? "Tab Width" : "Indent Size",
+    );
+    const lineEndingLabel = $derived(
+        lineEndingOptions.find((o) => o.value === appSettingsState.defaultLineEnding)?.label ?? "",
     );
 </script>
 
@@ -67,23 +78,24 @@
         <div class="grid h-[26rem] grid-cols-[11rem_1fr]">
             <!-- Left nav rail -->
             <nav
-                class="flex flex-col gap-0.5 border-r bg-muted/30 p-2"
+                class="flex flex-col gap-0.5 border-r bg-state-track/60 p-2"
                 aria-label="Settings sections"
             >
                 <p class="px-2 pb-1.5 pt-1 text-xs font-semibold text-muted-foreground">
                     Settings
                 </p>
                 {#each panes as pane (pane.id)}
-                    <button
-                        type="button"
+                    <Button
+                        variant="ghost"
+                        size="sm"
                         data-testid={`settings-pane-${pane.id}`}
-                        class="flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground data-[active=true]:bg-accent data-[active=true]:font-medium data-[active=true]:text-accent-foreground"
-                        data-active={activePane === pane.id}
+                        class="h-8 w-full justify-start px-2 aria-pressed:font-medium"
+                        aria-pressed={activePane === pane.id}
                         onclick={() => (activePane = pane.id)}
                     >
                         <pane.icon class="size-4 shrink-0" />
                         {pane.label}
-                    </button>
+                    </Button>
                 {/each}
             </nav>
 
@@ -125,6 +137,27 @@
 
                         <Separator />
 
+                        <!-- Confirm before delete -->
+                        <div class="flex items-center justify-between gap-4 py-4">
+                            <div class="grid gap-0.5">
+                                <span class="text-sm font-normal text-foreground">
+                                    Confirm before deleting
+                                </span>
+                                <p class="text-xs text-muted-foreground">
+                                    Show a confirmation dialog before permanently deleting a file.
+                                </p>
+                            </div>
+                            <Switch
+                                data-testid="settings-confirm-delete"
+                                checked={appSettingsState.confirmBeforeDelete}
+                                onCheckedChange={(checked) => setConfirmBeforeDelete(checked)}
+                                aria-label="Confirm before deleting"
+                            />
+                        </div>
+                    </div>
+                {:else if activePane === "editor"}
+                    <h2 class="mb-2 text-base font-semibold text-foreground">Editor</h2>
+                    <div class="flex flex-col">
                         <!-- Default indentation -->
                         <div class="grid gap-2 py-4">
                             <div class="grid gap-0.5">
@@ -142,7 +175,11 @@
                                     onValueChange={(v) =>
                                         setDefaultIndentMode(v as DefaultIndentMode)}
                                 >
-                                    <Select.Trigger data-testid="settings-indent-mode" class="w-full" aria-label="Indent mode">
+                                    <Select.Trigger
+                                        data-testid="settings-indent-mode"
+                                        class="w-full"
+                                        aria-label="Indent mode"
+                                    >
                                         {indentModeLabel}
                                     </Select.Trigger>
                                     <Select.Content>
@@ -158,7 +195,11 @@
                                     value={String(appSettingsState.defaultIndentSize)}
                                     onValueChange={(v) => setDefaultIndentSize(Number(v))}
                                 >
-                                    <Select.Trigger data-testid="settings-indent-size" class="w-full" aria-label={indentSizeLabel}>
+                                    <Select.Trigger
+                                        data-testid="settings-indent-size"
+                                        class="w-full"
+                                        aria-label={indentSizeLabel}
+                                    >
                                         {appSettingsState.defaultIndentSize}
                                     </Select.Trigger>
                                     <Select.Content>
@@ -174,22 +215,41 @@
 
                         <Separator />
 
-                        <!-- Confirm before delete -->
-                        <div class="flex items-center justify-between gap-4 py-4">
+                        <!-- Default line ending -->
+                        <div class="grid gap-2 py-4">
                             <div class="grid gap-0.5">
-                                <span class="text-sm font-normal text-foreground">
-                                    Confirm before deleting
-                                </span>
+                                <label
+                                    class="text-sm font-normal text-foreground"
+                                    for="settings-line-ending"
+                                >
+                                    Default line ending
+                                </label>
                                 <p class="text-xs text-muted-foreground">
-                                    Show a confirmation dialog before permanently deleting a file.
+                                    Used for new slates. Existing files keep the line ending they
+                                    were opened with.
                                 </p>
                             </div>
-                            <Switch
-                                data-testid="settings-confirm-delete"
-                                checked={appSettingsState.confirmBeforeDelete}
-                                onCheckedChange={(checked) => setConfirmBeforeDelete(checked)}
-                                aria-label="Confirm before deleting"
-                            />
+                            <Select.Root
+                                type="single"
+                                value={appSettingsState.defaultLineEnding}
+                                onValueChange={(v) =>
+                                    setDefaultLineEnding(v as DefaultLineEnding)}
+                            >
+                                <Select.Trigger
+                                    data-testid="settings-line-ending"
+                                    class="w-full"
+                                    id="settings-line-ending"
+                                >
+                                    {lineEndingLabel}
+                                </Select.Trigger>
+                                <Select.Content>
+                                    {#each lineEndingOptions as option (option.value)}
+                                        <Select.Item value={option.value} label={option.label}>
+                                            {option.label}
+                                        </Select.Item>
+                                    {/each}
+                                </Select.Content>
+                            </Select.Root>
                         </div>
                     </div>
                 {/if}

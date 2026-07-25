@@ -18,6 +18,7 @@ pub const SETTING_LAST_ACTIVE_FILE: &str = "last_active_file";
 pub const SETTING_DEFAULT_INDENT_MODE: &str = "default_indent_mode";
 pub const SETTING_DEFAULT_INDENT_SIZE: &str = "default_indent_size";
 pub const SETTING_CONFIRM_BEFORE_DELETE: &str = "confirm_before_delete";
+pub const SETTING_DEFAULT_LINE_ENDING: &str = "default_line_ending";
 
 /// All app setting keys that the app validates/converts at the command layer.
 /// Used for batch-loading at startup so the frontend doesn't need to hardcode them.
@@ -33,6 +34,7 @@ pub const ALL_SETTING_KEYS: &[&str] = &[
     SETTING_DEFAULT_INDENT_MODE,
     SETTING_DEFAULT_INDENT_SIZE,
     SETTING_CONFIRM_BEFORE_DELETE,
+    SETTING_DEFAULT_LINE_ENDING,
 ];
 
 const DATABASE_FILENAME: &str = "grayslate.sqlite3";
@@ -107,6 +109,21 @@ impl AppStorage {
             )
             .optional()
             .map_err(|error| format!("Failed to read app setting: {}", error))
+    }
+
+    /// The configured default line ending.
+    ///
+    /// Used as the fallback when a file contains no line break at all, and as
+    /// the seed for brand-new documents. Best-effort: an unreadable or invalid
+    /// setting resolves to the host convention rather than failing an open.
+    pub fn resolve_default_eol(&self) -> crate::line_ending::Eol {
+        use crate::line_ending::Eol;
+
+        self.get_setting(SETTING_DEFAULT_LINE_ENDING)
+            .ok()
+            .flatten()
+            .and_then(|value| Eol::parse(&value).ok())
+            .unwrap_or_else(Eol::platform_default)
     }
 
     pub fn set_setting(&self, key: &str, value: Option<&str>) -> Result<(), String> {
@@ -746,7 +763,24 @@ impl AppStorage {
                     ON tracked_files(COALESCE(file_modified_app_at, file_modified_disk_at, 0) DESC, file_name ASC, path_key ASC);
                 ",
             )
-            .map_err(|error| format!("Failed to run SQLite migrations: {}", error))
+            .map_err(|error| format!("Failed to run SQLite migrations: {}", error))?;
+
+        connection
+            .execute(
+                "
+                INSERT INTO app_settings (key, value, updated_at)
+                VALUES (?1, ?2, ?3)
+                ON CONFLICT(key) DO NOTHING
+                ",
+                params![
+                    SETTING_DEFAULT_LINE_ENDING,
+                    crate::line_ending::Eol::platform_default().as_str(),
+                    current_time_ms()
+                ],
+            )
+            .map_err(|error| format!("Failed to initialize default line ending: {}", error))?;
+
+        Ok(())
     }
 }
 
@@ -921,6 +955,38 @@ mod tests {
     fn write_file(path: &Path, content: &[u8]) {
         let mut file = std::fs::File::create(path).expect("create file");
         file.write_all(content).expect("write file");
+    }
+
+    #[test]
+    fn initializes_default_line_ending_from_the_host_os() {
+        let (storage, _dir) = temp_storage();
+
+        assert_eq!(
+            storage
+                .get_setting(SETTING_DEFAULT_LINE_ENDING)
+                .expect("read default line ending")
+                .as_deref(),
+            Some(crate::line_ending::Eol::platform_default().as_str())
+        );
+    }
+
+    #[test]
+    fn initialization_does_not_overwrite_a_selected_line_ending() {
+        let (storage, _dir) = temp_storage();
+        let selected = if cfg!(windows) { "lf" } else { "crlf" };
+        storage
+            .set_setting(SETTING_DEFAULT_LINE_ENDING, Some(selected))
+            .expect("set selected line ending");
+
+        storage.run_migrations().expect("rerun migrations");
+
+        assert_eq!(
+            storage
+                .get_setting(SETTING_DEFAULT_LINE_ENDING)
+                .expect("read selected line ending")
+                .as_deref(),
+            Some(selected)
+        );
     }
 
     #[test]

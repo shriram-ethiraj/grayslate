@@ -29,7 +29,7 @@
 		data-slot={dataSlot}
 		class={cn(
 				"dark:bg-input/30 border-input ring-offset-background placeholder:text-muted-foreground flex h-9 w-full min-w-0 rounded-md border bg-transparent px-3 pt-1.5 text-sm font-normal shadow-xs transition-[color,box-shadow] outline-none disabled:cursor-not-allowed disabled:opacity-50",
-			"focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring",
+			"focus-visible:border-ring focus-visible:ring-0! focus-visible:shadow-none!",
 			"aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive",
 			className
 		)}
@@ -45,7 +45,7 @@
 			data-slot={dataSlot}
 			class={cn(
 				"border-input bg-background dark:bg-input/30 ring-offset-background placeholder:text-muted-foreground flex h-9 w-full min-w-0 rounded-md border px-3 py-1 text-base shadow-xs transition-[color,box-shadow] outline-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm",
-				"focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring",
+				"focus-visible:border-ring focus-visible:ring-0! focus-visible:shadow-none!",
 				"aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive",
 				value ? "pr-8" : "",
 				className
@@ -75,7 +75,7 @@
 		data-slot={dataSlot}
 		class={cn(
 			"border-input bg-background dark:bg-input/30 ring-offset-background placeholder:text-muted-foreground flex h-9 w-full min-w-0 rounded-md border px-3 py-1 text-base shadow-xs transition-[color,box-shadow] outline-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm",
-			"focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring",
+			"focus-visible:border-ring focus-visible:ring-0! focus-visible:shadow-none!",
 			"aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive",
 			className
 		)}

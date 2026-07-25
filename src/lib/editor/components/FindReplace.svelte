@@ -41,7 +41,7 @@
   const SEARCH_TEXTAREA_MIN_HEIGHT_PX = 40;
   const SEARCH_TEXTAREA_DEFAULT_WIDTH_PX = 240;
   const searchTextareaClass =
-    "border-input bg-background ring-offset-background placeholder:text-muted-foreground resize rounded-md border px-2.5 py-2.5 text-sm shadow-xs transition-[color,box-shadow] outline-none disabled:cursor-not-allowed disabled:opacity-50 focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring overflow-auto min-h-[40px] max-h-[200px] min-w-[220px] max-w-[420px]";
+    "border-input bg-background ring-offset-background placeholder:text-muted-foreground resize rounded-md border px-2.5 py-2.5 text-sm shadow-xs transition-[color,box-shadow] outline-none disabled:cursor-not-allowed disabled:opacity-50 focus-visible:border-ring focus-visible:ring-0! focus-visible:shadow-none! overflow-auto min-h-[40px] max-h-[200px] min-w-[220px] max-w-[420px]";
   let searchDebounceTimer: ReturnType<typeof setTimeout> | undefined;
   let pendingSearchView: EditorView | undefined;
   let pendingFindText = "";
@@ -359,6 +359,7 @@
           {@render resizeGrip()}
         </div>
         <div class="flex items-center gap-0.5 self-stretch border-l pl-1.5">
+          <!-- Material Symbols need a one-pixel optical correction beside 16 px icons. -->
           <TooltipButton
             variant="ghost"
             size="icon-xs"
@@ -368,7 +369,7 @@
             tooltip="Match case"
             onclick={() => { fr.caseSensitive = !fr.caseSensitive; }}
           >
-            <MaterialSymbolsMatchCaseRounded class="size-[1.2rem]" />
+            <MaterialSymbolsMatchCaseRounded class="size-[1.0625rem]" />
           </TooltipButton>
           <TooltipButton
             variant="ghost"
@@ -379,7 +380,7 @@
             tooltip="Match whole word"
             onclick={() => { fr.wholeWord = !fr.wholeWord; }}
           >
-            <MaterialSymbolsMatchWordRounded class="size-[1.2rem]" />
+            <MaterialSymbolsMatchWordRounded class="size-[1.0625rem]" />
           </TooltipButton>
           <TooltipButton
             variant="ghost"
@@ -390,7 +391,7 @@
             tooltip="Use regular expression"
             onclick={() => { fr.useRegex = !fr.useRegex; }}
           >
-            <CodiconRegex class="size-[1.1rem]" />
+            <CodiconRegex class="size-4" />
           </TooltipButton>
           <span
             data-testid="find-match-count"

@@ -145,7 +145,7 @@
                 <TooltipButton
                     variant="ghost"
                     size="sm"
-                    class="gap-1.5 px-2 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                    class="gap-1.5 px-2"
                     data-testid="sidebar-clear-search"
                     aria-label="Clear search"
                     tooltip="Clear search and reset options"
@@ -163,7 +163,7 @@
             <TooltipButton
                 variant="ghost"
                 size="icon-sm"
-                class="hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                data-testid="sidebar-refresh"
                 aria-label="Refresh recent files"
                 tooltip="Refresh recent files"
                 onclick={onRefresh}
@@ -181,9 +181,10 @@
                 bind:value={query}
                 data-testid="sidebar-search-input"
                 placeholder="Search library"
-                class="border-sidebar-border bg-sidebar pe-[5.75rem] ps-9 text-sm shadow-none placeholder:text-muted-foreground focus-visible:border-sidebar-ring focus-visible:ring-sidebar-ring"
+                class="border-sidebar-border bg-sidebar pe-[5.75rem] ps-9 text-sm shadow-none placeholder:text-muted-foreground focus-visible:border-sidebar-ring"
             />
             <div class="absolute right-1.5 top-1/2 z-10 flex -translate-y-1/2 items-center gap-0.5">
+                <!-- Material Symbols need a one-pixel optical correction beside 16 px icons. -->
                 <TooltipButton
                     variant="ghost"
                     size="icon-xs"
@@ -192,7 +193,7 @@
                     tooltip="Match case"
                     onclick={() => { searchOptions.caseSensitive = !searchOptions.caseSensitive; }}
                 >
-                    <MaterialSymbolsMatchCaseRounded class="size-[1.2rem]" />
+                    <MaterialSymbolsMatchCaseRounded class="size-[1.0625rem]" />
                 </TooltipButton>
                 <TooltipButton
                     variant="ghost"
@@ -202,7 +203,7 @@
                     tooltip="Match whole word"
                     onclick={() => { searchOptions.wholeWord = !searchOptions.wholeWord; }}
                 >
-                    <MaterialSymbolsMatchWordRounded class="size-[1.2rem]" />
+                    <MaterialSymbolsMatchWordRounded class="size-[1.0625rem]" />
                 </TooltipButton>
                 <TooltipButton
                     variant="ghost"
@@ -212,7 +213,7 @@
                     tooltip="Use regular expression"
                     onclick={() => { searchOptions.useRegex = !searchOptions.useRegex; }}
                 >
-                    <CodiconRegex class="size-[1.1rem]" />
+                    <CodiconRegex class="size-4" />
                 </TooltipButton>
             </div>
         </div>
@@ -224,7 +225,7 @@
                         {...props}
                         data-testid="sidebar-sort-trigger"
                         aria-label={`Sort library: ${activeSortOption.label}`}
-                        class="h-9 w-9 justify-center gap-0 border-sidebar-border bg-sidebar px-0 text-sidebar-foreground shadow-none focus-visible:border-sidebar-ring focus-visible:ring-sidebar-ring [&>svg:last-child]:hidden"
+                        class="ui-state h-9 w-9 justify-center gap-0 border-sidebar-border bg-sidebar px-0 text-sidebar-foreground shadow-none hover:bg-state-hover data-[state=open]:bg-state-hover focus-visible:border-sidebar-ring focus-visible:ring-sidebar-ring [&>svg:last-child]:hidden"
                     >
                         {@const ActiveSortIcon = activeSortOption.icon}
                         <span class="flex items-center justify-center">
@@ -251,7 +252,10 @@
     <Tabs.Root
         bind:value={filterMode}
     >
-        <Tabs.List class="grid h-10 w-full grid-cols-3 bg-sidebar-accent/45 px-1">
+        <Tabs.List
+            data-testid="sidebar-tabs"
+            class="grid h-10 w-full grid-cols-3 gap-1 bg-state-track px-1"
+        >
             {#each filterOptions as option (option.value)}
                 {@const Icon = option.icon}
                 <AppTooltip content={option.title}>
@@ -260,7 +264,7 @@
                             {...props}
                             value={option.value}
                             data-testid={`sidebar-tab-${option.value}`}
-                            class="min-w-0 gap-1 overflow-hidden px-2 text-xs text-muted-foreground data-[state=active]:bg-sidebar data-[state=active]:text-sidebar-foreground"
+                            class="min-w-0 gap-1 overflow-hidden px-2 text-xs"
                         >
                             <Icon class="size-3.5" />
                             <span class="min-w-0 truncate">{option.label}</span>

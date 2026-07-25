@@ -29,9 +29,12 @@ export function useListNavigator(config: ListNavigatorConfig) {
 
     let highlightedIndex = $state(0);
 
-    // Plain boolean — not reactive state. Toggled synchronously by keyboard
-    // handlers and the pointermove listener; never drives Svelte re-renders.
-    let isKeyboardNavigating = false;
+    // Reactive: the file card renders a keyboard-cursor affordance that is
+    // visually distinct from mouse hover, so this has to reach the template.
+    // `$state` no-ops on same-value assignment, so the high-frequency
+    // `pointermove` handler below only triggers a re-render on the actual
+    // keyboard -> mouse transition, not on every mouse move.
+    let isKeyboardNavigating = $state(false);
 
     // -----------------------------------------------------------------------
     // Derived
@@ -212,6 +215,15 @@ export function useListNavigator(config: ListNavigatorConfig) {
         /** Path of the currently highlighted card (reactive). */
         get highlightedPath() {
             return highlightedPath;
+        },
+
+        /**
+         * True while the highlight is being driven by the keyboard rather than
+         * the mouse (reactive). Cards use this to render a keyboard-cursor
+         * affordance distinct from hover.
+         */
+        get isKeyboardNavigating(): boolean {
+            return isKeyboardNavigating;
         },
 
         /**

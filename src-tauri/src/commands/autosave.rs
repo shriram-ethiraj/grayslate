@@ -21,6 +21,7 @@ use crate::autosave::{
 };
 use crate::commands::csv::CsvSessionRegistry;
 use crate::document::{revalidate_source_authority, DocumentAccess, DocumentRegistry};
+use crate::line_ending::Eol;
 use crate::save_coordinator::SaveCoordinator;
 use crate::storage::{AppStorage, FileSource};
 
@@ -30,15 +31,31 @@ use super::{naming::save_new_slate_to_disk, RECENT_FILES_UPDATED_EVENT};
 // autosave_activate_untitled
 // ---------------------------------------------------------------------------
 
+/// Start a backend-owned untitled slate session.
+///
+/// A brand-new document has nothing to detect, so the frontend supplies the
+/// resolved global default. The value is validated here — the webview is
+/// untrusted and an unrecognized style must not reach a disk write.
 #[tauri::command]
 pub fn autosave_activate_untitled(
     window: tauri::Window,
     registry: tauri::State<'_, AutosaveRegistry>,
     language_hint: String,
-) {
-    registry.register(window.label(), None, FileSource::Slates, language_hint);
+    eol: String,
+) -> Result<(), String> {
+    let eol = Eol::parse(&eol)?;
+    registry.register(window.label(), None, FileSource::Slates, language_hint, eol);
+    Ok(())
 }
 
+/// Bind autosave to a Rust-authorized document, returning the line ending
+/// detected when its bytes were read.
+///
+/// The open flow calls this immediately after `read_file_content`, which
+/// stashed the detected style on the grant. Returning it here is what gets the
+/// value to the status bar without a second read or a second IPC round-trip.
+/// A document with no recorded detection (never read through this grant) falls
+/// back to the configured default.
 #[tauri::command]
 pub fn autosave_activate_document(
     app: tauri::AppHandle,
@@ -49,7 +66,7 @@ pub fn autosave_activate_document(
     document_id: String,
     document_generation: u64,
     language_hint: String,
-) -> Result<(), String> {
+) -> Result<Eol, String> {
     let document = documents.resolve(
         window.label(),
         &document_id,
@@ -57,6 +74,9 @@ pub fn autosave_activate_document(
         DocumentAccess::Read,
     )?;
     revalidate_source_authority(&app, storage.inner(), &document)?;
+    let eol = document
+        .detected_eol
+        .unwrap_or_else(|| storage.resolve_default_eol());
     registry.register_authorized(
         window.label(),
         document.path,
@@ -64,8 +84,9 @@ pub fn autosave_activate_document(
         language_hint,
         document.id,
         document.generation,
+        eol,
     );
-    Ok(())
+    Ok(eol)
 }
 
 // ---------------------------------------------------------------------------
@@ -161,8 +182,9 @@ pub async fn autosave_submit_content(
             // Existing file — write using atomic temp+rename
             let path_clone = path.clone();
             let content_clone = content.clone();
+            let eol = doc_info.eol;
             tauri::async_runtime::spawn_blocking(move || {
-                autosave_write_to_disk(&path_clone, &content_clone)
+                autosave_write_to_disk(&path_clone, &content_clone, eol)
             })
             .await
             .map_err(|e| format!("Autosave: join error: {}", e))??;
@@ -190,6 +212,7 @@ pub async fn autosave_submit_content(
                 &window_label,
                 &content,
                 &doc_info.language_hint,
+                doc_info.eol,
             )
             .await?;
 
@@ -302,8 +325,9 @@ pub async fn autosave_flush_before_switch(
                 );
             }
             let path_clone = path.clone();
+            let eol = doc_info.eol;
             tauri::async_runtime::spawn_blocking(move || {
-                autosave_write_to_disk(&path_clone, &save_content)
+                autosave_write_to_disk(&path_clone, &save_content, eol)
             })
             .await
             .map_err(|e| format!("Autosave flush: join error: {}", e))??;
@@ -325,6 +349,7 @@ pub async fn autosave_flush_before_switch(
                     &window_label,
                     &save_content,
                     &doc_info.language_hint,
+                    doc_info.eol,
                 )
                 .await?;
 
@@ -380,6 +405,34 @@ pub fn autosave_set_language_hint(
     language_hint: String,
 ) {
     registry.update_language_hint(window.label(), &language_hint);
+}
+
+/// Change the line ending the active document is written with.
+///
+/// Picking a new style is a real, savable change even though the document text
+/// is untouched — the canonical LF buffer never varies. Bumping the change
+/// generation is therefore what makes the choice durable: without it a managed
+/// slate would keep its new EOL only until the next reload, since the autosave
+/// timer only writes documents it considers dirty. A no-op pick is not
+/// reported as a change, so re-selecting the current style cannot spuriously
+/// dirty a clean document.
+#[tauri::command]
+pub fn autosave_set_eol(
+    window: tauri::Window,
+    registry: tauri::State<'_, AutosaveRegistry>,
+    eol: String,
+    generation: u64,
+) -> Result<(), String> {
+    let eol = Eol::parse(&eol)?;
+    let label = window.label();
+    if registry.update_eol(label, eol) {
+        // The frontend owns the monotonic autosave generation. EOL metadata and
+        // text edits must advance the same counter; maintaining a second Rust-
+        // only counter would make content submissions acknowledge the wrong
+        // generation.
+        registry.notify_changed(label, generation);
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -460,7 +513,7 @@ async fn flush_before_close(
     if doc_info.csv_table_active {
         // CSV table mode owns the authoritative rows, so serialize straight
         // from the session instead of asking the frontend for text.
-        let Some((version, content)) = csv_registry.try_flush_for_autosave(&label) else {
+        let Some((_version, content)) = csv_registry.try_flush_for_autosave(&label) else {
             return;
         };
         let Some(path) = doc_info.path.as_ref() else {
@@ -506,8 +559,11 @@ async fn flush_before_close(
 
         let path = path.clone();
         let path_for_write = path.clone();
+        // The CSV session serializes canonical LF; convert at this boundary.
+        let eol = doc_info.eol;
+        let save_generation = doc_info.generation;
         match tauri::async_runtime::spawn_blocking(move || {
-            autosave_write_to_disk(&path_for_write, &content)
+            autosave_write_to_disk(&path_for_write, &content, eol)
         })
         .await
         {
@@ -519,7 +575,9 @@ async fn flush_before_close(
                     );
                 }
                 let _ = app.emit(RECENT_FILES_UPDATED_EVENT, "saved");
-                registry.complete_save(&label, version);
+                // Autosave change generation, not the CSV session's own
+                // version counter — see `handle_csv_direct_save`.
+                registry.complete_save(&label, save_generation);
             }
             Ok(Err(error)) => eprintln!("Autosave close-flush: {}", error),
             Err(error) => eprintln!("Autosave close-flush task failed: {}", error),

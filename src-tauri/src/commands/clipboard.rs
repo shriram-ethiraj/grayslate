@@ -3,8 +3,10 @@ use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
 use tauri::ipc::{InvokeBody, Request};
-use tauri::{AppHandle, Window};
+use tauri::{AppHandle, Manager, Window};
 use tauri_plugin_clipboard_manager::ClipboardExt;
+
+use crate::line_ending::{apply_eol, Eol};
 
 const COPY_ID_HEADER: &str = "x-grayslate-copy-id";
 const COPY_INDEX_HEADER: &str = "x-grayslate-copy-index";
@@ -107,6 +109,9 @@ impl ClipboardCopyRegistry {
 #[serde(rename_all = "camelCase")]
 pub struct ClipboardCopyResponse {
     pub completed: bool,
+    /// Number of canonical-LF bytes received from the frontend.
+    pub input_byte_length: usize,
+    /// Number of bytes written after applying the document EOL.
     pub byte_length: usize,
 }
 
@@ -128,7 +133,18 @@ fn enabled_header(request: &Request<'_>, name: &str) -> bool {
         == Some("1")
 }
 
-pub(crate) fn write_text(app: &AppHandle, text: String) -> Result<usize, String> {
+/// Write `text` to the native clipboard using the document's line ending.
+///
+/// The clipboard is a write boundary just like the disk: callers hand over
+/// canonical LF, and what actually leaves the app carries the document's real
+/// style. This matters most on Windows, where the clipboard convention is CRLF
+/// and LF-only text pastes into many native apps as a single long line.
+///
+/// `eol` is a required parameter for the same reason the disk helpers take one
+/// — a future copy path should have to make the choice rather than inherit LF
+/// by accident.
+pub(crate) fn write_text(app: &AppHandle, text: String, eol: Eol) -> Result<usize, String> {
+    let text = apply_eol(&text, eol).into_owned();
     let byte_length = text.len();
     app.clipboard()
         .write_text(text)
@@ -158,6 +174,7 @@ pub async fn clipboard_write_chunk(
         registry.cancel(&window_label, &request_id);
         return Ok(ClipboardCopyResponse {
             completed: false,
+            input_byte_length: 0,
             byte_length: 0,
         });
     }
@@ -178,16 +195,23 @@ pub async fn clipboard_write_chunk(
     let Some(bytes) = completed else {
         return Ok(ClipboardCopyResponse {
             completed: false,
+            input_byte_length: 0,
             byte_length: 0,
         });
     };
 
+    let input_byte_length = bytes.len();
+    let eol = app
+        .state::<crate::autosave::AutosaveRegistry>()
+        .eol_for(&window_label);
+
     tauri::async_runtime::spawn_blocking(move || {
         let text = String::from_utf8(bytes)
             .map_err(|_| "Clipboard copy contained invalid UTF-8 text.".to_string())?;
-        let byte_length = write_text(&app, text)?;
+        let byte_length = write_text(&app, text, eol)?;
         Ok(ClipboardCopyResponse {
             completed: true,
+            input_byte_length,
             byte_length,
         })
     })

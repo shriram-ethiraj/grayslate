@@ -161,7 +161,12 @@ export function waitForActiveDocument(
   descriptor: DocumentDescriptor,
   timeoutMs = 30_000,
 ): Promise<EditorReadinessSnapshot> {
-  const documentLength = fs.readFileSync(descriptor.displayPath, "utf8").length;
+  // The editor holds documents canonically LF-terminated, so a CRLF file on
+  // disk reports one character less per line. Normalize before comparing, or
+  // this never matches for a Windows-style fixture.
+  const documentLength = fs
+    .readFileSync(descriptor.displayPath, "utf8")
+    .replace(/\r\n?/g, "\n").length;
   return waitForEditorReady({
     documentPath: descriptor.displayPath,
     documentLength,
@@ -248,6 +253,60 @@ export async function clickTestId(testId: string): Promise<void> {
 /** The status-bar language button (carries detected + active mode attributes). */
 export function languageMode(): ReturnType<typeof $> {
   return $("[data-testid='language-mode']");
+}
+
+/** Wait until the status bar reports the given line ending (`lf`/`crlf`). */
+export async function waitForEol(eol: "lf" | "crlf", timeoutMs = 10_000): Promise<void> {
+  const indicator = await $("[data-testid='status-eol']");
+  await indicator.waitForDisplayed();
+  await browser.waitUntil(
+    async () => (await indicator.getAttribute("data-eol")) === eol,
+    {
+      timeout: timeoutMs,
+      interval: 200,
+      timeoutMsg: `Status bar line ending never became '${eol}'.`,
+    },
+  );
+}
+
+/** Pick a line ending from the status-bar EOL picker. */
+export async function selectEol(eol: "lf" | "crlf"): Promise<void> {
+  await clickTestId("status-eol");
+  const dialog = await $("[data-testid='eol-picker-dialog']");
+  await dialog.waitForDisplayed();
+  await clickTestId("eol-select-trigger");
+  await clickTestId(`eol-item-${eol}`);
+  await waitForEol(eol);
+  await browser.keys("Escape");
+  await dialog.waitForDisplayed({ reverse: true });
+}
+
+/**
+ * Whether the current local file has unsaved changes.
+ *
+ * Reads the title-bar dirty asterisk, which renders exactly when
+ * `editorState.isDirty && currentFileSource === "local"`. The save button is
+ * not a usable signal here: `TooltipButton` disables via `aria-disabled` only
+ * and never sets the native `disabled` attribute, so WebDriver's `isEnabled()`
+ * always reports true regardless of state.
+ */
+export async function isDocumentDirty(): Promise<boolean> {
+  return (await $("[data-testid='title-dirty-indicator']")).isExisting();
+}
+
+/**
+ * Wait until the document's dirty state settles to `expected`.
+ *
+ * A poller rather than a point read, because a save clears the flag only after
+ * its IPC round-trip resolves, which can lag the on-disk write that
+ * `waitForFile` observes.
+ */
+export async function waitForDirtyState(expected: boolean, timeoutMs = 10_000): Promise<void> {
+  await browser.waitUntil(async () => (await isDocumentDirty()) === expected, {
+    timeout: timeoutMs,
+    interval: 150,
+    timeoutMsg: `Document dirty state never became ${expected}.`,
+  });
 }
 
 /** Wait until content detection settles on `lang` (the `Auto (...)` value). */

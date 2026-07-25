@@ -10,10 +10,17 @@ const KEY_LAST_ACTIVE_FILE = "last_active_file";
 const KEY_DEFAULT_INDENT_MODE = "default_indent_mode";
 const KEY_DEFAULT_INDENT_SIZE = "default_indent_size";
 const KEY_CONFIRM_BEFORE_DELETE = "confirm_before_delete";
+const KEY_DEFAULT_LINE_ENDING = "default_line_ending";
 
 export type ThemeSetting = "dark" | "light";
 export type StartupBehavior = "new" | "last";
 export type DefaultIndentMode = "spaces" | "tab";
+
+/// A concrete line ending used by documents and the app-wide default.
+export type Eol = "lf" | "crlf";
+
+/// The app-wide default applied to brand-new documents.
+export type DefaultLineEnding = Eol;
 
 export interface AppSettings {
     theme: ThemeSetting;
@@ -28,6 +35,7 @@ export interface AppSettings {
     defaultIndentMode: DefaultIndentMode;
     defaultIndentSize: number;
     confirmBeforeDelete: boolean;
+    defaultLineEnding: DefaultLineEnding;
 }
 
 export const DEFAULT_THEME: ThemeSetting = "dark";
@@ -39,6 +47,9 @@ export const DEFAULT_STARTUP_BEHAVIOR: StartupBehavior = "new";
 export const DEFAULT_DEFAULT_INDENT_MODE: DefaultIndentMode = "spaces";
 export const DEFAULT_DEFAULT_INDENT_SIZE = 2;
 export const DEFAULT_CONFIRM_BEFORE_DELETE = true;
+// Storage persists the host convention before settings load. LF remains the
+// fail-safe frontend fallback if that load cannot complete.
+export const DEFAULT_DEFAULT_LINE_ENDING: DefaultLineEnding = "lf";
 
 export const DEFAULT_SETTINGS: AppSettings = {
     theme: DEFAULT_THEME,
@@ -51,6 +62,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     defaultIndentMode: DEFAULT_DEFAULT_INDENT_MODE,
     defaultIndentSize: DEFAULT_DEFAULT_INDENT_SIZE,
     confirmBeforeDelete: DEFAULT_CONFIRM_BEFORE_DELETE,
+    defaultLineEnding: DEFAULT_DEFAULT_LINE_ENDING,
 };
 
 const prefersDark = typeof window !== "undefined"
@@ -66,6 +78,7 @@ export async function loadAllSettings(): Promise<AppSettings> {
     const storedIndentSize = raw[KEY_DEFAULT_INDENT_SIZE]
         ? parseInt(raw[KEY_DEFAULT_INDENT_SIZE], 10)
         : DEFAULT_DEFAULT_INDENT_SIZE;
+    const storedLineEnding = raw[KEY_DEFAULT_LINE_ENDING];
     return {
         theme,
         fontSize: raw[KEY_FONT_SIZE] ? parseInt(raw[KEY_FONT_SIZE], 10) : DEFAULT_FONT_SIZE,
@@ -77,6 +90,7 @@ export async function loadAllSettings(): Promise<AppSettings> {
         defaultIndentMode: raw[KEY_DEFAULT_INDENT_MODE] === "tab" ? "tab" : "spaces",
         defaultIndentSize: Number.isFinite(storedIndentSize) ? storedIndentSize : DEFAULT_DEFAULT_INDENT_SIZE,
         confirmBeforeDelete: raw[KEY_CONFIRM_BEFORE_DELETE] !== "false",
+        defaultLineEnding: storedLineEnding === "crlf" ? "crlf" : DEFAULT_DEFAULT_LINE_ENDING,
     };
 }
 
@@ -125,11 +139,13 @@ export const appSettingsState = $state<{
     defaultIndentMode: DefaultIndentMode;
     defaultIndentSize: number;
     confirmBeforeDelete: boolean;
+    defaultLineEnding: DefaultLineEnding;
 }>({
     startupBehavior: DEFAULT_STARTUP_BEHAVIOR,
     defaultIndentMode: DEFAULT_DEFAULT_INDENT_MODE,
     defaultIndentSize: DEFAULT_DEFAULT_INDENT_SIZE,
     confirmBeforeDelete: DEFAULT_CONFIRM_BEFORE_DELETE,
+    defaultLineEnding: DEFAULT_DEFAULT_LINE_ENDING,
 });
 
 /** Copy the loaded settings into the live reactive state at startup. */
@@ -138,6 +154,7 @@ export function hydrateAppSettingsState(settings: AppSettings): void {
     appSettingsState.defaultIndentMode = settings.defaultIndentMode;
     appSettingsState.defaultIndentSize = settings.defaultIndentSize;
     appSettingsState.confirmBeforeDelete = settings.confirmBeforeDelete;
+    appSettingsState.defaultLineEnding = settings.defaultLineEnding;
 }
 
 export function setStartupBehavior(behavior: StartupBehavior): void {
@@ -161,6 +178,34 @@ export function setDefaultIndentSize(size: number): void {
 export function setConfirmBeforeDelete(confirm: boolean): void {
     appSettingsState.confirmBeforeDelete = confirm;
     saveSetting(KEY_CONFIRM_BEFORE_DELETE, String(confirm));
+}
+
+export function setDefaultLineEnding(lineEnding: DefaultLineEnding): void {
+    appSettingsState.defaultLineEnding = lineEnding;
+    saveSetting(KEY_DEFAULT_LINE_ENDING, lineEnding);
+}
+
+/**
+ * Return the concrete EOL a new document gets. Takes the value explicitly so
+ * callers that just loaded settings need not wait for reactive hydration.
+ */
+export function resolveLineEnding(setting: DefaultLineEnding): Eol {
+    return setting;
+}
+
+/**
+ * The concrete EOL a new document gets, from the live settings state.
+ *
+ * Brand-new documents snapshot this once at creation rather than tracking the
+ * setting live, so the status bar always shows a real line ending — the same
+ * model VS Code, Sublime, and Notepad++ use. Existing files never consult it:
+ * their line ending is whatever was detected on open.
+ *
+ * Synchronous because it seeds `$state` during component initialization.
+ * `EditorWrapper` re-seeds the first blank slate after persisted settings load.
+ */
+export function resolveDefaultEol(): Eol {
+    return appSettingsState.defaultLineEnding;
 }
 
 /**

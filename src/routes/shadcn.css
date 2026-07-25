@@ -27,11 +27,38 @@
   --sidebar-foreground: oklch(0.129 0.042 264.695);
   --sidebar-primary: oklch(0.208 0.042 265.755);
   --sidebar-primary-foreground: oklch(0.984 0.003 247.858);
-  --sidebar-accent: #e8ebf0;
+  --sidebar-accent: #d3d9e5;
   --sidebar-accent-foreground: oklch(0.208 0.042 265.755);
   --sidebar-border: #bec8d6;
   --sidebar-ring: oklch(0.50 0.03 264);
+  --sidebar-list: #edf0f5;
   --disabled-foreground: oklch(0.54 0.025 262);
+
+  /* Interaction states are shared across app, sidebar, and popover surfaces.
+     Components choose which semantic states they support; attributes such as
+     `aria-selected` and `aria-pressed` are not treated as interchangeable. */
+  --state-hover: #d3d9e5;
+  --state-hover-foreground: oklch(0.208 0.042 265.755);
+  --state-press: #c6cedd;
+  --state-cursor-ring: #8b97ab;
+  --state-selected: #ffffff;
+  --state-selected-foreground: oklch(0.129 0.042 264.695);
+  --state-selected-muted: oklch(0.42 0.032 258);
+  --state-selected-shadow: 0 1px 2px rgb(29 39 58 / 0.14);
+  --state-selected-card-shadow:
+    0 1px 2px rgb(29 39 58 / 0.12),
+    0 4px 10px rgb(29 39 58 / 0.08);
+  --state-track: #e3e8f0;
+  --state-inset: #eef1f6;
+  --state-inset-border: #d6dee9;
+  --state-muted-foreground: var(--muted-foreground);
+
+  /* CSV grid range selection — deliberately NOT a chip. A contiguous 2-D
+     region with a hairline+shadow on every cell would render as a grid of
+     chips rather than one selection. Same value as before, named concept. */
+  --state-range: color-mix(in srgb, var(--primary) 20%, transparent);
+  --state-range-solid: color-mix(in srgb, var(--primary) 20%, var(--sidebar));
+
   /* CodeMirror widget hint colors */
   --cm-hint-color: #888888;
   --cm-hint-bg: rgba(128, 128, 128, 0.1);
@@ -77,7 +104,29 @@
   --sidebar-accent-foreground: oklch(0.984 0.003 247.858);
   --sidebar-border: #3a4050;
   --sidebar-ring: oklch(0.984 0.003 247.858);
+  --sidebar-list: #1b1f27;
   --disabled-foreground: oklch(0.56 0.02 256);
+
+  /* Interaction states (dark). */
+  --state-hover: #2b313d;
+  --state-hover-foreground: oklch(0.984 0.003 247.858);
+  --state-press: #363d4c;
+  --state-cursor-ring: #6d7896;
+  --state-selected: #414a5b;
+  --state-selected-foreground: oklch(0.984 0.003 247.858);
+  --state-selected-muted: oklch(0.78 0.032 256);
+  --state-selected-shadow: 0 1px 2px rgb(0 0 0 / 0.35);
+  --state-selected-card-shadow:
+    0 1px 2px rgb(0 0 0 / 0.42),
+    0 4px 10px rgb(0 0 0 / 0.24);
+  --state-track: #1a1d24;
+  --state-inset: #333b49;
+  --state-inset-border: #565f74;
+  --state-muted-foreground: var(--muted-foreground);
+
+  --state-range: color-mix(in srgb, var(--primary) 20%, transparent);
+  --state-range-solid: color-mix(in srgb, var(--primary) 20%, var(--sidebar));
+
   /* CodeMirror widget hint colors — brighter for dark backgrounds */
   --cm-hint-color: #a8b2c8;
   --cm-hint-bg: rgba(155, 170, 210, 0.15);
@@ -129,5 +178,25 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-list: var(--sidebar-list);
   --color-disabled-foreground: var(--disabled-foreground);
+  /* Interaction states. `--state-selected-shadow` is deliberately absent:
+     `--color-*` only generates color utilities, and registering it as a theme
+     shadow would make Tailwind rewrite the value to inject
+     `var(--tw-shadow-color, …)`, which a bare `var()` cannot satisfy. It is
+     consumed by `.ui-state-selected` writing `--tw-shadow`, or via the arbitrary form
+     `shadow-[var(--state-selected-shadow)]` where a base `shadow-*` utility
+     would otherwise win by layer order. */
+  --color-state-hover: var(--state-hover);
+  --color-state-hover-foreground: var(--state-hover-foreground);
+  --color-state-press: var(--state-press);
+  --color-state-cursor-ring: var(--state-cursor-ring);
+  --color-state-selected: var(--state-selected);
+  --color-state-selected-foreground: var(--state-selected-foreground);
+  --color-state-selected-muted: var(--state-selected-muted);
+  --color-state-track: var(--state-track);
+  --color-state-inset: var(--state-inset);
+  --color-state-inset-border: var(--state-inset-border);
+  --color-state-muted-foreground: var(--state-muted-foreground);
+  --color-state-range: var(--state-range);
 }

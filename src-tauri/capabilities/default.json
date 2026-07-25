@@ -22,6 +22,7 @@
     "allow-autosave-flush-before-switch",
     "allow-autosave-notify-changed",
     "allow-autosave-set-csv-mode",
+    "allow-autosave-set-eol",
     "allow-autosave-set-language-hint",
     "allow-autosave-submit-content",
     "allow-cancel-editor-find",

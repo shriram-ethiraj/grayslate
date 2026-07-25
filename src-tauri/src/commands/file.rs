@@ -24,8 +24,9 @@ use crate::filesystem::{
 use crate::storage::{
     normalize_path_key, path_to_display_string, AppStorage, FileSource, RecentFileRecord,
     SETTING_CONFIRM_BEFORE_DELETE, SETTING_DEFAULT_INDENT_MODE, SETTING_DEFAULT_INDENT_SIZE,
-    SETTING_FONT_SIZE, SETTING_LAST_ACTIVE_FILE, SETTING_NOTES_ROOT, SETTING_SIDEBAR_OPEN,
-    SETTING_SIDEBAR_WIDTH, SETTING_STARTUP_BEHAVIOR, SETTING_THEME, SETTING_WORD_WRAP,
+    SETTING_DEFAULT_LINE_ENDING, SETTING_FONT_SIZE, SETTING_LAST_ACTIVE_FILE, SETTING_NOTES_ROOT,
+    SETTING_SIDEBAR_OPEN, SETTING_SIDEBAR_WIDTH, SETTING_STARTUP_BEHAVIOR, SETTING_THEME,
+    SETTING_WORD_WRAP,
 };
 
 use super::RECENT_FILES_UPDATED_EVENT;
@@ -411,13 +412,31 @@ pub async fn read_file_content(
 
         let read_path = document.path.clone();
         let read_cancelled = Arc::clone(&cancellation_flag);
-        let bytes = tauri::async_runtime::spawn_blocking(move || {
-            read_file_bytes_cancellable(&read_path, read_cancelled.as_ref())
+        let detection_storage = storage.inner().clone();
+        let (bytes, detected_eol) = tauri::async_runtime::spawn_blocking(move || {
+            let bytes = read_file_bytes_cancellable(&read_path, read_cancelled.as_ref())?;
+            // Detection can still inspect a large prefix when a file has very
+            // few line breaks, so keep it on the same blocking worker as IO.
+            let detected_eol =
+                crate::line_ending::detect_eol(&bytes, detection_storage.resolve_default_eol());
+            Ok::<_, String>((bytes, detected_eol))
         })
         .await
         .map_err(|error| format!("Failed to join file read task: {}", error))??;
 
         ensure_read_not_cancelled(cancellation_flag.as_ref())?;
+
+        // Detect the file's line ending from the bytes already in hand — no
+        // extra IO. The response carries raw bytes and has no room for
+        // metadata, so the result is stashed on the document grant and handed
+        // to the frontend by `autosave_activate_document`, which the open flow
+        // invokes immediately after this read.
+        documents.record_detected_eol(
+            &window_label,
+            &document_id,
+            document_generation,
+            detected_eol,
+        );
 
         if storage.record_file_open_if_untracked(&document.path, document.source)? {
             let _ = app.emit(RECENT_FILES_UPDATED_EVENT, ());
@@ -790,6 +809,12 @@ pub fn set_app_setting(
                 }
             }
         }
+        SETTING_DEFAULT_LINE_ENDING => {
+            if let Some(ref line_ending) = value {
+                crate::line_ending::Eol::parse(line_ending)
+                    .map_err(|_| "Default line ending must be \"lf\" or \"crlf\".".to_string())?;
+            }
+        }
         // Internal bookkeeping path (or None to clear). It may be stale by the
         // next launch, but it must still have the shape of a file path written
         // by the editor rather than an arbitrary setting payload.
@@ -971,7 +996,18 @@ pub async fn write_file_content(
     document_id: String,
     document_generation: u64,
     content: String,
+    eol: Option<String>,
 ) -> Result<DocumentDescriptor, String> {
+    // The frontend owns the live line-ending choice and sends it with the save,
+    // the same way it sends `content`. Reading it back from the autosave
+    // registry instead would race a just-applied picker change (the picker
+    // updates the registry asynchronously), so a manual save could write the
+    // previous ending. Passing it makes the write deterministic; the registry
+    // value is only a fallback for callers that don't supply one.
+    let eol = match eol {
+        Some(value) => crate::line_ending::Eol::parse(&value)?,
+        None => autosave.eol_for(window.label()),
+    };
     let document = resolve_document(
         &app,
         storage.inner(),
@@ -1002,13 +1038,17 @@ pub async fn write_file_content(
 
     // Durable, atomic save via the shared temp-file + rename helper so a crash
     // mid-write cannot truncate or corrupt the destination file.
+    //
+    // The frontend always sends canonical LF; the line ending it passed is
+    // applied here. Save-As reuses the active document's style, so saving a
+    // CRLF file under a new name keeps it CRLF.
     let path_for_write = target_path.clone();
     let is_new_document = !document.exists;
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
         if is_new_document {
-            crate::autosave::atomic_create_to_disk(&path_for_write, &content)
+            crate::autosave::atomic_create_to_disk(&path_for_write, &content, eol)
         } else {
-            crate::autosave::autosave_write_to_disk(&path_for_write, &content)
+            crate::autosave::autosave_write_to_disk(&path_for_write, &content, eol)
         }
     })
     .await
@@ -1024,6 +1064,7 @@ pub async fn write_file_content(
         "auto".to_string(),
         saved.id.clone(),
         saved.generation,
+        eol,
     );
     let _ = app.emit(RECENT_FILES_UPDATED_EVENT, "saved");
     Ok(saved.descriptor())

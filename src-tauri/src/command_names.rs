@@ -9,6 +9,7 @@ pub const APP_COMMANDS: &[&str] = &[
     "autosave_flush_before_switch",
     "autosave_notify_changed",
     "autosave_set_csv_mode",
+    "autosave_set_eol",
     "autosave_set_language_hint",
     "autosave_submit_content",
     "cancel_editor_find",

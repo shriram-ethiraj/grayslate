@@ -65,6 +65,24 @@ describe("keyboard shortcuts help", () => {
     const search = await $("[data-testid='keyboard-shortcuts-search']");
     await expect(search).toBeFocused();
 
+    const rowSemantics = await browser.execute(() => {
+      const rows = Array.from(
+        document.querySelectorAll<HTMLElement>("[data-testid^='shortcut-row-']"),
+      );
+      return {
+        rowCount: rows.length,
+        selectedRows: rows.filter((row) => row.hasAttribute("aria-selected")).length,
+        optionRows: rows.filter((row) => row.getAttribute("role") === "option").length,
+        focusableRows: rows.filter((row) => row.tabIndex >= 0).length,
+        allListItems: rows.every((row) => row.tagName === "LI"),
+      };
+    });
+    expect(rowSemantics.rowCount).toBeGreaterThan(0);
+    expect(rowSemantics.selectedRows).toBe(0);
+    expect(rowSemantics.optionRows).toBe(0);
+    expect(rowSemantics.focusableRows).toBe(0);
+    expect(rowSemantics.allListItems).toBe(true);
+
     await search.setValue("word wrap");
     const actionSearchText = await dialog.getText();
     expect(actionSearchText).toContain("Toggle Word Wrap");

@@ -72,7 +72,10 @@
   import {
     appSettingsState,
     loadAllSettings,
+    resolveDefaultEol,
+    resolveLineEnding,
     saveLastActiveDocument,
+    type Eol,
   } from "$lib/state/appSettings.svelte";
   import {
     type ExecuteTransformationResponse,
@@ -85,12 +88,16 @@
 
   type SavedDocumentSource = "slates" | "local";
 
+  // `lastSavedEol` is the EOL baseline, exactly parallel to `lastSavedValue`:
+  // the live EOL lives in the `eol` state below, and the two are compared to
+  // decide dirtiness. Both halves reset together on every document transition.
   type ActiveDocument =
     | {
         kind: "untitled";
         key: string;
         createdAt: number;
         lastSavedValue: string;
+        lastSavedEol: Eol;
         source: "slates";
       }
     | {
@@ -100,6 +107,7 @@
         path: string;
         source: SavedDocumentSource;
         lastSavedValue: string;
+        lastSavedEol: Eol;
       };
 
   let value = $state("");
@@ -125,6 +133,28 @@
 
   let indentSelection = $state<IndentSelection>(resolveDefaultIndentConfig());
   let indentPickerOpen = $state(false);
+
+  // The line ending this document writes with. Detected on open for existing
+  // files (in Rust, from the bytes already read) and snapshot from the global
+  // default for new ones. The document text itself is always canonical LF —
+  // CodeMirror guarantees that — so this is pure metadata.
+  let eol = $state<Eol>(resolveDefaultEol());
+
+  /**
+   * Collapse CRLF/CR text to the canonical LF form CodeMirror will hold anyway.
+   *
+   * `EditorState.create` splits on `/\r\n?|\n/` and rejoins with `\n`, so text
+   * loaded from disk is normalized whether we ask for it or not. Doing it here
+   * explicitly is what lets `lastSavedValue` be recorded in the *same* form the
+   * editor ends up with — without this, every CRLF file opens permanently
+   * dirty, autosaves spuriously, and gets silently rewritten as LF on save.
+   *
+   * The `\r` guard matters: it avoids copying a multi-hundred-megabyte string
+   * in the overwhelmingly common LF case.
+   */
+  function normalizeToLf(text: string): string {
+    return text.includes("\r") ? text.replace(/\r\n?/g, "\n") : text;
+  }
 
   // Concrete indentation config for actual consumers (CodeMirror, status
   // bar). Resolves "default" live from the global setting, so a document set
@@ -178,6 +208,9 @@
       key: `untitled:${now}`,
       createdAt: now,
       lastSavedValue: "",
+      // Snapshot the resolved global default rather than tracking it live, so
+      // the status bar always shows a concrete line ending.
+      lastSavedEol: resolveDefaultEol(),
       source: "slates",
     };
   }
@@ -214,8 +247,13 @@
   // Managed slates are persisted by the backend autosave flow, including
   // untitled slates that are flushed before a document switch. "Dirty" is
   // therefore reserved for local files that need an explicit save.
+  // Picking a different line ending is a real, savable change even though the
+  // canonical LF text is untouched, so it counts toward dirtiness. Switching
+  // back to the saved style before saving clears it again.
   let isDirty = $derived(
-    activeDocument.source === "local" && value !== activeDocument.lastSavedValue,
+    activeDocument.source === "local" &&
+      (value !== activeDocument.lastSavedValue ||
+        eol !== activeDocument.lastSavedEol),
   );
 
   // Sync activeLanguage to global editorState
@@ -316,7 +354,12 @@
       const key = activeDocument.key;
       void key;
       const languageHint = untrack(() => language);
-      invoke("autosave_activate_untitled", { languageHint }).catch(() => {});
+      // A new slate has nothing to detect, so the frontend supplies the
+      // resolved default; Rust validates it before any write uses it.
+      const eolHint = untrack(() => eol);
+      invoke("autosave_activate_untitled", { languageHint, eol: eolHint }).catch(
+        () => {},
+      );
     }
   });
 
@@ -376,6 +419,7 @@
             path,
             source: "slates",
             lastSavedValue: value,
+            lastSavedEol: eol,
           };
           flushPendingValueSync(editorSession);
           reportLibraryMutation({ kind: "created", path, source: "slates" });
@@ -835,6 +879,9 @@
     language = nextLanguage;
     detectedLanguage = nextDetectedLanguage;
     indentSelection = resolveDefaultIndentConfig();
+    // Keep the live EOL and its baseline equal by construction, so a document
+    // transition can never leave the editor spuriously dirty.
+    eol = nextDocument.lastSavedEol;
     editorState.csv.showTable = false;
     editorState.activeSurface = "editor";
 
@@ -962,24 +1009,42 @@
       const nextLanguage = detected;
       const nextDetectedLanguage = detected;
 
+      // Record the baseline in the same canonical LF form CodeMirror will hold.
+      // Comparing the editor's normalized text against raw CRLF bytes is what
+      // used to mark every Windows file dirty the instant it opened.
+      const canonicalContent = normalizeToLf(content);
+
       await resetEditorDocument(
-        content,
+        canonicalContent,
         {
           kind: "saved",
           documentId: document.documentId,
           documentGeneration: document.generation,
           path: filePath,
           source: document.source,
-          lastSavedValue: content,
+          lastSavedValue: canonicalContent,
+          // Placeholder until activation reports what Rust detected; adopted
+          // together with `eol` below so the pair is never mismatched.
+          lastSavedEol: resolveDefaultEol(),
         },
         nextLanguage,
         nextDetectedLanguage,
       );
-      await invoke("autosave_activate_document", {
+      // Activation returns the line ending Rust detected while reading this
+      // file's bytes — no second read, no extra round-trip.
+      const detectedEol = await invoke<Eol>("autosave_activate_document", {
         documentId: document.documentId,
         documentGeneration: document.generation,
         languageHint: language,
       });
+      // Adopt as both the live style and the saved baseline: the file already
+      // has these endings on disk, so this is not an unsaved change. Guarded
+      // rather than early-returned — a superseded request must still fall
+      // through to `disposeManagedEditorSession` below or it leaks a session.
+      if (isActiveFileOpenRequest(requestVersion)) {
+        eol = detectedEol;
+        activeDocument = { ...activeDocument, lastSavedEol: detectedEol };
+      }
 
       reportLibraryMutation({
         kind: "opened",
@@ -1003,7 +1068,7 @@
       disposeManagedEditorSession(previousSession);
 
       // Reclaim stale heap from the previous file through the shared controller.
-      requestFileOpenReclaim(previousDocLength, content.length);
+      requestFileOpenReclaim(previousDocLength, canonicalContent.length);
       clearPendingSidebarOpenFile(requestVersion);
     } catch (err: unknown) {
       if (!isActiveFileOpenRequest(requestVersion)) {
@@ -1077,7 +1142,8 @@
     const currentContent = editorSession.state?.doc.toString() ?? value;
     return activeDocument.kind === "untitled"
       ? true
-      : currentContent !== activeDocument.lastSavedValue;
+      : currentContent !== activeDocument.lastSavedValue ||
+          eol !== activeDocument.lastSavedEol;
   }
 
   function snapshotActiveDocument(): ActiveDocument {
@@ -1134,6 +1200,9 @@
       documentId: document.documentId,
       documentGeneration: document.generation,
       content,
+      // Send the live line ending with the save rather than letting Rust read
+      // it from the autosave registry, which the picker updates asynchronously.
+      eol,
     });
 
     if (getDocumentKey(activeDocument) !== expectedDocumentKey) {
@@ -1148,6 +1217,7 @@
       path: saved.displayPath,
       source: saved.source,
       lastSavedValue: content,
+      lastSavedEol: eol,
     };
     if (previousPath !== saved.displayPath) {
       reportLibraryMutation({ kind: "created", path: saved.displayPath, source: saved.source });
@@ -1181,6 +1251,7 @@
       {
         content,
         languageHint: language,
+        eol,
       },
     );
 
@@ -1207,7 +1278,13 @@
       const content = await getContentForSave();
 
       if (activeDocument.kind === "saved") {
-        if (content === activeDocument.lastSavedValue) {
+        // An EOL-only change leaves the canonical text identical, so the save
+        // must also consult the line ending — otherwise switching CRLF↔LF and
+        // pressing save would no-op and never reach disk.
+        if (
+          content === activeDocument.lastSavedValue &&
+          eol === activeDocument.lastSavedEol
+        ) {
           return true;
         }
 
@@ -1248,6 +1325,7 @@
         path: savePath,
         source: "slates",
         lastSavedValue: content,
+        lastSavedEol: eol,
       };
       // A freshly-saved untitled slate is now a real file — track it as last-active.
       saveLastActiveDocument(saved.descriptor);
@@ -1321,6 +1399,17 @@
   onMount(async () => {
     try {
       const settings = await loadAllSettings();
+
+      // The first blank slate is constructed before settings (or platform
+      // detection, for "system") have loaded, so its EOL was seeded with the
+      // shipped default. Re-seed it now that the real value is known. Both
+      // halves move together, so the slate stays clean.
+      if (activeDocument.kind === "untitled" && value === "") {
+        const seededEol = await resolveLineEnding(settings.defaultLineEnding);
+        eol = seededEol;
+        activeDocument = { ...activeDocument, lastSavedEol: seededEol };
+      }
+
       if (settings.startupBehavior === "last") {
         const lastDocument = await invoke<DocumentDescriptor | null>("get_last_active_document");
         if (lastDocument) {
@@ -1508,6 +1597,31 @@
     return true;
   }
 
+  /**
+   * Apply a line-ending choice from the status-bar picker.
+   *
+   * Pure metadata: the canonical LF document is untouched, so there is no
+   * CodeMirror transaction and nothing enters undo history. For managed slates
+   * the backend needs to hear about it directly — the autosave timer only
+   * writes documents it considers dirty, and no text edit occurred here.
+   */
+  function handleEolChange(nextEol: Eol): void {
+    if (nextEol === eol) return;
+    eol = nextEol;
+    // EOL metadata participates in the same monotonic generation sequence as
+    // text edits. Rust uses this value to decide whether an autosave response
+    // covers the current document state.
+    if (activeDocument.source === "slates") {
+      autosaveGeneration += 1;
+    }
+    invoke("autosave_set_eol", {
+      eol: nextEol,
+      generation: autosaveGeneration,
+    }).catch((error: unknown) => {
+      console.error("Failed to persist line ending:", error);
+    });
+  }
+
   $effect(() => {
     syncEditorPopupOpenState("indentation-picker", indentPickerOpen);
   });
@@ -1680,8 +1794,10 @@
     {isCsvTableActive}
     {csvInfo}
     indentConfig={effectiveIndentConfig}
+    {eol}
     onGoToLine={openGoToLinePanel}
     onOpenIndentPicker={openIndentPicker}
+    onEolChange={handleEolChange}
   />
 </div>
 
