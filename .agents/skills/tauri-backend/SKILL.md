@@ -40,8 +40,12 @@ Key commands exposed to the frontend include:
 Current implementation notes:
 
 - File reads are validated in Rust before returning content to the frontend.
-- `read_file_content` is cancellable per window and returns raw UTF-8 bytes via `tauri::ipc::Response`.
-- The enforced file-open limit is currently 200 MB.
+- `read_file_content` is cancellable per window. Rust strictly detects and
+  decodes the supported file encodings, then returns decoded UTF-8 bytes via
+  `tauri::ipc::Response`.
+- Raw source bytes and decoded UTF-8 text are each capped at 200 MB.
+- Disk writes share one strict `TextFormat` boundary (encoding + EOL); never
+  bypass it from manual save, autosave, Save As, or CSV direct save.
 - `detect_language` runs the family-first detection pipeline: extension → shebang → strong structural → family classification → family-gated scoring → disambiguation, abstaining when no confident match is found.
 - macOS native menu wiring is handled in Rust; Windows and Linux use the in-window menu implementation.
 - The app builder uses Tauri v2 plugins for window state, OS info, opener, dialog, and clipboard.
@@ -146,7 +150,9 @@ The frontend sidebar listens for this event and refreshes itself. Do not add mir
 2. classify the file source
 3. insert its `tracked_files` row with `ON CONFLICT DO NOTHING`
 4. emit `RECENT_FILES_UPDATED_EVENT` only if the row was inserted
-5. return raw bytes to the frontend
+5. strictly detect/decode the supported character encoding
+6. record the detected `TextFormat` on the document grant
+7. return decoded UTF-8 bytes to the frontend
 
 This ensures a newly opened local file is stored with source `local` and is
 available to the Local sidebar tab. Reopening any already tracked slate or

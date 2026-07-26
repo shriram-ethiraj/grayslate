@@ -42,7 +42,7 @@ Language detection and naming logic live in workspace crates, not under `src-tau
 
 ## Current High-Level Reality
 
-- File open flows through `EditorWrapper.svelte` into Rust `read_file_content`, with a current 200 MB backend-enforced limit.
+- File open flows through `EditorWrapper.svelte` into Rust `read_file_content`, which strictly detects/decodes UTF-8, UTF-8 BOM, UTF-16 LE/BE, and confirmed Windows-1252 before returning UTF-8 IPC bytes. Raw and decoded input are capped at 200 MB.
 - CodeMirror document state is preserved in a managed session even when the live editor view is destroyed.
 - Find/replace uses a custom Svelte panel; CodeMirror still owns highlights and navigation on the main thread, while match-count/current-match stats are computed in Rust (`src-tauri/src/findstats.rs`, via `invoke("editor_find_scan", ...)`) so large-document scans don't block typing. There is no JS Web Worker in this flow.
 - Built-in transformations use a shared Rust progress/cancellation context plus a chunked large-text transport; the frontend assembles chunked results into a CodeMirror `Text` rope and applies them as one undoable transaction.
@@ -110,7 +110,7 @@ Language detection and naming logic live in workspace crates, not under `src-tau
 - **Find / Replace:** Uses a custom popup wired to CodeMirror search state; heavy match counting is Rust-backed via Tauri IPC (`editor_find_scan` / `editor_find_selection` / `cancel_editor_find`), but live query/highlight/navigation stays on the main thread.
 - **Markdown Preview:** Parsed and sanitized in Rust via `pulldown-cmark` and `ammonia`, with custom bi-directional scroll synchronization. Saved files resolve relative images through a bounded image-only IPC command; external links are opened through the system browser rather than navigating the app webview.
 - **Hotkeys:** Use `@tanstack/hotkeys` through the shared helpers in `src/lib/hotkeys.ts`; table-specific shortcuts should remain element-scoped.
-- **File Loading:** File reads are validated in Rust and currently allow files up to 200 MB.
+- **File Loading:** File reads are validated and decoded in Rust. The active `TextFormat` (encoding + EOL) is preserved across manual save, autosave, Save As, and CSV direct saves; raw and decoded input are capped at 200 MB.
 
 ---
 

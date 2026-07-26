@@ -281,6 +281,41 @@ export async function selectEol(eol: "lf" | "crlf"): Promise<void> {
   await dialog.waitForDisplayed({ reverse: true });
 }
 
+export type CharacterEncoding =
+  | "utf-8"
+  | "utf-8-bom"
+  | "utf-16le"
+  | "utf-16be"
+  | "windows-1252";
+
+/** Wait until the status bar reports the active character encoding. */
+export async function waitForEncoding(
+  encoding: CharacterEncoding,
+  timeoutMs = 10_000,
+): Promise<void> {
+  const indicator = await $("[data-testid='status-encoding']");
+  await indicator.waitForDisplayed();
+  await browser.waitUntil(
+    async () => (await indicator.getAttribute("data-encoding")) === encoding,
+    {
+      timeout: timeoutMs,
+      interval: 200,
+      timeoutMsg: `Status bar encoding never became '${encoding}'.`,
+    },
+  );
+}
+
+/** Convert the active document through the status-bar encoding flow. */
+export async function saveWithEncoding(encoding: CharacterEncoding): Promise<void> {
+  await clickTestId("status-encoding");
+  await $("[data-testid='encoding-picker-dialog']").waitForDisplayed();
+  await clickTestId("encoding-select-trigger");
+  await clickTestId(`encoding-item-${encoding}`);
+  await clickTestId("encoding-save");
+  await $("[data-testid='encoding-picker-dialog']").waitForDisplayed({ reverse: true });
+  await waitForEncoding(encoding);
+}
+
 /**
  * Whether the current local file has unsaved changes.
  *

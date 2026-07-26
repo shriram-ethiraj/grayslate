@@ -17,6 +17,7 @@ use std::path::PathBuf;
 
 use crate::{
     autosave::{atomic_create_to_disk, autosave_write_to_disk},
+    character_encoding::{CharacterEncoding, TextFormat},
     document::{
         canonical_notes_root, revalidate_source_authority, DocumentAccess, DocumentRegistry,
         DocumentRights,
@@ -77,13 +78,21 @@ pub async fn save_untitled_slate(
     content: String,
     language_hint: String,
     eol: Option<String>,
+    encoding: Option<String>,
 ) -> Result<SaveResult, String> {
     // Frontend-supplied line ending, for the same reason as `write_file_content`:
     // a manual save must use the picker's current value, not a registry copy the
     // picker updates asynchronously. Falls back to the registry when absent.
-    let eol = match eol {
-        Some(value) => Eol::parse(&value)?,
-        None => autosave.eol_for(window.label()),
+    let current_format = autosave.format_for(window.label());
+    let format = TextFormat {
+        eol: match eol {
+            Some(value) => Eol::parse(&value)?,
+            None => current_format.eol,
+        },
+        encoding: match encoding {
+            Some(value) => CharacterEncoding::parse(&value)?,
+            None => current_format.encoding,
+        },
     };
     let untitled_lock = save_coordinator.for_untitled_window(window.label());
     let _untitled_guard = untitled_lock.lock().await;
@@ -118,7 +127,7 @@ pub async fn save_untitled_slate(
             let path_for_write = path.clone();
             let content_for_write = content.clone();
             tauri::async_runtime::spawn_blocking(move || {
-                autosave_write_to_disk(&path_for_write, &content_for_write, eol)
+                autosave_write_to_disk(&path_for_write, &content_for_write, format)
             })
             .await
             .map_err(|error| format!("Failed to join file write task: {error}"))??;
@@ -131,7 +140,7 @@ pub async fn save_untitled_slate(
                 language_hint.clone(),
                 document_id.clone(),
                 document_generation,
-                eol,
+                format,
             );
             let (_, effective_language) = suggest_stem_auto(&content, &language_hint, None);
             let _ = app.emit(RECENT_FILES_UPDATED_EVENT, "saved");
@@ -154,7 +163,7 @@ pub async fn save_untitled_slate(
         window.label(),
         &content,
         &language_hint,
-        eol,
+        format,
     )
     .await?;
     autosave.register_authorized(
@@ -164,7 +173,7 @@ pub async fn save_untitled_slate(
         language_hint,
         result.document_id.clone(),
         result.document_generation,
-        eol,
+        format,
     );
     Ok(result)
 }
@@ -180,7 +189,7 @@ pub async fn save_new_slate_to_disk(
     window_label: &str,
     content: &str,
     language_hint: &str,
-    eol: Eol,
+    format: TextFormat,
 ) -> Result<SaveResult, String> {
     let notes_root = canonical_notes_root(app, storage, true)?;
 
@@ -218,7 +227,7 @@ pub async fn save_new_slate_to_disk(
         let path_for_write = candidate.clone();
         let content_for_write = content.to_string();
         tauri::async_runtime::spawn_blocking(move || {
-            atomic_create_to_disk(&path_for_write, &content_for_write, eol)
+            atomic_create_to_disk(&path_for_write, &content_for_write, format)
         })
         .await
         .map_err(|e| format!("Failed to join file write task: {}", e))??;

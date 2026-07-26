@@ -8,6 +8,7 @@
   import Check from "~icons/lucide/check";
   import Minus from "~icons/lucide/minus";
   import X from "~icons/lucide/x";
+  import { toast } from "$lib/components/ui/sonner";
 
   import { editorState } from "$lib/state/editor.svelte";
   import {
@@ -124,11 +125,13 @@
         return;
       }
 
-      // Resolves only if the teardown itself failed: on success the webview is
-      // already gone, so this promise never settles. Flush failures are logged
-      // backend-side and deliberately do not block the close.
+      // A failed flush deliberately keeps the window open so text is never
+      // discarded because its selected encoding cannot be written.
       await invoke("prepare_close").catch((error: unknown) => {
         console.error("Close: prepare_close failed:", error);
+        toast.error(typeof error === "string"
+          ? error
+          : "Could not save this slate. The window was kept open.");
       });
     });
 

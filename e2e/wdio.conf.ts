@@ -88,6 +88,7 @@ export const config: WebdriverIO.Config = {
     "./e2e/specs/11-keyboard-shortcuts.e2e.ts",
     "./e2e/specs/11-app-shell.e2e.ts",
     "./e2e/specs/12-line-endings.e2e.ts",
+    "./e2e/specs/13-character-encoding.e2e.ts",
     "./e2e/specs/security/document-authorization.e2e.ts",
     "./e2e/specs/security/ipc-capabilities.e2e.ts",
     "./e2e/specs/security/webview-security.e2e.ts",

@@ -19,6 +19,7 @@ use crate::autosave::{
     autosave_write_to_disk, AutosaveRegistry, ContentRequestPayload, DocumentCreatedPayload,
     AUTOSAVE_DOCUMENT_CREATED_EVENT, AUTOSAVE_FLUSH_BEFORE_CLOSE_EVENT,
 };
+use crate::character_encoding::{CharacterEncoding, TextFormat};
 use crate::commands::csv::CsvSessionRegistry;
 use crate::document::{revalidate_source_authority, DocumentAccess, DocumentRegistry};
 use crate::line_ending::Eol;
@@ -42,14 +43,24 @@ pub fn autosave_activate_untitled(
     registry: tauri::State<'_, AutosaveRegistry>,
     language_hint: String,
     eol: String,
+    encoding: String,
 ) -> Result<(), String> {
-    let eol = Eol::parse(&eol)?;
-    registry.register(window.label(), None, FileSource::Slates, language_hint, eol);
+    let format = TextFormat {
+        eol: Eol::parse(&eol)?,
+        encoding: CharacterEncoding::parse(&encoding)?,
+    };
+    registry.register(
+        window.label(),
+        None,
+        FileSource::Slates,
+        language_hint,
+        format,
+    );
     Ok(())
 }
 
-/// Bind autosave to a Rust-authorized document, returning the line ending
-/// detected when its bytes were read.
+/// Bind autosave to a Rust-authorized document, returning the complete text
+/// format detected when its bytes were read.
 ///
 /// The open flow calls this immediately after `read_file_content`, which
 /// stashed the detected style on the grant. Returning it here is what gets the
@@ -66,7 +77,7 @@ pub fn autosave_activate_document(
     document_id: String,
     document_generation: u64,
     language_hint: String,
-) -> Result<Eol, String> {
+) -> Result<TextFormat, String> {
     let document = documents.resolve(
         window.label(),
         &document_id,
@@ -74,9 +85,10 @@ pub fn autosave_activate_document(
         DocumentAccess::Read,
     )?;
     revalidate_source_authority(&app, storage.inner(), &document)?;
-    let eol = document
-        .detected_eol
-        .unwrap_or_else(|| storage.resolve_default_eol());
+    let format = document.detected_text_format.unwrap_or_else(|| TextFormat {
+        eol: storage.resolve_default_eol(),
+        encoding: storage.resolve_default_encoding(),
+    });
     registry.register_authorized(
         window.label(),
         document.path,
@@ -84,9 +96,9 @@ pub fn autosave_activate_document(
         language_hint,
         document.id,
         document.generation,
-        eol,
+        format,
     );
-    Ok(eol)
+    Ok(format)
 }
 
 // ---------------------------------------------------------------------------
@@ -133,112 +145,119 @@ pub async fn autosave_submit_content(
         return Ok(()); // Silently ignore stale submissions
     }
 
-    let initial_info = registry
-        .get_document_info(&window_label)
-        .ok_or_else(|| "No autosave document registered for this window.".to_string())?;
-    let mut expected_path = initial_info.path;
-    let (_save_guard, doc_info) = loop {
-        let save_lock = match expected_path.as_ref() {
-            Some(path) => save_coordinator.for_path(path),
-            None => save_coordinator.for_untitled_window(&window_label),
-        };
-        let save_guard = save_lock.lock_owned().await;
+    let result: Result<(), String> =
+        async {
+            let initial_info = registry
+                .get_document_info(&window_label)
+                .ok_or_else(|| "No autosave document registered for this window.".to_string())?;
+            let mut expected_path = initial_info.path;
+            let (_save_guard, doc_info) = loop {
+                let save_lock = match expected_path.as_ref() {
+                    Some(path) => save_coordinator.for_path(path),
+                    None => save_coordinator.for_untitled_window(&window_label),
+                };
+                let save_guard = save_lock.lock_owned().await;
 
-        // Manual Save replaces the autosave registration, invalidating this
-        // request while it waits. A stale response must never write afterward.
-        if !registry.validate_request(&window_label, request_id) {
-            return Ok(());
-        }
-        let refreshed = registry
-            .get_document_info(&window_label)
-            .ok_or_else(|| "No autosave document registered for this window.".to_string())?;
-        if refreshed.path == expected_path {
-            break (save_guard, refreshed);
-        }
-        expected_path = refreshed.path;
-    };
+                // Manual Save replaces the autosave registration, invalidating this
+                // request while it waits. A stale response must never write afterward.
+                if !registry.validate_request(&window_label, request_id) {
+                    return Ok(());
+                }
+                let refreshed = registry.get_document_info(&window_label).ok_or_else(|| {
+                    "No autosave document registered for this window.".to_string()
+                })?;
+                if refreshed.path == expected_path {
+                    break (save_guard, refreshed);
+                }
+                expected_path = refreshed.path;
+            };
 
-    match doc_info.path {
-        Some(path) => {
-            let document_id = doc_info
-                .document_id
-                .as_deref()
-                .ok_or_else(|| "Autosave document has no Rust authorization.".to_string())?;
-            let document_generation = doc_info
-                .document_generation
-                .ok_or_else(|| "Autosave document has no Rust authorization.".to_string())?;
-            let document = documents.resolve(
-                &window_label,
-                document_id,
-                document_generation,
-                DocumentAccess::Write,
-            )?;
-            revalidate_source_authority(&app, storage.inner(), &document)?;
-            if document.path != path || document.source != FileSource::Slates {
-                return Err(
-                    "Autosave authorization no longer matches the active slate.".to_string()
-                );
+            match doc_info.path {
+                Some(path) => {
+                    let document_id = doc_info.document_id.as_deref().ok_or_else(|| {
+                        "Autosave document has no Rust authorization.".to_string()
+                    })?;
+                    let document_generation = doc_info.document_generation.ok_or_else(|| {
+                        "Autosave document has no Rust authorization.".to_string()
+                    })?;
+                    let document = documents.resolve(
+                        &window_label,
+                        document_id,
+                        document_generation,
+                        DocumentAccess::Write,
+                    )?;
+                    revalidate_source_authority(&app, storage.inner(), &document)?;
+                    if document.path != path || document.source != FileSource::Slates {
+                        return Err("Autosave authorization no longer matches the active slate."
+                            .to_string());
+                    }
+                    // Existing file — write using atomic temp+rename
+                    let path_clone = path.clone();
+                    let content_clone = content.clone();
+                    let format = doc_info.format;
+                    tauri::async_runtime::spawn_blocking(move || {
+                        autosave_write_to_disk(&path_clone, &content_clone, format)
+                    })
+                    .await
+                    .map_err(|e| format!("Autosave: join error: {}", e))??;
+
+                    storage.record_file_update(&path, FileSource::Slates)?;
+                    let _ = app.emit(RECENT_FILES_UPDATED_EVENT, "saved");
+                    registry.complete_save(&window_label, generation);
+                }
+                None => {
+                    // Untitled slate with no content yet (e.g. typed then deleted
+                    // everything before the first save) — nothing worth naming or
+                    // writing to disk. Mark the save complete so the timer stops
+                    // retrying; the file gets created once real content arrives.
+                    if content.is_empty() {
+                        registry.complete_save(&window_label, generation);
+                        return Ok(());
+                    }
+
+                    // Untitled slate — run naming pipeline to create the file
+                    let result = save_new_slate_to_disk(
+                        &app,
+                        storage.inner(),
+                        documents.inner(),
+                        save_coordinator.inner(),
+                        &window_label,
+                        &content,
+                        &doc_info.language_hint,
+                        doc_info.format,
+                    )
+                    .await?;
+
+                    registry.update_authorization(
+                        &window_label,
+                        result.authorized_path.clone(),
+                        result.document_id.clone(),
+                        result.document_generation,
+                    );
+                    registry.complete_save(&window_label, generation);
+
+                    // Notify the frontend of the new path so it can update
+                    // activeDocument and the title bar.
+                    let _ = window.emit(
+                        AUTOSAVE_DOCUMENT_CREATED_EVENT,
+                        DocumentCreatedPayload {
+                            path: result.path,
+                            document_id: result.document_id,
+                            document_generation: result.document_generation,
+                            detected_language: result.detected_language,
+                        },
+                    );
+                }
             }
-            // Existing file — write using atomic temp+rename
-            let path_clone = path.clone();
-            let content_clone = content.clone();
-            let eol = doc_info.eol;
-            tauri::async_runtime::spawn_blocking(move || {
-                autosave_write_to_disk(&path_clone, &content_clone, eol)
-            })
-            .await
-            .map_err(|e| format!("Autosave: join error: {}", e))??;
 
-            storage.record_file_update(&path, FileSource::Slates)?;
-            let _ = app.emit(RECENT_FILES_UPDATED_EVENT, "saved");
-            registry.complete_save(&window_label, generation);
+            Ok(())
         }
-        None => {
-            // Untitled slate with no content yet (e.g. typed then deleted
-            // everything before the first save) — nothing worth naming or
-            // writing to disk. Mark the save complete so the timer stops
-            // retrying; the file gets created once real content arrives.
-            if content.is_empty() {
-                registry.complete_save(&window_label, generation);
-                return Ok(());
-            }
+        .await;
 
-            // Untitled slate — run naming pipeline to create the file
-            let result = save_new_slate_to_disk(
-                &app,
-                storage.inner(),
-                documents.inner(),
-                save_coordinator.inner(),
-                &window_label,
-                &content,
-                &doc_info.language_hint,
-                doc_info.eol,
-            )
-            .await?;
-
-            registry.update_authorization(
-                &window_label,
-                result.authorized_path.clone(),
-                result.document_id.clone(),
-                result.document_generation,
-            );
-            registry.complete_save(&window_label, generation);
-
-            // Notify the frontend of the new path so it can update
-            // activeDocument and the title bar.
-            let _ = window.emit(
-                AUTOSAVE_DOCUMENT_CREATED_EVENT,
-                DocumentCreatedPayload {
-                    path: result.path,
-                    document_id: result.document_id,
-                    document_generation: result.document_generation,
-                    detected_language: result.detected_language,
-                },
-            );
-        }
+    if let Err(message) = &result {
+        registry.fail_save(&window_label, generation, message.clone());
     }
-
-    Ok(())
+    result
 }
 
 // ---------------------------------------------------------------------------
@@ -325,9 +344,9 @@ pub async fn autosave_flush_before_switch(
                 );
             }
             let path_clone = path.clone();
-            let eol = doc_info.eol;
+            let format = doc_info.format;
             tauri::async_runtime::spawn_blocking(move || {
-                autosave_write_to_disk(&path_clone, &save_content, eol)
+                autosave_write_to_disk(&path_clone, &save_content, format)
             })
             .await
             .map_err(|e| format!("Autosave flush: join error: {}", e))??;
@@ -349,7 +368,7 @@ pub async fn autosave_flush_before_switch(
                     &window_label,
                     &save_content,
                     &doc_info.language_hint,
-                    doc_info.eol,
+                    doc_info.format,
                 )
                 .await?;
 
@@ -477,7 +496,7 @@ pub async fn prepare_close(
         &csv_registry,
         &save_coordinator,
     )
-    .await;
+    .await?;
 
     // The window is going away, so its autosave registration is no longer
     // useful; dropping it stops a timer tick from requesting content from a
@@ -487,10 +506,8 @@ pub async fn prepare_close(
     window.destroy().map_err(|error| error.to_string())
 }
 
-/// Best-effort flush of the active slate before the window is destroyed.
-///
-/// Errors are logged rather than returned: a failure here must not keep the
-/// window open, since the user has already confirmed the close.
+/// Flush the active slate before the window is destroyed. Any failure aborts
+/// close so an encoding error or unavailable disk can never discard text.
 async fn flush_before_close(
     app: &tauri::AppHandle,
     window: &tauri::Window,
@@ -499,96 +516,78 @@ async fn flush_before_close(
     storage: &AppStorage,
     csv_registry: &CsvSessionRegistry,
     save_coordinator: &SaveCoordinator,
-) {
+) -> Result<(), String> {
     let label = window.label().to_string();
 
     let Some(doc_info) = registry.get_document_info(&label) else {
-        return;
+        return Ok(());
     };
 
     if !doc_info.is_dirty || !matches!(doc_info.source, FileSource::Slates) {
-        return;
+        return Ok(());
     }
 
     if doc_info.csv_table_active {
         // CSV table mode owns the authoritative rows, so serialize straight
         // from the session instead of asking the frontend for text.
         let Some((_version, content)) = csv_registry.try_flush_for_autosave(&label) else {
-            return;
+            return Err("Could not serialize the CSV table before closing.".to_string());
         };
         let Some(path) = doc_info.path.as_ref() else {
-            return;
+            return Err("The CSV document has no save path.".to_string());
         };
         let save_lock = save_coordinator.for_path(path);
         let _save_guard = save_lock.lock().await;
         let Some(doc_info) = registry.get_document_info(&label) else {
-            return;
+            return Err("The autosave document disappeared before closing.".to_string());
         };
         if !doc_info.is_dirty || doc_info.path.as_ref() != Some(path) {
-            return;
+            return Ok(());
         }
         let Some(document_id) = doc_info.document_id.as_deref() else {
-            eprintln!("Autosave close-flush: document authorization is missing");
-            return;
+            return Err(
+                "Autosave close failed because document authorization is missing.".to_string(),
+            );
         };
         let Some(document_generation) = doc_info.document_generation else {
-            eprintln!("Autosave close-flush: document generation is missing");
-            return;
+            return Err(
+                "Autosave close failed because document generation is missing.".to_string(),
+            );
         };
 
-        let authorized = match documents.resolve(
+        let authorized = documents.resolve(
             &label,
             document_id,
             document_generation,
             DocumentAccess::Write,
-        ) {
-            Ok(document) => document,
-            Err(error) => {
-                eprintln!("Autosave close-flush: {error}");
-                return;
-            }
-        };
-        if let Err(error) = revalidate_source_authority(app, storage, &authorized) {
-            eprintln!("Autosave close-flush: {error}");
-            return;
-        }
+        )?;
+        revalidate_source_authority(app, storage, &authorized)?;
         if authorized.path != *path {
-            eprintln!("Autosave close-flush: authorized path changed");
-            return;
+            return Err("Autosave close failed because the document path changed.".to_string());
         }
 
         let path = path.clone();
         let path_for_write = path.clone();
         // The CSV session serializes canonical LF; convert at this boundary.
-        let eol = doc_info.eol;
+        let format = doc_info.format;
         let save_generation = doc_info.generation;
-        match tauri::async_runtime::spawn_blocking(move || {
-            autosave_write_to_disk(&path_for_write, &content, eol)
+        tauri::async_runtime::spawn_blocking(move || {
+            autosave_write_to_disk(&path_for_write, &content, format)
         })
         .await
-        {
-            Ok(Ok(())) => {
-                if let Err(error) = storage.record_file_update(&path, FileSource::Slates) {
-                    eprintln!(
-                        "Autosave close-flush: failed to update tracked-file metadata: {}",
-                        error
-                    );
-                }
-                let _ = app.emit(RECENT_FILES_UPDATED_EVENT, "saved");
-                // Autosave change generation, not the CSV session's own
-                // version counter — see `handle_csv_direct_save`.
-                registry.complete_save(&label, save_generation);
-            }
-            Ok(Err(error)) => eprintln!("Autosave close-flush: {}", error),
-            Err(error) => eprintln!("Autosave close-flush task failed: {}", error),
-        }
-        return;
+        .map_err(|error| format!("Autosave close-flush task failed: {error}"))??;
+        storage.record_file_update(&path, FileSource::Slates)?;
+        let _ = app.emit(RECENT_FILES_UPDATED_EVENT, "saved");
+        // Autosave change generation, not the CSV session's own version
+        // counter — see `handle_csv_direct_save`.
+        registry.complete_save(&label, save_generation);
+        return Ok(());
     }
 
     // Text mode: the document lives in the frontend's CodeMirror session, so
     // ask for it and wait for `autosave_submit_content` to land the write.
     let Some(request_id) = registry.begin_close_content_request(&label) else {
-        return;
+        return Ok(());
     };
     let _ = window.emit(
         AUTOSAVE_FLUSH_BEFORE_CLOSE_EVENT,
@@ -602,14 +601,17 @@ async fn flush_before_close(
     loop {
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         if !registry.has_unsaved_changes(&label) {
-            break;
+            return Ok(());
+        }
+        if let Some(message) = registry.current_save_failure(&label) {
+            return Err(message);
         }
         if start.elapsed() >= timeout {
-            eprintln!(
-                "Autosave: close-flush timed out for window '{}'; accepting potential data loss.",
-                label
+            registry.clear_in_flight(&label);
+            return Err(
+                "Grayslate could not finish saving this slate. The window was kept open."
+                    .to_string(),
             );
-            break;
         }
     }
 }

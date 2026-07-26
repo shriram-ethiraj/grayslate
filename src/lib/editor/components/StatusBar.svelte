@@ -1,7 +1,8 @@
 <script lang="ts">
   import LanguagePicker from "./LanguagePicker.svelte";
   import EolPicker from "./EolPicker.svelte";
-  import type { Eol } from "$lib/state/appSettings.svelte";
+  import EncodingPicker from "./EncodingPicker.svelte";
+  import type { CharacterEncoding, Eol } from "$lib/state/appSettings.svelte";
   import { IndentMode, type IndentConfig } from "./IndentationPicker.svelte";
   import { DEFAULT_INDENT_CONFIG } from "$lib/editor/core/editorSession";
   import { AppTooltip } from "$lib/components/ui/tooltip/index.js";
@@ -21,9 +22,14 @@
     csvInfo = { rows: 0, cols: 0, delimiter: "", errors: 0 },
     indentConfig = DEFAULT_INDENT_CONFIG,
     eol = "lf",
+    encoding = "utf-8",
+    canReopenEncoding = false,
+    reopenEncodingDisabledReason = "Save or discard your changes before reopening.",
     onGoToLine = () => {},
     onOpenIndentPicker = () => {},
     onEolChange = () => {},
+    onReopenEncoding = async () => false,
+    onSaveEncoding = async () => false,
   }: {
     documentLength?: number;
     lineCount?: number;
@@ -39,9 +45,14 @@
     indentMode?: never;
     indentSize?: never;
     eol?: Eol;
+    encoding?: CharacterEncoding;
+    canReopenEncoding?: boolean;
+    reopenEncodingDisabledReason?: string;
     onGoToLine?: () => void;
     onOpenIndentPicker?: () => void;
     onEolChange?: (next: Eol) => void;
+    onReopenEncoding?: (next: CharacterEncoding) => Promise<boolean>;
+    onSaveEncoding?: (next: CharacterEncoding) => Promise<boolean>;
   } = $props();
 
   const indentLabel = $derived.by(() => {
@@ -115,6 +126,14 @@
     {#if !isCsvTableActive}
       <span class="text-muted-foreground">|</span>
       <EolPicker {eol} onChange={onEolChange} />
+      <span class="text-muted-foreground">|</span>
+      <EncodingPicker
+        {encoding}
+        canReopen={canReopenEncoding}
+        reopenDisabledReason={reopenEncodingDisabledReason}
+        onReopen={onReopenEncoding}
+        onSave={onSaveEncoding}
+      />
     {/if}
     <span class="text-muted-foreground">|</span>
     <LanguagePicker bind:language {detectedLanguage} />

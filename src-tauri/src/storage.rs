@@ -19,6 +19,7 @@ pub const SETTING_DEFAULT_INDENT_MODE: &str = "default_indent_mode";
 pub const SETTING_DEFAULT_INDENT_SIZE: &str = "default_indent_size";
 pub const SETTING_CONFIRM_BEFORE_DELETE: &str = "confirm_before_delete";
 pub const SETTING_DEFAULT_LINE_ENDING: &str = "default_line_ending";
+pub const SETTING_DEFAULT_ENCODING: &str = "default_encoding";
 
 /// All app setting keys that the app validates/converts at the command layer.
 /// Used for batch-loading at startup so the frontend doesn't need to hardcode them.
@@ -35,6 +36,7 @@ pub const ALL_SETTING_KEYS: &[&str] = &[
     SETTING_DEFAULT_INDENT_SIZE,
     SETTING_CONFIRM_BEFORE_DELETE,
     SETTING_DEFAULT_LINE_ENDING,
+    SETTING_DEFAULT_ENCODING,
 ];
 
 const DATABASE_FILENAME: &str = "grayslate.sqlite3";
@@ -115,7 +117,7 @@ impl AppStorage {
     ///
     /// Used as the fallback when a file contains no line break at all, and as
     /// the seed for brand-new documents. Best-effort: an unreadable or invalid
-    /// setting resolves to the host convention rather than failing an open.
+    /// setting resolves to LF rather than failing an open.
     pub fn resolve_default_eol(&self) -> crate::line_ending::Eol {
         use crate::line_ending::Eol;
 
@@ -123,7 +125,17 @@ impl AppStorage {
             .ok()
             .flatten()
             .and_then(|value| Eol::parse(&value).ok())
-            .unwrap_or_else(Eol::platform_default)
+            .unwrap_or_default()
+    }
+
+    pub fn resolve_default_encoding(&self) -> crate::character_encoding::CharacterEncoding {
+        use crate::character_encoding::CharacterEncoding;
+
+        self.get_setting(SETTING_DEFAULT_ENCODING)
+            .ok()
+            .flatten()
+            .and_then(|value| CharacterEncoding::parse(&value).ok())
+            .unwrap_or_default()
     }
 
     pub fn set_setting(&self, key: &str, value: Option<&str>) -> Result<(), String> {
@@ -774,11 +786,26 @@ impl AppStorage {
                 ",
                 params![
                     SETTING_DEFAULT_LINE_ENDING,
-                    crate::line_ending::Eol::platform_default().as_str(),
+                    crate::line_ending::Eol::Lf.as_str(),
                     current_time_ms()
                 ],
             )
             .map_err(|error| format!("Failed to initialize default line ending: {}", error))?;
+
+        connection
+            .execute(
+                "
+                INSERT INTO app_settings (key, value, updated_at)
+                VALUES (?1, ?2, ?3)
+                ON CONFLICT(key) DO NOTHING
+                ",
+                params![
+                    SETTING_DEFAULT_ENCODING,
+                    crate::character_encoding::CharacterEncoding::Utf8.as_str(),
+                    current_time_ms()
+                ],
+            )
+            .map_err(|error| format!("Failed to initialize default encoding: {}", error))?;
 
         Ok(())
     }
@@ -958,7 +985,7 @@ mod tests {
     }
 
     #[test]
-    fn initializes_default_line_ending_from_the_host_os() {
+    fn initializes_recommended_text_defaults() {
         let (storage, _dir) = temp_storage();
 
         assert_eq!(
@@ -966,7 +993,14 @@ mod tests {
                 .get_setting(SETTING_DEFAULT_LINE_ENDING)
                 .expect("read default line ending")
                 .as_deref(),
-            Some(crate::line_ending::Eol::platform_default().as_str())
+            Some("lf")
+        );
+        assert_eq!(
+            storage
+                .get_setting(SETTING_DEFAULT_ENCODING)
+                .expect("read default encoding")
+                .as_deref(),
+            Some("utf-8")
         );
     }
 
@@ -986,6 +1020,24 @@ mod tests {
                 .expect("read selected line ending")
                 .as_deref(),
             Some(selected)
+        );
+    }
+
+    #[test]
+    fn initialization_does_not_overwrite_a_selected_encoding() {
+        let (storage, _dir) = temp_storage();
+        storage
+            .set_setting(SETTING_DEFAULT_ENCODING, Some("utf-16be"))
+            .expect("set encoding");
+
+        storage.run_migrations().expect("rerun migrations");
+
+        assert_eq!(
+            storage
+                .get_setting(SETTING_DEFAULT_ENCODING)
+                .expect("read selected encoding")
+                .as_deref(),
+            Some("utf-16be")
         );
     }
 

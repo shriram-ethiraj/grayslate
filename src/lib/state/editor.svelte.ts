@@ -41,7 +41,8 @@ export type EditorPopupId =
     | "language-picker"
     | "transformations"
     | "indentation-picker"
-    | "eol-picker";
+    | "eol-picker"
+    | "encoding-picker";
 
 export type EditorPopupOpenRequest =
     | {
@@ -62,6 +63,9 @@ export type EditorPopupOpenRequest =
     }
     | {
         id: "eol-picker";
+    }
+    | {
+        id: "encoding-picker";
     };
 
 type EditorPopupController = {
@@ -292,6 +296,10 @@ export function openLanguagePicker(): boolean {
 // view owns the surface.
 export function openEolPicker(): boolean {
     return openEditorPopup({ id: "eol-picker" });
+}
+
+export function openEncodingPicker(): boolean {
+    return openEditorPopup({ id: "encoding-picker" });
 }
 
 export function openTransformationsPalette(): boolean {

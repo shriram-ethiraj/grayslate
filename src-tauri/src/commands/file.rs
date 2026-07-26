@@ -12,6 +12,10 @@ use tauri::Emitter;
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 
+use crate::character_encoding::{
+    decode_explicit, detect_and_decode, CharacterEncoding, DecodeDecision, EncodingChoiceReason,
+    TextFormat,
+};
 use crate::document::{
     canonical_notes_root, classify_existing_document, classify_new_document, open_authorized_read,
     revalidate_source_authority, AuthorizedDocument, DocumentAccess, DocumentDescriptor,
@@ -23,10 +27,10 @@ use crate::filesystem::{
 };
 use crate::storage::{
     normalize_path_key, path_to_display_string, AppStorage, FileSource, RecentFileRecord,
-    SETTING_CONFIRM_BEFORE_DELETE, SETTING_DEFAULT_INDENT_MODE, SETTING_DEFAULT_INDENT_SIZE,
-    SETTING_DEFAULT_LINE_ENDING, SETTING_FONT_SIZE, SETTING_LAST_ACTIVE_FILE, SETTING_NOTES_ROOT,
-    SETTING_SIDEBAR_OPEN, SETTING_SIDEBAR_WIDTH, SETTING_STARTUP_BEHAVIOR, SETTING_THEME,
-    SETTING_WORD_WRAP,
+    SETTING_CONFIRM_BEFORE_DELETE, SETTING_DEFAULT_ENCODING, SETTING_DEFAULT_INDENT_MODE,
+    SETTING_DEFAULT_INDENT_SIZE, SETTING_DEFAULT_LINE_ENDING, SETTING_FONT_SIZE,
+    SETTING_LAST_ACTIVE_FILE, SETTING_NOTES_ROOT, SETTING_SIDEBAR_OPEN, SETTING_SIDEBAR_WIDTH,
+    SETTING_STARTUP_BEHAVIOR, SETTING_THEME, SETTING_WORD_WRAP,
 };
 
 use super::RECENT_FILES_UPDATED_EVENT;
@@ -219,10 +223,34 @@ fn read_file_bytes_cancellable(path: &Path, cancelled: &AtomicBool) -> Result<Ve
 
     ensure_read_not_cancelled(cancelled)?;
 
-    // Validate UTF-8 without converting to String — avoids an allocation.
-    std::str::from_utf8(&bytes).map_err(|error| format!("Failed to read file: {}", error))?;
-
     Ok(bytes)
+}
+
+#[derive(serde::Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum ReadFileError {
+    Error {
+        message: String,
+    },
+    EncodingChoiceRequired {
+        #[serde(rename = "suggestedEncoding")]
+        suggested_encoding: CharacterEncoding,
+        reason: EncodingChoiceReason,
+    },
+}
+
+impl From<String> for ReadFileError {
+    fn from(message: String) -> Self {
+        Self::Error { message }
+    }
+}
+
+impl From<&str> for ReadFileError {
+    fn from(message: &str) -> Self {
+        Self::Error {
+            message: message.to_string(),
+        }
+    }
 }
 
 /// Reject paths whose target is not a regular file.
@@ -364,10 +392,10 @@ fn clamp_recent_files_limit(limit: Option<usize>) -> usize {
 /// serialization. The frontend receives an `ArrayBuffer` and decodes it with
 /// `TextDecoder`, avoiding the overhead of JSON-escaping up to 200 MB of text.
 ///
-/// Returns an error string (forwarded to the frontend) when:
+/// Returns a structured error when:
 /// - the path cannot be stat-ed or read,
 /// - the file exceeds the 200 MB limit, or
-/// - the file is not valid UTF-8.
+/// - automatic detection needs confirmation or the file is not supported text.
 #[tauri::command]
 pub async fn read_file_content(
     app: tauri::AppHandle,
@@ -378,11 +406,12 @@ pub async fn read_file_content(
     document_id: String,
     document_generation: u64,
     request_id: u64,
-) -> Result<tauri::ipc::Response, String> {
+    encoding: Option<String>,
+) -> Result<tauri::ipc::Response, ReadFileError> {
     let window_label = window.label().to_string();
     let cancellation_flag = cancellations.begin_request(&window_label, request_id);
 
-    let result = async {
+    let result: Result<tauri::ipc::Response, ReadFileError> = async {
         let document = resolve_document(
             &app,
             storage.inner(),
@@ -407,22 +436,56 @@ pub async fn read_file_content(
             return Err(format!(
                 "File is too large ({:.1} MB). The maximum allowed size is 200 MB.",
                 size_mb
-            ));
+            )
+            .into());
         }
 
         let read_path = document.path.clone();
         let read_cancelled = Arc::clone(&cancellation_flag);
         let detection_storage = storage.inner().clone();
-        let (bytes, detected_eol) = tauri::async_runtime::spawn_blocking(move || {
+        let requested_encoding = encoding
+            .as_deref()
+            .map(CharacterEncoding::parse)
+            .transpose()?;
+        let (text, detected_format) = tauri::async_runtime::spawn_blocking(move || {
             let bytes = read_file_bytes_cancellable(&read_path, read_cancelled.as_ref())?;
-            // Detection can still inspect a large prefix when a file has very
-            // few line breaks, so keep it on the same blocking worker as IO.
-            let detected_eol =
-                crate::line_ending::detect_eol(&bytes, detection_storage.resolve_default_eol());
-            Ok::<_, String>((bytes, detected_eol))
+            let decision = match requested_encoding {
+                Some(encoding) => decode_explicit(&bytes, encoding)?,
+                None => detect_and_decode(&bytes)?,
+            };
+            let (text, encoding) = match decision {
+                DecodeDecision::Decoded { text, encoding } => (text, encoding),
+                DecodeDecision::NeedsConfirmation {
+                    suggested_encoding,
+                    reason,
+                } => {
+                    return Err(ReadFileError::EncodingChoiceRequired {
+                        suggested_encoding,
+                        reason,
+                    });
+                }
+            };
+            if text.len() > MAX_FILE_SIZE as usize {
+                return Err(ReadFileError::from(
+                    "Decoded text exceeds the maximum supported size of 200 MB.",
+                ));
+            }
+            let detected_eol = crate::line_ending::detect_eol(
+                text.as_bytes(),
+                detection_storage.resolve_default_eol(),
+            );
+            Ok::<_, ReadFileError>((
+                text,
+                TextFormat {
+                    eol: detected_eol,
+                    encoding,
+                },
+            ))
         })
         .await
-        .map_err(|error| format!("Failed to join file read task: {}", error))??;
+        .map_err(|error| {
+            ReadFileError::from(format!("Failed to join file read task: {error}"))
+        })??;
 
         ensure_read_not_cancelled(cancellation_flag.as_ref())?;
 
@@ -431,17 +494,17 @@ pub async fn read_file_content(
         // metadata, so the result is stashed on the document grant and handed
         // to the frontend by `autosave_activate_document`, which the open flow
         // invokes immediately after this read.
-        documents.record_detected_eol(
+        documents.record_detected_text_format(
             &window_label,
             &document_id,
             document_generation,
-            detected_eol,
+            detected_format,
         );
 
         if storage.record_file_open_if_untracked(&document.path, document.source)? {
             let _ = app.emit(RECENT_FILES_UPDATED_EVENT, ());
         }
-        Ok(tauri::ipc::Response::new(bytes))
+        Ok(tauri::ipc::Response::new(text.into_bytes()))
     }
     .await;
 
@@ -815,6 +878,11 @@ pub fn set_app_setting(
                     .map_err(|_| "Default line ending must be \"lf\" or \"crlf\".".to_string())?;
             }
         }
+        SETTING_DEFAULT_ENCODING => {
+            if let Some(ref encoding) = value {
+                CharacterEncoding::parse(encoding)?;
+            }
+        }
         // Internal bookkeeping path (or None to clear). It may be stale by the
         // next launch, but it must still have the shape of a file path written
         // by the editor rather than an arbitrary setting payload.
@@ -997,6 +1065,7 @@ pub async fn write_file_content(
     document_generation: u64,
     content: String,
     eol: Option<String>,
+    encoding: Option<String>,
 ) -> Result<DocumentDescriptor, String> {
     // The frontend owns the live line-ending choice and sends it with the save,
     // the same way it sends `content`. Reading it back from the autosave
@@ -1004,9 +1073,16 @@ pub async fn write_file_content(
     // updates the registry asynchronously), so a manual save could write the
     // previous ending. Passing it makes the write deterministic; the registry
     // value is only a fallback for callers that don't supply one.
-    let eol = match eol {
-        Some(value) => crate::line_ending::Eol::parse(&value)?,
-        None => autosave.eol_for(window.label()),
+    let current_format = autosave.format_for(window.label());
+    let format = TextFormat {
+        eol: match eol {
+            Some(value) => crate::line_ending::Eol::parse(&value)?,
+            None => current_format.eol,
+        },
+        encoding: match encoding {
+            Some(value) => CharacterEncoding::parse(&value)?,
+            None => current_format.encoding,
+        },
     };
     let document = resolve_document(
         &app,
@@ -1046,9 +1122,9 @@ pub async fn write_file_content(
     let is_new_document = !document.exists;
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
         if is_new_document {
-            crate::autosave::atomic_create_to_disk(&path_for_write, &content, eol)
+            crate::autosave::atomic_create_to_disk(&path_for_write, &content, format)
         } else {
-            crate::autosave::autosave_write_to_disk(&path_for_write, &content, eol)
+            crate::autosave::autosave_write_to_disk(&path_for_write, &content, format)
         }
     })
     .await
@@ -1064,7 +1140,7 @@ pub async fn write_file_content(
         "auto".to_string(),
         saved.id.clone(),
         saved.generation,
-        eol,
+        format,
     );
     let _ = app.emit(RECENT_FILES_UPDATED_EVENT, "saved");
     Ok(saved.descriptor())
@@ -1462,6 +1538,23 @@ pub async fn duplicate_file(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn encoding_confirmation_error_has_stable_frontend_shape() {
+        let value = serde_json::to_value(ReadFileError::EncodingChoiceRequired {
+            suggested_encoding: CharacterEncoding::Windows1252,
+            reason: EncodingChoiceReason::LegacySingleByte,
+        })
+        .unwrap();
+        assert_eq!(
+            value,
+            serde_json::json!({
+                "kind": "encodingChoiceRequired",
+                "suggestedEncoding": "windows-1252",
+                "reason": "legacySingleByte"
+            })
+        );
+    }
 
     fn temp_dir(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(name);

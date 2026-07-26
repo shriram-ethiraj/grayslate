@@ -1,6 +1,7 @@
 use tauri::Manager;
 
 pub mod autosave;
+pub mod character_encoding;
 pub mod commands;
 pub mod csv;
 pub mod detection;

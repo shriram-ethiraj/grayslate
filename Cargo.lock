@@ -17,6 +17,7 @@ dependencies = [
  "dprint-plugin-sql",
  "dprint-plugin-toml",
  "dprint-plugin-typescript",
+ "encoding_rs",
  "flate2",
  "globset",
  "grayslate-langdetect",

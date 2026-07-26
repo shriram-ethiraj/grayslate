@@ -7,17 +7,34 @@ interface TauriInternals {
   invoke<T>(command: string, args?: Record<string, unknown>): Promise<T>;
 }
 
+interface InvocationError {
+  kind: string | null;
+  message: string;
+}
+
 async function invokeFromWebview(
   command: string,
   args: Record<string, unknown>,
-): Promise<string> {
+): Promise<InvocationError> {
   return browser.executeAsync((name, payload, done) => {
     const internals = (window as unknown as { __TAURI_INTERNALS__: TauriInternals })
       .__TAURI_INTERNALS__;
     internals
       .invoke(name, payload)
-      .then(() => done("unexpectedly allowed"))
-      .catch((error: unknown) => done(String(error)));
+      .then(() => done({ kind: null, message: "unexpectedly allowed" }))
+      .catch((error: unknown) => {
+        if (typeof error === "object" && error !== null) {
+          const structured = error as Record<string, unknown>;
+          done({
+            kind: typeof structured.kind === "string" ? structured.kind : null,
+            message: typeof structured.message === "string"
+              ? structured.message
+              : String(error),
+          });
+          return;
+        }
+        done({ kind: null, message: String(error) });
+      });
   }, command, args);
 }
 
@@ -52,10 +69,11 @@ describe("Rust-owned document authorization", () => {
       source: "slates",
     });
 
-    expect(readError).toContain("authorization");
-    expect(writeError).toContain("authorization");
-    expect(deleteError).toContain("authorization");
-    expect(autosaveError).toContain("authorization");
+    expect(readError.kind).toBe("error");
+    expect(readError.message).toContain("authorization");
+    expect(writeError.message).toContain("authorization");
+    expect(deleteError.message).toContain("authorization");
+    expect(autosaveError.message).toContain("authorization");
     expect(fs.readFileSync(victim, "utf8")).toBe("original");
   });
 });
