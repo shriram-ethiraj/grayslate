@@ -1838,7 +1838,6 @@
   }
 
   async function handleSaveEncoding(nextEncoding: CharacterEncoding): Promise<boolean> {
-    if (nextEncoding === encoding && !saveActionInFlight) return false;
     return requestSaveAction({
       kind: "save-with-encoding",
       targetEncoding: nextEncoding,

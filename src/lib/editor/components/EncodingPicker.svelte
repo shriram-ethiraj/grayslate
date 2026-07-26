@@ -133,7 +133,7 @@
       </div>
       <Button
         data-testid="encoding-save"
-        disabled={selected === encoding || actionInProgress}
+        disabled={actionInProgress}
         onclick={() => void runAction("save")}
       >
         Save with Encoding
