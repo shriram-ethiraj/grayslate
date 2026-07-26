@@ -22,7 +22,7 @@
 
   const itemBase =
     "relative flex w-full items-center rounded-sm px-2 py-1.5 text-sm outline-hidden select-none";
-  const itemEnabled = `${itemBase} cursor-pointer hover:bg-accent hover:text-accent-foreground`;
+  const itemEnabled = `${itemBase} ui-state cursor-pointer`;
 
   function openMenu(event: MouseEvent) {
     activateMarkdownPreview();

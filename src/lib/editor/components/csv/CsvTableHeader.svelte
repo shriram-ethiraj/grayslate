@@ -148,14 +148,15 @@
   }
 
   thead th.focused {
-    outline: 2px solid var(--primary);
+    outline: 2px solid var(--state-cursor-ring);
     outline-offset: -2px;
     z-index: 10;
     position: relative;
   }
 
+  /* Flat, like the body range — see CsvTableBody. */
   thead th.selected {
-    background-color: color-mix(in srgb, var(--primary) 20%, var(--sidebar));
+    background-color: var(--state-range-solid);
   }
 
   thead th:focus-visible {

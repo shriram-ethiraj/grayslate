@@ -153,6 +153,9 @@ importers:
         specifier: ^4.18.1
         version: 4.18.1
     devDependencies:
+      '@iconify-json/gala':
+        specifier: ^1.2.3
+        version: 1.2.3
       '@internationalized/date':
         specifier: ^3.12.2
         version: 3.12.2
@@ -1058,6 +1061,9 @@ packages:
 
   '@iconify-json/fluent@1.2.52':
     resolution: {integrity: sha512-EyI5HVqpr7zhmpo3W+H/msF6iipYY29Y5fPAWXEp4GhI85e9GN3l0Aznip26oqSmtJL0lodIFwkTJ3s3Zd8CNA==}
+
+  '@iconify-json/gala@1.2.3':
+    resolution: {integrity: sha512-QZBPM2nirVLGfSJ0pcEP0O/aZHSXD2FwK4fieylMN678PA5ijbgUjNI0+zBed4ENzDwe4fXwsxiS1YZoQoHabA==}
 
   '@iconify-json/lucide-lab@1.2.3':
     resolution: {integrity: sha512-N+8vnVt4IY/6FZi81f6nh5VhJSMYrs5KTVsT2Z/E0Wn7Lu4jJKO5fOfiTVX1YWVI4FFwQ1zVXPFb8kLAwskrjA==}
@@ -5528,6 +5534,10 @@ snapshots:
       '@iconify/types': 2.0.0
 
   '@iconify-json/fluent@1.2.52':
+    dependencies:
+      '@iconify/types': 2.0.0
+
+  '@iconify-json/gala@1.2.3':
     dependencies:
       '@iconify/types': 2.0.0
 

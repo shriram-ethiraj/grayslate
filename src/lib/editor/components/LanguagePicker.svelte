@@ -71,7 +71,7 @@
         <button
             {...props}
             onclick={openEditorLanguagePicker}
-            class="flex items-center hover:bg-muted/50 hover:text-foreground h-full px-2 transition-colors cursor-pointer rounded-none bg-transparent text-xs gap-1.5"
+            class="ui-state flex h-full cursor-pointer items-center gap-1.5 rounded-none px-2 text-xs"
             data-testid="language-mode"
             data-language-mode={language}
             data-detected-language={detectedLanguage}
@@ -104,11 +104,8 @@
                 <button
                     data-testid="language-item-auto"
                     onclick={() => selectLanguage("auto")}
-                    class="flex w-full items-center gap-2 rounded-sm px-2 py-2 text-sm cursor-pointer
-                           hover:bg-accent hover:text-accent-foreground transition-colors
-                           {language === 'auto'
-                        ? 'bg-accent/50 text-accent-foreground'
-                        : ''}"
+                    aria-pressed={language === "auto"}
+                    class="ui-state ui-state-selected flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-2 text-sm"
                 >
                     <span class="w-4 shrink-0 flex items-center justify-center">
                         {#if language === "auto"}

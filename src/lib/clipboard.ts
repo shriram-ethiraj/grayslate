@@ -17,6 +17,7 @@ const COPY_CANCEL_HEADER = "x-grayslate-copy-cancel";
 
 type ClipboardCopyResponse = {
     completed: boolean;
+    inputByteLength: number;
     byteLength: number;
 };
 
@@ -192,10 +193,13 @@ export async function copyEditorRangeToClipboard(
             if (response.completed !== finalChunk) {
                 throw new Error("Clipboard copy completed in an unexpected state.");
             }
-            if (finalChunk && response.byteLength !== byteLength) {
+            if (finalChunk && response.inputByteLength !== byteLength) {
                 throw new Error(
-                    `Clipboard copy size mismatch: expected ${byteLength}, wrote ${response.byteLength}.`,
+                    `Clipboard copy input size mismatch: expected ${byteLength}, received ${response.inputByteLength}.`,
                 );
+            }
+            if (finalChunk) {
+                byteLength = response.byteLength;
             }
 
             offset = end;

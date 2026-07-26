@@ -5,7 +5,7 @@ use std::sync::{
 };
 
 use serde::Serialize;
-use tauri::{AppHandle, Window};
+use tauri::{AppHandle, Manager, Window};
 
 use crate::csv::{
     self, CsvMutationRequest, CsvMutationResponse, CsvRowWindow, CsvSession, CsvTableSnapshot,
@@ -272,6 +272,11 @@ pub async fn csv_copy_to_clipboard(
 ) -> Result<CsvFlushResponse, String> {
     let window_label = window.label().to_string();
     let registry = registry.inner().clone();
+    // The CSV session serializes canonical LF; the document's own style is
+    // applied at the clipboard boundary, same as at the disk boundary.
+    let eol = app
+        .state::<crate::autosave::AutosaveRegistry>()
+        .eol_for(&window_label);
 
     tauri::async_runtime::spawn_blocking(move || {
         let (text, version) = registry.with_session(&window_label, |session| {
@@ -279,7 +284,7 @@ pub async fn csv_copy_to_clipboard(
             let version = session.flush_version();
             (text, version)
         })?;
-        let byte_length = crate::commands::clipboard::write_text(&app, text)?;
+        let byte_length = crate::commands::clipboard::write_text(&app, text, eol)?;
         Ok(CsvFlushResponse {
             version,
             byte_length,

@@ -7,6 +7,7 @@ pub mod detection;
 pub mod document;
 pub mod filesystem;
 pub mod findstats;
+pub mod line_ending;
 pub mod markdown_preview;
 pub mod menu;
 pub mod naming;
@@ -162,6 +163,7 @@ pub fn run() {
             commands::autosave::autosave_submit_content,
             commands::autosave::autosave_flush_before_switch,
             commands::autosave::autosave_set_csv_mode,
+            commands::autosave::autosave_set_eol,
             commands::autosave::autosave_set_language_hint,
             commands::autosave::prepare_close,
             #[cfg(feature = "e2e")]

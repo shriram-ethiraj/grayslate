@@ -9,6 +9,7 @@ use uuid::Uuid;
 
 use crate::{
     filesystem::resolve_notes_root_path,
+    line_ending::Eol,
     storage::{path_is_within_root, path_to_display_string, AppStorage, FileSource},
 };
 
@@ -46,6 +47,15 @@ pub struct AuthorizedDocument {
     pub source: FileSource,
     pub rights: DocumentRights,
     pub exists: bool,
+    /// Line ending detected the last time this document's bytes were read.
+    ///
+    /// Recorded by `read_file_content` and handed to the frontend by
+    /// `autosave_activate_document`, which runs immediately afterwards. Riding
+    /// along on the grant keys the value by window + document id + generation
+    /// — exactly the tuple that already identifies the open document — so it
+    /// cannot drift the way a parallel map would. `None` means the document
+    /// has not been read yet (a freshly granted new file).
+    pub detected_eol: Option<Eol>,
 }
 
 impl AuthorizedDocument {
@@ -234,6 +244,7 @@ impl DocumentRegistry {
             source,
             rights,
             exists,
+            detected_eol: None,
         };
         state.by_window_path.insert(path_key, id.clone());
         state.by_id.insert(
@@ -308,6 +319,29 @@ impl DocumentRegistry {
         entry.document.path = canonical;
         entry.document.exists = true;
         Ok(entry.document.clone())
+    }
+
+    /// Record the line ending detected while reading this document's bytes.
+    ///
+    /// Best-effort and non-authorizing: the caller has already resolved a valid
+    /// grant to get here, and a stale id or generation simply means the open
+    /// was superseded, so there is nothing to record and nothing to report.
+    pub fn record_detected_eol(
+        &self,
+        window_label: &str,
+        document_id: &str,
+        generation: u64,
+        eol: Eol,
+    ) {
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(entry) = state.by_id.get_mut(document_id) {
+            if entry.window_label == window_label && entry.document.generation == generation {
+                entry.document.detected_eol = Some(eol);
+            }
+        }
     }
 
     pub fn replace_path(

@@ -20,6 +20,8 @@
         loadError: string;
         /** Path of the currently keyboard-highlighted result. */
         highlightedPath: string | undefined;
+        /** True while the highlight is keyboard-driven, so cards can render a cursor distinct from hover. */
+        isKeyboardNavigating: boolean;
         /** Path of the file currently being opened (pending navigation). */
         pendingOpenFilePath: string | undefined;
         /** Path of the file currently shown in the editor. */
@@ -45,6 +47,7 @@
         activeResults,
         loadError,
         highlightedPath,
+        isKeyboardNavigating,
         pendingOpenFilePath,
         currentFilePath,
         scrollContainer = $bindable(null),
@@ -69,7 +72,12 @@
     }
 </script>
 
-<div bind:this={scrollContainer} class="flex-1 min-h-0 overflow-auto p-2" use:hotkey={listHotkeys}>
+<div
+    bind:this={scrollContainer}
+    data-testid="sidebar-file-list"
+    class="flex-1 min-h-0 overflow-auto bg-sidebar-list py-2 ps-2 pe-1"
+    use:hotkey={listHotkeys}
+>
     <Sidebar.Group class="gap-2 p-0">
         {#if loadError}
             <div class="rounded-lg border border-destructive/30 bg-destructive/8 px-3 py-2 text-sm text-destructive">
@@ -79,7 +87,7 @@
         {:else if (!isSearchMode && isLoading && activeResults.length === 0)
             || (isSearchMode && isSearchLoading && activeResults.length === 0)}
             <!-- Skeleton — shown only on the initial load before any results arrive. -->
-            <div class="space-y-2 px-1 pt-1">
+            <div class="space-y-2 pt-1">
                 {#each Array.from({ length: 5 }) as _, index (index)}
                     <div class="rounded-lg border border-sidebar-border/60 bg-sidebar-accent/40 px-3 py-3 animate-pulse">
                         <div class="h-3 w-3/5 rounded bg-sidebar-foreground/10"></div>
@@ -97,7 +105,7 @@
             </div>
 
         {:else}
-            <Sidebar.GroupContent class="space-y-4 px-1 pb-2">
+            <Sidebar.GroupContent class="space-y-4 pb-2">
                 {#each sections as section (section.key)}
                     <section class="space-y-2">
                         {#if section.label}
@@ -119,6 +127,7 @@
                                     {showLocalBadge}
                                     isActive={isActive(recentFile)}
                                     isHighlighted={recentFile.path === highlightedPath}
+                                    {isKeyboardNavigating}
                                     {onOpen}
                                     onHover={() => onHighlight(recentFile.path)}
                                     {onDuplicate}

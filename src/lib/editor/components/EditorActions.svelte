@@ -213,6 +213,7 @@
     variant="ghost"
     size="icon"
     data-testid="action-copy"
+    data-copy-success={showCopySuccess}
     aria-label="Copy content"
     tooltip={copyTitle}
     disabledTooltip={copyTitle}

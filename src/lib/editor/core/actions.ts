@@ -1,7 +1,5 @@
 import type { EditorView } from "codemirror";
 import { undo, redo, selectAll } from "@codemirror/commands";
-import { writeText } from "@tauri-apps/plugin-clipboard-manager";
-import { toast } from "$lib/components/ui/sonner";
 import { copyEditorRangeToClipboard } from "$lib/clipboard";
 import { findNext, findPrevious, replaceNext, replaceAll, SearchQuery, setSearchQuery, getSearchQuery } from "@codemirror/search";
 import { editorState } from "$lib/state/editor.svelte";
@@ -80,17 +78,13 @@ export async function editorCut(view: EditorView | undefined) {
     if (!view) return;
     const selection = view.state.selection.main;
     if (selection.empty) return;
-    const text = view.state.sliceDoc(selection.from, selection.to);
-    try {
-        await writeText(text);
-        view.dispatch({
-            changes: { from: selection.from, to: selection.to, insert: "" },
-            userEvent: "delete.cut",
-        });
-        view.focus();
-    } catch {
-        toast.error("Failed to cut text");
-    }
+    const copied = await copyEditorRangeToClipboard(view, selection.from, selection.to);
+    if (!copied) return;
+    view.dispatch({
+        changes: { from: selection.from, to: selection.to, insert: "" },
+        userEvent: "delete.cut",
+    });
+    view.focus();
 }
 
 export async function editorCopy(view: EditorView | undefined): Promise<boolean> {

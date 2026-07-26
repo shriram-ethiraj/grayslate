@@ -4,16 +4,18 @@
 	import { type VariantProps, tv } from "tailwind-variants";
 
 	export const buttonVariants = tv({
-		base: "focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive inline-flex shrink-0 items-center justify-center gap-2 rounded-md text-sm font-normal whitespace-nowrap outline-none focus-visible:ring-[3px] disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+		base: "focus-visible:border-ring focus-visible:ring-ring aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive inline-flex shrink-0 items-center justify-center gap-2 rounded-md text-sm font-normal whitespace-nowrap outline-none focus-visible:ring-2 disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
 		variants: {
 			variant: {
 				default: "bg-primary text-primary-foreground not-aria-disabled:hover:bg-primary/90 shadow-xs",
 				destructive:
 					"bg-destructive not-aria-disabled:hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:bg-destructive/60 text-white shadow-xs",
-				outline:
-					"bg-background not-aria-disabled:hover:bg-accent not-aria-disabled:hover:text-accent-foreground dark:bg-input/30 dark:border-input dark:not-aria-disabled:hover:bg-input/50 border shadow-xs",
+				outline: "ui-state bg-background dark:bg-input/30 dark:border-input border shadow-xs not-aria-disabled:hover:bg-state-hover",
 				secondary: "bg-secondary text-secondary-foreground not-aria-disabled:hover:bg-secondary/80 shadow-xs",
-				ghost: "not-aria-disabled:not-aria-pressed:hover:bg-accent not-aria-disabled:not-aria-pressed:hover:text-accent-foreground dark:not-aria-disabled:not-aria-pressed:hover:bg-accent/50 disabled:opacity-100 disabled:text-disabled-foreground aria-disabled:opacity-100 aria-disabled:text-disabled-foreground aria-pressed:bg-foreground/[0.13] aria-pressed:text-foreground",
+				// Hover/pressed/disabled colors all come from `.ui-state` (layout.css).
+				// `aria-pressed:font-medium` stays explicit because the `font-normal`
+				// in the base above is a utility and would beat `.ui-state`'s weight.
+				ghost: "ui-state ui-state-selected aria-pressed:font-medium disabled:opacity-100 aria-disabled:opacity-100",
 				link: "text-primary underline-offset-4 not-aria-disabled:hover:underline",
 			},
 			size: {

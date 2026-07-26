@@ -699,6 +699,7 @@
         {activeResults}
         {loadError}
         highlightedPath={navigator.highlightedPath}
+        isKeyboardNavigating={navigator.isKeyboardNavigating}
         pendingOpenFilePath={pendingOpenFile?.path}
         currentFilePath={editorState.currentFilePath}
         onOpen={openRecentFile}

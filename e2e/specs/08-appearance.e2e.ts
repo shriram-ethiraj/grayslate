@@ -1,8 +1,11 @@
 import { $, browser, expect } from "@wdio/globals";
 import {
   clickTestId,
+  ensureSidebarOpen,
+  focusEditor,
   newSlate,
   openExternalText,
+  pressMod,
   waitForLanguageMode,
 } from "../helpers/app.js";
 
@@ -20,6 +23,138 @@ async function chooseOption(label: string): Promise<void> {
   const option = await $(`//*[ @role='option' and normalize-space(.)='${label}' ]`);
   await option.waitForDisplayed();
   await option.click();
+}
+
+interface ControlStyleSnapshot {
+  backgroundColor: string;
+  borderTopColor: string;
+  borderTopStyle: string;
+  borderTopWidth: string;
+  boxShadow: string;
+}
+
+async function controlStyle(testId: string): Promise<ControlStyleSnapshot> {
+  return browser.execute((id) => {
+    const element = document.querySelector<HTMLElement>(`[data-testid='${id}']`);
+    if (!element) throw new Error(`Control ${id} is missing.`);
+    const style = getComputedStyle(element);
+    return {
+      backgroundColor: style.backgroundColor,
+      borderTopColor: style.borderTopColor,
+      borderTopStyle: style.borderTopStyle,
+      borderTopWidth: style.borderTopWidth,
+      boxShadow: style.boxShadow,
+    };
+  }, testId);
+}
+
+async function expectBorderlessSelection(testId: string): Promise<void> {
+  const style = await controlStyle(testId);
+  expect(style.backgroundColor).not.toBe("rgba(0, 0, 0, 0)");
+  expect(style.boxShadow).not.toBe("none");
+  expect(style.boxShadow).not.toContain("inset");
+  expect(
+    style.borderTopWidth === "0px" ||
+      style.borderTopStyle === "none" ||
+      style.borderTopColor === "transparent" ||
+      style.borderTopColor === "rgba(0, 0, 0, 0)",
+  ).toBe(true);
+}
+
+async function expectVisibleHover(testId: string): Promise<void> {
+  await (await $("[data-testid='editor']")).moveTo();
+  const before = await controlStyle(testId);
+  await (await $(`[data-testid='${testId}']`)).moveTo();
+  await browser.waitUntil(
+    async () => (await controlStyle(testId)).backgroundColor !== before.backgroundColor,
+    {
+      timeoutMsg: `${testId} did not show a visible hover background.`,
+    },
+  );
+}
+
+async function expectSelectedHoverSeparation(): Promise<void> {
+  await clickTestId("sidebar-tab-local");
+  await (await $("[data-testid='sidebar-tab-slates']")).moveTo();
+  await browser.waitUntil(
+    async () => {
+      const selected = await controlStyle("sidebar-tab-local");
+      const hovered = await controlStyle("sidebar-tab-slates");
+      return colorChannelDelta(selected.backgroundColor, hovered.backgroundColor) >= 50;
+    },
+    {
+      timeoutMsg: "Selected and hovered sidebar tabs are not visually distinct.",
+    },
+  );
+  await clickTestId("sidebar-tab-unified");
+}
+
+function colorChannelDelta(first: string, second: string): number {
+  const channels = (color: string): number[] =>
+    (color.match(/\d+(?:\.\d+)?/g) ?? []).slice(0, 3).map(Number);
+  const firstChannels = channels(first);
+  const secondChannels = channels(second);
+  if (firstChannels.length !== 3 || secondChannels.length !== 3) {
+    throw new Error(`Unable to compare computed colors '${first}' and '${second}'.`);
+  }
+  return firstChannels.reduce(
+    (total, channel, index) => total + Math.abs(channel - secondChannels[index]),
+    0,
+  );
+}
+
+async function sidebarSurfaceSnapshot(): Promise<{
+  listBackground: string;
+  sidebarBackground: string;
+}> {
+  return browser.execute(() => {
+    const list = document.querySelector<HTMLElement>("[data-testid='sidebar-file-list']");
+    const sidebar = list?.parentElement;
+    if (!list || !sidebar) {
+      throw new Error("Sidebar list surface is missing.");
+    }
+    return {
+      listBackground: getComputedStyle(list).backgroundColor,
+      sidebarBackground: getComputedStyle(sidebar).backgroundColor,
+    };
+  });
+}
+
+async function activeFileForegroundSnapshot(): Promise<{
+  icon: string;
+  title: string;
+}> {
+  return browser.execute(() => {
+    const activeFile = document.querySelector<HTMLElement>("[data-testid='sidebar-active-file']");
+    const icon = activeFile?.querySelector<HTMLElement>(
+      "button[aria-current='true'] > [data-variant='icon']",
+    );
+    const title = activeFile?.querySelector<HTMLElement>("[data-testid='sidebar-file-title']");
+    if (!icon || !title) {
+      throw new Error("Active file icon or title is missing.");
+    }
+    return {
+      icon: getComputedStyle(icon).color,
+      title: getComputedStyle(title).color,
+    };
+  });
+}
+
+async function iconDimensions(testId: string): Promise<{ width: number; height: number }> {
+  return browser.execute((id) => {
+    const icon = document.querySelector<SVGElement>(`[data-testid='${id}'] svg`);
+    if (!icon) throw new Error(`Icon for ${id} is missing.`);
+    const bounds = icon.getBoundingClientRect();
+    return { width: bounds.width, height: bounds.height };
+  }, testId);
+}
+
+async function expectOpticalIconSize(testId: string, expectedSize: number): Promise<void> {
+  const dimensions = await iconDimensions(testId);
+  expect(dimensions.width).toBeGreaterThanOrEqual(expectedSize - 0.5);
+  expect(dimensions.width).toBeLessThanOrEqual(expectedSize + 0.5);
+  expect(dimensions.height).toBeGreaterThanOrEqual(expectedSize - 0.5);
+  expect(dimensions.height).toBeLessThanOrEqual(expectedSize + 0.5);
 }
 
 async function typographySnapshot(): Promise<{
@@ -159,6 +294,92 @@ describe("Act 8 — appearance and settings", () => {
     await browser.keys("Escape");
   });
 
+  it("preserves optical sizing for search-option icon libraries", async () => {
+    await ensureSidebarOpen();
+    await expectOpticalIconSize("sidebar-search-case", 17);
+    await expectOpticalIconSize("sidebar-search-word", 17);
+    await expectOpticalIconSize("sidebar-search-regex", 16);
+
+    await focusEditor();
+    await pressMod("f");
+    const findPanel = await $("[data-testid='find-replace-panel']");
+    await findPanel.waitForDisplayed();
+    try {
+      const findInputStyle = await controlStyle("find-input");
+      expect(findInputStyle.borderTopWidth).toBe("1px");
+      await expectOpticalIconSize("find-opt-case", 17);
+      await expectOpticalIconSize("find-opt-word", 17);
+      await expectOpticalIconSize("find-opt-regex", 16);
+    } finally {
+      await browser.keys("Escape");
+      await findPanel.waitForDisplayed({ reverse: true });
+    }
+
+    await focusEditor();
+    await pressMod("g");
+    const goToDialog = await $("[data-testid='go-to-line-dialog']");
+    await goToDialog.waitForDisplayed();
+    try {
+      const goToInputStyle = await controlStyle("go-to-line-input");
+      expect(goToInputStyle.borderTopWidth).toBe("1px");
+    } finally {
+      await browser.keys("Escape");
+      await goToDialog.waitForDisplayed({ reverse: true });
+    }
+  });
+
+  it("uses clear hover and borderless selected states in both themes", async () => {
+    await ensureSidebarOpen();
+    const root = await $("html");
+    const initiallyDark = (await root.getAttribute("class") ?? "").split(/\s+/).includes("dark");
+    const tabGap = await browser.execute(() => {
+      const tabList = document.querySelector<HTMLElement>("[data-testid='sidebar-tabs']");
+      if (!tabList) throw new Error("Sidebar tab list is missing.");
+      return getComputedStyle(tabList).columnGap;
+    });
+    expect(tabGap).toBe("4px");
+
+    for (let themeIndex = 0; themeIndex < 2; themeIndex += 1) {
+      await expectBorderlessSelection("sidebar-tab-unified");
+      await expectBorderlessSelection("sidebar-active-file");
+      await expectVisibleHover("sidebar-refresh");
+      await expectSelectedHoverSeparation();
+
+      const activeFile = await $("[data-testid='sidebar-active-file']");
+      const activeFileButton = await activeFile.$("button");
+      expect(await activeFileButton.getAttribute("aria-current")).toBe("true");
+      const foregrounds = await activeFileForegroundSnapshot();
+      expect(foregrounds.icon).toBe(foregrounds.title);
+
+      const surfaces = await sidebarSurfaceSnapshot();
+      const activeStyle = await controlStyle("sidebar-active-file");
+      expect(surfaces.listBackground).not.toBe(surfaces.sidebarBackground);
+      expect(colorChannelDelta(activeStyle.backgroundColor, surfaces.listBackground))
+        .toBeGreaterThanOrEqual(30);
+
+      if (themeIndex === 0) {
+        await clickTestId("theme-toggle");
+        await browser.waitUntil(async () =>
+          (await root.getAttribute("class") ?? "").split(/\s+/).includes("dark") !== initiallyDark,
+        );
+      }
+    }
+
+    const currentlyDark = (await root.getAttribute("class") ?? "").split(/\s+/).includes("dark");
+    if (currentlyDark !== initiallyDark) {
+      await clickTestId("theme-toggle");
+      await browser.waitUntil(async () =>
+        (await root.getAttribute("class") ?? "").split(/\s+/).includes("dark") === initiallyDark,
+      );
+    }
+
+    await clickTestId("menu-file");
+    await clickTestId("menu-settings");
+    await (await $("[data-testid='settings-dialog']")).waitForDisplayed();
+    await expectBorderlessSelection("settings-pane-general");
+    await browser.keys("Escape");
+  });
+
   it("toggles theme and persists the chosen value across editor views", async () => {
     const root = await $("html");
     const wasDark = (await root.getAttribute("class") ?? "").split(/\s+/).includes("dark");
@@ -180,6 +401,7 @@ describe("Act 8 — appearance and settings", () => {
     await clickTestId("menu-settings");
     await (await $("[data-testid='settings-dialog']")).waitForDisplayed();
 
+    await clickTestId("settings-pane-editor");
     await clickTestId("settings-indent-mode");
     await chooseOption("Spaces");
     await clickTestId("settings-indent-size");

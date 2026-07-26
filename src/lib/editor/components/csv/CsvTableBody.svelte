@@ -180,8 +180,11 @@
     border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
   }
 
+  /* The 40% dilution is applied here rather than reusing --state-hover directly:
+     in dark mode --state-hover is ALREADY 50% translucent, so a second color-mix
+     would halve it again to 20% and the hover would all but disappear. */
   tbody tr:hover {
-    background: color-mix(in srgb, var(--accent) 40%, transparent);
+    background: color-mix(in srgb, var(--state-hover) 40%, transparent);
   }
 
   .csv-row-even {
@@ -196,20 +199,20 @@
     transition: background-color 0s;
   }
 
-  .csv-cell.selected {
-    background-color: color-mix(in srgb, var(--primary) 20%, transparent);
-  }
-
+  /* A range selection is a contiguous 2-D region, so it stays FLAT — it must not
+     become the raised chip, or the grid would render as a mosaic of chips. */
+  .csv-cell.selected,
   .csv-row-num.selected {
-    background-color: color-mix(in srgb, var(--primary) 20%, transparent);
+    background-color: var(--state-range);
   }
 
   .csv-cell:focus-visible {
     outline: none;
   }
 
+  /* The focused cell is a cursor, which is exactly what --state-cursor-ring means. */
   .csv-cell.focused {
-    outline: 2px solid var(--primary);
+    outline: 2px solid var(--state-cursor-ring);
     outline-offset: -2px;
     z-index: 1;
     position: relative;

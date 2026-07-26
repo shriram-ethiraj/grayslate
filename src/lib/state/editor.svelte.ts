@@ -40,7 +40,8 @@ export type EditorPopupId =
     | "go-to-line"
     | "language-picker"
     | "transformations"
-    | "indentation-picker";
+    | "indentation-picker"
+    | "eol-picker";
 
 export type EditorPopupOpenRequest =
     | {
@@ -58,6 +59,9 @@ export type EditorPopupOpenRequest =
     }
     | {
         id: "indentation-picker";
+    }
+    | {
+        id: "eol-picker";
     };
 
 type EditorPopupController = {
@@ -281,6 +285,13 @@ export function openGoToLinePanel(): boolean {
 
 export function openLanguagePicker(): boolean {
     return openEditorPopup({ id: "language-picker" });
+}
+
+// Unlike most editor popups this is not gated on CSV table mode: the line
+// ending applies to the file itself, so it stays adjustable while the table
+// view owns the surface.
+export function openEolPicker(): boolean {
+    return openEditorPopup({ id: "eol-picker" });
 }
 
 export function openTransformationsPalette(): boolean {
