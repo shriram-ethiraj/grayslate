@@ -24,7 +24,7 @@
     eol = "lf",
     encoding = "utf-8",
     canReopenEncoding = false,
-    reopenEncodingDisabledReason = "Save or discard your changes before reopening.",
+    reopenEncodingDisabledReason = "Save this slate before reopening it.",
     onGoToLine = () => {},
     onOpenIndentPicker = () => {},
     onEolChange = () => {},

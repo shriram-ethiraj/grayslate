@@ -305,15 +305,34 @@ export async function waitForEncoding(
   );
 }
 
-/** Convert the active document through the status-bar encoding flow. */
-export async function saveWithEncoding(encoding: CharacterEncoding): Promise<void> {
+async function runEncodingAction(
+  encoding: CharacterEncoding,
+  action: "save" | "reopen",
+): Promise<void> {
   await clickTestId("status-encoding");
-  await $("[data-testid='encoding-picker-dialog']").waitForDisplayed();
+  const dialog = await $("[data-testid='encoding-picker-dialog']");
+  await dialog.waitForDisplayed();
   await clickTestId("encoding-select-trigger");
   await clickTestId(`encoding-item-${encoding}`);
-  await clickTestId("encoding-save");
-  await $("[data-testid='encoding-picker-dialog']").waitForDisplayed({ reverse: true });
+  await clickTestId(action === "save" ? "encoding-save" : "encoding-reopen");
+  await dialog.waitForDisplayed({ reverse: true });
+}
+
+/** Convert the active document through the status-bar encoding flow. */
+export async function saveWithEncoding(encoding: CharacterEncoding): Promise<void> {
+  await runEncodingAction(encoding, "save");
   await waitForEncoding(encoding);
+}
+
+/**
+ * Reinterpret the active document's original bytes with an explicit encoding.
+ *
+ * This deliberately does not handle a local-file save/discard prompt: callers
+ * own that choice so regression specs can assert the prompt's timing and
+ * behavior. Managed slates complete silently.
+ */
+export async function reopenWithEncoding(encoding: CharacterEncoding): Promise<void> {
+  await runEncodingAction(encoding, "reopen");
 }
 
 /**
@@ -342,6 +361,26 @@ export async function waitForDirtyState(expected: boolean, timeoutMs = 10_000): 
     interval: 150,
     timeoutMsg: `Document dirty state never became ${expected}.`,
   });
+}
+
+/** Wait until the local-file Save icon exposes the expected enabled state. */
+export async function waitForSaveActionEnabled(
+  expected: boolean,
+  timeoutMs = 10_000,
+): Promise<void> {
+  const saveAction = await $("[data-testid='action-save']");
+  await saveAction.waitForDisplayed();
+  await browser.waitUntil(
+    async () => {
+      const disabled = (await saveAction.getAttribute("aria-disabled")) === "true";
+      return disabled !== expected;
+    },
+    {
+      timeout: timeoutMs,
+      interval: 150,
+      timeoutMsg: `Save action enabled state never became ${expected}.`,
+    },
+  );
 }
 
 /** Wait until content detection settles on `lang` (the `Auto (...)` value). */

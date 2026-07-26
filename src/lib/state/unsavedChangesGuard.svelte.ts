@@ -11,7 +11,15 @@ import type { UnsavedChangesChoice } from "$lib/state/appDialogs.svelte";
  * The dialog itself only collects the user's choice; this guard orchestrates
  * the actual save so the dialog stays reusable.
  */
-export async function confirmBeforeLeavingDocument(): Promise<boolean> {
+export async function confirmBeforeLeavingDocument(
+    options: {
+        /**
+         * Read the editor's live document state when a caller cannot rely on
+         * the debounced global dirty flag yet.
+         */
+        hasUnsavedLocalChanges?: () => boolean;
+    } = {},
+): Promise<boolean> {
     // A document switch must not replace the active authorization while a
     // save is still completing. Reusing the shared callback waits for the
     // current action and folds the latest content into its pending save slot.
@@ -24,7 +32,9 @@ export async function confirmBeforeLeavingDocument(): Promise<boolean> {
 
     // Slates (including untitled documents) are autosaved by the backend, so
     // only local files need an explicit unsaved-changes prompt.
-    if (!editorState.isDirty || editorState.currentFileSource !== "local") {
+    const hasUnsavedLocalChanges =
+        options.hasUnsavedLocalChanges?.() ?? editorState.isDirty;
+    if (!hasUnsavedLocalChanges || editorState.currentFileSource !== "local") {
         return true;
     }
 

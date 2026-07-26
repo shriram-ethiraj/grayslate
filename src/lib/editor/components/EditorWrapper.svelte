@@ -296,6 +296,13 @@
   );
   let activeDocument = $state.raw<ActiveDocument>(createUntitledDocument());
   let activeFilePath = $derived(getDocumentKey(activeDocument));
+  // A same-document reload (for example, Reopen with Encoding) keeps the
+  // document id, so `activeFilePath` alone cannot remount <Editor>. The
+  // generation also changes whenever resetEditorDocument replaces the managed
+  // session, preventing the live CodeMirror view from retaining the old
+  // session and dropping all subsequent dirty-state updates.
+  let editorMountGeneration = $state(0);
+  let activeEditorKey = $derived(`${activeFilePath}:${editorMountGeneration}`);
   // Managed slates are persisted by the backend autosave flow, including
   // untitled slates that are flushed before a document switch. "Dirty" is
   // therefore reserved for local files that need an explicit save.
@@ -503,7 +510,7 @@
           };
           flushPendingValueSync(editorSession);
           reportLibraryMutation({ kind: "created", path, source: "slates" });
-          // The {#key activeFilePath} block destroys and remounts <Editor>
+          // The {#key activeEditorKey} block destroys and remounts <Editor>
           // when the document key changes (untitled key → saved path),
           // which drops DOM focus even though the CodeMirror selection is
           // preserved in `editorSession`. Wait a tick for Svelte to mount
@@ -960,6 +967,7 @@
 
     activeDocument = nextDocument;
     editorSession = createManagedEditorSession();
+    editorMountGeneration += 1;
     value = nextValue;
     documentLength = nextValue.length;
     lineCount = countDocumentLines(nextValue);
@@ -1520,7 +1528,7 @@
       // A freshly-saved untitled slate is now a real file — track it as last-active.
       saveLastActiveDocument(saved.descriptor);
       flushPendingValueSync(editorSession);
-      // The {#key activeFilePath} block destroys and remounts <Editor> when
+      // The {#key activeEditorKey} block destroys and remounts <Editor> when
       // the document key changes (untitled key → saved path). Wait a tick
       // for Svelte to mount the new EditorView before focusing.
       await new Promise<void>((resolve) => setTimeout(resolve, 10));
@@ -1820,7 +1828,32 @@
   }
 
   async function handleReopenEncoding(nextEncoding: CharacterEncoding): Promise<boolean> {
-    if (activeDocument.kind !== "saved" || currentDocumentNeedsSave()) return false;
+    if (activeDocument.kind !== "saved") return false;
+
+    if (activeDocument.source === "local") {
+      // Close the encoding modal before opening the app-level save/discard
+      // prompt. Read CodeMirror directly because the global dirty flag may
+      // still be waiting on the large-document value-sync debounce.
+      if (currentDocumentNeedsSave()) {
+        closeEditorPopup("encoding-picker");
+      }
+      const canReopen = await confirmBeforeLeavingDocument({
+        hasUnsavedLocalChanges: currentDocumentNeedsSave,
+      });
+      if (!canReopen) return false;
+    } else {
+      // Reopening must read bytes only after the latest slate content reaches
+      // disk. Use the ordinary save coordinator instead of the later
+      // switch-flush: the latter unregisters autosave, which would leave the
+      // still-open slate unprotected if decoding with the requested encoding
+      // fails.
+      if (
+        (currentDocumentNeedsSave() || editorState.saveInProgress) &&
+        !(await saveFile())
+      ) {
+        return false;
+      }
+    }
 
     await openAuthorizedDocument(
       {
@@ -1909,7 +1942,7 @@
       {:else}
         <div class="relative flex-1 min-h-0 min-w-0">
           <div class="absolute inset-0">
-            {#key activeFilePath}
+            {#key activeEditorKey}
               <Editor
                 bind:value
                 bind:documentLength
@@ -1939,7 +1972,7 @@
             data-active={editorState.activeSurface === "editor" && editorState.markdown.showPreview}
           >
             <div class="absolute inset-0">
-              {#key activeFilePath}
+              {#key activeEditorKey}
                 <Editor
                   bind:value
                   bind:documentLength
@@ -1986,7 +2019,7 @@
             -->
       <div class="relative flex-1 min-h-0 min-w-0">
         <div class="absolute inset-0">
-          {#key activeFilePath}
+          {#key activeEditorKey}
             <Editor
               bind:value
               bind:documentLength
@@ -2018,10 +2051,8 @@
     indentConfig={effectiveIndentConfig}
     {eol}
     {encoding}
-    canReopenEncoding={activeDocument.kind === "saved" && !currentDocumentNeedsSave()}
-    reopenEncodingDisabledReason={activeDocument.kind === "untitled"
-      ? "Save this slate before reopening it."
-      : "Save or discard your changes before reopening."}
+    canReopenEncoding={activeDocument.kind === "saved"}
+    reopenEncodingDisabledReason="Save this slate before reopening it."
     onGoToLine={openGoToLinePanel}
     onOpenIndentPicker={openIndentPicker}
     onEolChange={handleEolChange}

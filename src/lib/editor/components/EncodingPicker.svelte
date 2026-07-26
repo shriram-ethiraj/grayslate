@@ -16,7 +16,7 @@
   let {
     encoding = "utf-8",
     canReopen = false,
-    reopenDisabledReason = "Save or discard your changes before reopening.",
+    reopenDisabledReason = "Save this slate before reopening it.",
     onReopen = async () => false,
     onSave = async () => false,
   }: {

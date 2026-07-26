@@ -16,6 +16,7 @@ import {
   waitForEditorText,
   waitForEol,
   waitForFile,
+  waitForSaveActionEnabled,
 } from "../helpers/app.js";
 import { waitForClipboardText } from "../helpers/clipboard.js";
 import { notesRoot } from "../helpers/sandbox.js";
@@ -110,6 +111,50 @@ describe("Act 12 — line endings", () => {
     await waitForFile(filePath, (content) => !content.includes("\r"), 15_000);
     expect(fs.readFileSync(filePath)).toEqual(Buffer.from("x\ny\n", "utf8"));
     await waitForDirtyState(false);
+  });
+
+  it("preserves dirty tracking and saves edits before and after an EOL conversion", async () => {
+    const filePath = await openExternalText(
+      "eol-save-lifecycle.txt",
+      "alpha\r\n",
+    );
+    const beforeConversion = "alpha\nsaved before conversion\n";
+    const afterConversion = "alpha\nsaved before conversion\nsaved after conversion\n";
+    await waitForEol("crlf");
+    await waitForDirtyState(false);
+    await waitForSaveActionEnabled(false);
+
+    await replaceEditorText(beforeConversion);
+    await waitForDirtyState(true);
+    await waitForSaveActionEnabled(true);
+    await pressMod("s");
+    await waitForFile(
+      filePath,
+      (content) => content === "alpha\r\nsaved before conversion\r\n",
+    );
+    expect(fs.readFileSync(filePath)).toEqual(
+      Buffer.from("alpha\r\nsaved before conversion\r\n", "utf8"),
+    );
+    await waitForDirtyState(false);
+    await waitForSaveActionEnabled(false);
+
+    await selectEol("lf");
+    await waitForDirtyState(true);
+    await waitForSaveActionEnabled(true);
+    await pressMod("s");
+    await waitForFile(filePath, (content) => content === beforeConversion);
+    expect(fs.readFileSync(filePath)).toEqual(Buffer.from(beforeConversion, "utf8"));
+    await waitForDirtyState(false);
+    await waitForSaveActionEnabled(false);
+
+    await replaceEditorText(afterConversion);
+    await waitForDirtyState(true);
+    await waitForSaveActionEnabled(true);
+    await pressMod("s");
+    await waitForFile(filePath, (content) => content === afterConversion);
+    expect(fs.readFileSync(filePath)).toEqual(Buffer.from(afterConversion, "utf8"));
+    await waitForDirtyState(false);
+    await waitForSaveActionEnabled(false);
   });
 
   it("clears dirty state when the EOL is switched back before saving", async () => {
