@@ -161,7 +161,7 @@
                                 <Item.Media
                                     {...props}
                                     variant="icon"
-                                    class="relative mt-0.5 border-state-inset-border bg-state-inset text-state-muted-foreground"
+                                    class="relative mt-0.5 border-state-inset-border bg-state-inset {isActive ? 'text-state-selected-foreground' : 'text-state-muted-foreground'}"
                                 >
                                     {#if FileIcon}
                                         <FileIcon class="size-4" />

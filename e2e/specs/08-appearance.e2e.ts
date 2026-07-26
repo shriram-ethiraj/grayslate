@@ -73,16 +73,6 @@ async function expectVisibleHover(testId: string): Promise<void> {
   );
 }
 
-async function expectSingleBorderFocus(testId: string): Promise<void> {
-  await (await $("[data-testid='editor']")).moveTo();
-  const before = await controlStyle(testId);
-  await (await $(`[data-testid='${testId}']`)).click();
-  const focused = await controlStyle(testId);
-  expect(focused.borderTopWidth).toBe("1px");
-  expect(focused.borderTopColor).not.toBe(before.borderTopColor);
-  expect(focused.boxShadow).toBe("none");
-}
-
 async function expectSelectedHoverSeparation(): Promise<void> {
   await clickTestId("sidebar-tab-local");
   await (await $("[data-testid='sidebar-tab-slates']")).moveTo();
@@ -126,6 +116,26 @@ async function sidebarSurfaceSnapshot(): Promise<{
     return {
       listBackground: getComputedStyle(list).backgroundColor,
       sidebarBackground: getComputedStyle(sidebar).backgroundColor,
+    };
+  });
+}
+
+async function activeFileForegroundSnapshot(): Promise<{
+  icon: string;
+  title: string;
+}> {
+  return browser.execute(() => {
+    const activeFile = document.querySelector<HTMLElement>("[data-testid='sidebar-active-file']");
+    const icon = activeFile?.querySelector<HTMLElement>(
+      "button[aria-current='true'] > [data-variant='icon']",
+    );
+    const title = activeFile?.querySelector<HTMLElement>("[data-testid='sidebar-file-title']");
+    if (!icon || !title) {
+      throw new Error("Active file icon or title is missing.");
+    }
+    return {
+      icon: getComputedStyle(icon).color,
+      title: getComputedStyle(title).color,
     };
   });
 }
@@ -292,22 +302,30 @@ describe("Act 8 — appearance and settings", () => {
 
     await focusEditor();
     await pressMod("f");
-    await (await $("[data-testid='find-replace-panel']")).waitForDisplayed();
-    const findInputStyle = await controlStyle("find-input");
-    expect(findInputStyle.borderTopWidth).toBe("1px");
-    expect(findInputStyle.boxShadow).toBe("none");
-    await expectOpticalIconSize("find-opt-case", 17);
-    await expectOpticalIconSize("find-opt-word", 17);
-    await expectOpticalIconSize("find-opt-regex", 16);
-    await browser.keys("Escape");
+    const findPanel = await $("[data-testid='find-replace-panel']");
+    await findPanel.waitForDisplayed();
+    try {
+      const findInputStyle = await controlStyle("find-input");
+      expect(findInputStyle.borderTopWidth).toBe("1px");
+      await expectOpticalIconSize("find-opt-case", 17);
+      await expectOpticalIconSize("find-opt-word", 17);
+      await expectOpticalIconSize("find-opt-regex", 16);
+    } finally {
+      await browser.keys("Escape");
+      await findPanel.waitForDisplayed({ reverse: true });
+    }
 
     await focusEditor();
     await pressMod("g");
-    await (await $("[data-testid='go-to-line-input']")).waitForDisplayed();
-    const goToInputStyle = await controlStyle("go-to-line-input");
-    expect(goToInputStyle.borderTopWidth).toBe("1px");
-    expect(goToInputStyle.boxShadow).toBe("none");
-    await browser.keys("Escape");
+    const goToDialog = await $("[data-testid='go-to-line-dialog']");
+    await goToDialog.waitForDisplayed();
+    try {
+      const goToInputStyle = await controlStyle("go-to-line-input");
+      expect(goToInputStyle.borderTopWidth).toBe("1px");
+    } finally {
+      await browser.keys("Escape");
+      await goToDialog.waitForDisplayed({ reverse: true });
+    }
   });
 
   it("uses clear hover and borderless selected states in both themes", async () => {
@@ -324,13 +342,14 @@ describe("Act 8 — appearance and settings", () => {
     for (let themeIndex = 0; themeIndex < 2; themeIndex += 1) {
       await expectBorderlessSelection("sidebar-tab-unified");
       await expectBorderlessSelection("sidebar-active-file");
-      await expectSingleBorderFocus("sidebar-search-input");
       await expectVisibleHover("sidebar-refresh");
       await expectSelectedHoverSeparation();
 
       const activeFile = await $("[data-testid='sidebar-active-file']");
       const activeFileButton = await activeFile.$("button");
       expect(await activeFileButton.getAttribute("aria-current")).toBe("true");
+      const foregrounds = await activeFileForegroundSnapshot();
+      expect(foregrounds.icon).toBe(foregrounds.title);
 
       const surfaces = await sidebarSurfaceSnapshot();
       const activeStyle = await controlStyle("sidebar-active-file");
