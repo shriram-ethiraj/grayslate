@@ -173,6 +173,30 @@ pub struct AutosaveRegistry {
 }
 
 impl AutosaveRegistry {
+    /// Activate a pathless slate without resetting an existing slate session.
+    ///
+    /// The frontend's untitled effect can race the first autosave completion:
+    /// after Rust authorizes the newly created file, a late effect invocation
+    /// may still carry the old "untitled" state. Treating that invocation as a
+    /// fresh registration would discard the new path and authorization, causing
+    /// the next autosave to create another file. A real document switch
+    /// unregisters the old slate first, so preserving any existing slate here
+    /// is both safe and necessary.
+    pub fn activate_untitled(&self, window_label: &str, language_hint: String, format: TextFormat) {
+        let mut map = self.inner.lock().unwrap_or_else(|p| p.into_inner());
+        if map
+            .get(window_label)
+            .is_some_and(|document| matches!(document.source, FileSource::Slates))
+        {
+            return;
+        }
+
+        map.insert(
+            window_label.to_string(),
+            AutosaveDocument::new(None, FileSource::Slates, language_hint, format),
+        );
+    }
+
     pub fn register(
         &self,
         window_label: &str,
@@ -1298,6 +1322,106 @@ mod tests {
 
         registry.complete_save("main", 3);
         assert!(!registry.has_unsaved_changes("main"));
+    }
+
+    #[test]
+    fn repeated_untitled_activation_preserves_new_slate_authorization() {
+        use crate::character_encoding::CharacterEncoding;
+
+        let registry = AutosaveRegistry::default();
+        let saved_path = PathBuf::from("/tmp/authorized-slate.md");
+        let original_format = TextFormat {
+            eol: Eol::Lf,
+            encoding: CharacterEncoding::Utf8Bom,
+        };
+        registry.activate_untitled("main", "markdown".into(), original_format);
+        registry.notify_changed("main", 1);
+        registry.update_authorization("main", saved_path.clone(), "document-1".into(), 9);
+        registry.complete_save("main", 1);
+
+        // A stale frontend effect still describes the old untitled document.
+        // It must not erase the path and grant established by the first save.
+        registry.activate_untitled(
+            "main",
+            "text".into(),
+            TextFormat {
+                eol: Eol::Crlf,
+                encoding: CharacterEncoding::Utf16Le,
+            },
+        );
+
+        let info = registry.get_document_info("main").unwrap();
+        assert_eq!(info.path, Some(saved_path.clone()));
+        assert_eq!(info.document_id.as_deref(), Some("document-1"));
+        assert_eq!(info.document_generation, Some(9));
+        assert_eq!(info.generation, 1);
+        assert!(!info.is_dirty);
+        assert_eq!(info.language_hint, "markdown");
+        assert_eq!(info.format, original_format);
+
+        registry.notify_changed("main", 2);
+        {
+            let mut map = registry.inner.lock().unwrap();
+            map.get_mut("main").unwrap().last_notified_at =
+                Some(Instant::now() - Duration::from_millis(IDLE_DEBOUNCE_MS + 1));
+        }
+        assert!(matches!(
+            registry.check_and_trigger_saves().as_slice(),
+            [SaveAction::RequestContent { window_label, .. }] if window_label == "main"
+        ));
+        assert_eq!(
+            registry.get_document_info("main").unwrap().path,
+            Some(saved_path)
+        );
+    }
+
+    #[test]
+    fn repeated_untitled_activation_preserves_dirty_in_flight_request() {
+        let registry = AutosaveRegistry::default();
+        registry.activate_untitled("main", "json".into(), Eol::Lf.into());
+        registry.notify_changed("main", 4);
+        {
+            let mut map = registry.inner.lock().unwrap();
+            map.get_mut("main").unwrap().last_notified_at =
+                Some(Instant::now() - Duration::from_millis(IDLE_DEBOUNCE_MS + 1));
+        }
+        let request_id = match registry.check_and_trigger_saves().as_slice() {
+            [SaveAction::RequestContent { request_id, .. }] => *request_id,
+            _ => panic!("expected one content request"),
+        };
+
+        registry.activate_untitled("main", "text".into(), Eol::Crlf.into());
+
+        let info = registry.get_document_info("main").unwrap();
+        assert_eq!(info.path, None);
+        assert_eq!(info.generation, 4);
+        assert!(info.is_dirty);
+        assert_eq!(info.language_hint, "json");
+        assert_eq!(info.format.eol, Eol::Lf);
+        assert!(registry.validate_request("main", request_id));
+    }
+
+    #[test]
+    fn untitled_activation_replaces_a_local_document_registration() {
+        let registry = AutosaveRegistry::default();
+        registry.register(
+            "main",
+            Some(PathBuf::from("/tmp/local.txt")),
+            FileSource::Local,
+            "text".into(),
+            Eol::Crlf.into(),
+        );
+        registry.notify_changed("main", 8);
+
+        registry.activate_untitled("main", "markdown".into(), Eol::Lf.into());
+
+        let info = registry.get_document_info("main").unwrap();
+        assert_eq!(info.path, None);
+        assert!(matches!(info.source, FileSource::Slates));
+        assert_eq!(info.generation, 0);
+        assert!(!info.is_dirty);
+        assert_eq!(info.language_hint, "markdown");
+        assert_eq!(info.format.eol, Eol::Lf);
     }
 
     #[test]

@@ -279,10 +279,13 @@
     }
   }
 
-  async function syncLanguageFromPath(path: string): Promise<void> {
+  async function syncLanguageFromPath(
+    path: string,
+    isStillCurrent: () => boolean = () => true,
+  ): Promise<void> {
     const filename = await getPathLabel(path);
     const extLanguage = await detectByFilename(filename);
-    if (extLanguage) {
+    if (extLanguage && isStillCurrent()) {
       // Pin language to the extension of the saved file so the status bar
       // always reflects the actual file type after a save or save-as.
       language = extLanguage;
@@ -390,6 +393,14 @@
 
   let autosaveGeneration = 0;
   let previousAutosaveValue = "";
+  let pendingUntitledAutosave:
+    | {
+        documentKey: string;
+        content: string;
+        eol: Eol;
+        encoding: CharacterEncoding;
+      }
+    | undefined;
 
   // Notify Rust when the editor content changes (piggybacked on VALUE_SYNC).
   // This is lightweight — only a u64 generation crosses IPC, no content.
@@ -442,6 +453,14 @@
             const content = editorSession.state?.doc.toString() ?? value;
             const generation = autosaveGeneration;
             const documentKey = getDocumentKey(activeDocument);
+            if (activeDocument.kind === "untitled") {
+              pendingUntitledAutosave = {
+                documentKey,
+                content,
+                eol,
+                encoding,
+              };
+            }
             invoke("autosave_submit_content", {
               requestId: event.payload.requestId,
               generation,
@@ -449,6 +468,7 @@
             }).then(() => {
               const currentContent = editorSession.state?.doc.toString() ?? value;
               if (
+                activeDocument.kind === "saved" &&
                 activeDocument.source === "slates" &&
                 getDocumentKey(activeDocument) === documentKey &&
                 autosaveGeneration === generation &&
@@ -494,24 +514,43 @@
           if (activeDocument.kind === "saved") {
             return;
           }
-          await syncLanguageFromPath(path);
-          if (language === "auto" && lang) {
-            detectedLanguage = lang;
-          }
+          const untitledDocumentKey = activeDocument.key;
+          const submitted =
+            pendingUntitledAutosave?.documentKey === untitledDocumentKey
+              ? pendingUntitledAutosave
+              : undefined;
+          pendingUntitledAutosave = undefined;
+
+          // Apply the saved identity before awaiting language detection. This
+          // closes the window in which the untitled activation effect can run
+          // again and replace Rust's newly authorized document registration.
           activeDocument = {
             kind: "saved",
             documentId,
             documentGeneration,
             path,
             source: "slates",
-            lastSavedValue: value,
-            lastSavedEol: eol,
-            lastSavedEncoding: encoding,
+            lastSavedValue: submitted?.content ?? value,
+            lastSavedEol: submitted?.eol ?? eol,
+            lastSavedEncoding: submitted?.encoding ?? encoding,
           };
           flushPendingValueSync(editorSession);
           reportLibraryMutation({ kind: "created", path, source: "slates" });
+
+          const isCreatedDocumentStillCurrent = (): boolean =>
+            activeDocument.kind === "saved" &&
+            activeDocument.documentId === documentId &&
+            activeDocument.documentGeneration === documentGeneration &&
+            activeDocument.path === path;
+          await syncLanguageFromPath(path, isCreatedDocumentStillCurrent);
+          if (!isCreatedDocumentStillCurrent()) {
+            return;
+          }
+          if (language === "auto" && lang) {
+            detectedLanguage = lang;
+          }
           // The {#key activeEditorKey} block destroys and remounts <Editor>
-          // when the document key changes (untitled key → saved path),
+          // when the document key changes (untitled key → document id),
           // which drops DOM focus even though the CodeMirror selection is
           // preserved in `editorSession`. Wait a tick for Svelte to mount
           // the new EditorView, then restore focus so the caret stays
@@ -987,6 +1026,7 @@
     // Reset autosave generation for the new document
     autosaveGeneration = 0;
     previousAutosaveValue = nextValue;
+    pendingUntitledAutosave = undefined;
   }
 
   // Resets the editor to a blank untitled slate. Does NOT confirm unsaved

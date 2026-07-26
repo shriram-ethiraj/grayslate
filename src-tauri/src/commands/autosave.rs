@@ -49,13 +49,7 @@ pub fn autosave_activate_untitled(
         eol: Eol::parse(&eol)?,
         encoding: CharacterEncoding::parse(&encoding)?,
     };
-    registry.register(
-        window.label(),
-        None,
-        FileSource::Slates,
-        language_hint,
-        format,
-    );
+    registry.activate_untitled(window.label(), language_hint, format);
     Ok(())
 }
 
