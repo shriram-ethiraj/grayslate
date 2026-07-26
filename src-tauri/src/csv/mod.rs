@@ -417,6 +417,46 @@ mod tests {
         assert!(session.serialized_text_is_empty());
     }
 
+    // -- Duplicate rows ----------------------------------------------------
+
+    #[test]
+    fn duplicate_single_row() {
+        let mut session = parse_simple("a,b\n1,2\n3,4\n5,6");
+        assert_eq!(session.rows.len(), 3);
+
+        let resp = session.mutate(
+            &CsvMutationRequest::DuplicateRows { start: 1, end: 1 },
+            "duplicate.table.row",
+        );
+        assert!(resp.applied);
+        assert_eq!(session.rows.len(), 4);
+        assert_eq!(session.rows[1], vec!["3", "4"]);
+        assert_eq!(session.rows[2], vec!["3", "4"]);
+        assert_eq!(session.rows[3], vec!["5", "6"]);
+
+        // Undo should restore original
+        session.undo();
+        assert_eq!(session.rows.len(), 3);
+        assert_eq!(session.rows[1], vec!["3", "4"]);
+        assert_eq!(session.rows[2], vec!["5", "6"]);
+    }
+
+    #[test]
+    fn duplicate_multiple_rows() {
+        let mut session = parse_simple("h\na\nb\nc");
+        let resp = session.mutate(
+            &CsvMutationRequest::DuplicateRows { start: 0, end: 1 },
+            "duplicate.table.row",
+        );
+        assert!(resp.applied);
+        assert_eq!(session.rows.len(), 5);
+        assert_eq!(session.rows[0], vec!["a"]);
+        assert_eq!(session.rows[1], vec!["b"]);
+        assert_eq!(session.rows[2], vec!["a"]);
+        assert_eq!(session.rows[3], vec!["b"]);
+        assert_eq!(session.rows[4], vec!["c"]);
+    }
+
     // -- Flush -------------------------------------------------------------
 
     #[test]

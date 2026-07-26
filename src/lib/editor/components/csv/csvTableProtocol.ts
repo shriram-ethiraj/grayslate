@@ -86,6 +86,11 @@ export type CsvMutationRequest =
           start: number;
           end: number;
           direction: -1 | 1;
+      }
+    | {
+          type: "duplicate-rows";
+          start: number;
+          end: number;
       };
 
 /**

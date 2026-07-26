@@ -56,6 +56,10 @@ pub enum CsvMutationRequest {
         end: usize,
         direction: i32,
     },
+    DuplicateRows {
+        start: usize,
+        end: usize,
+    },
 }
 
 pub struct MutationResult {
@@ -350,6 +354,24 @@ pub fn build_mutation_ops(
                         data: moved_data,
                     },
                 ],
+                applied: true,
+            }
+        }
+        CsvMutationRequest::DuplicateRows { start, end } => {
+            let s = (*start).min(rows.len());
+            let e = (*end + 1).min(rows.len());
+            if s >= e {
+                return MutationResult {
+                    ops: vec![],
+                    applied: false,
+                };
+            }
+            let cloned_rows: Vec<Vec<String>> = rows[s..e].to_vec();
+            MutationResult {
+                ops: vec![TableOp::BulkRowAdd {
+                    start: e,
+                    data: cloned_rows,
+                }],
                 applied: true,
             }
         }
