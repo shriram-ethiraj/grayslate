@@ -3,6 +3,7 @@
   import MarkdownPreview from "$lib/editor/components/markdown/MarkdownPreview.svelte";
   import CsvTableView from "./csv/CsvTableView.svelte";
   import StatusBar from "$lib/editor/components/StatusBar.svelte";
+  import EncodingConfirmationDialog from "$lib/editor/components/EncodingConfirmationDialog.svelte";
   import EditorLoader from "$lib/editor/components/EditorLoader.svelte";
   import GoToLineDialog from "$lib/editor/components/GoToLineDialog.svelte";
   import IndentationPicker, { type IndentConfig, type IndentSelection } from "$lib/editor/components/IndentationPicker.svelte";
@@ -73,8 +74,11 @@
     appSettingsState,
     loadAllSettings,
     resolveDefaultEol,
+    resolveDefaultEncoding,
     resolveLineEnding,
     saveLastActiveDocument,
+    isCharacterEncoding,
+    type CharacterEncoding,
     type Eol,
   } from "$lib/state/appSettings.svelte";
   import {
@@ -98,6 +102,7 @@
         createdAt: number;
         lastSavedValue: string;
         lastSavedEol: Eol;
+        lastSavedEncoding: CharacterEncoding;
         source: "slates";
       }
     | {
@@ -108,6 +113,7 @@
         source: SavedDocumentSource;
         lastSavedValue: string;
         lastSavedEol: Eol;
+        lastSavedEncoding: CharacterEncoding;
       };
 
   let value = $state("");
@@ -139,6 +145,51 @@
   // default for new ones. The document text itself is always canonical LF —
   // CodeMirror guarantees that — so this is pure metadata.
   let eol = $state<Eol>(resolveDefaultEol());
+  let encoding = $state<CharacterEncoding>(resolveDefaultEncoding());
+  type EncodingChoiceReason = "legacySingleByte" | "bomlessUtf16";
+  type EncodingConfirmation = {
+    encoding: CharacterEncoding;
+    reason: EncodingChoiceReason;
+    resolve: (accepted: boolean) => void;
+  };
+  let encodingConfirmation = $state.raw<EncodingConfirmation | undefined>(undefined);
+
+  function isEncodingChoiceRequired(error: unknown): error is {
+    kind: "encodingChoiceRequired";
+    suggestedEncoding: CharacterEncoding;
+    reason: EncodingChoiceReason;
+  } {
+    if (typeof error !== "object" || error === null) return false;
+    const candidate = error as Record<string, unknown>;
+    return candidate.kind === "encodingChoiceRequired" &&
+      isCharacterEncoding(candidate.suggestedEncoding) &&
+      (candidate.reason === "legacySingleByte" || candidate.reason === "bomlessUtf16");
+  }
+
+  function readErrorMessage(error: unknown, fallback: string): string {
+    if (typeof error === "string") return error;
+    if (typeof error === "object" && error !== null) {
+      const message = (error as Record<string, unknown>).message;
+      if (typeof message === "string") return message;
+    }
+    return fallback;
+  }
+
+  function confirmSuggestedEncoding(
+    suggestedEncoding: CharacterEncoding,
+    reason: EncodingChoiceReason,
+  ): Promise<boolean> {
+    encodingConfirmation?.resolve(false);
+    return new Promise<boolean>((resolve) => {
+      encodingConfirmation = { encoding: suggestedEncoding, reason, resolve };
+    });
+  }
+
+  function finishEncodingConfirmation(accepted: boolean): void {
+    const pending = encodingConfirmation;
+    encodingConfirmation = undefined;
+    pending?.resolve(accepted);
+  }
 
   /**
    * Collapse CRLF/CR text to the canonical LF form CodeMirror will hold anyway.
@@ -211,6 +262,7 @@
       // Snapshot the resolved global default rather than tracking it live, so
       // the status bar always shows a concrete line ending.
       lastSavedEol: resolveDefaultEol(),
+      lastSavedEncoding: resolveDefaultEncoding(),
       source: "slates",
     };
   }
@@ -227,10 +279,13 @@
     }
   }
 
-  async function syncLanguageFromPath(path: string): Promise<void> {
+  async function syncLanguageFromPath(
+    path: string,
+    isStillCurrent: () => boolean = () => true,
+  ): Promise<void> {
     const filename = await getPathLabel(path);
     const extLanguage = await detectByFilename(filename);
-    if (extLanguage) {
+    if (extLanguage && isStillCurrent()) {
       // Pin language to the extension of the saved file so the status bar
       // always reflects the actual file type after a save or save-as.
       language = extLanguage;
@@ -244,6 +299,13 @@
   );
   let activeDocument = $state.raw<ActiveDocument>(createUntitledDocument());
   let activeFilePath = $derived(getDocumentKey(activeDocument));
+  // A same-document reload (for example, Reopen with Encoding) keeps the
+  // document id, so `activeFilePath` alone cannot remount <Editor>. The
+  // generation also changes whenever resetEditorDocument replaces the managed
+  // session, preventing the live CodeMirror view from retaining the old
+  // session and dropping all subsequent dirty-state updates.
+  let editorMountGeneration = $state(0);
+  let activeEditorKey = $derived(`${activeFilePath}:${editorMountGeneration}`);
   // Managed slates are persisted by the backend autosave flow, including
   // untitled slates that are flushed before a document switch. "Dirty" is
   // therefore reserved for local files that need an explicit save.
@@ -331,6 +393,14 @@
 
   let autosaveGeneration = 0;
   let previousAutosaveValue = "";
+  let pendingUntitledAutosave:
+    | {
+        documentKey: string;
+        content: string;
+        eol: Eol;
+        encoding: CharacterEncoding;
+      }
+    | undefined;
 
   // Notify Rust when the editor content changes (piggybacked on VALUE_SYNC).
   // This is lightweight — only a u64 generation crosses IPC, no content.
@@ -357,7 +427,12 @@
       // A new slate has nothing to detect, so the frontend supplies the
       // resolved default; Rust validates it before any write uses it.
       const eolHint = untrack(() => eol);
-      invoke("autosave_activate_untitled", { languageHint, eol: eolHint }).catch(
+      const encodingHint = untrack(() => encoding);
+      invoke("autosave_activate_untitled", {
+        languageHint,
+        eol: eolHint,
+        encoding: encodingHint,
+      }).catch(
         () => {},
       );
     }
@@ -376,11 +451,42 @@
           "autosave://request-content",
           async (event) => {
             const content = editorSession.state?.doc.toString() ?? value;
+            const generation = autosaveGeneration;
+            const documentKey = getDocumentKey(activeDocument);
+            if (activeDocument.kind === "untitled") {
+              pendingUntitledAutosave = {
+                documentKey,
+                content,
+                eol,
+                encoding,
+              };
+            }
             invoke("autosave_submit_content", {
               requestId: event.payload.requestId,
-              generation: autosaveGeneration,
+              generation,
               content,
-            }).catch((err) => console.error("Autosave submit failed:", err));
+            }).then(() => {
+              const currentContent = editorSession.state?.doc.toString() ?? value;
+              if (
+                activeDocument.kind === "saved" &&
+                activeDocument.source === "slates" &&
+                getDocumentKey(activeDocument) === documentKey &&
+                autosaveGeneration === generation &&
+                currentContent === content
+              ) {
+                activeDocument = {
+                  ...activeDocument,
+                  lastSavedValue: content,
+                  lastSavedEol: eol,
+                  lastSavedEncoding: encoding,
+                };
+              }
+            }).catch((error: unknown) => {
+              console.error("Autosave submit failed:", error);
+              toast.error(readErrorMessage(error, "Autosave failed. Your text is still open."), {
+                id: "autosave-write-error",
+              });
+            });
           },
         );
 
@@ -408,23 +514,43 @@
           if (activeDocument.kind === "saved") {
             return;
           }
-          await syncLanguageFromPath(path);
-          if (language === "auto" && lang) {
-            detectedLanguage = lang;
-          }
+          const untitledDocumentKey = activeDocument.key;
+          const submitted =
+            pendingUntitledAutosave?.documentKey === untitledDocumentKey
+              ? pendingUntitledAutosave
+              : undefined;
+          pendingUntitledAutosave = undefined;
+
+          // Apply the saved identity before awaiting language detection. This
+          // closes the window in which the untitled activation effect can run
+          // again and replace Rust's newly authorized document registration.
           activeDocument = {
             kind: "saved",
             documentId,
             documentGeneration,
             path,
             source: "slates",
-            lastSavedValue: value,
-            lastSavedEol: eol,
+            lastSavedValue: submitted?.content ?? value,
+            lastSavedEol: submitted?.eol ?? eol,
+            lastSavedEncoding: submitted?.encoding ?? encoding,
           };
           flushPendingValueSync(editorSession);
           reportLibraryMutation({ kind: "created", path, source: "slates" });
-          // The {#key activeFilePath} block destroys and remounts <Editor>
-          // when the document key changes (untitled key → saved path),
+
+          const isCreatedDocumentStillCurrent = (): boolean =>
+            activeDocument.kind === "saved" &&
+            activeDocument.documentId === documentId &&
+            activeDocument.documentGeneration === documentGeneration &&
+            activeDocument.path === path;
+          await syncLanguageFromPath(path, isCreatedDocumentStillCurrent);
+          if (!isCreatedDocumentStillCurrent()) {
+            return;
+          }
+          if (language === "auto" && lang) {
+            detectedLanguage = lang;
+          }
+          // The {#key activeEditorKey} block destroys and remounts <Editor>
+          // when the document key changes (untitled key → document id),
           // which drops DOM focus even though the CodeMirror selection is
           // preserved in `editorSession`. Wait a tick for Svelte to mount
           // the new EditorView, then restore focus so the caret stays
@@ -446,10 +572,18 @@
           },
         );
 
+        const unlistenSaveFailed = await listen<{ message: string }>(
+          "autosave://save-failed",
+          (event) => {
+            toast.error(event.payload.message, { id: "autosave-write-error" });
+          },
+        );
+
         return () => {
           unlistenRequestContent();
           unlistenDocumentCreated();
           unlistenFlushClose();
+          unlistenSaveFailed();
         };
       },
     );
@@ -478,6 +612,7 @@
   let fileOpenRequestVersion = 0;
 
   function beginFileOpenRequest(): number {
+    finishEncodingConfirmation(false);
     fileOpenRequestVersion += 1;
     return fileOpenRequestVersion;
   }
@@ -674,6 +809,7 @@
   }
 
   function invalidatePendingFileOpen(): void {
+    finishEncodingConfirmation(false);
     fileOpenRequestVersion += 1;
     clearPendingSidebarOpenFile();
     void invoke("cancel_file_read").catch(() => undefined);
@@ -856,7 +992,7 @@
       await invoke("autosave_flush_before_switch", {
         content,
         generation: gen,
-      }).catch((err) => console.error("Autosave flush on switch failed:", err));
+      });
     }
 
     checkLanguage.cancel();
@@ -870,6 +1006,7 @@
 
     activeDocument = nextDocument;
     editorSession = createManagedEditorSession();
+    editorMountGeneration += 1;
     value = nextValue;
     documentLength = nextValue.length;
     lineCount = countDocumentLines(nextValue);
@@ -882,12 +1019,14 @@
     // Keep the live EOL and its baseline equal by construction, so a document
     // transition can never leave the editor spuriously dirty.
     eol = nextDocument.lastSavedEol;
+    encoding = nextDocument.lastSavedEncoding;
     editorState.csv.showTable = false;
     editorState.activeSurface = "editor";
 
     // Reset autosave generation for the new document
     autosaveGeneration = 0;
     previousAutosaveValue = nextValue;
+    pendingUntitledAutosave = undefined;
   }
 
   // Resets the editor to a blank untitled slate. Does NOT confirm unsaved
@@ -895,17 +1034,17 @@
   // `confirmBeforeLeavingDocument()` first (either here via `createNewFile`,
   // or upstream before emitting `RESET_TO_BLANK_EVENT`).
   async function resetToBlankDocument(): Promise<void> {
-    // Clear the last-active pointer so "reopen last file" doesn't resurrect
-    // the file the user just navigated away from. (Also covers deleting/
-    // unlinking the current file, which route here.)
-    saveLastActiveDocument(null);
-
     invalidatePendingFileOpen();
 
     const previousSession = editorSession;
     const previousDocLength = previousSession.state?.doc.length ?? value.length;
 
     await resetEditorDocument("", createUntitledDocument());
+
+    // Clear the pointer only after the previous slate was flushed and the
+    // blank document became active. If the flush fails, the original document
+    // remains open and must still be restorable after a restart.
+    saveLastActiveDocument(null);
 
     await new Promise<void>((resolve) => setTimeout(resolve, 10));
 
@@ -920,7 +1059,11 @@
 
   async function createNewFile(): Promise<void> {
     if (!(await confirmBeforeLeavingDocument())) return;
-    await resetToBlankDocument();
+    try {
+      await resetToBlankDocument();
+    } catch (error: unknown) {
+      toast.error(readErrorMessage(error, "Could not save the current slate."));
+    }
   }
 
   // -----------------------------------------------------------------------
@@ -934,12 +1077,16 @@
   async function openAuthorizedDocument(
     document: DocumentDescriptor,
     lineNumber?: number,
-    options?: { silent?: boolean },
+    options?: {
+      silent?: boolean;
+      encoding?: CharacterEncoding;
+      forceReload?: boolean;
+    },
   ): Promise<void> {
     const filePath = document.displayPath;
     // Fast path: the file is already loaded — avoid a full reload and just
     // navigate to the requested line directly.
-    if (editorState.currentFilePath === filePath && editorView) {
+    if (!options?.forceReload && editorState.currentFilePath === filePath && editorView) {
       if (lineNumber !== undefined) {
         editorGoToLine(editorView, lineNumber);
       }
@@ -982,11 +1129,39 @@
       const previousSession = editorSession;
       const previousDocLength =
         previousSession.state?.doc.length ?? value.length;
-      const content = await invokeText("read_file_content", {
-        documentId: document.documentId,
-        documentGeneration: document.generation,
-        requestId: requestVersion,
-      });
+      let requestedEncoding = options?.encoding;
+      let content: string;
+      try {
+        content = await invokeText("read_file_content", {
+          documentId: document.documentId,
+          documentGeneration: document.generation,
+          requestId: requestVersion,
+          encoding: requestedEncoding ?? null,
+        });
+      } catch (error: unknown) {
+        if (requestedEncoding || !isEncodingChoiceRequired(error)) throw error;
+        stopLoaderTicker();
+        hideEditorLoader();
+        const accepted = await confirmSuggestedEncoding(
+          error.suggestedEncoding,
+          error.reason,
+        );
+        if (!accepted || !isActiveFileOpenRequest(requestVersion)) return;
+        requestedEncoding = error.suggestedEncoding;
+        startLoaderTicker("Reading file…", filename, {
+          ceiling: 65,
+          factor: 0.06,
+          minStep: 0.3,
+          interval: 80,
+          startAt: 5,
+        });
+        content = await invokeText("read_file_content", {
+          documentId: document.documentId,
+          documentGeneration: document.generation,
+          requestId: requestVersion,
+          encoding: requestedEncoding,
+        });
+      }
       if (!isActiveFileOpenRequest(requestVersion)) {
         return;
       }
@@ -1026,13 +1201,17 @@
           // Placeholder until activation reports what Rust detected; adopted
           // together with `eol` below so the pair is never mismatched.
           lastSavedEol: resolveDefaultEol(),
+          lastSavedEncoding: requestedEncoding ?? resolveDefaultEncoding(),
         },
         nextLanguage,
         nextDetectedLanguage,
       );
       // Activation returns the line ending Rust detected while reading this
       // file's bytes — no second read, no extra round-trip.
-      const detectedEol = await invoke<Eol>("autosave_activate_document", {
+      const detectedFormat = await invoke<{
+        eol: Eol;
+        encoding: CharacterEncoding;
+      }>("autosave_activate_document", {
         documentId: document.documentId,
         documentGeneration: document.generation,
         languageHint: language,
@@ -1042,8 +1221,13 @@
       // rather than early-returned — a superseded request must still fall
       // through to `disposeManagedEditorSession` below or it leaks a session.
       if (isActiveFileOpenRequest(requestVersion)) {
-        eol = detectedEol;
-        activeDocument = { ...activeDocument, lastSavedEol: detectedEol };
+        eol = detectedFormat.eol;
+        encoding = detectedFormat.encoding;
+        activeDocument = {
+          ...activeDocument,
+          lastSavedEol: detectedFormat.eol,
+          lastSavedEncoding: detectedFormat.encoding,
+        };
       }
 
       reportLibraryMutation({
@@ -1086,7 +1270,7 @@
         return;
       }
 
-      const msg = typeof err === "string" ? err : "Failed to open file.";
+      const msg = readErrorMessage(err, "Failed to open file.");
       toast.error(msg);
     } finally {
       if (!isActiveFileOpenRequest(requestVersion)) {
@@ -1129,10 +1313,13 @@
     return editorSession.state?.doc.toString() ?? value;
   }
 
-  type SaveActionKind = "save" | "save-as";
+  type SaveAction =
+    | { kind: "save" }
+    | { kind: "save-as" }
+    | { kind: "save-with-encoding"; targetEncoding: CharacterEncoding };
 
   let saveActionInFlight: Promise<boolean> | undefined;
-  let trailingSaveRequested = false;
+  let pendingSaveActions: SaveAction[] = [];
 
   function currentDocumentNeedsSave(): boolean {
     if (activeLanguage === "csv" && editorState.csv.showTable) {
@@ -1150,15 +1337,33 @@
     return activeDocument;
   }
 
-  function requestSaveAction(kind: SaveActionKind): Promise<boolean> {
+  function enqueuePendingSaveAction(action: SaveAction): void {
+    const previous = pendingSaveActions.at(-1);
+
+    // Coalesce key repeat without dropping a different action that must remain
+    // ordered relative to it. For repeated encoding picks, only the latest
+    // adjacent target represents the user's intent.
+    if (action.kind === "save" && previous?.kind === "save") {
+      return;
+    }
+    if (
+      action.kind === "save-with-encoding" &&
+      previous?.kind === "save-with-encoding"
+    ) {
+      pendingSaveActions[pendingSaveActions.length - 1] = action;
+      return;
+    }
+
+    pendingSaveActions.push(action);
+  }
+
+  function requestSaveAction(action: SaveAction): Promise<boolean> {
     if (saveActionInFlight) {
-      if (kind === "save") {
-        trailingSaveRequested = true;
-      }
+      enqueuePendingSaveAction(action);
       return saveActionInFlight;
     }
 
-    const operation = runSaveAction(kind).finally(() => {
+    const operation = runSaveActions(action).finally(() => {
       if (saveActionInFlight === operation) {
         saveActionInFlight = undefined;
       }
@@ -1167,25 +1372,44 @@
     return operation;
   }
 
-  async function runSaveAction(kind: SaveActionKind): Promise<boolean> {
+  async function performSaveAction(action: SaveAction): Promise<boolean> {
+    switch (action.kind) {
+      case "save":
+        return performSaveFile();
+      case "save-as":
+        return performSaveFileAs();
+      case "save-with-encoding":
+        return performSaveFile(
+          action.targetEncoding,
+          "Failed to save with that encoding.",
+        );
+    }
+  }
+
+  async function runSaveActions(initialAction: SaveAction): Promise<boolean> {
     editorState.saveInProgress = true;
     try {
-      let succeeded = kind === "save"
-        ? await performSaveFile()
-        : await performSaveFileAs();
+      let action: SaveAction | undefined = initialAction;
+      let succeeded = true;
+      let isTrailingAction = false;
 
-      // Keep one pending slot rather than queueing every key repeat. If more
-      // edits and Save requests arrive during the trailing write, loop once
-      // more with the newest content while still preserving strict ordering.
-      while (trailingSaveRequested) {
-        trailingSaveRequested = false;
-        if (currentDocumentNeedsSave()) {
-          succeeded = await performSaveFile();
+      while (action) {
+        // A repeated Save only needs another write if edits landed during the
+        // preceding action. Save As and encoding conversion are never skipped:
+        // they carry user intent beyond ordinary dirty-state persistence.
+        if (
+          action.kind !== "save" ||
+          !isTrailingAction ||
+          currentDocumentNeedsSave()
+        ) {
+          succeeded = await performSaveAction(action);
         }
+        action = pendingSaveActions.shift();
+        isTrailingAction = true;
       }
       return succeeded;
     } finally {
-      trailingSaveRequested = false;
+      pendingSaveActions = [];
       editorState.saveInProgress = false;
     }
   }
@@ -1194,6 +1418,7 @@
     document: DocumentDescriptor,
     content: string,
     expectedDocumentKey = getDocumentKey(activeDocument),
+    targetEncoding = encoding,
   ): Promise<DocumentDescriptor> {
     const previousPath = activeDocument.kind === "saved" ? activeDocument.path : undefined;
     const saved = await invoke<DocumentDescriptor>("write_file_content", {
@@ -1203,6 +1428,7 @@
       // Send the live line ending with the save rather than letting Rust read
       // it from the autosave registry, which the picker updates asynchronously.
       eol,
+      encoding: targetEncoding,
     });
 
     if (getDocumentKey(activeDocument) !== expectedDocumentKey) {
@@ -1218,7 +1444,9 @@
       source: saved.source,
       lastSavedValue: content,
       lastSavedEol: eol,
+      lastSavedEncoding: targetEncoding,
     };
+    encoding = targetEncoding;
     if (previousPath !== saved.displayPath) {
       reportLibraryMutation({ kind: "created", path: saved.displayPath, source: saved.source });
     }
@@ -1236,7 +1464,10 @@
    * When the editor is in "auto" mode, the backend auto-detects the
    * language from content (no separate frontend detection needed).
    */
-  async function saveUntitledSlate(content: string): Promise<{
+  async function saveUntitledSlate(
+    content: string,
+    targetEncoding = encoding,
+  ): Promise<{
     descriptor: DocumentDescriptor;
     detectedLanguage: string;
   }> {
@@ -1252,6 +1483,7 @@
         content,
         languageHint: language,
         eol,
+        encoding: targetEncoding,
       },
     );
 
@@ -1269,10 +1501,13 @@
   }
 
   function saveFile(): Promise<boolean> {
-    return requestSaveAction("save");
+    return requestSaveAction({ kind: "save" });
   }
 
-  async function performSaveFile(): Promise<boolean> {
+  async function performSaveFile(
+    targetEncoding = encoding,
+    fallbackErrorMessage = "Failed to save file.",
+  ): Promise<boolean> {
     try {
       const expectedDocumentKey = getDocumentKey(activeDocument);
       const content = await getContentForSave();
@@ -1283,7 +1518,8 @@
         // pressing save would no-op and never reach disk.
         if (
           content === activeDocument.lastSavedValue &&
-          eol === activeDocument.lastSavedEol
+          eol === activeDocument.lastSavedEol &&
+          targetEncoding === activeDocument.lastSavedEncoding
         ) {
           return true;
         }
@@ -1295,12 +1531,12 @@
           fileName: await getPathLabel(activeDocument.path),
           source: activeDocument.source,
           writable: true,
-        }, content, expectedDocumentKey);
+        }, content, expectedDocumentKey, targetEncoding);
         editorView?.focus();
         return true;
       }
 
-      const saved = await saveUntitledSlate(content);
+      const saved = await saveUntitledSlate(content, targetEncoding);
       const savePath = saved.descriptor.displayPath;
       const currentDocument = snapshotActiveDocument();
       const alreadyApplied = currentDocument.kind === "saved" &&
@@ -1326,25 +1562,26 @@
         source: "slates",
         lastSavedValue: content,
         lastSavedEol: eol,
+        lastSavedEncoding: targetEncoding,
       };
+      encoding = targetEncoding;
       // A freshly-saved untitled slate is now a real file — track it as last-active.
       saveLastActiveDocument(saved.descriptor);
       flushPendingValueSync(editorSession);
-      // The {#key activeFilePath} block destroys and remounts <Editor> when
+      // The {#key activeEditorKey} block destroys and remounts <Editor> when
       // the document key changes (untitled key → saved path). Wait a tick
       // for Svelte to mount the new EditorView before focusing.
       await new Promise<void>((resolve) => setTimeout(resolve, 10));
       editorView?.focus();
       return true;
     } catch (err: unknown) {
-      const msg = typeof err === "string" ? err : "Failed to save file.";
-      toast.error(msg);
+      toast.error(readErrorMessage(err, fallbackErrorMessage));
       return false;
     }
   }
 
   async function saveFileAs(): Promise<void> {
-    await requestSaveAction("save-as");
+    await requestSaveAction({ kind: "save-as" });
   }
 
   async function performSaveFileAs(): Promise<boolean> {
@@ -1406,8 +1643,14 @@
       // halves move together, so the slate stays clean.
       if (activeDocument.kind === "untitled" && value === "") {
         const seededEol = await resolveLineEnding(settings.defaultLineEnding);
+        const seededEncoding = settings.defaultEncoding;
         eol = seededEol;
-        activeDocument = { ...activeDocument, lastSavedEol: seededEol };
+        encoding = seededEncoding;
+        activeDocument = {
+          ...activeDocument,
+          lastSavedEol: seededEol,
+          lastSavedEncoding: seededEncoding,
+        };
       }
 
       if (settings.startupBehavior === "last") {
@@ -1429,7 +1672,9 @@
           void createNewFile();
         });
         const unlistenResetToBlank = await listen(RESET_TO_BLANK_EVENT, () => {
-          void resetToBlankDocument();
+          void resetToBlankDocument().catch((error: unknown) => {
+            toast.error(readErrorMessage(error, "Could not save the current slate."));
+          });
         });
         const unlistenOpenFile = await listen("menu://open-file", () => {
           void openFile();
@@ -1622,6 +1867,56 @@
     });
   }
 
+  async function handleReopenEncoding(nextEncoding: CharacterEncoding): Promise<boolean> {
+    if (activeDocument.kind !== "saved") return false;
+
+    if (activeDocument.source === "local") {
+      // Close the encoding modal before opening the app-level save/discard
+      // prompt. Read CodeMirror directly because the global dirty flag may
+      // still be waiting on the large-document value-sync debounce.
+      if (currentDocumentNeedsSave()) {
+        closeEditorPopup("encoding-picker");
+      }
+      const canReopen = await confirmBeforeLeavingDocument({
+        hasUnsavedLocalChanges: currentDocumentNeedsSave,
+      });
+      if (!canReopen) return false;
+    } else {
+      // Reopening must read bytes only after the latest slate content reaches
+      // disk. Use the ordinary save coordinator instead of the later
+      // switch-flush: the latter unregisters autosave, which would leave the
+      // still-open slate unprotected if decoding with the requested encoding
+      // fails.
+      if (
+        (currentDocumentNeedsSave() || editorState.saveInProgress) &&
+        !(await saveFile())
+      ) {
+        return false;
+      }
+    }
+
+    await openAuthorizedDocument(
+      {
+        documentId: activeDocument.documentId,
+        generation: activeDocument.documentGeneration,
+        displayPath: activeDocument.path,
+        fileName: await getPathLabel(activeDocument.path),
+        source: activeDocument.source,
+        writable: true,
+      },
+      undefined,
+      { encoding: nextEncoding, forceReload: true },
+    );
+    return encoding === nextEncoding;
+  }
+
+  async function handleSaveEncoding(nextEncoding: CharacterEncoding): Promise<boolean> {
+    return requestSaveAction({
+      kind: "save-with-encoding",
+      targetEncoding: nextEncoding,
+    });
+  }
+
   $effect(() => {
     syncEditorPopupOpenState("indentation-picker", indentPickerOpen);
   });
@@ -1687,7 +1982,7 @@
       {:else}
         <div class="relative flex-1 min-h-0 min-w-0">
           <div class="absolute inset-0">
-            {#key activeFilePath}
+            {#key activeEditorKey}
               <Editor
                 bind:value
                 bind:documentLength
@@ -1717,7 +2012,7 @@
             data-active={editorState.activeSurface === "editor" && editorState.markdown.showPreview}
           >
             <div class="absolute inset-0">
-              {#key activeFilePath}
+              {#key activeEditorKey}
                 <Editor
                   bind:value
                   bind:documentLength
@@ -1764,7 +2059,7 @@
             -->
       <div class="relative flex-1 min-h-0 min-w-0">
         <div class="absolute inset-0">
-          {#key activeFilePath}
+          {#key activeEditorKey}
             <Editor
               bind:value
               bind:documentLength
@@ -1795,11 +2090,25 @@
     {csvInfo}
     indentConfig={effectiveIndentConfig}
     {eol}
+    {encoding}
+    canReopenEncoding={activeDocument.kind === "saved"}
+    reopenEncodingDisabledReason="Save this slate before reopening it."
     onGoToLine={openGoToLinePanel}
     onOpenIndentPicker={openIndentPicker}
     onEolChange={handleEolChange}
+    onReopenEncoding={handleReopenEncoding}
+    onSaveEncoding={handleSaveEncoding}
   />
 </div>
+
+{#if encodingConfirmation}
+  <EncodingConfirmationDialog
+    encoding={encodingConfirmation.encoding}
+    reason={encodingConfirmation.reason}
+    onConfirm={() => finishEncodingConfirmation(true)}
+    onCancel={() => finishEncodingConfirmation(false)}
+  />
+{/if}
 
 <style>
   .split-surface {

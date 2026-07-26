@@ -52,6 +52,7 @@ serde_yaml = "0.9"
 tauri-plugin-os = "2"
 grayslate-langdetect = { path = "../crates/grayslate-langdetect" }
 grayslate-langnaming = { path = "../crates/grayslate-langnaming" }
+encoding_rs = "0.8"
 
 rusqlite = { version = "0.39.0", features = ["bundled"] }
 url = "2"

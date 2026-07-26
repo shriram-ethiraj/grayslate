@@ -2,6 +2,7 @@
     import * as Dialog from "$lib/components/ui/dialog/index.js";
     import * as Select from "$lib/components/ui/select/index.js";
     import { Button } from "$lib/components/ui/button/index.js";
+    import { Badge } from "$lib/components/ui/badge/index.js";
     import { Switch } from "$lib/components/ui/switch/index.js";
     import { Separator } from "$lib/components/ui/separator/index.js";
     import type { Component } from "svelte";
@@ -13,8 +14,11 @@
         setConfirmBeforeDelete,
         setDefaultIndentMode,
         setDefaultIndentSize,
+        setDefaultEncoding,
         setDefaultLineEnding,
         setStartupBehavior,
+        CHARACTER_ENCODING_OPTIONS,
+        type DefaultCharacterEncoding,
         type DefaultIndentMode,
         type DefaultLineEnding,
         type StartupBehavior,
@@ -59,6 +63,10 @@
     );
     const lineEndingLabel = $derived(
         lineEndingOptions.find((o) => o.value === appSettingsState.defaultLineEnding)?.label ?? "",
+    );
+    const encodingLabel = $derived(
+        CHARACTER_ENCODING_OPTIONS.find((o) => o.value === appSettingsState.defaultEncoding)?.label ??
+            "UTF-8",
     );
 </script>
 
@@ -245,7 +253,59 @@
                                 <Select.Content>
                                     {#each lineEndingOptions as option (option.value)}
                                         <Select.Item value={option.value} label={option.label}>
-                                            {option.label}
+                                            <span class="flex items-center gap-2">
+                                                {option.label}
+                                                {#if option.value === "lf"}
+                                                    <Badge variant="secondary" class="px-1.5 py-0 text-xs">
+                                                        Recommended
+                                                    </Badge>
+                                                {/if}
+                                            </span>
+                                        </Select.Item>
+                                    {/each}
+                                </Select.Content>
+                            </Select.Root>
+                        </div>
+
+                        <Separator />
+
+                        <div class="grid gap-2 py-4">
+                            <div class="grid gap-0.5">
+                                <label
+                                    class="text-sm font-normal text-foreground"
+                                    for="settings-character-encoding"
+                                >
+                                    Default character encoding
+                                </label>
+                                <p class="text-xs text-muted-foreground">
+                                    Used for new slates. Existing files keep the encoding they were
+                                    opened with.
+                                </p>
+                            </div>
+                            <Select.Root
+                                type="single"
+                                value={appSettingsState.defaultEncoding}
+                                onValueChange={(v) =>
+                                    setDefaultEncoding(v as DefaultCharacterEncoding)}
+                            >
+                                <Select.Trigger
+                                    data-testid="settings-character-encoding"
+                                    class="w-full"
+                                    id="settings-character-encoding"
+                                >
+                                    {encodingLabel}
+                                </Select.Trigger>
+                                <Select.Content>
+                                    {#each CHARACTER_ENCODING_OPTIONS as option (option.value)}
+                                        <Select.Item value={option.value} label={option.label}>
+                                            <span class="flex items-center gap-2">
+                                                {option.label}
+                                                {#if option.value === "utf-8"}
+                                                    <Badge variant="secondary" class="px-1.5 py-0 text-xs">
+                                                        Recommended
+                                                    </Badge>
+                                                {/if}
+                                            </span>
                                         </Select.Item>
                                     {/each}
                                 </Select.Content>

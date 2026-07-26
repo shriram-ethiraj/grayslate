@@ -28,6 +28,7 @@ use std::time::{Duration, Instant};
 use serde::Serialize;
 use tauri::{Emitter, Manager};
 
+use crate::character_encoding::{encode_strict, TextFormat};
 use crate::commands::csv::CsvSessionRegistry;
 use crate::commands::RECENT_FILES_UPDATED_EVENT;
 use crate::document::{revalidate_source_authority, DocumentAccess, DocumentRegistry};
@@ -58,6 +59,7 @@ const CONTENT_REQUEST_TIMEOUT_MS: u64 = 5_000;
 pub const AUTOSAVE_REQUEST_CONTENT_EVENT: &str = "autosave://request-content";
 pub const AUTOSAVE_DOCUMENT_CREATED_EVENT: &str = "autosave://document-created";
 pub const AUTOSAVE_FLUSH_BEFORE_CLOSE_EVENT: &str = "autosave://flush-before-close";
+pub const AUTOSAVE_SAVE_FAILED_EVENT: &str = "autosave://save-failed";
 
 // ---------------------------------------------------------------------------
 // Event payloads
@@ -78,6 +80,12 @@ pub struct DocumentCreatedPayload {
     pub detected_language: String,
 }
 
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveFailedPayload {
+    pub message: String,
+}
+
 // ---------------------------------------------------------------------------
 // Per-document state
 // ---------------------------------------------------------------------------
@@ -94,16 +102,22 @@ pub struct AutosaveDocument {
     pub save_in_flight: bool,
     pub csv_table_active: bool,
     pub language_hint: String,
-    /// The line ending this document is written with. Detected on open for
-    /// existing files, seeded from the global default for new ones.
-    pub eol: Eol,
+    /// The line ending and character encoding used at the disk boundary.
+    pub format: TextFormat,
+    failed_generation: Option<u64>,
+    failed_message: Option<String>,
     pub pending_request_id: Option<u64>,
     pending_request_at: Option<Instant>,
     next_request_id: u64,
 }
 
 impl AutosaveDocument {
-    pub fn new(path: Option<PathBuf>, source: FileSource, language_hint: String, eol: Eol) -> Self {
+    pub fn new(
+        path: Option<PathBuf>,
+        source: FileSource,
+        language_hint: String,
+        format: TextFormat,
+    ) -> Self {
         AutosaveDocument {
             path,
             document_id: None,
@@ -116,7 +130,9 @@ impl AutosaveDocument {
             save_in_flight: false,
             csv_table_active: false,
             language_hint,
-            eol,
+            format,
+            failed_generation: None,
+            failed_message: None,
             pending_request_id: None,
             pending_request_at: None,
             next_request_id: 1,
@@ -148,7 +164,7 @@ pub struct DocumentInfo {
     pub is_dirty: bool,
     pub csv_table_active: bool,
     pub language_hint: String,
-    pub eol: Eol,
+    pub format: TextFormat,
 }
 
 #[derive(Default)]
@@ -157,18 +173,42 @@ pub struct AutosaveRegistry {
 }
 
 impl AutosaveRegistry {
+    /// Activate a pathless slate without resetting an existing slate session.
+    ///
+    /// The frontend's untitled effect can race the first autosave completion:
+    /// after Rust authorizes the newly created file, a late effect invocation
+    /// may still carry the old "untitled" state. Treating that invocation as a
+    /// fresh registration would discard the new path and authorization, causing
+    /// the next autosave to create another file. A real document switch
+    /// unregisters the old slate first, so preserving any existing slate here
+    /// is both safe and necessary.
+    pub fn activate_untitled(&self, window_label: &str, language_hint: String, format: TextFormat) {
+        let mut map = self.inner.lock().unwrap_or_else(|p| p.into_inner());
+        if map
+            .get(window_label)
+            .is_some_and(|document| matches!(document.source, FileSource::Slates))
+        {
+            return;
+        }
+
+        map.insert(
+            window_label.to_string(),
+            AutosaveDocument::new(None, FileSource::Slates, language_hint, format),
+        );
+    }
+
     pub fn register(
         &self,
         window_label: &str,
         path: Option<PathBuf>,
         source: FileSource,
         language_hint: String,
-        eol: Eol,
+        format: TextFormat,
     ) {
         let mut map = self.inner.lock().unwrap_or_else(|p| p.into_inner());
         map.insert(
             window_label.to_string(),
-            AutosaveDocument::new(path, source, language_hint, eol),
+            AutosaveDocument::new(path, source, language_hint, format),
         );
     }
 
@@ -180,9 +220,9 @@ impl AutosaveRegistry {
         language_hint: String,
         document_id: String,
         document_generation: u64,
-        eol: Eol,
+        format: TextFormat,
     ) {
-        let mut document = AutosaveDocument::new(Some(path), source, language_hint, eol);
+        let mut document = AutosaveDocument::new(Some(path), source, language_hint, format);
         document.document_id = Some(document_id);
         document.document_generation = Some(document_generation);
         let mut map = self.inner.lock().unwrap_or_else(|p| p.into_inner());
@@ -201,6 +241,13 @@ impl AutosaveRegistry {
             // progressively newer document states, so an older notification
             // must never make a newer change look saved.
             doc.generation = doc.generation.max(generation);
+            if doc
+                .failed_generation
+                .is_some_and(|failed| generation > failed)
+            {
+                doc.failed_generation = None;
+                doc.failed_message = None;
+            }
             doc.last_notified_at = Some(Instant::now());
         }
     }
@@ -267,6 +314,9 @@ impl AutosaveRegistry {
             if !doc.is_dirty() {
                 continue;
             }
+            if doc.failed_generation == Some(doc.generation) {
+                continue;
+            }
 
             let idle_ms = doc
                 .last_notified_at
@@ -315,7 +365,33 @@ impl AutosaveRegistry {
             doc.save_in_flight = false;
             doc.pending_request_id = None;
             doc.pending_request_at = None;
+            if doc
+                .failed_generation
+                .is_some_and(|failed| failed <= saved_generation)
+            {
+                doc.failed_generation = None;
+                doc.failed_message = None;
+            }
         }
+    }
+
+    pub fn fail_save(&self, window_label: &str, generation: u64, message: String) {
+        let mut map = self.inner.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some(doc) = map.get_mut(window_label) {
+            doc.failed_generation = Some(generation);
+            doc.failed_message = Some(message);
+            doc.save_in_flight = false;
+            doc.pending_request_id = None;
+            doc.pending_request_at = None;
+        }
+    }
+
+    pub fn current_save_failure(&self, window_label: &str) -> Option<String> {
+        let map = self.inner.lock().unwrap_or_else(|p| p.into_inner());
+        let doc = map.get(window_label)?;
+        (doc.failed_generation == Some(doc.generation))
+            .then(|| doc.failed_message.clone())
+            .flatten()
     }
 
     /// Clear the in-flight flag without updating saved generation (used on write failure).
@@ -345,7 +421,7 @@ impl AutosaveRegistry {
             is_dirty: doc.is_dirty(),
             csv_table_active: doc.csv_table_active,
             language_hint: doc.language_hint.clone(),
-            eol: doc.eol,
+            format: doc.format,
         })
     }
 
@@ -355,7 +431,14 @@ impl AutosaveRegistry {
     /// a write that somehow races registration still produces valid content.
     pub fn eol_for(&self, window_label: &str) -> Eol {
         let map = self.inner.lock().unwrap_or_else(|p| p.into_inner());
-        map.get(window_label).map_or(Eol::default(), |doc| doc.eol)
+        map.get(window_label)
+            .map_or(Eol::default(), |doc| doc.format.eol)
+    }
+
+    pub fn format_for(&self, window_label: &str) -> TextFormat {
+        let map = self.inner.lock().unwrap_or_else(|p| p.into_inner());
+        map.get(window_label)
+            .map_or(TextFormat::default(), |doc| doc.format)
     }
 
     pub fn update_path(&self, window_label: &str, path: PathBuf) {
@@ -410,8 +493,8 @@ impl AutosaveRegistry {
     pub fn update_eol(&self, window_label: &str, eol: Eol) -> bool {
         let mut map = self.inner.lock().unwrap_or_else(|p| p.into_inner());
         match map.get_mut(window_label) {
-            Some(doc) if doc.eol != eol => {
-                doc.eol = eol;
+            Some(doc) if doc.format.eol != eol => {
+                doc.format.eol = eol;
                 true
             }
             _ => false,
@@ -648,17 +731,21 @@ where
 /// - on rename failure the temp file is removed and the original file (if any)
 ///   is left intact.
 ///
-/// `content` must be canonical LF; `eol` selects what actually reaches disk.
-/// The parameter is mandatory rather than defaulted so a new caller has to make
-/// the choice consciously instead of silently rewriting a file's line endings.
-pub fn autosave_write_to_disk(path: &Path, content: &str, eol: Eol) -> Result<(), String> {
+/// `content` must be canonical LF. The complete format is mandatory so every
+/// caller consciously preserves both line endings and character encoding.
+pub fn autosave_write_to_disk(
+    path: &Path,
+    content: &str,
+    format: TextFormat,
+) -> Result<(), String> {
     use std::io::Write as _;
 
-    let content = apply_eol(content, eol);
+    let content = apply_eol(content, format.eol);
+    let bytes = encode_strict(&content, format.encoding)?;
 
     atomic_write_to_disk_with(
         path,
-        content.as_bytes(),
+        bytes.as_ref(),
         || WRITE_COUNTER.fetch_add(1, Ordering::Relaxed),
         |file, bytes| file.write_all(bytes),
         replace_file,
@@ -669,11 +756,12 @@ pub fn autosave_write_to_disk(path: &Path, content: &str, eol: Eol) -> Result<()
 /// destination. The content is fully written and synced in a private temp file
 /// before an atomic no-replace installation into the selected directory.
 ///
-/// `content` must be canonical LF; `eol` selects what actually reaches disk.
-pub fn atomic_create_to_disk(path: &Path, content: &str, eol: Eol) -> Result<(), String> {
+/// `content` must be canonical LF; `format` selects the exact bytes on disk.
+pub fn atomic_create_to_disk(path: &Path, content: &str, format: TextFormat) -> Result<(), String> {
     use std::io::Write as _;
 
-    let content = apply_eol(content, eol);
+    let content = apply_eol(content, format.eol);
+    let bytes = encode_strict(&content, format.encoding)?;
 
     match std::fs::symlink_metadata(path) {
         Err(error) if error.kind() == io::ErrorKind::NotFound => {}
@@ -690,9 +778,7 @@ pub fn atomic_create_to_disk(path: &Path, content: &str, eol: Eol) -> Result<(),
         create_unique_temp_file_with(path, || WRITE_COUNTER.fetch_add(1, Ordering::Relaxed))
             .map_err(|error| format!("Failed to create temp file: {error}"))?;
 
-    let write_result = file
-        .write_all(content.as_bytes())
-        .and_then(|_| file.sync_all());
+    let write_result = file.write_all(bytes.as_ref()).and_then(|_| file.sync_all());
     drop(file);
     if let Err(error) = write_result {
         let _ = std::fs::remove_file(&temp_path);
@@ -815,10 +901,10 @@ fn handle_csv_direct_save(
     let flush_result = csv_registry.try_flush_for_autosave(window_label);
 
     match flush_result {
-        // The CSV session serializes canonical LF; `document_info.eol` converts
+        // The CSV session serializes canonical LF; `document_info.format` converts
         // it at this write boundary exactly like the text path.
         Some((_version, content)) => {
-            match autosave_write_to_disk(&path, &content, document_info.eol) {
+            match autosave_write_to_disk(&path, &content, document_info.format) {
                 Ok(()) => {
                     if let Err(error) = storage.record_file_update(&path, FileSource::Slates) {
                         eprintln!(
@@ -836,14 +922,20 @@ fn handle_csv_direct_save(
                 }
                 Err(e) => {
                     eprintln!("{}", e);
-                    registry.clear_in_flight(window_label);
+                    registry.fail_save(window_label, generation, e.clone());
+                    if let Some(window) = app_handle.get_webview_window(window_label) {
+                        let _ = window
+                            .emit(AUTOSAVE_SAVE_FAILED_EVENT, SaveFailedPayload { message: e });
+                    }
                 }
             }
         }
         None => {
-            // No CSV session active — shouldn't happen since csv_table_active
-            // was true, but handle gracefully.
-            registry.clear_in_flight(window_label);
+            let message = "Autosave could not read the active CSV table.".to_string();
+            registry.fail_save(window_label, generation, message.clone());
+            if let Some(window) = app_handle.get_webview_window(window_label) {
+                let _ = window.emit(AUTOSAVE_SAVE_FAILED_EVENT, SaveFailedPayload { message });
+            }
         }
     }
 }
@@ -864,7 +956,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
 
         let path = dir.join("test-file.txt");
-        autosave_write_to_disk(&path, "hello world", Eol::Lf).unwrap();
+        autosave_write_to_disk(&path, "hello world", Eol::Lf.into()).unwrap();
 
         let mut content = String::new();
         std::fs::File::open(&path)
@@ -891,11 +983,11 @@ mod tests {
         ] {
             let overwrite = dir.join(format!("overwrite-{}.txt", eol.as_str()));
             std::fs::write(&overwrite, "original").unwrap();
-            autosave_write_to_disk(&overwrite, "a\nb\n", eol).unwrap();
+            autosave_write_to_disk(&overwrite, "a\nb\n", eol.into()).unwrap();
             assert_eq!(std::fs::read(&overwrite).unwrap(), expected, "{eol:?}");
 
             let created = dir.join(format!("created-{}.txt", eol.as_str()));
-            atomic_create_to_disk(&created, "a\nb\n", eol).unwrap();
+            atomic_create_to_disk(&created, "a\nb\n", eol.into()).unwrap();
             assert_eq!(std::fs::read(&created).unwrap(), expected, "{eol:?}");
         }
 
@@ -903,9 +995,58 @@ mod tests {
     }
 
     #[test]
+    fn write_boundary_applies_encoding_and_eol_together() {
+        use crate::character_encoding::{CharacterEncoding, TextFormat};
+
+        let dir =
+            std::env::temp_dir().join(format!("grayslate-format-boundary-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let utf16_path = dir.join("utf16.txt");
+        autosave_write_to_disk(
+            &utf16_path,
+            "alpha\nβeta\n",
+            TextFormat {
+                eol: Eol::Crlf,
+                encoding: CharacterEncoding::Utf16Le,
+            },
+        )
+        .unwrap();
+        let bytes = std::fs::read(&utf16_path).unwrap();
+        assert!(bytes.starts_with(&[0xFF, 0xFE]));
+        let decoded =
+            crate::character_encoding::decode_explicit(&bytes, CharacterEncoding::Utf16Le).unwrap();
+        assert_eq!(
+            decoded,
+            crate::character_encoding::DecodeDecision::Decoded {
+                text: "alpha\r\nβeta\r\n".into(),
+                encoding: CharacterEncoding::Utf16Le,
+            }
+        );
+
+        let legacy_path = dir.join("legacy.txt");
+        autosave_write_to_disk(
+            &legacy_path,
+            "café",
+            TextFormat {
+                eol: Eol::Lf,
+                encoding: CharacterEncoding::Windows1252,
+            },
+        )
+        .unwrap();
+        assert_eq!(std::fs::read(&legacy_path).unwrap(), b"caf\xE9");
+    }
+
+    #[test]
     fn update_eol_reports_only_real_changes() {
         let registry = AutosaveRegistry::default();
-        registry.register("main", None, FileSource::Slates, "auto".into(), Eol::Lf);
+        registry.register(
+            "main",
+            None,
+            FileSource::Slates,
+            "auto".into(),
+            Eol::Lf.into(),
+        );
 
         // A no-op pick must not report a change, or re-selecting the current
         // style would dirty a clean document.
@@ -920,6 +1061,35 @@ mod tests {
     }
 
     #[test]
+    fn failed_generation_waits_for_a_new_edit_before_retrying() {
+        let registry = AutosaveRegistry::default();
+        registry.register(
+            "main",
+            None,
+            FileSource::Slates,
+            "auto".into(),
+            Eol::Lf.into(),
+        );
+        registry.notify_changed("main", 1);
+        registry.fail_save("main", 1, "cannot encode".into());
+
+        assert!(registry.check_and_trigger_saves().is_empty());
+        assert_eq!(
+            registry.current_save_failure("main").as_deref(),
+            Some("cannot encode")
+        );
+
+        registry.notify_changed("main", 2);
+        {
+            let mut map = registry.inner.lock().unwrap();
+            map.get_mut("main").unwrap().last_notified_at =
+                Some(Instant::now() - Duration::from_millis(IDLE_DEBOUNCE_MS + 1));
+        }
+        assert_eq!(registry.check_and_trigger_saves().len(), 1);
+        assert!(registry.current_save_failure("main").is_none());
+    }
+
+    #[test]
     fn test_autosave_write_to_disk_atomic_overwrites() {
         let dir = std::env::temp_dir().join("grayslate_autosave_test_overwrite");
         let _ = std::fs::remove_dir_all(&dir);
@@ -928,7 +1098,7 @@ mod tests {
         let path = dir.join("test-overwrite.txt");
         std::fs::write(&path, "original").unwrap();
 
-        autosave_write_to_disk(&path, "updated", Eol::Lf).unwrap();
+        autosave_write_to_disk(&path, "updated", Eol::Lf.into()).unwrap();
 
         let content = std::fs::read_to_string(&path).unwrap();
         assert_eq!(content, "updated");
@@ -1076,7 +1246,7 @@ mod tests {
         std::fs::write(&path, "original").unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640)).unwrap();
 
-        autosave_write_to_disk(&path, "replacement", Eol::Lf).unwrap();
+        autosave_write_to_disk(&path, "replacement", Eol::Lf.into()).unwrap();
 
         let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o640);
@@ -1092,7 +1262,7 @@ mod tests {
         let path = dir.join("document.txt");
         std::fs::write(&path, "original").unwrap();
 
-        let result = atomic_create_to_disk(&path, "replacement", Eol::Lf);
+        let result = atomic_create_to_disk(&path, "replacement", Eol::Lf.into());
 
         assert!(result.is_err());
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "original");
@@ -1112,7 +1282,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("document.txt");
 
-        atomic_create_to_disk(&path, "complete", Eol::Lf).unwrap();
+        atomic_create_to_disk(&path, "complete", Eol::Lf.into()).unwrap();
 
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "complete");
         let _ = std::fs::remove_dir_all(&dir);
@@ -1126,7 +1296,7 @@ mod tests {
             Some(PathBuf::from("/tmp/test.md")),
             FileSource::Slates,
             "auto".into(),
-            Eol::Lf,
+            Eol::Lf.into(),
         );
 
         assert!(!registry.has_unsaved_changes("main"));
@@ -1155,6 +1325,106 @@ mod tests {
     }
 
     #[test]
+    fn repeated_untitled_activation_preserves_new_slate_authorization() {
+        use crate::character_encoding::CharacterEncoding;
+
+        let registry = AutosaveRegistry::default();
+        let saved_path = PathBuf::from("/tmp/authorized-slate.md");
+        let original_format = TextFormat {
+            eol: Eol::Lf,
+            encoding: CharacterEncoding::Utf8Bom,
+        };
+        registry.activate_untitled("main", "markdown".into(), original_format);
+        registry.notify_changed("main", 1);
+        registry.update_authorization("main", saved_path.clone(), "document-1".into(), 9);
+        registry.complete_save("main", 1);
+
+        // A stale frontend effect still describes the old untitled document.
+        // It must not erase the path and grant established by the first save.
+        registry.activate_untitled(
+            "main",
+            "text".into(),
+            TextFormat {
+                eol: Eol::Crlf,
+                encoding: CharacterEncoding::Utf16Le,
+            },
+        );
+
+        let info = registry.get_document_info("main").unwrap();
+        assert_eq!(info.path, Some(saved_path.clone()));
+        assert_eq!(info.document_id.as_deref(), Some("document-1"));
+        assert_eq!(info.document_generation, Some(9));
+        assert_eq!(info.generation, 1);
+        assert!(!info.is_dirty);
+        assert_eq!(info.language_hint, "markdown");
+        assert_eq!(info.format, original_format);
+
+        registry.notify_changed("main", 2);
+        {
+            let mut map = registry.inner.lock().unwrap();
+            map.get_mut("main").unwrap().last_notified_at =
+                Some(Instant::now() - Duration::from_millis(IDLE_DEBOUNCE_MS + 1));
+        }
+        assert!(matches!(
+            registry.check_and_trigger_saves().as_slice(),
+            [SaveAction::RequestContent { window_label, .. }] if window_label == "main"
+        ));
+        assert_eq!(
+            registry.get_document_info("main").unwrap().path,
+            Some(saved_path)
+        );
+    }
+
+    #[test]
+    fn repeated_untitled_activation_preserves_dirty_in_flight_request() {
+        let registry = AutosaveRegistry::default();
+        registry.activate_untitled("main", "json".into(), Eol::Lf.into());
+        registry.notify_changed("main", 4);
+        {
+            let mut map = registry.inner.lock().unwrap();
+            map.get_mut("main").unwrap().last_notified_at =
+                Some(Instant::now() - Duration::from_millis(IDLE_DEBOUNCE_MS + 1));
+        }
+        let request_id = match registry.check_and_trigger_saves().as_slice() {
+            [SaveAction::RequestContent { request_id, .. }] => *request_id,
+            _ => panic!("expected one content request"),
+        };
+
+        registry.activate_untitled("main", "text".into(), Eol::Crlf.into());
+
+        let info = registry.get_document_info("main").unwrap();
+        assert_eq!(info.path, None);
+        assert_eq!(info.generation, 4);
+        assert!(info.is_dirty);
+        assert_eq!(info.language_hint, "json");
+        assert_eq!(info.format.eol, Eol::Lf);
+        assert!(registry.validate_request("main", request_id));
+    }
+
+    #[test]
+    fn untitled_activation_replaces_a_local_document_registration() {
+        let registry = AutosaveRegistry::default();
+        registry.register(
+            "main",
+            Some(PathBuf::from("/tmp/local.txt")),
+            FileSource::Local,
+            "text".into(),
+            Eol::Crlf.into(),
+        );
+        registry.notify_changed("main", 8);
+
+        registry.activate_untitled("main", "markdown".into(), Eol::Lf.into());
+
+        let info = registry.get_document_info("main").unwrap();
+        assert_eq!(info.path, None);
+        assert!(matches!(info.source, FileSource::Slates));
+        assert_eq!(info.generation, 0);
+        assert!(!info.is_dirty);
+        assert_eq!(info.language_hint, "markdown");
+        assert_eq!(info.format.eol, Eol::Lf);
+    }
+
+    #[test]
     fn test_registry_local_files_not_autosaved() {
         let registry = AutosaveRegistry::default();
         registry.register(
@@ -1162,7 +1432,7 @@ mod tests {
             Some(PathBuf::from("/tmp/local.txt")),
             FileSource::Local,
             "auto".into(),
-            Eol::Lf,
+            Eol::Lf.into(),
         );
 
         registry.notify_changed("main", 1);
@@ -1178,7 +1448,7 @@ mod tests {
             Some(PathBuf::from("/tmp/test.md")),
             FileSource::Slates,
             "auto".into(),
-            Eol::Lf,
+            Eol::Lf.into(),
         );
         registry.notify_changed("main", 1);
 
@@ -1199,7 +1469,7 @@ mod tests {
             Some(PathBuf::from("/tmp/test.md")),
             FileSource::Slates,
             "auto".into(),
-            Eol::Lf,
+            Eol::Lf.into(),
         );
         assert_eq!(registry.begin_close_content_request("main"), None);
 
@@ -1212,7 +1482,7 @@ mod tests {
             Some(PathBuf::from("/tmp/local.txt")),
             FileSource::Local,
             "auto".into(),
-            Eol::Lf,
+            Eol::Lf.into(),
         );
         registry.notify_changed("main", 1);
         assert_eq!(registry.begin_close_content_request("main"), None);
@@ -1226,7 +1496,7 @@ mod tests {
             Some(PathBuf::from("/tmp/test.md")),
             FileSource::Slates,
             "auto".into(),
-            Eol::Lf,
+            Eol::Lf.into(),
         );
         registry.notify_changed("main", 1);
         assert!(registry.has_unsaved_changes("main"));
@@ -1243,7 +1513,7 @@ mod tests {
             Some(PathBuf::from("/tmp/test.md")),
             FileSource::Slates,
             "python".into(),
-            Eol::Lf,
+            Eol::Lf.into(),
         );
         registry.notify_changed("main", 5);
 
@@ -1263,7 +1533,7 @@ mod tests {
             Some(PathBuf::from("/tmp/test.csv")),
             FileSource::Slates,
             "csv".into(),
-            Eol::Lf,
+            Eol::Lf.into(),
         );
 
         let info = registry.get_document_info("main").unwrap();
@@ -1286,7 +1556,7 @@ mod tests {
             Some(PathBuf::from("/tmp/test.md")),
             FileSource::Slates,
             "auto".into(),
-            Eol::Lf,
+            Eol::Lf.into(),
         );
 
         // No pending request
@@ -1309,7 +1579,13 @@ mod tests {
     #[test]
     fn manual_save_registration_invalidates_pending_autosave_request() {
         let registry = AutosaveRegistry::default();
-        registry.register("main", None, FileSource::Slates, "auto".into(), Eol::Lf);
+        registry.register(
+            "main",
+            None,
+            FileSource::Slates,
+            "auto".into(),
+            Eol::Lf.into(),
+        );
         registry.notify_changed("main", 1);
 
         let request_id = registry.check_and_trigger_saves();
@@ -1332,7 +1608,7 @@ mod tests {
             "auto".into(),
             "document-id".into(),
             1,
-            Eol::Lf,
+            Eol::Lf.into(),
         );
 
         assert!(!registry.validate_request("main", request_id));
@@ -1341,7 +1617,13 @@ mod tests {
     #[test]
     fn test_update_path() {
         let registry = AutosaveRegistry::default();
-        registry.register("main", None, FileSource::Slates, "auto".into(), Eol::Lf);
+        registry.register(
+            "main",
+            None,
+            FileSource::Slates,
+            "auto".into(),
+            Eol::Lf.into(),
+        );
 
         let info = registry.get_document_info("main").unwrap();
         assert!(info.path.is_none());
@@ -1362,7 +1644,7 @@ mod tests {
             Some(PathBuf::from("/tmp/test.md")),
             FileSource::Slates,
             "auto".into(),
-            Eol::Lf,
+            Eol::Lf.into(),
         );
         registry.notify_changed("main", 1);
 
@@ -1387,7 +1669,13 @@ mod tests {
         // A brand-new untitled slate has never been saved and just received
         // its first keystroke. It should NOT be named/saved until the user
         // pauses long enough to exceed IDLE_DEBOUNCE_MS.
-        registry.register("main", None, FileSource::Slates, "auto".into(), Eol::Lf);
+        registry.register(
+            "main",
+            None,
+            FileSource::Slates,
+            "auto".into(),
+            Eol::Lf.into(),
+        );
         registry.notify_changed("main", 1);
 
         let actions = registry.check_and_trigger_saves();
@@ -1419,7 +1707,7 @@ mod tests {
             Some(PathBuf::from("/tmp/local.txt")),
             FileSource::Local,
             "auto".into(),
-            Eol::Lf,
+            Eol::Lf.into(),
         );
         registry.notify_changed("main", 1);
 
@@ -1441,7 +1729,7 @@ mod tests {
             Some(PathBuf::from("/tmp/test.md")),
             FileSource::Slates,
             "auto".into(),
-            Eol::Lf,
+            Eol::Lf.into(),
         );
         registry.notify_changed("main", 1);
 
@@ -1465,7 +1753,7 @@ mod tests {
             Some(PathBuf::from("/tmp/test.csv")),
             FileSource::Slates,
             "csv".into(),
-            Eol::Lf,
+            Eol::Lf.into(),
         );
         registry.set_csv_mode("main", true);
         registry.notify_changed("main", 1);
@@ -1491,7 +1779,7 @@ mod tests {
             Some(PathBuf::from("/tmp/test.md")),
             FileSource::Slates,
             "auto".into(),
-            Eol::Lf,
+            Eol::Lf.into(),
         );
         registry.notify_changed("main", 1);
 
