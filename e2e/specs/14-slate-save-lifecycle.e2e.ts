@@ -42,16 +42,20 @@ describe("Slate save lifecycle", () => {
 
     let slatePath = "";
     await waitFor(
-      () => {
-        const matches = directoryInventory(notesRoot)
-          .map((name) => path.join(notesRoot, name))
-          .filter((candidate) => fs.readFileSync(candidate, "utf8") === content);
-        if (matches.length !== 1) return false;
-        slatePath = matches[0] ?? "";
-        return slatePath !== "";
+      async () => {
+        // Use the application's document identity as the source of truth.
+        // Scanning by file contents can briefly select the same-directory
+        // atomic-write temp file before Rust renames it into place.
+        const activePath = await titleBar.documentPath();
+        if (!activePath || path.dirname(activePath) !== notesRoot) return false;
+        if (!fs.existsSync(activePath)) return false;
+        if (fs.readFileSync(activePath, "utf8") !== content) return false;
+
+        slatePath = activePath;
+        return true;
       },
       {
-        message: `Autosave did not create exactly one file containing ${JSON.stringify(content)}.`,
+        message: `Autosave did not establish an active slate containing ${JSON.stringify(content)}.`,
         timeoutMs: TIMEOUTS.disk,
       },
     );

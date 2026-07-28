@@ -23,6 +23,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import { parseBinaryPathArgument } from "./verify-release-build-args.mjs";
 
 const COMMAND_NAMES_PATH = path.resolve(
   import.meta.dirname,
@@ -53,8 +54,16 @@ function forbiddenCommands() {
 
 const FORBIDDEN = forbiddenCommands();
 
+let requestedBinaryPath;
+try {
+  requestedBinaryPath = parseBinaryPathArgument(process.argv.slice(2));
+} catch (error) {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exit(2);
+}
+
 const binaryPath =
-  process.argv[2] ??
+  requestedBinaryPath ??
   path.resolve(
     process.cwd(),
     "target/release",

@@ -36,6 +36,7 @@
     "release:version": "node scripts/release/set-version.mjs",
     "test:release-scripts": "node --test scripts/release/release-scripts.test.mjs",
     "test:package-repository": "node --test scripts/package-repository/package-repository.test.mjs",
+    "test:verify-release-build": "node --test scripts/verify-release-build.test.mjs",
     "tauri": "tauri",
     "e2e:build": "pnpm tauri build --no-bundle --features e2e --config src-tauri/tauri.e2e.conf.json",
     "e2e:lint": "node e2e/scripts/lint-conventions.mjs",

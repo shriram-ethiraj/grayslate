@@ -600,6 +600,7 @@
   let csvTableView = $state<
     | {
         flushToTextHistory: () => Promise<CsvTableFlushResult>;
+        waitForPendingActions: () => Promise<void>;
       }
     | undefined
   >(undefined);
@@ -1306,6 +1307,7 @@
 
   async function getContentForSave(): Promise<string> {
     if (activeLanguage === "csv" && editorState.csv.showTable && csvTableView) {
+      await csvTableView.waitForPendingActions();
       if (csvInfo.liveMirrorEnabled) {
         await drainCsvMirrorQueueNow();
       } else {
@@ -1782,6 +1784,7 @@
       const previousText = value;
       const useLiveMirror = csvInfo.liveMirrorEnabled;
 
+      await csvTableView.waitForPendingActions();
       if (useLiveMirror) {
         await drainCsvMirrorQueueNow();
       } else {

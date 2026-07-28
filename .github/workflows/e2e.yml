@@ -34,6 +34,8 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Type-check, lint, and audit the E2E suite
         run: pnpm run e2e:check
+      - name: Test release-build verification
+        run: pnpm run test:verify-release-build
 
   build-e2e:
     name: Build test-only packaged app
@@ -202,4 +204,4 @@ jobs:
       - name: Build normal release binary in an isolated target
         run: CARGO_TARGET_DIR=target/release-audit pnpm tauri build --no-bundle
       - name: Verify test-only commands are absent
-        run: pnpm run verify:release-build -- target/release-audit/release/Grayslate
+        run: pnpm run verify:release-build target/release-audit/release/Grayslate
