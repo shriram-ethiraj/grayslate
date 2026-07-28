@@ -154,6 +154,7 @@
     style="left: {menuX}px; top: {menuY}px;"
     role="menu"
     tabindex="-1"
+    data-testid="editor-context-menu"
     oncontextmenu={(e) => e.preventDefault()}
   >
     <!-- ── JSON-specific options (always above generic items) ────────── -->
@@ -162,6 +163,7 @@
         <button
           class={itemEnabled}
           role="menuitem"
+          data-testid="editor-context-copy-path"
           onclick={() => copyToClipboard(jsonData!.path!, "path")}
         >
           <Link class="mr-2 h-4 w-4 shrink-0" />
@@ -173,6 +175,7 @@
         <button
           class={itemEnabled}
           role="menuitem"
+          data-testid="editor-context-copy-key"
           onclick={() => copyToClipboard(jsonData!.key!, "key")}
         >
           <KeyRound class="mr-2 h-4 w-4 shrink-0" />
@@ -184,6 +187,7 @@
         <button
           class={itemEnabled}
           role="menuitem"
+          data-testid="editor-context-copy-value"
           onclick={() => copyToClipboard(jsonData!.value!, "value")}
         >
           <Braces class="mr-2 h-4 w-4 shrink-0" />
@@ -196,14 +200,24 @@
 
     <!-- ── Standard clipboard operations ─────────────────────────────── -->
     {#if hasSelection}
-      <button class={itemEnabled} role="menuitem" onclick={handleCut}>
+      <button
+        class={itemEnabled}
+        role="menuitem"
+        data-testid="editor-context-cut"
+        onclick={handleCut}
+      >
         <Scissors class="mr-2 h-4 w-4 shrink-0" />
         <span>Cut</span>
         <span class="ml-auto pl-4 text-xs text-muted-foreground"
           >{formatForDisplay("Mod+X")}</span
         >
       </button>
-      <button class={itemEnabled} role="menuitem" onclick={handleCopy}>
+      <button
+        class={itemEnabled}
+        role="menuitem"
+        data-testid="editor-context-copy"
+        onclick={handleCopy}
+      >
         <CopyIcon class="mr-2 h-4 w-4 shrink-0" />
         <span>Copy</span>
         <span class="ml-auto pl-4 text-xs text-muted-foreground"
@@ -212,7 +226,12 @@
       </button>
     {/if}
 
-    <button class={itemEnabled} role="menuitem" onclick={handleSelectAll}>
+    <button
+      class={itemEnabled}
+      role="menuitem"
+      data-testid="editor-context-select-all"
+      onclick={handleSelectAll}
+    >
       <TextSelect class="mr-2 h-4 w-4 shrink-0" />
       <span>Select All</span>
       <span class="ml-auto pl-4 text-xs text-muted-foreground"
@@ -222,7 +241,13 @@
 
     <div class="my-1 h-px bg-muted"></div>
 
-    <button class={itemEnabled} role="menuitem" onclick={handleToggleWordWrap}>
+    <button
+      class={itemEnabled}
+      role="menuitem"
+      data-testid="editor-context-word-wrap"
+      data-checked={editorState.wordWrap ? "true" : "false"}
+      onclick={handleToggleWordWrap}
+    >
       <TextWrap class="mr-2 h-4 w-4 shrink-0" />
       <span>Word Wrap</span>
       {#if editorState.wordWrap}

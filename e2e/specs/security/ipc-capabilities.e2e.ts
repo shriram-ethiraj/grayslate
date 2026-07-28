@@ -1,46 +1,48 @@
-import { browser, expect } from "@wdio/globals";
-
-interface TauriInternals {
-  invoke<T>(command: string, args?: Record<string, unknown>): Promise<T>;
-}
-
-interface InvokeResult<T> {
-  value?: T;
-  error?: string;
-}
-
-async function rawInvoke<T>(
-  command: string,
-  args: Record<string, unknown> = {},
-): Promise<InvokeResult<T>> {
-  try {
-    return await browser.executeAsync((name, payload, done) => {
-      const internals = (window as unknown as { __TAURI_INTERNALS__: TauriInternals })
-        .__TAURI_INTERNALS__;
-      internals
-        .invoke<T>(name, payload)
-        .then((value) => done({ value }))
-        .catch((error: unknown) => done({ error: String(error) }));
-    }, command, args);
-  } catch (error) {
-    return { error: String(error) };
-  }
-}
+import { expect } from "@wdio/globals";
+import { expectRejection, invokeInApp } from "../../driver/invoke.js";
+import { scenario } from "../../coverage/scenario.js";
 
 describe("Tauri IPC capabilities", () => {
-  it("allows generated app commands and denies sensitive plugin reads", async () => {
-    const appInfo = await rawInvoke<{ appName: string; appVersion: string }>(
-      "get_app_info",
-    );
-    expect(appInfo.error).toBeUndefined();
-    expect(appInfo.value?.appName).toBe("Grayslate");
+  scenario(
+    "security.capabilities",
+    "allows generated app commands and denies sensitive plugin reads",
+    async () => {
+      const appInfo = await invokeInApp<{ appName: string; appVersion: string }>(
+        "get_app_info",
+      );
+      expect(appInfo.appName).toBe("Grayslate");
 
-    const clipboardRead = await rawInvoke<string>(
-      "plugin:clipboard-manager|read_text",
-    );
-    const hostnameRead = await rawInvoke<string>("plugin:os|hostname");
+      // expectRejection throws if the driver failed or the command succeeded,
+      // so "not allowed" can only come from the capability system. The previous
+      // version funnelled driver errors into the same field it asserted on,
+      // which meant a broken session could satisfy a security assertion.
+      expect(await expectRejection("plugin:clipboard-manager|read_text")).toContain(
+        "not allowed",
+      );
+      expect(await expectRejection("plugin:os|hostname")).toContain("not allowed");
+    },
+  );
 
-    expect(clipboardRead.error).toContain("not allowed");
-    expect(hostnameRead.error).toContain("not allowed");
-  });
+  scenario(
+    "security.e2e-shims-present-in-test-build",
+    "exposes the e2e-only commands solely because this build opted into them",
+    async () => {
+      // This build sets --features e2e, so the shim must be reachable. What
+      // matters here is that the ACL admits the command at all — the grant then
+      // fails on its own merits for a path outside any known root, which is
+      // itself the authorization layer doing its job.
+      const outcome = await expectRejection("e2e_save_path", {
+        path: "/definitely/not/a/real/root/capability-probe.txt",
+      });
+      expect(outcome).not.toContain("not allowed by ACL");
+
+      // The release guarantee itself is a build-configuration property: the
+      // commands are behind `#[cfg(feature = "e2e")]` in src-tauri/src/lib.rs
+      // and their ACL is generated only when CARGO_FEATURE_E2E is set. A
+      // packaged release binary is verified by scripts/verify-release-build.mjs
+      // rather than from inside a build that deliberately enables them.
+      const unknownCommand = await expectRejection("e2e_definitely_not_a_command");
+      expect(unknownCommand.length).toBeGreaterThan(0);
+    },
+  );
 });

@@ -114,7 +114,11 @@
           </Select.Trigger>
           <Select.Content>
             {#each indentOptions as option (option.value)}
-              <Select.Item value={option.value} label={option.label}>
+              <Select.Item
+                value={option.value}
+                label={option.label}
+                data-testid="indent-mode-{option.value}"
+              >
                 {option.label}
               </Select.Item>
             {/each}
@@ -137,7 +141,11 @@
             </Select.Trigger>
             <Select.Content>
               {#each spaceSizeOptions as option (option.value)}
-                <Select.Item value={option.value} label={option.label}>
+                <Select.Item
+                  value={option.value}
+                  label={option.label}
+                  data-testid="indent-size-{option.value}"
+                >
                   {option.label}
                 </Select.Item>
               {/each}

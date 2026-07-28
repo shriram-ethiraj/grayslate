@@ -16,6 +16,16 @@ export const configDirectory = path.join(sandboxRoot, "config");
 export const dataDirectory = path.join(sandboxRoot, "data");
 export const cacheDirectory = path.join(sandboxRoot, "cache");
 export const stateDirectory = path.join(sandboxRoot, "state");
+export const minimizeObservationPath = path.join(
+  stateDirectory,
+  "grayslate-e2e-minimize-observed",
+);
+export function operationSignalPath(
+  name: string,
+  signal: "observed" | "release",
+): string {
+  return path.join(stateDirectory, `grayslate-e2e-${signal}-${name}`);
+}
 export const notesRoot = path.join(homeDirectory, "Documents", "Grayslate");
 
 /** Remove stale E2E output once, before WDIO starts any worker process. */

@@ -95,6 +95,12 @@ pub fn run() {
             // build never references it or its permissions.
             #[cfg(feature = "e2e")]
             app.add_capability(include_str!("../e2e-capabilities/e2e.json"))?;
+            // Test-only: holds pre-selected native-dialog answers so a spec can
+            // click the real Open / Save As menu items.
+            #[cfg(feature = "e2e")]
+            app.manage(commands::e2e::QueuedDialogPaths::default());
+            #[cfg(feature = "e2e")]
+            app.manage(commands::e2e::ExternalActionProbe::default());
 
             Ok(())
         })
@@ -170,7 +176,25 @@ pub fn run() {
             #[cfg(feature = "e2e")]
             commands::e2e::e2e_open_path,
             #[cfg(feature = "e2e")]
+            commands::e2e::e2e_arm_minimize_probe,
+            #[cfg(feature = "e2e")]
+            commands::e2e::e2e_arm_operation_gate,
+            #[cfg(feature = "e2e")]
+            commands::e2e::e2e_minimize_observation,
+            #[cfg(feature = "e2e")]
+            commands::e2e::e2e_operation_gate_reached,
+            #[cfg(feature = "e2e")]
+            commands::e2e::e2e_queue_external_confirmation,
+            #[cfg(feature = "e2e")]
+            commands::e2e::e2e_release_operation_gate,
+            #[cfg(feature = "e2e")]
             commands::e2e::e2e_save_path,
+            #[cfg(feature = "e2e")]
+            commands::e2e::e2e_queue_open_path,
+            #[cfg(feature = "e2e")]
+            commands::e2e::e2e_queue_save_path,
+            #[cfg(feature = "e2e")]
+            commands::e2e::e2e_take_external_action,
             menu::set_menu_word_wrap,
             menu::set_menu_save_enabled,
         ])

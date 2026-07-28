@@ -61,7 +61,11 @@ export function getMarkdownPreviewSelectionText(): string {
   const previewRange = getSelectionRangeInsidePreview(selection, previewElement);
   if (!previewRange) return "";
 
-  return previewRange.toString();
+  // `Range.toString()` concatenates DOM text nodes and does not serialize
+  // block boundaries the same way the browser presents a user selection.
+  // Once the range has been proven to belong to the preview, copy the visible
+  // selection representation so the clipboard matches what the user selected.
+  return selection.toString();
 }
 
 export function getMarkdownPreviewAllText(): string {
@@ -76,8 +80,8 @@ export function hasMarkdownPreviewSelection(): boolean {
   return getMarkdownPreviewSelectionText().length > 0;
 }
 
-export async function copyMarkdownPreviewSelection(): Promise<boolean> {
-  const text = getMarkdownPreviewSelectionText();
+/** Copy text captured before a context-menu item takes browser focus. */
+export async function copyMarkdownPreviewText(text: string): Promise<boolean> {
   if (!text) return false;
 
   try {
@@ -90,18 +94,14 @@ export async function copyMarkdownPreviewSelection(): Promise<boolean> {
   }
 }
 
+export async function copyMarkdownPreviewSelection(): Promise<boolean> {
+  const text = getMarkdownPreviewSelectionText();
+  return copyMarkdownPreviewText(text);
+}
+
 export async function copyMarkdownPreviewAll(): Promise<boolean> {
   const text = getMarkdownPreviewAllText();
-  if (!text) return false;
-
-  try {
-    await writeText(text);
-    focusMarkdownPreview();
-    return true;
-  } catch {
-    toast.error("Failed to copy text");
-    return false;
-  }
+  return copyMarkdownPreviewText(text);
 }
 
 export async function copyMarkdownPreviewSelectionOrAll(): Promise<boolean> {

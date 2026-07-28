@@ -813,6 +813,15 @@
     fileOpenRequestVersion += 1;
     clearPendingSidebarOpenFile();
     void invoke("cancel_file_read").catch(() => undefined);
+
+    // A superseded open request deliberately cannot hide the shared loader in
+    // its own `finally`: a newer file read may already own that overlay. An
+    // explicit invalidation (reset to blank or component teardown) has no
+    // successor, however, so it owns the cleanup. Without this, cancelling a
+    // held read successfully reset the document but left "Reading file…"
+    // covering the editor forever.
+    stopLoaderTicker();
+    hideEditorLoader();
   }
 
   function isActiveFileOpenRequest(requestVersion: number): boolean {

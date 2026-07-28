@@ -1,111 +1,192 @@
 import fs from "node:fs";
 import path from "node:path";
-import { $, browser, expect } from "@wdio/globals";
+import { expect } from "@wdio/globals";
+import { TIMEOUTS } from "../config/timeouts.js";
 import {
-  clickTestId,
-  externalRoot,
-  openAuthorizedPath,
-  openExternalText,
-  pressMod,
-  replaceEditorText,
-  requestNewSlate,
-  waitForDirtyState,
-  waitForEditorReady,
-  waitForFile,
-  waitForSaveActionEnabled,
-} from "../helpers/app.js";
-import { notesRoot } from "../helpers/sandbox.js";
+  directoryInventory,
+  expectNoNewFiles,
+  expectSettledAbsent,
+} from "../assertions/matchers.js";
+import { scenario } from "../coverage/scenario.js";
+import { waitForFile, waitForFileWithoutWebDriver } from "../driver/wait.js";
+import { externalRoot, notesRoot, openPath, openText } from "../fixtures/factories.js";
+import * as app from "../pages/app.js";
+import * as dialogs from "../pages/dialogs.js";
+import * as editor from "../pages/editor.js";
+import * as titleBar from "../pages/titleBar.js";
 
-function regularFiles(directory: string): string[] {
-  return fs.readdirSync(directory)
-    .map((name) => path.join(directory, name))
-    .filter((candidate) => fs.statSync(candidate).isFile())
-    .sort();
-}
+/**
+ * The local-file save contract.
+ *
+ * The load-bearing property is negative: a local file is written *only* when
+ * the user says so. Autosave owns slates and must never touch an external file,
+ * and no save path may quietly fork a second file.
+ *
+ * Each scenario seeds its own document and measures file-count changes against
+ * a baseline it captures itself, so any one can run alone and none depends on
+ * a sibling having run first.
+ */
+describe("Local file save lifecycle", () => {
+  const INITIAL = "local lifecycle: initial";
 
-async function waitForDiskWithoutWebDriver(
-  filePath: string,
-  expected: string,
-  timeoutMs = 15_000,
-): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    try {
-      if (fs.readFileSync(filePath, "utf8") === expected) return;
-    } catch {
-      // The save selected from the close guard may still be in flight.
-    }
-    await new Promise<void>((resolve) => setTimeout(resolve, 100));
+  interface Seeded {
+    localPath: string;
+    fileName: string;
+    externalBefore: string[];
+    slatesBefore: string[];
   }
-  throw new Error(`Close-time local save did not update ${filePath}`);
-}
 
-describe("Act 15 — comprehensive local-file save lifecycle", () => {
-  it("saves only on command and keeps the same path through repeated saves, switching, and close", async () => {
-    const initial = "local lifecycle: initial";
-    const firstSave = "local lifecycle: first explicit save";
-    const secondSave = "local lifecycle: second explicit save";
-    const switchSave = "local lifecycle: save from the switch guard";
-    const closeSave = "local lifecycle: save from the close guard";
-    const localPath = await openExternalText("local-save-lifecycle.txt", initial);
-    const initialLocalInventory = regularFiles(externalRoot);
-    const initialSlateInventory = regularFiles(notesRoot);
+  async function seedLocalFile(fileName: string): Promise<Seeded> {
+    const localPath = await openText(fileName, INITIAL);
+    await titleBar.waitForDirty(false);
+    await titleBar.waitForSaveEnabled(false);
+    return {
+      localPath,
+      fileName,
+      externalBefore: directoryInventory(externalRoot),
+      slatesBefore: directoryInventory(notesRoot),
+    };
+  }
 
-    expect(initialLocalInventory).toEqual([localPath]);
-    expect(initialSlateInventory).toEqual([]);
-    await waitForDirtyState(false);
-    await waitForSaveActionEnabled(false);
+  scenario(
+    "file.autosave.never-touches-local",
+    "leaves an edited local file untouched until the user saves",
+    async () => {
+      const seeded = await seedLocalFile("autosave-never-touches.txt");
 
-    await replaceEditorText(firstSave);
-    await waitForDirtyState(true);
-    await waitForSaveActionEnabled(true);
+      await editor.replaceText("local lifecycle: edited but not saved");
+      await titleBar.waitForDirty(true);
+      await titleBar.waitForSaveEnabled(true);
 
-    // Local files must never be changed by the slate autosave timer.
-    await browser.pause(2_500);
-    expect(fs.readFileSync(localPath, "utf8")).toBe(initial);
-    expect(regularFiles(externalRoot)).toEqual(initialLocalInventory);
-    expect(regularFiles(notesRoot)).toEqual(initialSlateInventory);
+      // The previous version slept 2.5 s and asserted once, which made the
+      // check weaker the slower the machine: the autosave simply had not fired
+      // yet, so it passed for the wrong reason. Instead reach a state where a
+      // violation would already be visible, then require the file to stay
+      // untouched across every sample of a window longer than the 1.5 s idle
+      // debounce that governs slate autosave.
+      await expectSettledAbsent({
+        precondition: async () => {
+          await titleBar.waitForDirty(true);
+        },
+        invariant: async () =>
+          fs.readFileSync(seeded.localPath, "utf8") === INITIAL &&
+          directoryInventory(notesRoot).length === seeded.slatesBefore.length,
+        message:
+          "Autosave must never write a local file, nor create a slate for one, " +
+          "before the user saves.",
+        quietForMs: 4_000,
+      });
 
-    await pressMod("s");
-    await pressMod("s");
-    await pressMod("s");
-    await waitForFile(localPath, (content) => content === firstSave);
-    await waitForDirtyState(false);
-    await waitForSaveActionEnabled(false);
-    expect(regularFiles(externalRoot)).toEqual(initialLocalInventory);
-    expect(regularFiles(notesRoot)).toEqual(initialSlateInventory);
+      // Still dirty: nothing silently saved it behind the user's back.
+      expect(await titleBar.isDirty()).toBe(true);
+    },
+  );
 
-    await replaceEditorText(secondSave);
-    await waitForDirtyState(true);
-    await pressMod("s");
-    await waitForFile(localPath, (content) => content === secondSave);
-    await waitForDirtyState(false);
-    expect(regularFiles(externalRoot)).toEqual(initialLocalInventory);
+  scenario(
+    "file.save.coalesces",
+    "collapses repeated Save presses into a single write to one path",
+    async () => {
+      const seeded = await seedLocalFile("save-coalesces.txt");
+      const expected = "local lifecycle: first explicit save";
 
-    await replaceEditorText(switchSave);
-    await requestNewSlate();
-    const switchDialog = await $("[data-testid='unsaved-changes-dialog']");
-    await switchDialog.waitForDisplayed();
-    await clickTestId("unsaved-save");
-    await switchDialog.waitForDisplayed({ reverse: true });
-    await waitForFile(localPath, (content) => content === switchSave);
-    await waitForEditorReady({
-      documentPath: "New Slate",
-      documentLength: 0,
-    });
-    expect(regularFiles(externalRoot)).toEqual(initialLocalInventory);
-    expect(regularFiles(notesRoot)).toEqual(initialSlateInventory);
+      await editor.replaceText(expected);
+      await titleBar.waitForDirty(true);
 
-    await openAuthorizedPath(localPath);
-    await replaceEditorText(closeSave);
-    await waitForDirtyState(true);
-    await (await $("button[aria-label='Close']")).click();
-    const closeDialog = await $("[data-testid='unsaved-changes-dialog']");
-    await closeDialog.waitForDisplayed();
-    await clickTestId("unsaved-save");
+      await editor.save();
+      await editor.save();
+      await editor.save();
 
-    await waitForDiskWithoutWebDriver(localPath, closeSave);
-    expect(regularFiles(externalRoot)).toEqual(initialLocalInventory);
-    expect(regularFiles(notesRoot)).toEqual(initialSlateInventory);
-  });
+      await waitForFile(seeded.localPath, (content) => content === expected, {
+        message: `Save never wrote the expected content to ${seeded.localPath}.`,
+      });
+      await titleBar.waitForDirty(false);
+      await titleBar.waitForSaveEnabled(false);
+
+      // Three saves, one file: no fork into a second document anywhere.
+      expectNoNewFiles(externalRoot, seeded.externalBefore);
+      expectNoNewFiles(notesRoot, seeded.slatesBefore);
+    },
+  );
+
+  scenario(
+    "file.external.save",
+    "writes each subsequent explicit save to the same path",
+    async () => {
+      const seeded = await seedLocalFile("repeated-save.txt");
+
+      for (const content of ["local lifecycle: second", "local lifecycle: third"]) {
+        await editor.replaceText(content);
+        await titleBar.waitForDirty(true);
+        await editor.save();
+        await waitForFile(seeded.localPath, (value) => value === content, {
+          message: `Save never wrote ${JSON.stringify(content)}.`,
+        });
+        await titleBar.waitForDirty(false);
+      }
+
+      expectNoNewFiles(externalRoot, seeded.externalBefore);
+      expectNoNewFiles(notesRoot, seeded.slatesBefore);
+    },
+  );
+
+  scenario(
+    "file.guard.save",
+    "saves through the switch guard before opening a new slate",
+    async () => {
+      const seeded = await seedLocalFile("switch-guard.txt");
+      const expected = "local lifecycle: save from the switch guard";
+
+      await editor.replaceText(expected);
+      await titleBar.waitForDirty(true);
+
+      await app.requestNewSlate();
+      await dialogs.unsavedChanges.waitForOpen();
+      await dialogs.unsavedChanges.save();
+      await dialogs.unsavedChanges.waitForClosed();
+
+      await waitForFile(seeded.localPath, (content) => content === expected, {
+        message: "The switch guard's Save never reached disk.",
+      });
+      await editor.waitUntilReady({
+        documentPath: "New Slate",
+        documentLength: 0,
+        timeoutMs: TIMEOUTS.editor,
+      });
+
+      // Saving on the way out must not also leave the edit behind as a slate.
+      expectNoNewFiles(externalRoot, seeded.externalBefore);
+      expectNoNewFiles(notesRoot, seeded.slatesBefore);
+    },
+  );
+
+  scenario(
+    "file.identity.local-lifecycle",
+    "keeps one path across reopen and a save taken from the close guard",
+    async () => {
+      const seeded = await seedLocalFile("close-guard.txt");
+      const expected = "local lifecycle: save from the close guard";
+
+      // Reopen the same path so identity is asserted across a full close/open
+      // cycle rather than only within a single mount.
+      await openPath(seeded.localPath);
+      await editor.replaceText(expected);
+      await titleBar.waitForDirty(true);
+
+      await titleBar.closeWindow();
+      await dialogs.unsavedChanges.waitForOpen();
+      await dialogs.unsavedChanges.save();
+
+      // The window is being destroyed, so there is no WebDriver session left to
+      // poll through; read the disk directly.
+      await waitForFileWithoutWebDriver(
+        seeded.localPath,
+        (content) => content === expected,
+        { message: `The close guard's Save never updated ${seeded.localPath}.` },
+      );
+
+      expect(fs.existsSync(path.join(externalRoot, seeded.fileName))).toBe(true);
+      expectNoNewFiles(externalRoot, seeded.externalBefore);
+      expectNoNewFiles(notesRoot, seeded.slatesBefore);
+    },
+  );
 });

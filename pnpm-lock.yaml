@@ -198,6 +198,9 @@ importers:
       '@wdio/globals':
         specifier: ^9.29.1
         version: 9.29.1(expect-webdriverio@5.7.0)(webdriverio@9.29.1)
+      '@wdio/junit-reporter':
+        specifier: ^9.29.1
+        version: 9.29.1
       '@wdio/local-runner':
         specifier: ^9.29.1
         version: 9.29.1(@wdio/globals@9.29.1)(webdriverio@9.29.1)
@@ -2253,6 +2256,10 @@ packages:
       expect-webdriverio: ^5.6.5
       webdriverio: ^9.0.0
 
+  '@wdio/junit-reporter@9.29.1':
+    resolution: {integrity: sha512-TEwgQqtDMlW1Z96yahGCXyo0PkgFxDQk6KQzy//1rVQ980n+cCa/JNTuxaUDzjOnrqNyOjTEKhERLEDYigAxsw==}
+    engines: {node: '>=18.20.0'}
+
   '@wdio/local-runner@9.29.1':
     resolution: {integrity: sha512-ypgi3gTZYY3eStp1U9H6Gjl0mer55CYMdbtRQ27s6evN1QABcwkGCTuzwqHoO6RmKzwPOuht2mnWb9HwYJaNnw==}
     engines: {node: '>=18.20.0'}
@@ -3355,6 +3362,9 @@ packages:
   json-schema-traverse@1.0.0:
     resolution: {integrity: sha512-NM8/P9n3XjXhIZn1lLhkFaACTOURQXjWhV4BA/RnOv8xvgqtqpAX9IO4mRQxSx1Rlo4tqzeqb0sOlruaOy3dug==}
 
+  json-stringify-safe@5.0.1:
+    resolution: {integrity: sha512-ZClg6AaYvamvYEE82d3Iyd3vSSIjQ+odgjaTzRuO3s7toCdFKczob2i0zCh7JE8kWn17yvAWhUVxvqGwUalsRA==}
+
   json5@2.2.3:
     resolution: {integrity: sha512-XmOWe7eyHYH14cLdVPoyg+GOH3rYX++KpzrylJwSW98t3Nk+U8XOl8FWKOgwtzdb8lXGf6zYwDUzeHMWfxasyg==}
     engines: {node: '>=6'}
@@ -3368,6 +3378,10 @@ packages:
 
   jszip@3.10.1:
     resolution: {integrity: sha512-xXDvecyTpGLrqFrvkrUSoxxfJI5AH7U8zxxtVclpsUtMCq4JQ290LY8AW5c7Ggnr/Y/oK+bQMbqK2qmtk3pN4g==}
+
+  junit-report-builder@5.1.2:
+    resolution: {integrity: sha512-HzvLbEQcoqN2LmGnloShxu2hLadi/rkOTU3zt61UeMICLS0wGDvbf8neIi6+bGkxMnAePIcFMFnbqV+r6YvwxA==}
+    engines: {node: '>=16'}
 
   kleur@4.1.5:
     resolution: {integrity: sha512-o+NO+8WrRiQEE4/7nwRJhN1HWpVmJm511pBHUxPLtp0BUISzlBplORYSmTclCnJvQq2tKu/sgl3xVpkc7ZWuQQ==}
@@ -3528,6 +3542,10 @@ packages:
 
   magicast@0.5.3:
     resolution: {integrity: sha512-pVKE4UdSQ7DvHzivsCIFx2BJn1mHG6KsyrFcaxFx6tONdneEuThrDx0Cj3AMg58KyN4pzYT+LHOotxDQDjNvkw==}
+
+  make-dir@3.1.0:
+    resolution: {integrity: sha512-g3FeP20LNwhALb/6Cz6Dd4F2ngze0jz7tbzrD2wAV+o9FeNHe4rL+yK2md0J/fiSf1sa1ADhXqi5+oVwOM/eGw==}
+    engines: {node: '>=8'}
 
   mdast-util-to-hast@13.2.1:
     resolution: {integrity: sha512-cctsq2wp5vTsLIcaymblUriiTcZd0CwWtCbLvrOzYCDZoWyMNV8sZ7krj09FSnsiJi3WVsHLM4k6Dq/yaPyCXA==}
@@ -4010,6 +4028,10 @@ packages:
   sax@1.6.0:
     resolution: {integrity: sha512-6R3J5M4AcbtLUdZmRv2SygeVaM7IhrLXu9BmnOGmmACak8fiUtOsYNWUS4uK7upbmHIBbLBeFeI//477BKLBzA==}
     engines: {node: '>=11.0.0'}
+
+  semver@6.3.1:
+    resolution: {integrity: sha512-BR7VvDCVHO+q2xBEWskxS6DJE1qRnb7DxzUrogb71CWoSficBxYsiAGd+Kl0mmq/MprG9yArRkyrQxTO6XjMzA==}
+    hasBin: true
 
   semver@7.8.5:
     resolution: {integrity: sha512-Y7/KDsb8LjooZpwaqGyulO6DQlksgCncchHGk+sZIY4SBvUocMBEFH5Ur1fI4dV+Jvl0w6cjvucaIi40puRioA==}
@@ -4754,6 +4776,10 @@ packages:
   xml-naming@0.3.0:
     resolution: {integrity: sha512-ghig2TBE/H11aOVgmahA3MhimvkBr6JIYknH/Dhdk10nXwdbIqBJsbfMxpvFPG8bAw77gN29aQWvKpmVoPlvPQ==}
     engines: {node: '>=16.0.0'}
+
+  xmlbuilder@15.1.1:
+    resolution: {integrity: sha512-yMqGBqtXyeN1e3TGYvgNgDVZ3j84W4cwkOXQswghol6APgZWaff9lnbvN7MHYJOiXsvGPXtjTYJEiC9J2wv9Eg==}
+    engines: {node: '>=8.0'}
 
   xxhash-wasm@1.1.0:
     resolution: {integrity: sha512-147y/6YNh+tlp6nd/2pWq38i9h6mz/EuQ6njIrmW8D1BS5nCqs0P6DG+m6zTGnNz5I+uhZ0SHxBs9BsPrwcKDA==}
@@ -6657,6 +6683,13 @@ snapshots:
       expect-webdriverio: 5.7.0(@wdio/globals@9.29.1)(@wdio/logger@9.29.1)(webdriverio@9.29.1)
       webdriverio: 9.29.1
 
+  '@wdio/junit-reporter@9.29.1':
+    dependencies:
+      '@wdio/reporter': 9.29.1
+      '@wdio/types': 9.29.1
+      json-stringify-safe: 5.0.1
+      junit-report-builder: 5.1.2
+
   '@wdio/local-runner@9.29.1(@wdio/globals@9.29.1)(webdriverio@9.29.1)':
     dependencies:
       '@types/node': 20.19.43
@@ -8039,6 +8072,8 @@ snapshots:
 
   json-schema-traverse@1.0.0: {}
 
+  json-stringify-safe@5.0.1: {}
+
   json5@2.2.3: {}
 
   jsonc-parser@2.3.1: {}
@@ -8051,6 +8086,12 @@ snapshots:
       pako: 1.0.11
       readable-stream: 2.3.8
       setimmediate: 1.0.5
+
+  junit-report-builder@5.1.2:
+    dependencies:
+      lodash: 4.18.1
+      make-dir: 3.1.0
+      xmlbuilder: 15.1.1
 
   kleur@4.1.5: {}
 
@@ -8175,6 +8216,10 @@ snapshots:
       '@babel/parser': 7.29.7
       '@babel/types': 7.29.7
       source-map-js: 1.2.1
+
+  make-dir@3.1.0:
+    dependencies:
+      semver: 6.3.1
 
   mdast-util-to-hast@13.2.1:
     dependencies:
@@ -8729,6 +8774,8 @@ snapshots:
       '@bruits/satteri-win32-x64-msvc': 0.9.5
 
   sax@1.6.0: {}
+
+  semver@6.3.1: {}
 
   semver@7.8.5: {}
 
@@ -9466,6 +9513,8 @@ snapshots:
   ws@8.21.0: {}
 
   xml-naming@0.3.0: {}
+
+  xmlbuilder@15.1.1: {}
 
   xxhash-wasm@1.1.0: {}
 
