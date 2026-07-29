@@ -133,6 +133,14 @@ describe("Restart and persisted settings", () => {
     "sidebar.open.persist-across-restart",
     "restores whether the sidebar was open after restart",
     async () => {
+      // An open sidebar is the shipped default, so the settings store can
+      // legitimately have no `sidebar_open` row yet. Force a state transition
+      // before asserting persistence instead of treating the default UI state
+      // as proof that a write occurred.
+      if (await sidebar.isOpen()) {
+        await sidebar.ensureClosed();
+        await settings.waitForPersistedValue("sidebar_open", "false");
+      }
       await sidebar.ensureOpen();
       await settings.waitForPersistedValue("sidebar_open", "true");
 

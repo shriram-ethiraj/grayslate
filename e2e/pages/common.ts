@@ -1,8 +1,10 @@
 import { $, browser } from "@wdio/globals";
 import { TIMEOUTS } from "../config/timeouts.js";
 import { ESCAPE } from "../driver/keys.js";
+import { waitFor } from "../driver/wait.js";
 import {
   clickTestId as clickWithRetry,
+  isTransientWebDriverError,
   rightClickTestId as rightClickWithRetry,
   setValueTestId as setValueWithRetry,
 } from "../driver/interact.js";
@@ -42,7 +44,12 @@ export async function existsTestId(testId: string): Promise<boolean> {
 
 /** Whether an element carrying this `data-testid` is visible. */
 export async function isDisplayedTestId(testId: string): Promise<boolean> {
-  return (await byTestId(testId)).isDisplayed().catch(() => false);
+  try {
+    return await (await byTestId(testId)).isDisplayed();
+  } catch (error) {
+    if (isTransientWebDriverError(error)) return false;
+    throw error;
+  }
 }
 
 /** Read one attribute, or null when the element is absent. */
@@ -65,14 +72,29 @@ export async function waitForTestId(
   testId: string,
   options?: { reverse?: boolean; timeoutMs?: number },
 ): Promise<void> {
-  const element = await byTestId(testId);
-  await element.waitForDisplayed({
-    reverse: options?.reverse ?? false,
-    timeout: options?.timeoutMs ?? TIMEOUTS.ui,
-    timeoutMsg: options?.reverse
-      ? `'${testId}' was still displayed.`
-      : `'${testId}' never became displayed.`,
-  });
+  const reverse = options?.reverse ?? false;
+  await waitFor(
+    async () => {
+      try {
+        const element = await byTestId(testId);
+        if (!(await element.isExisting())) return reverse;
+        const displayed = await element.isDisplayed();
+        return reverse ? !displayed : displayed;
+      } catch (error) {
+        // A remount is not proof that a closing control disappeared: it may
+        // already have a visible replacement. Reacquire on the next poll for
+        // both open and close waits.
+        if (isTransientWebDriverError(error)) return false;
+        throw error;
+      }
+    },
+    {
+      message: reverse
+        ? `'${testId}' was still displayed.`
+        : `'${testId}' never became displayed.`,
+      timeoutMs: options?.timeoutMs ?? TIMEOUTS.ui,
+    },
+  );
 }
 
 /** Whether a control is disabled.

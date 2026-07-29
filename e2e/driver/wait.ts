@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import { $, browser } from "@wdio/globals";
 import { INTERVALS, TIMEOUTS } from "../config/timeouts.js";
+import { isTransientWebDriverError } from "./interact.js";
 
 /**
  * Wait primitives that make the compliant path the easy path.
@@ -28,6 +29,9 @@ export interface WaitOptions {
   intervalMs?: number;
 }
 
+/** Identifies an unmet condition without conflating it with a driver failure. */
+export class WaitTimeoutError extends Error {}
+
 /** Poll `predicate` until it is true, or fail with `message`. */
 export async function waitFor(
   predicate: () => boolean | Promise<boolean>,
@@ -49,7 +53,7 @@ export async function waitFor(
     if (!detail.includes("waitFor timed out")) {
       throw new Error(`${message} (driver reported: ${detail})`);
     }
-    throw new Error(message);
+    throw new WaitTimeoutError(message);
   }
 }
 
@@ -67,13 +71,20 @@ export async function waitForAttribute(
   expected: string | null,
   options?: Partial<WaitOptions>,
 ): Promise<void> {
-  const element = await $(`[data-testid='${testId}']`);
-  await element.waitForExist({
-    timeout: options?.timeoutMs ?? TIMEOUTS.ui,
-    timeoutMsg: `Element '${testId}' never appeared while waiting for ${attribute}='${expected}'.`,
-  });
   await waitFor(
-    async () => (await element.getAttribute(attribute)) === expected,
+    async () => {
+      try {
+        const element = await $(`[data-testid='${testId}']`);
+        if (!(await element.isExisting())) return false;
+        return (await element.getAttribute(attribute)) === expected;
+      } catch (error) {
+        // Svelte can replace a control between the existence and attribute
+        // reads. Reacquire it on the next poll, but never turn a lost session
+        // or another driver failure into an ordinary timeout.
+        if (isTransientWebDriverError(error)) return false;
+        throw error;
+      }
+    },
     {
       message:
         options?.message ??

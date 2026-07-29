@@ -1,5 +1,5 @@
 import { $, browser, expect } from "@wdio/globals";
-import { TIMEOUTS } from "../config/timeouts.js";
+import { INTERVALS, TIMEOUTS } from "../config/timeouts.js";
 import { clickTestId } from "./interact.js";
 
 /**
@@ -58,6 +58,29 @@ export async function controlStyle(testId: string): Promise<ControlStyleSnapshot
 }
 
 export async function expectBorderlessSelection(testId: string): Promise<void> {
+  await browser.waitUntil(
+    async () =>
+      browser.execute((id) => {
+        const element = document.querySelector<HTMLElement>(`[data-testid='${id}']`);
+        if (!element) return false;
+
+        const style = getComputedStyle(element);
+        const isSelected = element.matches(
+          "[aria-pressed='true'], [data-state='active'], [data-active='true']",
+        );
+        return (
+          isSelected &&
+          style.backgroundColor !== "rgba(0, 0, 0, 0)" &&
+          style.boxShadow !== "none"
+        );
+      }, testId),
+    {
+      timeout: TIMEOUTS.ui,
+      interval: INTERVALS.fast,
+      timeoutMsg: `${testId} never settled into its selected visual state.`,
+    },
+  );
+
   const style = await controlStyle(testId);
   expect(style.backgroundColor).not.toBe("rgba(0, 0, 0, 0)");
   expect(style.boxShadow).not.toBe("none");

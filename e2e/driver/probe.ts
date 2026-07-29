@@ -106,6 +106,17 @@ export async function readSidebarPaths(): Promise<string[]> {
   );
 }
 
+/** Current sidebar pane size as exposed by Paneforge's separator ARIA state. */
+export async function readSidebarPaneSize(): Promise<number | null> {
+  return browser.execute(() => {
+    const handle = document.querySelector<HTMLElement>(
+      "[data-testid='sidebar-resize-handle']",
+    );
+    const size = Number.parseFloat(handle?.getAttribute("aria-valuenow") ?? "");
+    return Number.isFinite(size) ? size : null;
+  });
+}
+
 /** Resolved computed-style values for one element, by `data-testid`. */
 export async function readComputedStyle(
   testId: string,

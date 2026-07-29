@@ -27,7 +27,7 @@ const TRANSIENT_PATTERNS = [
 
 const MAX_ATTEMPTS = 3;
 
-function isTransient(error: unknown): boolean {
+export function isTransientWebDriverError(error: unknown): boolean {
   const message = String((error as Error)?.message ?? error).toLowerCase();
   return TRANSIENT_PATTERNS.some((pattern) => message.includes(pattern));
 }
@@ -111,7 +111,7 @@ export async function withFreshElement<T>(
       return await action(element);
     } catch (error) {
       lastError = error;
-      if (!isTransient(error) || attempt === MAX_ATTEMPTS) throw error;
+      if (!isTransientWebDriverError(error) || attempt === MAX_ATTEMPTS) throw error;
 
       const reason = String((error as Error)?.message ?? error).split("\n")[0];
       retryLog.push({ selector, attempt, reason });

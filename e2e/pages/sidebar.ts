@@ -1,8 +1,8 @@
 import { $ } from "@wdio/globals";
 import { TIMEOUTS, INTERVALS } from "../config/timeouts.js";
 import { clickSelector, dismissTransientOverlays } from "../driver/interact.js";
-import { readSidebarPaths } from "../driver/probe.js";
-import { waitFor } from "../driver/wait.js";
+import { readSidebarPaneSize, readSidebarPaths } from "../driver/probe.js";
+import { waitFor, WaitTimeoutError } from "../driver/wait.js";
 import {
   attributeOf,
   byTestId,
@@ -25,36 +25,53 @@ export type SortMode =
 /**
  * Whether the sidebar is expanded.
  *
- * `isClickable()` throws for an element that is absent *and* for a driver
- * failure. The previous helper collapsed both into "closed" with
- * `.catch(() => false)`, so a broken session read as a collapsed sidebar and
- * the test toggled it open again on a dead driver. Absence is a legitimate
- * "closed"; anything else propagates.
+ * The sidebar's children remain mounted inside a zero-width, overflow-hidden
+ * pane when it closes. WebDriver therefore reports those clipped controls as
+ * displayed even though a user cannot see them. Paneforge exposes the pane's
+ * actual size on the separator's standard `aria-valuenow`, which gives us an
+ * atomic state read without retaining a stale element reference.
  */
 export async function isOpen(): Promise<boolean> {
-  const tab = await byTestId("sidebar-tab-unified");
-  if (!(await tab.isExisting())) return false;
-  return tab.isClickable();
+  const paneSize = await readSidebarPaneSize();
+  return paneSize !== null && paneSize > 0;
+}
+
+async function ensureOpenState(expectedOpen: boolean): Promise<void> {
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    // Re-read before every attempt. If a delayed first click finally applied,
+    // this prevents a second click from toggling the sidebar back.
+    if ((await isOpen()) === expectedOpen) return;
+
+    try {
+      await clickTestId("sidebar-toggle");
+      await waitFor(async () => (await isOpen()) === expectedOpen, {
+        message: expectedOpen
+          ? "The sidebar never expanded after toggling it."
+          : "The sidebar never collapsed after toggling it.",
+        timeoutMs: TIMEOUTS.quiescence,
+        intervalMs: INTERVALS.fast,
+      });
+      return;
+    } catch (error) {
+      lastError = error;
+      // Retry only when the click completed but its postcondition did not.
+      // Driver/session failures must remain immediate and visible.
+      if (!(error instanceof WaitTimeoutError) || attempt === 3) throw error;
+      await dismissTransientOverlays();
+    }
+  }
+
+  throw lastError;
 }
 
 export async function ensureOpen(): Promise<void> {
-  if (await isOpen()) return;
-
-  await clickTestId("sidebar-toggle");
-  await waitFor(async () => isOpen(), {
-    message: "The sidebar never expanded after toggling it.",
-    timeoutMs: TIMEOUTS.ui,
-  });
+  await ensureOpenState(true);
 }
 
 export async function ensureClosed(): Promise<void> {
-  if (!(await isOpen())) return;
-
-  await clickTestId("sidebar-toggle");
-  await waitFor(async () => !(await isOpen()), {
-    message: "The sidebar never collapsed after toggling it.",
-    timeoutMs: TIMEOUTS.ui,
-  });
+  await ensureOpenState(false);
 }
 
 /** Horizontal position of the persisted sidebar divider, in viewport pixels. */
@@ -138,10 +155,32 @@ export async function cardAction(
 }
 
 export async function setFilterTab(tab: FilterTab): Promise<void> {
-  await clickTestId(`sidebar-tab-${tab}`);
-  // The list re-renders asynchronously; callers previously had to remember to
-  // wait themselves, and several did not.
-  await waitForTestId("sidebar-file-list");
+  const testId = `sidebar-tab-${tab}`;
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    await clickTestId(testId);
+    try {
+      // WebKit can report a successful click while a tooltip or a shifting tab
+      // makes the pointer land on an adjacent trigger. The list container
+      // already exists in that case, so waiting for it alone proves nothing.
+      // Require the requested tab's own active state before callers inspect the
+      // filtered cards.
+      await waitFor(async () => (await attributeOf(testId, "data-state")) === "active", {
+        message: `The ${tab} sidebar filter did not become active.`,
+        timeoutMs: TIMEOUTS.quiescence,
+        intervalMs: INTERVALS.fast,
+      });
+      await waitForTestId("sidebar-file-list");
+      return;
+    } catch (error) {
+      lastError = error;
+      if (!(error instanceof WaitTimeoutError) || attempt === 3) throw error;
+      await dismissTransientOverlays();
+    }
+  }
+
+  throw lastError;
 }
 
 export async function setSort(mode: SortMode): Promise<void> {
