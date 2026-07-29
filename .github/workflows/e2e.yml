@@ -202,6 +202,6 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
       - name: Build normal release binary in an isolated target
-        run: CARGO_TARGET_DIR=target/release-audit pnpm tauri build --no-bundle
+        run: CARGO_TARGET_DIR="${GITHUB_WORKSPACE}/target/release-audit" pnpm tauri build --no-bundle
       - name: Verify test-only commands are absent
         run: pnpm run verify:release-build target/release-audit/release/Grayslate
