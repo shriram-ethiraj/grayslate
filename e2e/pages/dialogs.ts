@@ -4,7 +4,14 @@ import { invokeInApp } from "../driver/invoke.js";
 import { setValueTestId } from "../driver/interact.js";
 import { DELETE, pressMod } from "../driver/keys.js";
 import { waitFor } from "../driver/wait.js";
-import { byTestId, clickTestId, isDisplayedTestId, textOf, waitForTestId } from "./common.js";
+import {
+  byTestId,
+  clickTestId,
+  isDisplayedTestId,
+  pressEscape,
+  textOf,
+  waitForTestId,
+} from "./common.js";
 
 /** The app's modal dialogs. */
 
@@ -152,6 +159,13 @@ export const goToLine = {
 export const about = {
   async waitForOpen(): Promise<void> {
     await waitForTestId("about-dialog");
+  },
+  async close(): Promise<void> {
+    await pressEscape();
+    await this.waitForClosed();
+  },
+  async waitForClosed(): Promise<void> {
+    await waitForTestId("about-dialog", { reverse: true });
   },
   async text(): Promise<string> {
     return textOf("about-dialog");

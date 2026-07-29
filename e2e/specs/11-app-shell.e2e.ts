@@ -6,7 +6,7 @@ import { readComputedStyleBySelector } from "../driver/probe.js";
 import { waitFor } from "../driver/wait.js";
 import { openText } from "../fixtures/factories.js";
 import { minimizeObservationPath } from "../helpers/sandbox.js";
-import { existsTestId, pressEscape } from "../pages/common.js";
+import { existsTestId } from "../pages/common.js";
 import * as app from "../pages/app.js";
 import * as dialogs from "../pages/dialogs.js";
 import * as editor from "../pages/editor.js";
@@ -56,7 +56,7 @@ describe("App shell and lifecycle", () => {
       "idle",
     ]).toContain(status);
 
-    await pressEscape();
+    await dialogs.about.close();
   });
 
   scenario(
@@ -82,7 +82,7 @@ describe("App shell and lifecycle", () => {
         );
       }
 
-      await pressEscape();
+      await dialogs.about.close();
     },
   );
 
