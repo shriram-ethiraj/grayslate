@@ -125,6 +125,11 @@
     close();
     editorState.addColumnLeft();
   }
+
+  function handleInsertColumnRight() {
+    close();
+    editorState.addColumnRight();
+  }
 </script>
 
 {#if open}
@@ -135,10 +140,17 @@
     style="left: {menuX}px; top: {menuY}px;"
     role="menu"
     tabindex="-1"
+    data-testid="csv-context-menu"
+    data-menu-mode={menuMode}
     oncontextmenu={(e) => e.preventDefault()}
   >
     {#if menuMode === "insert-column"}
-      <button class={itemEnabled} role="menuitem" onclick={handleInsertColumnLeft}>
+      <button
+        class={itemEnabled}
+        role="menuitem"
+        data-testid="csv-context-insert-column-left"
+        onclick={handleInsertColumnLeft}
+      >
         <MaterialSymbolsAddColumnLeftOutlineRounded class="mr-2 h-4 w-4 shrink-0" />
         <span>Insert Column Left</span>
         <span class="ml-auto pl-4 text-xs text-muted-foreground"
@@ -146,27 +158,42 @@
         >
       </button>
     {:else if isRowSelection}
-      <button class={itemEnabled} role="menuitem" onclick={handleInsertColumnLeft}>
+      <button
+        class={itemEnabled}
+        role="menuitem"
+        data-testid="csv-context-insert-column-right"
+        onclick={handleInsertColumnRight}
+      >
         <MaterialSymbolsAddColumnRightOutlineRounded class="mr-2 h-4 w-4 shrink-0" />
-        <span>Insert Column Left</span>
+        <span>Insert Column Right</span>
         <span class="ml-auto pl-4 text-xs text-muted-foreground"
-          >{formatForDisplay("Mod+Alt+ArrowLeft")}</span
+          >{formatForDisplay("Mod+Alt+ArrowRight")}</span
         >
       </button>
-      <button class={itemEnabled} role="menuitem" onclick={() => {
-        close();
-        editorState.addRowAbove();
-      }}>
+      <button
+        class={itemEnabled}
+        role="menuitem"
+        data-testid="csv-context-insert-row-above"
+        onclick={() => {
+          close();
+          editorState.addRowAbove();
+        }}
+      >
         <MaterialSymbolsAddRowAboveOutlineRounded class="mr-2 h-4 w-4 shrink-0" />
         <span>Insert Row Above</span>
         <span class="ml-auto pl-4 text-xs text-muted-foreground"
           >{formatForDisplay("Mod+Alt+ArrowUp")}</span
         >
       </button>
-      <button class={itemEnabled} role="menuitem" onclick={() => {
-        close();
-        editorState.addRowBelow();
-      }}>
+      <button
+        class={itemEnabled}
+        role="menuitem"
+        data-testid="csv-context-insert-row-below"
+        onclick={() => {
+          close();
+          editorState.addRowBelow();
+        }}
+      >
         <MaterialSymbolsAddRowBelowOutlineRounded class="mr-2 h-4 w-4 shrink-0" />
         <span>Insert Row Below</span>
         <span class="ml-auto pl-4 text-xs text-muted-foreground"
@@ -174,10 +201,15 @@
         >
       </button>
       {#if canMoveRowUp}
-        <button class={itemEnabled} role="menuitem" onclick={() => {
-          close();
-          editorState.moveSelectedRowsUp();
-        }}>
+        <button
+          class={itemEnabled}
+          role="menuitem"
+          data-testid="csv-context-move-row-up"
+          onclick={() => {
+            close();
+            editorState.moveSelectedRowsUp();
+          }}
+        >
           <ArrowUp class="mr-2 h-4 w-4 shrink-0" />
           <span>Move Row Up</span>
           <span class="ml-auto pl-4 text-xs text-muted-foreground"
@@ -186,10 +218,15 @@
         </button>
       {/if}
       {#if canMoveRowDown}
-        <button class={itemEnabled} role="menuitem" onclick={() => {
-          close();
-          editorState.moveSelectedRowsDown();
-        }}>
+        <button
+          class={itemEnabled}
+          role="menuitem"
+          data-testid="csv-context-move-row-down"
+          onclick={() => {
+            close();
+            editorState.moveSelectedRowsDown();
+          }}
+        >
           <ArrowDown class="mr-2 h-4 w-4 shrink-0" />
           <span>Move Row Down</span>
           <span class="ml-auto pl-4 text-xs text-muted-foreground"
@@ -197,7 +234,12 @@
           >
         </button>
       {/if}
-      <button class={destructiveItem} role="menuitem" onclick={handleDelete}>
+      <button
+        class={destructiveItem}
+        role="menuitem"
+        data-testid="csv-context-delete-row"
+        onclick={handleDelete}
+      >
         <Trash2 class="mr-2 h-4 w-4 shrink-0" />
         <span>Delete Row</span>
         <span class="ml-auto pl-4 text-xs text-muted-foreground"
@@ -205,17 +247,27 @@
         >
       </button>
     {:else if isColumnSelection}
-      <button class={itemEnabled} role="menuitem" onclick={handleInsertColumnLeft}>
+      <button
+        class={itemEnabled}
+        role="menuitem"
+        data-testid="csv-context-insert-column-left"
+        onclick={handleInsertColumnLeft}
+      >
         <MaterialSymbolsAddColumnLeftOutlineRounded class="mr-2 h-4 w-4 shrink-0" />
         <span>Insert Column Left</span>
         <span class="ml-auto pl-4 text-xs text-muted-foreground"
           >{formatForDisplay("Mod+Alt+ArrowLeft")}</span
         >
       </button>
-      <button class={itemEnabled} role="menuitem" onclick={() => {
-        close();
-        editorState.addColumnRight();
-      }}>
+      <button
+        class={itemEnabled}
+        role="menuitem"
+        data-testid="csv-context-insert-column-right"
+        onclick={() => {
+          close();
+          editorState.addColumnRight();
+        }}
+      >
         <MaterialSymbolsAddColumnRightOutlineRounded class="mr-2 h-4 w-4 shrink-0" />
         <span>Insert Column Right</span>
         <span class="ml-auto pl-4 text-xs text-muted-foreground"
@@ -223,10 +275,15 @@
         >
       </button>
       {#if canMoveColumnLeft}
-        <button class={itemEnabled} role="menuitem" onclick={() => {
-          close();
-          editorState.moveSelectedColumnsLeft();
-        }}>
+        <button
+          class={itemEnabled}
+          role="menuitem"
+          data-testid="csv-context-move-column-left"
+          onclick={() => {
+            close();
+            editorState.moveSelectedColumnsLeft();
+          }}
+        >
           <ArrowLeft class="mr-2 h-4 w-4 shrink-0" />
           <span>Move Column Left</span>
           <span class="ml-auto pl-4 text-xs text-muted-foreground"
@@ -235,10 +292,15 @@
         </button>
       {/if}
       {#if canMoveColumnRight}
-        <button class={itemEnabled} role="menuitem" onclick={() => {
-          close();
-          editorState.moveSelectedColumnsRight();
-        }}>
+        <button
+          class={itemEnabled}
+          role="menuitem"
+          data-testid="csv-context-move-column-right"
+          onclick={() => {
+            close();
+            editorState.moveSelectedColumnsRight();
+          }}
+        >
           <ArrowRight class="mr-2 h-4 w-4 shrink-0" />
           <span>Move Column Right</span>
           <span class="ml-auto pl-4 text-xs text-muted-foreground"
@@ -246,7 +308,12 @@
           >
         </button>
       {/if}
-      <button class={destructiveItem} role="menuitem" onclick={handleDelete}>
+      <button
+        class={destructiveItem}
+        role="menuitem"
+        data-testid="csv-context-delete-column"
+        onclick={handleDelete}
+      >
         <Trash2 class="mr-2 h-4 w-4 shrink-0" />
         <span>Delete Column</span>
         <span class="ml-auto pl-4 text-xs text-muted-foreground"

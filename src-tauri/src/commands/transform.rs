@@ -3343,6 +3343,9 @@ pub async fn execute_transformation(
     // Clone the channel handle for progress reporting inside the blocking closure.
     let progress_channel = on_event.clone();
     let joined = tauri::async_runtime::spawn_blocking(move || {
+        #[cfg(feature = "e2e")]
+        crate::commands::e2e::operation_checkpoint("transformation");
+
         execute_transformation_blocking_with_progress(
             request,
             &cancelled,

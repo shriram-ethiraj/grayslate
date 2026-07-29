@@ -77,4 +77,16 @@ pub const APP_COMMANDS: &[&str] = &[
 /// Cargo feature is active, so their ACL permissions exist for the test-only
 /// runtime capability. They must never reach a release binary.
 #[cfg_attr(not(feature = "e2e"), allow(dead_code))]
-pub const E2E_COMMANDS: &[&str] = &["e2e_open_path", "e2e_save_path"];
+pub const E2E_COMMANDS: &[&str] = &[
+    "e2e_arm_minimize_probe",
+    "e2e_arm_operation_gate",
+    "e2e_minimize_observation",
+    "e2e_open_path",
+    "e2e_operation_gate_reached",
+    "e2e_queue_external_confirmation",
+    "e2e_release_operation_gate",
+    "e2e_save_path",
+    "e2e_queue_open_path",
+    "e2e_queue_save_path",
+    "e2e_take_external_action",
+];

@@ -600,6 +600,7 @@
   let csvTableView = $state<
     | {
         flushToTextHistory: () => Promise<CsvTableFlushResult>;
+        waitForPendingActions: () => Promise<void>;
       }
     | undefined
   >(undefined);
@@ -813,6 +814,15 @@
     fileOpenRequestVersion += 1;
     clearPendingSidebarOpenFile();
     void invoke("cancel_file_read").catch(() => undefined);
+
+    // A superseded open request deliberately cannot hide the shared loader in
+    // its own `finally`: a newer file read may already own that overlay. An
+    // explicit invalidation (reset to blank or component teardown) has no
+    // successor, however, so it owns the cleanup. Without this, cancelling a
+    // held read successfully reset the document but left "Reading file…"
+    // covering the editor forever.
+    stopLoaderTicker();
+    hideEditorLoader();
   }
 
   function isActiveFileOpenRequest(requestVersion: number): boolean {
@@ -1297,6 +1307,7 @@
 
   async function getContentForSave(): Promise<string> {
     if (activeLanguage === "csv" && editorState.csv.showTable && csvTableView) {
+      await csvTableView.waitForPendingActions();
       if (csvInfo.liveMirrorEnabled) {
         await drainCsvMirrorQueueNow();
       } else {
@@ -1773,6 +1784,7 @@
       const previousText = value;
       const useLiveMirror = csvInfo.liveMirrorEnabled;
 
+      await csvTableView.waitForPendingActions();
       if (useLiveMirror) {
         await drainCsvMirrorQueueNow();
       } else {

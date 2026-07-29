@@ -1,31 +1,40 @@
 import { $, browser, expect } from "@wdio/globals";
-import {
-  clickTestId,
-  ensureSidebarOpen,
-  focusEditor,
-  newSlate,
-  openExternalText,
-  pressMod,
-  waitForLanguageMode,
-} from "../helpers/app.js";
+import { INTERVALS, TIMEOUTS } from "../config/timeouts.js";
+import { clickTestId } from "./interact.js";
 
-async function storedTheme(): Promise<string | null> {
+/**
+ * Read-only measurement for the visual suite.
+ *
+ * These are computed styles, font-loading state, and element geometry — none of
+ * which WebDriver exposes, and none of which any other layer can provide. They
+ * live in the driver layer because that is where `browser.execute` belongs, and
+ * because everything here strictly *reads*: nothing dispatches an event, sets a
+ * value, or mutates the page.
+ *
+ * Moved out of the typography spec so that spec contains assertions rather than
+ * scripting, and so the convention lint applies to it like every other spec.
+ */
+
+export async function storedTheme(): Promise<string | null> {
   return browser.execute(() => localStorage.getItem("theme"));
 }
 
-async function backgroundToken(): Promise<string> {
+export async function backgroundToken(): Promise<string> {
   return browser.execute(() =>
     getComputedStyle(document.documentElement).getPropertyValue("--background").trim(),
   );
 }
 
-async function chooseOption(label: string): Promise<void> {
+export async function chooseOption(label: string): Promise<void> {
   const option = await $(`//*[ @role='option' and normalize-space(.)='${label}' ]`);
-  await option.waitForDisplayed();
+  await option.waitForDisplayed({
+    timeout: TIMEOUTS.ui,
+    timeoutMsg: `The '${label}' option never became visible.`,
+  });
   await option.click();
 }
 
-interface ControlStyleSnapshot {
+export interface ControlStyleSnapshot {
   backgroundColor: string;
   borderTopColor: string;
   borderTopStyle: string;
@@ -33,7 +42,7 @@ interface ControlStyleSnapshot {
   boxShadow: string;
 }
 
-async function controlStyle(testId: string): Promise<ControlStyleSnapshot> {
+export async function controlStyle(testId: string): Promise<ControlStyleSnapshot> {
   return browser.execute((id) => {
     const element = document.querySelector<HTMLElement>(`[data-testid='${id}']`);
     if (!element) throw new Error(`Control ${id} is missing.`);
@@ -48,7 +57,30 @@ async function controlStyle(testId: string): Promise<ControlStyleSnapshot> {
   }, testId);
 }
 
-async function expectBorderlessSelection(testId: string): Promise<void> {
+export async function expectBorderlessSelection(testId: string): Promise<void> {
+  await browser.waitUntil(
+    async () =>
+      browser.execute((id) => {
+        const element = document.querySelector<HTMLElement>(`[data-testid='${id}']`);
+        if (!element) return false;
+
+        const style = getComputedStyle(element);
+        const isSelected = element.matches(
+          "[aria-pressed='true'], [data-state='active'], [data-active='true']",
+        );
+        return (
+          isSelected &&
+          style.backgroundColor !== "rgba(0, 0, 0, 0)" &&
+          style.boxShadow !== "none"
+        );
+      }, testId),
+    {
+      timeout: TIMEOUTS.ui,
+      interval: INTERVALS.fast,
+      timeoutMsg: `${testId} never settled into its selected visual state.`,
+    },
+  );
+
   const style = await controlStyle(testId);
   expect(style.backgroundColor).not.toBe("rgba(0, 0, 0, 0)");
   expect(style.boxShadow).not.toBe("none");
@@ -61,19 +93,20 @@ async function expectBorderlessSelection(testId: string): Promise<void> {
   ).toBe(true);
 }
 
-async function expectVisibleHover(testId: string): Promise<void> {
+export async function expectVisibleHover(testId: string): Promise<void> {
   await (await $("[data-testid='editor']")).moveTo();
   const before = await controlStyle(testId);
   await (await $(`[data-testid='${testId}']`)).moveTo();
   await browser.waitUntil(
     async () => (await controlStyle(testId)).backgroundColor !== before.backgroundColor,
     {
+      timeout: TIMEOUTS.ui,
       timeoutMsg: `${testId} did not show a visible hover background.`,
     },
   );
 }
 
-async function expectSelectedHoverSeparation(): Promise<void> {
+export async function expectSelectedHoverSeparation(): Promise<void> {
   await clickTestId("sidebar-tab-local");
   await (await $("[data-testid='sidebar-tab-slates']")).moveTo();
   await browser.waitUntil(
@@ -83,13 +116,14 @@ async function expectSelectedHoverSeparation(): Promise<void> {
       return colorChannelDelta(selected.backgroundColor, hovered.backgroundColor) >= 50;
     },
     {
+      timeout: TIMEOUTS.ui,
       timeoutMsg: "Selected and hovered sidebar tabs are not visually distinct.",
     },
   );
   await clickTestId("sidebar-tab-unified");
 }
 
-function colorChannelDelta(first: string, second: string): number {
+export function colorChannelDelta(first: string, second: string): number {
   const channels = (color: string): number[] =>
     (color.match(/\d+(?:\.\d+)?/g) ?? []).slice(0, 3).map(Number);
   const firstChannels = channels(first);
@@ -103,7 +137,7 @@ function colorChannelDelta(first: string, second: string): number {
   );
 }
 
-async function sidebarSurfaceSnapshot(): Promise<{
+export async function sidebarSurfaceSnapshot(): Promise<{
   listBackground: string;
   sidebarBackground: string;
 }> {
@@ -120,7 +154,7 @@ async function sidebarSurfaceSnapshot(): Promise<{
   });
 }
 
-async function activeFileForegroundSnapshot(): Promise<{
+export async function activeFileForegroundSnapshot(): Promise<{
   icon: string;
   title: string;
 }> {
@@ -140,7 +174,7 @@ async function activeFileForegroundSnapshot(): Promise<{
   });
 }
 
-async function iconDimensions(testId: string): Promise<{ width: number; height: number }> {
+export async function iconDimensions(testId: string): Promise<{ width: number; height: number }> {
   return browser.execute((id) => {
     const icon = document.querySelector<SVGElement>(`[data-testid='${id}'] svg`);
     if (!icon) throw new Error(`Icon for ${id} is missing.`);
@@ -149,7 +183,7 @@ async function iconDimensions(testId: string): Promise<{ width: number; height: 
   }, testId);
 }
 
-async function expectOpticalIconSize(testId: string, expectedSize: number): Promise<void> {
+export async function expectOpticalIconSize(testId: string, expectedSize: number): Promise<void> {
   const dimensions = await iconDimensions(testId);
   expect(dimensions.width).toBeGreaterThanOrEqual(expectedSize - 0.5);
   expect(dimensions.width).toBeLessThanOrEqual(expectedSize + 0.5);
@@ -157,7 +191,7 @@ async function expectOpticalIconSize(testId: string, expectedSize: number): Prom
   expect(dimensions.height).toBeLessThanOrEqual(expectedSize + 0.5);
 }
 
-async function typographySnapshot(): Promise<{
+export async function typographySnapshot(): Promise<{
   allFacesLoaded: boolean;
   uiFamilies: string[];
   uiWeights: {
@@ -260,155 +294,16 @@ async function typographySnapshot(): Promise<{
   });
 }
 
-describe("Act 8 — appearance and settings", () => {
-  it("loads Source Sans 3 and Commit Mono with the intended hierarchy", async () => {
-    await openExternalText("typography-base.txt", "baseline");
-    await openExternalText(
-      "typography.py",
-      "# An italic comment\ndef greet(name):\n    return f\"Hello, {name}!\"\n",
-    );
-    await waitForLanguageMode("python");
-    await clickTestId("menu-file");
-    await clickTestId("menu-settings");
-    await (await $("[data-testid='settings-dialog']")).waitForDisplayed();
+/** The computed column gap of a container, by `data-testid`. */
+export async function readColumnGap(testId: string): Promise<string> {
+  return browser.execute((id) => {
+    const element = document.querySelector<HTMLElement>(`[data-testid='${id}']`);
+    if (!element) throw new Error(`Container ${id} is missing.`);
+    return getComputedStyle(element).columnGap;
+  }, testId);
+}
 
-    const typography = await typographySnapshot();
-    expect(typography.allFacesLoaded).toBe(true);
-    for (const family of typography.uiFamilies) {
-      expect(family).toContain("Source Sans 3");
-      expect(family).not.toContain("Commit Mono");
-    }
-    expect(typography.uiWeights.menu).toBe("400");
-    expect(typography.uiWeights.status).toBe("400");
-    expect(typography.uiWeights.title).toBe("500");
-    expect(typography.uiWeights.activeFile).toBe("500");
-    expect(typography.uiWeights.inactiveFile).toBe("400");
-    expect(typography.monoFamily).toContain("Commit Mono");
-    expect(typography.boldToken.family).toContain("Commit Mono");
-    expect(Number.parseInt(typography.boldToken.weight, 10)).toBeGreaterThanOrEqual(700);
-    expect(typography.italicToken.family).toContain("Commit Mono");
-    expect(typography.italicToken.style).toBe("italic");
-    expect(typography.fontSynthesis).toContain("none");
-    expect(typography.gutterLineOffset).toBeLessThanOrEqual(1);
-
-    await browser.keys("Escape");
-  });
-
-  it("preserves optical sizing for search-option icon libraries", async () => {
-    await ensureSidebarOpen();
-    await expectOpticalIconSize("sidebar-search-case", 17);
-    await expectOpticalIconSize("sidebar-search-word", 17);
-    await expectOpticalIconSize("sidebar-search-regex", 16);
-
-    await focusEditor();
-    await pressMod("f");
-    const findPanel = await $("[data-testid='find-replace-panel']");
-    await findPanel.waitForDisplayed();
-    try {
-      const findInputStyle = await controlStyle("find-input");
-      expect(findInputStyle.borderTopWidth).toBe("1px");
-      await expectOpticalIconSize("find-opt-case", 17);
-      await expectOpticalIconSize("find-opt-word", 17);
-      await expectOpticalIconSize("find-opt-regex", 16);
-    } finally {
-      await browser.keys("Escape");
-      await findPanel.waitForDisplayed({ reverse: true });
-    }
-
-    await focusEditor();
-    await pressMod("g");
-    const goToDialog = await $("[data-testid='go-to-line-dialog']");
-    await goToDialog.waitForDisplayed();
-    try {
-      const goToInputStyle = await controlStyle("go-to-line-input");
-      expect(goToInputStyle.borderTopWidth).toBe("1px");
-    } finally {
-      await browser.keys("Escape");
-      await goToDialog.waitForDisplayed({ reverse: true });
-    }
-  });
-
-  it("uses clear hover and borderless selected states in both themes", async () => {
-    await ensureSidebarOpen();
-    const root = await $("html");
-    const initiallyDark = (await root.getAttribute("class") ?? "").split(/\s+/).includes("dark");
-    const tabGap = await browser.execute(() => {
-      const tabList = document.querySelector<HTMLElement>("[data-testid='sidebar-tabs']");
-      if (!tabList) throw new Error("Sidebar tab list is missing.");
-      return getComputedStyle(tabList).columnGap;
-    });
-    expect(tabGap).toBe("4px");
-
-    for (let themeIndex = 0; themeIndex < 2; themeIndex += 1) {
-      await expectBorderlessSelection("sidebar-tab-unified");
-      await expectBorderlessSelection("sidebar-active-file");
-      await expectVisibleHover("sidebar-refresh");
-      await expectSelectedHoverSeparation();
-
-      const activeFile = await $("[data-testid='sidebar-active-file']");
-      const activeFileButton = await activeFile.$("button");
-      expect(await activeFileButton.getAttribute("aria-current")).toBe("true");
-      const foregrounds = await activeFileForegroundSnapshot();
-      expect(foregrounds.icon).toBe(foregrounds.title);
-
-      const surfaces = await sidebarSurfaceSnapshot();
-      const activeStyle = await controlStyle("sidebar-active-file");
-      expect(surfaces.listBackground).not.toBe(surfaces.sidebarBackground);
-      expect(colorChannelDelta(activeStyle.backgroundColor, surfaces.listBackground))
-        .toBeGreaterThanOrEqual(30);
-
-      if (themeIndex === 0) {
-        await clickTestId("theme-toggle");
-        await browser.waitUntil(async () =>
-          (await root.getAttribute("class") ?? "").split(/\s+/).includes("dark") !== initiallyDark,
-        );
-      }
-    }
-
-    const currentlyDark = (await root.getAttribute("class") ?? "").split(/\s+/).includes("dark");
-    if (currentlyDark !== initiallyDark) {
-      await clickTestId("theme-toggle");
-      await browser.waitUntil(async () =>
-        (await root.getAttribute("class") ?? "").split(/\s+/).includes("dark") === initiallyDark,
-      );
-    }
-
-    await clickTestId("menu-file");
-    await clickTestId("menu-settings");
-    await (await $("[data-testid='settings-dialog']")).waitForDisplayed();
-    await expectBorderlessSelection("settings-pane-general");
-    await browser.keys("Escape");
-  });
-
-  it("toggles theme and persists the chosen value across editor views", async () => {
-    const root = await $("html");
-    const wasDark = (await root.getAttribute("class") ?? "").split(/\s+/).includes("dark");
-    const backgroundBefore = await backgroundToken();
-
-    await clickTestId("theme-toggle");
-    await browser.waitUntil(async () =>
-      (await root.getAttribute("class") ?? "").split(/\s+/).includes("dark") !== wasDark,
-    );
-    expect(await storedTheme()).toBe(wasDark ? "light" : "dark");
-    expect(await backgroundToken()).not.toBe(backgroundBefore);
-
-    await newSlate();
-    expect((await root.getAttribute("class") ?? "").split(/\s+/).includes("dark")).toBe(!wasDark);
-  });
-
-  it("changes default indentation in Settings and applies it to a new slate", async () => {
-    await clickTestId("menu-file");
-    await clickTestId("menu-settings");
-    await (await $("[data-testid='settings-dialog']")).waitForDisplayed();
-
-    await clickTestId("settings-pane-editor");
-    await clickTestId("settings-indent-mode");
-    await chooseOption("Spaces");
-    await clickTestId("settings-indent-size");
-    await chooseOption("4");
-    await browser.keys("Escape");
-
-    await newSlate();
-    expect(await (await $("[data-testid='status-indent']")).getText()).toContain("Spaces: 4");
-  });
-});
+/** Whether the document root carries the dark theme class. */
+export async function readRootIsDark(): Promise<boolean> {
+  return browser.execute(() => document.documentElement.classList.contains("dark"));
+}

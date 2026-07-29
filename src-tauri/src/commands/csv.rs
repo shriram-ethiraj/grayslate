@@ -155,6 +155,9 @@ pub async fn csv_initialize(
     let registry_clone = registry.inner().clone();
 
     let result = tauri::async_runtime::spawn_blocking(move || {
+        #[cfg(feature = "e2e")]
+        crate::commands::e2e::operation_checkpoint("csv-initialize");
+
         csv::parse_csv(&text, &cancelled, |parsed_rows| {
             let _ = on_event.send(CsvChannelEvent::Progress { parsed_rows });
         })
@@ -180,6 +183,9 @@ pub fn csv_dispose(registry: tauri::State<'_, CsvSessionRegistry>, window: Windo
     let window_label = window.label();
     registry.cancel(window_label);
     registry.remove(window_label);
+
+    #[cfg(feature = "e2e")]
+    crate::commands::e2e::operation_mark_reached("csv-dispose");
 }
 
 /// Return a window of rows for viewport rendering.

@@ -153,6 +153,9 @@ pub async fn search_sidebar_files(
     };
 
     let result = tauri::async_runtime::spawn_blocking(move || {
+        #[cfg(feature = "e2e")]
+        crate::commands::e2e::operation_checkpoint("sidebar-search");
+
         search::run_sidebar_search(
             &app_handle,
             &search_storage,

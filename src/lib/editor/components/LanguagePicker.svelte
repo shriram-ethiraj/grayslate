@@ -97,7 +97,10 @@
              is never clipped. Linux/WebKitGTK: prevents border shimmer artifacts. -->
         <div class="m-px overflow-hidden rounded-[calc(var(--radius-lg)-1px)]">
         <Command.Root>
-            <Command.Input placeholder="Search language..." />
+            <Command.Input
+                data-testid="language-search"
+                placeholder="Search language..."
+            />
 
             <!-- Auto Detect — always visible, outside the scrollable/filtered list -->
             <div class="px-1 pt-1">

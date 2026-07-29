@@ -516,8 +516,8 @@
         <Menubar.Separator />
         <Menubar.CheckboxItem
           data-testid="menu-word-wrap"
-          bind:checked={editorState.wordWrap}
-          onclick={() => setEditorWordWrap(editorState.wordWrap)}
+          checked={editorState.wordWrap}
+          onCheckedChange={(checked) => setEditorWordWrap(checked)}
         >
           <div class="flex items-center gap-2">
             Word Wrap
@@ -631,6 +631,7 @@
                 class="pointer-events-auto ui-state flex h-8 w-8 items-center justify-center rounded-full text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 onclick={() => appWindow.minimize()}
                 aria-label="Minimize"
+                data-testid="window-minimize"
               >
                 <Minus class="h-4 w-4" />
               </button>
@@ -644,6 +645,8 @@
                 class="pointer-events-auto ui-state flex h-8 w-8 items-center justify-center rounded-full text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 onclick={() => appWindow.toggleMaximize()}
                 aria-label={isMaximized ? "Restore" : "Maximize"}
+                data-testid="window-maximize"
+                data-maximized={isMaximized ? "true" : "false"}
               >
                 {#if isMaximized}
                   <CodiconChromeRestore class="h-4.5 w-4.5" />
@@ -661,6 +664,7 @@
                 class="pointer-events-auto ui-state flex h-8 w-8 items-center justify-center rounded-full text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 onclick={() => appWindow.close()}
                 aria-label="Close"
+                data-testid="window-close"
               >
                 <X class="h-4 w-4" />
               </button>
@@ -675,6 +679,7 @@
               class="pointer-events-auto ui-state inline-flex h-full w-12 items-center justify-center text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               onclick={() => appWindow.minimize()}
               aria-label="Minimize"
+              data-testid="window-minimize"
             >
               <Minus class="h-4 w-4" />
             </button>
@@ -688,6 +693,8 @@
               class="pointer-events-auto ui-state inline-flex h-full w-12 items-center justify-center text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               onclick={() => appWindow.toggleMaximize()}
               aria-label={isMaximized ? "Restore" : "Maximize"}
+              data-testid="window-maximize"
+              data-maximized={isMaximized ? "true" : "false"}
             >
               {#if isMaximized}
                 <CodiconChromeRestore class="h-4.5 w-4.5" />
@@ -705,6 +712,7 @@
               class="pointer-events-auto inline-flex h-full w-12 items-center justify-center text-foreground transition-colors hover:bg-[#c42b1c] hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               onclick={() => appWindow.close()}
               aria-label="Close"
+              data-testid="window-close"
             >
               <X class="h-4 w-4" />
             </button>

@@ -135,7 +135,11 @@
                                 </Select.Trigger>
                                 <Select.Content>
                                     {#each startupOptions as option (option.value)}
-                                        <Select.Item value={option.value} label={option.label}>
+                                        <Select.Item
+                                            value={option.value}
+                                            label={option.label}
+                                            data-testid="settings-startup-{option.value}"
+                                        >
                                             {option.label}
                                         </Select.Item>
                                     {/each}
@@ -192,7 +196,11 @@
                                     </Select.Trigger>
                                     <Select.Content>
                                         {#each indentModeOptions as option (option.value)}
-                                            <Select.Item value={option.value} label={option.label}>
+                                            <Select.Item
+                                                value={option.value}
+                                                label={option.label}
+                                                data-testid="settings-indent-mode-{option.value}"
+                                            >
                                                 {option.label}
                                             </Select.Item>
                                         {/each}
@@ -212,7 +220,11 @@
                                     </Select.Trigger>
                                     <Select.Content>
                                         {#each indentSizeOptions as option (option.value)}
-                                            <Select.Item value={option.value} label={option.label}>
+                                            <Select.Item
+                                                value={option.value}
+                                                label={option.label}
+                                                data-testid="settings-indent-size-{option.value}"
+                                            >
                                                 {option.label}
                                             </Select.Item>
                                         {/each}
@@ -252,7 +264,11 @@
                                 </Select.Trigger>
                                 <Select.Content>
                                     {#each lineEndingOptions as option (option.value)}
-                                        <Select.Item value={option.value} label={option.label}>
+                                        <Select.Item
+                                            value={option.value}
+                                            label={option.label}
+                                            data-testid="settings-line-ending-{option.value}"
+                                        >
                                             <span class="flex items-center gap-2">
                                                 {option.label}
                                                 {#if option.value === "lf"}
@@ -297,7 +313,11 @@
                                 </Select.Trigger>
                                 <Select.Content>
                                     {#each CHARACTER_ENCODING_OPTIONS as option (option.value)}
-                                        <Select.Item value={option.value} label={option.label}>
+                                        <Select.Item
+                                            value={option.value}
+                                            label={option.label}
+                                            data-testid="settings-character-encoding-{option.value}"
+                                        >
                                             <span class="flex items-center gap-2">
                                                 {option.label}
                                                 {#if option.value === "utf-8"}

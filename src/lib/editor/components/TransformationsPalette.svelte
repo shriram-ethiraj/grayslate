@@ -136,6 +136,7 @@
                 <Command.Input
                     bind:ref={inputRef}
                     bind:value={query}
+                    data-testid="transformations-search"
                     placeholder="Search transformations..."
                 />
 

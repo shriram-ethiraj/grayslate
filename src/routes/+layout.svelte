@@ -41,9 +41,11 @@
 
 	let sidebarPane: ReturnType<typeof ResizablePane> | undefined = $state();
 	let sidebarOpen = $state(false);
+	let settingsHydrated = $state(false);
 
 	/** Transition class applied only during programmatic toggle, NOT during drag. */
 	let animating = $state(false);
+	let expandingProgrammatically = $state(false);
 
 	/** The last non-zero size of the sidebar pane, used to restore after close. */
 	let lastExpandedSize = $state(20);
@@ -53,8 +55,11 @@
 	 * presses the keyboard shortcut (Ctrl+B). Animates the pane.
 	 */
 	function handleOpenChange(newOpen: boolean) {
-		setSidebarOpen(newOpen);
+		if (settingsHydrated) {
+			setSidebarOpen(newOpen);
+		}
 		animating = true;
+		expandingProgrammatically = newOpen;
 		tick().then(() => {
 			if (newOpen) {
 				// Restore to the last known width rather than the default.
@@ -64,31 +69,47 @@
 			}
 			setTimeout(() => {
 				animating = false;
+				expandingProgrammatically = false;
 			}, 210);
 		});
 	}
 
 	/** Track the last non-zero size so we can restore it on expand.
-	 *  Only update during user drag (animating === false) to prevent
-	 *  intermediate collapse/expand transition sizes from overwriting it.
+	 *  Expansion frames may update it because the debounced final frame is the
+	 *  desired width. Collapse frames stay suppressed so a near-zero frame
+	 *  cannot overwrite the remembered width.
 	 */
 	function handlePaneResize(size: number) {
-		if (size > 0 && !animating) {
+		if (size > 0 && (!animating || expandingProgrammatically)) {
 			lastExpandedSize = size;
-			setSidebarWidth(size);
+			if (settingsHydrated) {
+				setSidebarWidth(size);
+			}
 		}
 	}
 
 	/** Pane collapsed via drag or programmatic collapse → sync sidebar UI state. */
 	function handlePaneCollapse() {
 		sidebarOpen = false;
-		setSidebarOpen(false);
+		if (settingsHydrated) {
+			setSidebarOpen(false);
+		}
 	}
 
 	/** Pane expanded via drag or programmatic expand → sync sidebar UI state. */
 	function handlePaneExpand() {
 		sidebarOpen = true;
-		setSidebarOpen(true);
+		if (settingsHydrated) {
+			setSidebarOpen(true);
+		}
+	}
+
+	/** A real pointer drag takes ownership from the programmatic transition. */
+	function handlePaneDraggingChange(isDragging: boolean) {
+		if (isDragging) {
+			animating = false;
+			expandingProgrammatically = false;
+		}
 	}
 
 	async function handleNewFile() {
@@ -120,6 +141,8 @@
 			uiState.sidebar.width = settings.sidebarWidth;
 			lastExpandedSize = settings.sidebarWidth;
 			uiState.sidebar.open = settings.sidebarOpen;
+			sidebarOpen = settings.sidebarOpen;
+			settingsHydrated = true;
 
 			// Populate the user-facing preferences consumed by the Settings dialog,
 			// the editor's default-indent seed, and the delete-confirmation branch.
@@ -134,14 +157,20 @@
 			// Expand sidebar if the saved state says it should be open.
 			if (settings.sidebarOpen) {
 				animating = true;
+				expandingProgrammatically = true;
+				await tick();
+				sidebarPane?.expand();
 				await tick();
 				sidebarPane?.resize(settings.sidebarWidth);
 				setTimeout(() => {
 					animating = false;
+					expandingProgrammatically = false;
 				}, 210);
 			}
 		} catch (error) {
 			console.warn("[AppSettings] Failed to load settings:", error);
+			// Keep sidebar controls functional when settings hydration fails.
+			settingsHydrated = true;
 		}
 	}
 
@@ -218,7 +247,10 @@
 						<AppSidebar />
 					</div>
 				</ResizablePane>
-				<ResizableHandle />
+				<ResizableHandle
+					data-testid="sidebar-resize-handle"
+					onDraggingChange={handlePaneDraggingChange}
+				/>
 				<ResizablePane
 					id="content"
 					defaultSize={100}
@@ -233,6 +265,7 @@
 								<TooltipButton
 									variant="ghost"
 									size="icon"
+									data-testid="header-new-slate"
 									aria-label="New slate"
 									tooltip={formatShortcutTooltip("New slate", "new-slate", platformState.osType)}
 									disabledTooltip="Already on a blank slate"
