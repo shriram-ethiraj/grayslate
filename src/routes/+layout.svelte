@@ -25,6 +25,11 @@
 	import { initPlatformState, platformState } from "$lib/state/platform.svelte";
 	import { formatShortcutTooltip } from "$lib/shortcuts";
 	import { loadAllSettings, applyTheme, hydrateAppSettingsState } from "$lib/state/appSettings.svelte";
+	import {
+		beginTrackedWork,
+		initializeE2ERuntime,
+		markE2EReady,
+	} from "virtual:grayslate-e2e-runtime";
 	import LucideFilePlusCorner from '~icons/lucide/file-plus-corner';
 	import "./layout.css";
 
@@ -36,7 +41,6 @@
 	let e2eRuntimeReady = $state(!isE2EMode);
 	let e2eApplicationStateReady = $state(!isE2EMode);
 	let e2eRuntimeError = $state<string | null>(null);
-	let e2eWorkTracker: typeof import("$lib/e2e/workTracker") | null = null;
 
 	let sidebarPane: ReturnType<typeof ResizablePane> | undefined = $state();
 	let sidebarPaneElement: HTMLDivElement | null = $state(null);
@@ -66,9 +70,7 @@
 
 	function beginProgrammaticSidebarTransition(expanding: boolean): void {
 		finishProgrammaticSidebarTransition();
-		finishTrackedSidebarTransition = e2eWorkTracker?.beginTrackedWork(
-			"sidebar-programmatic-transition",
-		);
+		finishTrackedSidebarTransition = beginTrackedWork("sidebar-programmatic-transition");
 		animating = true;
 		expandingProgrammatically = expanding;
 		// Recovery only: normal completion is driven by transitionend. This
@@ -164,19 +166,14 @@
 	// The test-only runtime must exist before any child component mounts and
 	// starts IPC. Its lifecycle stays `booting` until platform/settings state is
 	// hydrated and the initial layout has committed. Normal development and
-	// release bundles tree-shake these dynamic imports because `isE2EMode` is a
-	// compile-time false value there.
+	// release bundles resolve the virtual runtime import to a no-op module before
+	// Vite constructs the graph, so test-only modules never become build entries.
 	onMount(() => {
 		let cancelled = false;
 		void (async () => {
 			try {
 				if (isE2EMode) {
-					const [, , tracker] = await Promise.all([
-						import("$lib/e2e/determinism"),
-						import("@wdio/tauri-plugin"),
-						import("$lib/e2e/workTracker"),
-					]);
-					e2eWorkTracker = tracker;
+					await initializeE2ERuntime();
 					// Mount the pane controller while the lifecycle is still
 					// `booting`. Persisted layout can then be applied through the
 					// same controller path as normal startup, while the driver stays
@@ -199,7 +196,7 @@
 				await applyHydratedSidebarLayout();
 				await tick();
 				if (cancelled) return;
-				e2eWorkTracker?.markE2EReady();
+				markE2EReady();
 			} catch (error) {
 				if (cancelled) return;
 				if (isE2EMode) {

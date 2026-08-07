@@ -9,6 +9,7 @@ case "$suite" in
     exit 2
     ;;
 esac
+shift
 
 openbox >/tmp/grayslate-openbox.log 2>&1 &
 window_manager_pid=$!
@@ -46,5 +47,5 @@ while true; do
   sleep 0.1
 done
 
-pnpm run "$suite"
+pnpm run "$suite" "$@"
 pnpm run e2e:retry-audit

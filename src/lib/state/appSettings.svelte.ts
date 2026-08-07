@@ -1,5 +1,5 @@
 import { invoke } from "$lib/ipc";
-import { beginTrackedWork } from "$lib/e2e/workTracker";
+import { beginTrackedWork } from "virtual:grayslate-e2e-runtime";
 
 const KEY_THEME = "theme";
 const KEY_FONT_SIZE = "font_size";

@@ -53,6 +53,7 @@
   import { formatForDisplay } from "@tanstack/hotkeys";
   import { platformState } from "$lib/state/platform.svelte";
   import { librarySidebarState } from "$lib/state/librarySidebar.svelte";
+  import { markE2EClosing, markE2EReady } from "virtual:grayslate-e2e-runtime";
 
   const appWindow = new Window("main");
 
@@ -127,9 +128,9 @@
 
       // A failed flush deliberately keeps the window open so text is never
       // discarded because its selected encoding cannot be written.
-      window.__grayslateE2E?.markClosing();
+      markE2EClosing();
       await invoke("prepare_close").catch((error: unknown) => {
-        window.__grayslateE2E?.markReady();
+        markE2EReady();
         console.error("Close: prepare_close failed:", error);
         toast.error(typeof error === "string"
           ? error

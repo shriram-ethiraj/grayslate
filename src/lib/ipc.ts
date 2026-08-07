@@ -19,7 +19,7 @@ import {
 import {
     beginTrackedInvoke,
     finishTrackedInvoke,
-} from "$lib/e2e/workTracker";
+} from "virtual:grayslate-e2e-runtime";
 
 const TRACK_E2E_IPC = import.meta.env.MODE === "e2e";
 
