@@ -10,6 +10,7 @@ use std::{
 
 use tauri::Emitter;
 use tauri_plugin_dialog::DialogExt;
+#[cfg(not(feature = "e2e"))]
 use tauri_plugin_opener::OpenerExt;
 
 use crate::character_encoding::{
@@ -448,6 +449,9 @@ pub async fn read_file_content(
             .map(CharacterEncoding::parse)
             .transpose()?;
         let (text, detected_format) = tauri::async_runtime::spawn_blocking(move || {
+            #[cfg(feature = "e2e")]
+            crate::commands::e2e::operation_checkpoint("file-read");
+
             let bytes = read_file_bytes_cancellable(&read_path, read_cancelled.as_ref())?;
             let decision = match requested_encoding {
                 Some(encoding) => decode_explicit(&bytes, encoding)?,
@@ -520,6 +524,32 @@ pub async fn pick_document(
     documents: tauri::State<'_, DocumentRegistry>,
     window: tauri::Window,
 ) -> Result<Option<DocumentDescriptor>, String> {
+    // Test-only: if a spec pre-selected an answer, take it instead of opening a
+    // dialog WebDriver cannot drive. Everything after this point — classify,
+    // grant, descriptor — is the untouched production path. A queued `Cancel`
+    // returns exactly what a real cancelled dialog returns. Absent in any build
+    // that does not set `--features e2e`.
+    #[cfg(feature = "e2e")]
+    {
+        use crate::commands::e2e::{QueuedDialogPaths, QueuedDialogResponse};
+        use tauri::Manager;
+        match app.state::<QueuedDialogPaths>().take_open()? {
+            Some(QueuedDialogResponse::Cancel) => return Ok(None),
+            Some(QueuedDialogResponse::Path(queued)) => {
+                let (canonical, source) =
+                    classify_existing_document(&app, storage.inner(), &queued)?;
+                let granted = documents.grant_existing(
+                    window.label(),
+                    &canonical,
+                    source,
+                    DocumentRights::tracked(source),
+                )?;
+                return Ok(Some(granted.descriptor()));
+            }
+            None => {}
+        }
+    }
+
     let dialog_app = app.clone();
     let dialog_window = window.clone();
     let selected = tauri::async_runtime::spawn_blocking(move || {
@@ -558,6 +588,30 @@ pub async fn pick_save_document(
     current_document_generation: Option<u64>,
     suggested_name: Option<String>,
 ) -> Result<Option<DocumentDescriptor>, String> {
+    // Test-only: see the note in `pick_document`. Taking the queued answer here
+    // is what lets a spec click the real Save As menu item; the validation and
+    // grant below are the production ones. A queued `Cancel` returns `None`,
+    // the same as a user dismissing the dialog.
+    #[cfg(feature = "e2e")]
+    {
+        use crate::commands::e2e::{QueuedDialogPaths, QueuedDialogResponse};
+        use tauri::Manager;
+        match app.state::<QueuedDialogPaths>().take_save()? {
+            Some(QueuedDialogResponse::Cancel) => return Ok(None),
+            Some(QueuedDialogResponse::Path(queued)) => {
+                return grant_save_target(
+                    &app,
+                    storage.inner(),
+                    documents.inner(),
+                    &window,
+                    &queued,
+                )
+                .map(Some);
+            }
+            None => {}
+        }
+    }
+
     let mut dialog = app.dialog().file().set_parent(&window).set_title("Save As");
 
     if let (Some(id), Some(generation)) =
@@ -598,13 +652,30 @@ pub async fn pick_save_document(
         .into_path()
         .map_err(|error| format!("Selected file is not a filesystem path: {error}"))?;
 
+    grant_save_target(&app, storage.inner(), documents.inner(), &window, &path).map(Some)
+}
+
+/// Classify and grant a Save-As target path.
+///
+/// Extracted so the chosen path is authorized identically no matter how it was
+/// chosen — a real dialog pick, or a queued answer under `--features e2e`.
+/// Keeping one implementation is what makes the test path trustworthy: there is
+/// no second copy that could drift from the production rules.
+pub(crate) fn grant_save_target(
+    app: &tauri::AppHandle,
+    storage: &AppStorage,
+    documents: &DocumentRegistry,
+    window: &tauri::Window,
+    path: &std::path::Path,
+) -> Result<DocumentDescriptor, String> {
     let (authorized_path, source, exists) = if path.exists() {
-        let (canonical, source) = classify_existing_document(&app, storage.inner(), &path)?;
+        let (canonical, source) = classify_existing_document(app, storage, path)?;
         (canonical, source, true)
     } else {
-        let (candidate, source) = classify_new_document(&app, storage.inner(), &path)?;
+        let (candidate, source) = classify_new_document(app, storage, path)?;
         (candidate, source, false)
     };
+
     let granted = if exists {
         documents.grant_existing(
             window.label(),
@@ -620,7 +691,7 @@ pub async fn pick_save_document(
             DocumentRights::tracked(source),
         )?
     };
-    Ok(Some(granted.descriptor()))
+    Ok(granted.descriptor())
 }
 
 #[tauri::command]
@@ -649,6 +720,16 @@ pub fn reveal_document(
         document_generation,
         DocumentAccess::Read,
     )?;
+
+    #[cfg(feature = "e2e")]
+    {
+        use tauri::Manager;
+        return app
+            .state::<crate::commands::e2e::ExternalActionProbe>()
+            .record("reveal", document.path.to_string_lossy().into_owned());
+    }
+
+    #[cfg(not(feature = "e2e"))]
     app.opener()
         .reveal_item_in_dir(&document.path)
         .map_err(|error| format!("Failed to reveal document: {error}"))

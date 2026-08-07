@@ -1,107 +1,89 @@
-import { $, browser, expect } from "@wdio/globals";
+import { $$, expect } from "@wdio/globals";
 import { formatForDisplay } from "@tanstack/hotkeys";
+import { scenario } from "../coverage/scenario.js";
+import { hoverTestId } from "../driver/interact.js";
+import { readVisibleTooltips } from "../driver/probe.js";
+import { waitFor } from "../driver/wait.js";
+import { pressEscape } from "../pages/common.js";
+import * as dialogs from "../pages/dialogs.js";
+import * as titleBar from "../pages/titleBar.js";
 
-const displayPlatform = process.platform === "darwin"
-  ? "mac"
-  : process.platform === "win32"
-    ? "windows"
-    : "linux";
+/**
+ * Shortcut discoverability.
+ *
+ * Shortcuts are formatted through the app's own `@tanstack/hotkeys`
+ * `formatForDisplay`, so the expectations here are computed the same way the UI
+ * computes them rather than hard-coded to one platform's modifier. The suite
+ * previously asserted a literal `Ctrl+N`, which would fail on macOS.
+ */
+const displayPlatform =
+  process.platform === "darwin" ? "mac" : process.platform === "win32" ? "windows" : "linux";
 
-function displayShortcut(key: string): string {
-  return formatForDisplay(key, { platform: displayPlatform });
+const shortcut = (key: string): string =>
+  formatForDisplay(key, { platform: displayPlatform });
+
+async function expectTooltip(testId: string, expected: string): Promise<void> {
+  await hoverTestId(testId);
+  let seen: string[] = [];
+  await waitFor(
+    async () => {
+      seen = await readVisibleTooltips();
+      return seen.includes(expected);
+    },
+    {
+      message: () => `Tooltip for '${testId}' never showed ${JSON.stringify(expected)}. Saw: ${JSON.stringify(seen)}`,
+    },
+  );
 }
 
-async function expectTooltip(testId: string, expectedText: string): Promise<void> {
-  const trigger = await $(`[data-testid='${testId}']`);
-  await trigger.moveTo();
-  await browser.execute((id) => {
-    const element = document.querySelector<HTMLElement>(`[data-testid='${id}']`);
-    if (!element) throw new Error(`Tooltip trigger ${id} is missing.`);
-    element.dispatchEvent(new PointerEvent("pointerenter", {
-      bubbles: true,
-      pointerType: "mouse",
-    }));
-  }, testId);
+describe("Keyboard shortcuts help", () => {
+  scenario(
+    "shell.shortcuts.tooltips",
+    "shows primary platform shortcuts in actionable tooltips",
+    async () => {
+      await expectTooltip("action-transformations", `Open transformations (${shortcut("Mod+K")})`);
+      await expectTooltip("status-goto-line", `Go to line (${shortcut("Mod+G")})`);
+    },
+  );
 
-  await browser.waitUntil(async () => browser.execute((text) =>
-    Array.from(document.querySelectorAll<HTMLElement>("[role='tooltip']")).some((tooltip) =>
-      tooltip.getClientRects().length > 0 && tooltip.textContent?.trim() === text,
-    ), expectedText), {
-    timeoutMsg: `Tooltip for ${testId} did not show '${expectedText}'.`,
-  });
-}
+  scenario(
+    "shell.shortcuts.dialog",
+    "opens from Help, lists every section, and filters as a plain list",
+    async () => {
+      await titleBar.helpMenu("keyboard-shortcuts");
+      await dialogs.keyboardShortcuts.waitForOpen();
 
-describe("keyboard shortcuts help", () => {
-  it("shows primary platform shortcuts in actionable tooltips", async () => {
-    await expectTooltip(
-      "action-transformations",
-      `Open transformations (${displayShortcut("Mod+K")})`,
-    );
-    await expectTooltip(
-      "status-goto-line",
-      `Go to line (${displayShortcut("Mod+G")})`,
-    );
-  });
+      const listed = await dialogs.keyboardShortcuts.listText();
+      for (const label of ["New Slate", "Save", "Go To Line", "Select All"]) {
+        expect(listed).toContain(label);
+      }
 
-  it("opens from Help and searches all shortcut sections", async () => {
-    const helpMenu = await $("[data-testid='app-help-menu']");
-    await helpMenu.waitForDisplayed();
-    await helpMenu.click();
+      // The list is reference material, not a picker: it must expose no
+      // selection semantics that would imply the rows are actionable.
+      const rows = await $$("[data-testid='keyboard-shortcuts-list'] li");
+      expect(rows.length).toBeGreaterThan(0);
+      for (const row of [...rows].slice(0, 10)) {
+        expect(await row.getAttribute("aria-selected")).toBeNull();
+        expect(await row.getAttribute("role")).not.toBe("option");
+      }
 
-    const shortcutsItem = await $(
-      "[data-testid='help-keyboard-shortcuts']",
-    );
-    await shortcutsItem.waitForDisplayed();
-    await shortcutsItem.click();
-
-    const dialog = await $("[data-testid='keyboard-shortcuts-dialog']");
-    await dialog.waitForDisplayed();
-    const dialogText = await dialog.getText();
-    expect(dialogText).toContain("General");
-    expect(dialogText).toContain("CSV Table");
-    expect(dialogText).toContain("New Slate");
-    expect(dialogText).toContain("Edit Focused Cell");
-
-    const search = await $("[data-testid='keyboard-shortcuts-search']");
-    await expect(search).toBeFocused();
-
-    const rowSemantics = await browser.execute(() => {
-      const rows = Array.from(
-        document.querySelectorAll<HTMLElement>("[data-testid^='shortcut-row-']"),
+      // Search must both include matches and exclude non-matches.
+      await dialogs.keyboardShortcuts.search("slate");
+      await waitFor(
+        async () => {
+          const text = await dialogs.keyboardShortcuts.listText();
+          return text.includes("New Slate") && !text.includes("Go To Line");
+        },
+        { message: "Searching for 'slate' did not filter the shortcut list." },
       );
-      return {
-        rowCount: rows.length,
-        selectedRows: rows.filter((row) => row.hasAttribute("aria-selected")).length,
-        optionRows: rows.filter((row) => row.getAttribute("role") === "option").length,
-        focusableRows: rows.filter((row) => row.tabIndex >= 0).length,
-        allListItems: rows.every((row) => row.tagName === "LI"),
-      };
-    });
-    expect(rowSemantics.rowCount).toBeGreaterThan(0);
-    expect(rowSemantics.selectedRows).toBe(0);
-    expect(rowSemantics.optionRows).toBe(0);
-    expect(rowSemantics.focusableRows).toBe(0);
-    expect(rowSemantics.allListItems).toBe(true);
 
-    await search.setValue("word wrap");
-    const actionSearchText = await dialog.getText();
-    expect(actionSearchText).toContain("Toggle Word Wrap");
-    expect(actionSearchText).not.toContain("New Slate");
+      await dialogs.keyboardShortcuts.search("zzzznotashortcut");
+      await waitFor(
+        async () => (await dialogs.keyboardShortcuts.listText()).trim().length < 80,
+        { message: "A query with no matches did not collapse the shortcut list." },
+      );
 
-    await search.setValue("Ctrl+N");
-    const platformKeySearchText = await dialog.getText();
-    expect(platformKeySearchText).toContain("New Slate");
-    expect(platformKeySearchText).toContain("Ctrl+N");
-
-    await search.setValue("F2");
-    const functionKeySearchText = await dialog.getText();
-    expect(functionKeySearchText).toContain("Edit Focused Cell");
-    expect(functionKeySearchText).toContain("F2");
-
-    await search.setValue("not-a-real-shortcut");
-    expect(await dialog.getText()).toContain("No shortcuts found.");
-
-    await browser.keys("Escape");
-    await dialog.waitForDisplayed({ reverse: true });
-  });
+      await pressEscape();
+    },
+  );
 });

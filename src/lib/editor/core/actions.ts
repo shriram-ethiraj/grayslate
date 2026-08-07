@@ -211,6 +211,14 @@ export function updateSearchStats(
     if (!query || !query.valid) {
         clearSearchStats();
         clearSearchStatsCache();
+        // A regex the engine cannot compile is a user error, not an empty
+        // result. Clearing silently made "alpha(" look identical to a valid
+        // pattern that happens to match nothing, so there was no way to tell a
+        // typo from a genuine absence. The backend never sees this query — the
+        // short-circuit above is what stops it — so the message is raised here.
+        if (query && query.regexp) {
+            editorState.findReplace.searchError = "Invalid regex";
+        }
         return;
     }
 

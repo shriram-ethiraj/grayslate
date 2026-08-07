@@ -1,4 +1,5 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "$lib/ipc";
+import { beginTrackedWork } from "$lib/e2e/workTracker";
 
 const KEY_THEME = "theme";
 const KEY_FONT_SIZE = "font_size";
@@ -147,15 +148,29 @@ export function getThemeFromLocalStorage(): ThemeSetting {
     return prefersDark ? "dark" : "light";
 }
 
-const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+interface DebouncedSettingWrite {
+    timer: ReturnType<typeof setTimeout>;
+    finishTracking: () => void;
+}
+
+const debounceTimers = new Map<string, DebouncedSettingWrite>();
 
 export function debouncedSaveSetting(key: string, value: string, delay = 300): void {
     const existing = debounceTimers.get(key);
-    if (existing) clearTimeout(existing);
-    debounceTimers.set(key, setTimeout(() => {
+    if (existing) {
+        clearTimeout(existing.timer);
+        existing.finishTracking();
+    }
+
+    const finishTracking = beginTrackedWork(`settings-debounce:${key}`);
+    const timer = setTimeout(() => {
         debounceTimers.delete(key);
-        saveSetting(key, value);
-    }, delay));
+        // Keep the task pending until the persisted write finishes. The invoke
+        // tracker overlaps this promise, so there is no zero-work gap between
+        // the debounce firing and Rust committing the setting.
+        void saveSetting(key, value).finally(finishTracking);
+    }, delay);
+    debounceTimers.set(key, { timer, finishTracking });
 }
 
 /**

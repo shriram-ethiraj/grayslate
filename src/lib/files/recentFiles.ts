@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "$lib/ipc";
 import { emit } from "@tauri-apps/api/event";
 import { toast } from "$lib/components/ui/sonner";
 import { editorState } from "$lib/state/editor.svelte";

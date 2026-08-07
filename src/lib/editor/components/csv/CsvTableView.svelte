@@ -126,7 +126,6 @@
 
   let lastSyncedContent = $state(content);
   let latestRowWindowToken = 0;
-  let pendingMutation: Promise<boolean> | undefined;
 
   let tableContainerRef = $state<HTMLDivElement | undefined>(undefined);
   let contextMenu = $state<{
@@ -163,7 +162,6 @@
     latestRowWindowToken += 1;
     snapshot = EMPTY_SNAPSHOT;
     rowWindow = EMPTY_ROW_WINDOW;
-    pendingMutation = undefined;
     lastSyncedContent = "";
     prevHeaderKey = "";
     stableColumns = [];
@@ -188,6 +186,7 @@
   }
 
   export async function flushToTextHistory(): Promise<CsvTableFlushResult> {
+    await csvEditorState.waitForPendingActions();
     const text = await invokeText("csv_flush_text");
     const version = snapshot.version;
     snapshot = { ...snapshot, version };
@@ -198,7 +197,7 @@
 
   async function copyAllCsv(): Promise<boolean> {
     try {
-      await pendingMutation;
+      await csvEditorState.waitForPendingActions();
     } catch {
       return false;
     }
@@ -207,6 +206,10 @@
       wrapperRef?.focus();
     }
     return copied;
+  }
+
+  export async function waitForPendingActions(): Promise<void> {
+    await csvEditorState.waitForPendingActions();
   }
 
   function getVisibleRow(index: number): string[] | undefined {
@@ -277,16 +280,6 @@
     return true;
   }
 
-  function trackMutation(operation: Promise<boolean>): Promise<boolean> {
-    const tracked = operation.finally(() => {
-      if (pendingMutation === tracked) {
-        pendingMutation = undefined;
-      }
-    });
-    pendingMutation = tracked;
-    return tracked;
-  }
-
   const controller: CsvTableController = {
     getSnapshot: () => snapshot,
     getCachedCellValue(rowIndex: number, colIndex: number) {
@@ -302,21 +295,16 @@
       return invoke<string>("csv_get_cell", { rowIndex, colIndex });
     },
     runMutation(mutation, userEvent) {
-      return trackMutation(
-        invoke<CsvMutationResponse>("csv_mutate", { mutation, userEvent }).then(
-          applyMutationResponse,
-        ),
-      );
+      return invoke<CsvMutationResponse>("csv_mutate", {
+        mutation,
+        userEvent,
+      }).then(applyMutationResponse);
     },
     undo() {
-      return trackMutation(
-        invoke<CsvMutationResponse>("csv_undo").then(applyMutationResponse),
-      );
+      return invoke<CsvMutationResponse>("csv_undo").then(applyMutationResponse);
     },
     redo() {
-      return trackMutation(
-        invoke<CsvMutationResponse>("csv_redo").then(applyMutationResponse),
-      );
+      return invoke<CsvMutationResponse>("csv_redo").then(applyMutationResponse);
     },
   };
 

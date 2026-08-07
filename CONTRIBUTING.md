@@ -61,9 +61,23 @@ cargo test --manifest-path src-tauri/Cargo.toml
 pnpm run tauri build
 ```
 
-The frontend does not currently have a unit-test suite. Describe any manual
-testing in the pull request, including the operating systems tested and before
-and after screenshots for visible UI changes.
+There is also an end-to-end suite that drives the real packaged desktop app
+through WebDriver. It runs on every pull request via
+`.github/workflows/e2e.yml`, and you can run it locally:
+
+```bash
+pnpm run e2e:check
+pnpm run e2e:local
+```
+
+See [`e2e/README.md`](e2e/README.md) for prerequisites, layout, and the rules
+the suite enforces. If your change adds a user-facing surface, add or extend a
+spec — `pnpm run e2e:lint` will hold you to the suite's conventions.
+
+The frontend has no unit-test suite; behavior not reachable from the e2e suite
+still needs manual verification. Describe any manual testing in the pull
+request, including the operating systems tested and before and after
+screenshots for visible UI changes.
 
 ## Pull request expectations
 

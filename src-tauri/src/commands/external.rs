@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+#[cfg(not(feature = "e2e"))]
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 use tauri_plugin_opener::OpenerExt;
 use url::Url;
@@ -100,6 +101,22 @@ pub async fn open_markdown_link(
         return Ok(());
     }
 
+    #[cfg(feature = "e2e")]
+    {
+        use tauri::Manager;
+        let (kind, target) = match destination {
+            MarkdownDestination::Url(url) => ("open-url", url),
+            MarkdownDestination::Path(path) => {
+                revalidate_linked_file(&path)?;
+                ("open-path", path.to_string_lossy().into_owned())
+            }
+        };
+        return app
+            .state::<crate::commands::e2e::ExternalActionProbe>()
+            .record(kind, target);
+    }
+
+    #[cfg(not(feature = "e2e"))]
     match destination {
         MarkdownDestination::Url(url) => app
             .opener()
@@ -236,25 +253,44 @@ async fn confirm_markdown_destination(
     window: &tauri::Window,
     destination: String,
 ) -> Result<bool, String> {
-    let dialog_app = app.clone();
-    let dialog_window = window.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        dialog_app
-            .dialog()
-            .message(format!(
-                "Open this destination outside Grayslate?\n\n{destination}"
-            ))
-            .title("Open Markdown link")
-            .parent(&dialog_window)
-            .kind(MessageDialogKind::Warning)
-            .buttons(MessageDialogButtons::OkCancelCustom(
-                "Open".to_string(),
-                "Cancel".to_string(),
-            ))
-            .blocking_show()
-    })
-    .await
-    .map_err(|error| format!("Failed to join Markdown confirmation task: {error}"))
+    #[cfg(feature = "e2e")]
+    {
+        use tauri::Manager;
+        let _ = (window, &destination);
+        if let Some(confirmed) = app
+            .state::<crate::commands::e2e::ExternalActionProbe>()
+            .take_confirmation()?
+        {
+            return Ok(confirmed);
+        }
+        return Err(
+            "No E2E Markdown confirmation was queued; refusing to open a native dialog."
+                .to_string(),
+        );
+    }
+
+    #[cfg(not(feature = "e2e"))]
+    {
+        let dialog_app = app.clone();
+        let dialog_window = window.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            dialog_app
+                .dialog()
+                .message(format!(
+                    "Open this destination outside Grayslate?\n\n{destination}"
+                ))
+                .title("Open Markdown link")
+                .parent(&dialog_window)
+                .kind(MessageDialogKind::Warning)
+                .buttons(MessageDialogButtons::OkCancelCustom(
+                    "Open".to_string(),
+                    "Cancel".to_string(),
+                ))
+                .blocking_show()
+        })
+        .await
+        .map_err(|error| format!("Failed to join Markdown confirmation task: {error}"))
+    }
 }
 
 #[cfg(test)]

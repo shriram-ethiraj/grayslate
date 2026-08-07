@@ -9,7 +9,7 @@
 
 <script lang="ts">
     import { writeText } from "@tauri-apps/plugin-clipboard-manager";
-    import { invoke } from "@tauri-apps/api/core";
+    import { invoke } from "$lib/ipc";
     import { toast } from "$lib/components/ui/sonner";
     import type { LanguageIcon } from "$lib/editor/config/languageIconMap";
     import * as ContextMenu from "$lib/components/ui/context-menu/index.js";

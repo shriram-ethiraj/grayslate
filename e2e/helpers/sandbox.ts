@@ -16,7 +16,19 @@ export const configDirectory = path.join(sandboxRoot, "config");
 export const dataDirectory = path.join(sandboxRoot, "data");
 export const cacheDirectory = path.join(sandboxRoot, "cache");
 export const stateDirectory = path.join(sandboxRoot, "state");
+export const minimizeObservationPath = path.join(
+  stateDirectory,
+  "grayslate-e2e-minimize-observed",
+);
+export function operationSignalPath(
+  name: string,
+  signal: "observed" | "release",
+): string {
+  return path.join(stateDirectory, `grayslate-e2e-${signal}-${name}`);
+}
 export const notesRoot = path.join(homeDirectory, "Documents", "Grayslate");
+export const deterministicLocale =
+  process.env.GRAYSLATE_E2E_LOCALE ?? "en_US.UTF-8";
 
 /** Remove stale E2E output once, before WDIO starts any worker process. */
 export function resetE2eRunDirectory(): void {
@@ -64,5 +76,10 @@ export function configureSandboxEnvironment(): void {
     XDG_DATA_HOME: dataDirectory,
     XDG_CACHE_HOME: cacheDirectory,
     XDG_STATE_HOME: stateDirectory,
+    // The packaged app inherits these values from tauri-driver. Pin both the
+    // WebKit Intl defaults and the backend's local-time interpretation.
+    TZ: "UTC",
+    LC_ALL: deterministicLocale,
+    LANG: deterministicLocale,
   });
 }

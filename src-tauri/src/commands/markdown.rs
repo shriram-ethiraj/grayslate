@@ -104,6 +104,9 @@ pub async fn render_markdown_preview(
     let state_clone = state.inner().clone();
 
     let joined = tauri::async_runtime::spawn_blocking(move || {
+        #[cfg(feature = "e2e")]
+        crate::commands::e2e::operation_checkpoint("markdown-render");
+
         markdown_preview::render_markdown_to_html(&content, cancelled.as_ref())
     })
     .await;

@@ -108,6 +108,9 @@ pub async fn editor_find_scan(
     let state_clone = state.inner().clone();
 
     let result = tauri::async_runtime::spawn_blocking(move || {
+        #[cfg(feature = "e2e")]
+        crate::commands::e2e::operation_checkpoint("editor-find");
+
         let options = FindStatsOptions {
             case_sensitive,
             whole_word,

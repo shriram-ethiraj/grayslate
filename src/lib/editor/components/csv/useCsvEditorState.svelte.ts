@@ -38,7 +38,8 @@ export function useCsvEditorState(
     let selectionBlock = $state<SelectionBlock>(null);
     let isSelecting = $state(false);
     let editValue = $state("");
-    let isMutationInFlight = false;
+    let mutationQueue: Promise<void> = Promise.resolve();
+    let latestMutation: Promise<void> = Promise.resolve();
 
     function getSnapshot(): CsvTableSnapshot {
         return controller.getSnapshot();
@@ -84,46 +85,60 @@ export function useCsvEditorState(
         return null;
     }
 
-    async function runAsyncAction(
+    function runAsyncAction(
         userEvent: string,
         action: () => Promise<boolean | void>,
         block?: SelectionBlock,
     ): Promise<void> {
-        if (isMutationInFlight) return;
-
         const loaderConfig = getMutationLoaderConfig(userEvent, block);
-        isMutationInFlight = true;
 
-        if (loaderConfig) {
-            startLoaderTicker(loaderConfig.message, loaderConfig.subMessage, {
-                ceiling: 94,
-                factor: 0.04,
-                minStep: 0.2,
-                interval: 90,
-                // Longer grace window for Rust-backed mutations: most operations
-                // on files up to ~1M rows finish well under 300ms, so the loader
-                // is suppressed entirely for those cases.
-                graceMs: 300,
-            });
-        }
-
-        try {
-            const applied = await action();
+        const operation = mutationQueue.then(async () => {
             if (loaderConfig) {
-                if (applied === false) {
-                    stopLoaderTicker();
-                    hideEditorLoader();
-                } else {
-                    completeEditorLoader("Table updated", loaderConfig.subMessage, 120);
-                }
+                startLoaderTicker(loaderConfig.message, loaderConfig.subMessage, {
+                    ceiling: 94,
+                    factor: 0.04,
+                    minStep: 0.2,
+                    interval: 90,
+                    // Longer grace window for Rust-backed mutations: most operations
+                    // on files up to ~1M rows finish well under 300ms, so the loader
+                    // is suppressed entirely for those cases.
+                    graceMs: 300,
+                });
             }
-        } catch (error) {
-            stopLoaderTicker();
-            hideEditorLoader();
-            throw error;
-        } finally {
-            isMutationInFlight = false;
-        }
+
+            try {
+                const applied = await action();
+                if (loaderConfig) {
+                    if (applied === false) {
+                        stopLoaderTicker();
+                        hideEditorLoader();
+                    } else {
+                        completeEditorLoader("Table updated", loaderConfig.subMessage, 120);
+                    }
+                }
+            } catch (error) {
+                stopLoaderTicker();
+                hideEditorLoader();
+                throw error;
+            }
+        });
+
+        // Keep the queue usable after a failed IPC operation. The returned
+        // operation still rejects for callers that await it, while this catch
+        // prevents one failure from permanently blocking every later edit.
+        mutationQueue = operation.catch((error) => {
+            console.error("Failed to apply CSV table action", error);
+        });
+        latestMutation = operation;
+        return operation;
+    }
+
+    async function waitForPendingActions(): Promise<void> {
+        let observedMutation: Promise<void>;
+        do {
+            observedMutation = latestMutation;
+            await observedMutation;
+        } while (observedMutation !== latestMutation);
     }
 
     function isEntireRowSelection(block: SelectionBlock = selectionBlock): boolean {
@@ -1018,7 +1033,6 @@ export function useCsvEditorState(
         selectionBlock = null;
         isSelecting = false;
         editValue = "";
-        isMutationInFlight = false;
     }
 
     return {
@@ -1073,6 +1087,7 @@ export function useCsvEditorState(
         handleUndo,
         handleRedo,
         handleCopy,
+        waitForPendingActions,
         cellHotkeys,
         editHotkeys,
         handleCellKeydown,

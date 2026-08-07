@@ -109,6 +109,7 @@
                                 variant="link"
                                 size="sm"
                                 class="h-auto p-0"
+                                data-testid="about-whats-new"
                                 onclick={() => {
                                     void openWhatsNew();
                                 }}
@@ -125,7 +126,12 @@
 
                     <Separator />
 
-                    <div class="space-y-3 text-sm">
+                    <div
+                        class="space-y-3 text-sm"
+                        data-testid="about-update-status"
+                        data-update-status={appMenuState.updateStatus}
+                        data-update-policy={appMenuState.updatePolicy}
+                    >
                         {#if isChecking}
                             <div class="flex items-center gap-2 text-foreground">
                                 <LoaderCircle class="size-4 animate-spin text-muted-foreground" />
@@ -136,6 +142,7 @@
                                 <Button
                                     size="sm"
                                     disabled={isBusy}
+                                    data-testid="about-install-update"
                                     onclick={() => {
                                         void installAvailableUpdate();
                                     }}
@@ -178,6 +185,7 @@
                                 variant="outline"
                                 size="sm"
                                 class="w-fit self-start"
+                                data-testid="about-check-updates"
                                 onclick={() => {
                                     void checkForAppUpdates({ openDialog: false });
                                 }}
@@ -196,6 +204,7 @@
                             variant="link"
                             size="sm"
                             class="h-auto p-0 text-xs text-muted-foreground"
+                            data-testid="about-link-license"
                             onclick={() => {
                                 void openProjectLink("license");
                             }}
@@ -209,6 +218,7 @@
                             variant="link"
                             size="sm"
                             class="h-auto p-0 text-xs text-muted-foreground"
+                            data-testid="about-link-repository"
                             onclick={() => {
                                 void openProjectLink("repository");
                             }}

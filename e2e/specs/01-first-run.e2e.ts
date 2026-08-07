@@ -1,123 +1,135 @@
 import fs from "node:fs";
 import path from "node:path";
-import { browser, expect } from "@wdio/globals";
-import { notesRoot, rustFixture } from "../helpers/sandbox.js";
-import {
-  editorContent,
-  ensureSidebarOpen,
-  focusEditor,
-  newSlate,
-  openSidebarCard,
-  setFilterTab,
-  sidebarCard,
-  typeText,
-  waitForDetectedLanguage,
-  waitForFile,
-  waitForLanguageMode,
-} from "../helpers/app.js";
+import { expect } from "@wdio/globals";
+import { TIMEOUTS } from "../config/timeouts.js";
+import { directoryInventory } from "../assertions/matchers.js";
+import { scenario } from "../coverage/scenario.js";
+import { notesRoot } from "../fixtures/factories.js";
+import * as app from "../pages/app.js";
+import { waitForCommittedDocument } from "../pages/document.js";
+import * as editor from "../pages/editor.js";
+import * as sidebar from "../pages/sidebar.js";
+import * as statusBar from "../pages/statusBar.js";
 
-// The Rust fixture contains `pub struct Config`, so the naming pipeline saves
-// it as `config.rs`. SQL is single-line to avoid any auto-indent byte drift,
-// and its stem is content-derived, so the spec discovers the actual `.sql` file
-// instead of hard-coding a name.
-const rustPath = path.join(notesRoot, "config.rs");
-const sqlContent = "SELECT id, name FROM users WHERE active = 1;";
+/**
+ * First run: type, detect, autosave, name, and reopen.
+ *
+ * This is the flow a brand-new user meets first, and it spans the whole stack —
+ * content detection in Rust, the naming registry, the autosave timer, the
+ * library, and the reopen path.
+ */
+const RUST_SOURCE = `use std::collections::HashMap;
+#[derive(Debug, Clone)]
+pub struct Config { pub name: String }
+pub fn process(config: &Config) -> Result<(), String> { println!("Processing: {}", config.name); Ok(()) }
+`;
 
-describe("Act 1 — first run and the slate lifecycle", () => {
-  it("detects Rust after typing, autosaves config.rs, and names it Rust", async () => {
-    await focusEditor();
-    await typeText(rustFixture);
+const SQL_SOURCE = `SELECT id, name FROM customers WHERE active = 1 ORDER BY name;
+`;
 
-    const editor = await editorContent();
-    await browser.waitUntil(
-      async () => (await editor.getText()).includes("pub struct Config"),
-      {
-        timeout: 10_000,
-        interval: 250,
-        timeoutMsg: "The Rust fixture was not entered into CodeMirror.",
-      },
-    );
-
-    await waitForDetectedLanguage("rust");
-    await waitForFile(rustPath, (content) => content === rustFixture, 20_000);
-    await waitForLanguageMode("rust");
-
-    expect(fs.existsSync(rustPath)).toBe(true);
-    expect(fs.readFileSync(rustPath, "utf8")).toBe(rustFixture);
+/** Wait for the autosaved file's final application-owned identity. */
+async function waitForAutosavedFile(content: string): Promise<string> {
+  return waitForCommittedDocument({
+    content,
+    directory: notesRoot,
+    timeoutMs: TIMEOUTS.disk,
   });
+}
 
-  it("shows the autosaved Rust slate in the sidebar under All and Slates, not Local", async () => {
-    await ensureSidebarOpen();
+describe("First run", () => {
+  scenario(
+    "file.first-run.blank-slate",
+    "starts on an empty untitled slate without writing a file",
+    async () => {
+      // This is deliberately the first scenario in a fresh per-spec app
+      // session. Calling New Slate here would erase the startup behavior the
+      // requirement is meant to prove.
+      const ready = await editor.waitUntilReady({
+        documentPath: "New Slate",
+        documentLength: 0,
+      });
+      expect(ready.documentPath).toBe("New Slate");
+      expect(ready.documentLength).toBe(0);
+      expect(directoryInventory(notesRoot)).toEqual([]);
+    },
+  );
 
-    await setFilterTab("unified");
-    await (await sidebarCard(rustPath)).waitForDisplayed();
+  scenario(
+    "language.detect-from-content",
+    "detects the language from typed content alone",
+    async () => {
+      await app.newSlate();
+      await editor.replaceText(RUST_SOURCE);
 
-    await setFilterTab("slates");
-    await (await sidebarCard(rustPath)).waitForDisplayed();
+      // Detection is content-based and debounced, and runs in Rust.
+      await statusBar.waitForDetectedLanguage("rust");
+      await statusBar.waitForLanguageMode("rust");
+    },
+  );
 
-    await setFilterTab("local");
-    await (await sidebarCard(rustPath)).waitForExist({ reverse: true, timeout: 5_000 });
+  scenario(
+    "language.save-extension",
+    "names the autosaved slate with the canonical extension for its language",
+    async () => {
+      await app.newSlate();
+      await editor.replaceText(SQL_SOURCE);
+      await statusBar.waitForDetectedLanguage("sql");
 
-    await setFilterTab("unified");
-  });
+      const saved = await waitForAutosavedFile(SQL_SOURCE);
+      // Naming is per-language and owned by the Rust naming registry.
+      expect(path.extname(saved)).toBe(".sql");
+      expect(path.dirname(saved)).toBe(notesRoot);
+    },
+  );
 
-  it("new slate: types SQL, detects and autosaves it, and shows both slates", async () => {
-    await newSlate();
-    await focusEditor();
-    await typeText(sqlContent);
+  scenario(
+    "file.slate.reopen-from-sidebar",
+    "reopens an autosaved slate from the sidebar with its content and language",
+    async () => {
+      await app.newSlate();
+      const source = `${RUST_SOURCE}// reopen\n`;
+      await editor.replaceText(source);
+      await statusBar.waitForDetectedLanguage("rust");
+      const saved = await waitForAutosavedFile(source);
 
-    const editor = await editorContent();
-    await browser.waitUntil(
-      async () => (await editor.getText()).includes("SELECT id"),
-      {
-        timeout: 10_000,
-        interval: 250,
-        timeoutMsg: "The SQL content was not entered into CodeMirror.",
-      },
-    );
+      // Switch away, then come back through the library rather than by path.
+      await app.newSlate();
+      await editor.waitUntilReady({ documentPath: "New Slate", documentLength: 0 });
 
-    await waitForDetectedLanguage("sql");
+      await sidebar.ensureOpen();
+      await sidebar.openCard(saved);
 
-    // Discover the content-named `.sql` file the naming pipeline produced.
-    let sqlPath = "";
-    await browser.waitUntil(
-      () => {
-        const match = fs.readdirSync(notesRoot).find((name) => name.endsWith(".sql"));
-        if (!match) return false;
-        sqlPath = path.join(notesRoot, match);
-        return fs.readFileSync(sqlPath, "utf8") === sqlContent;
-      },
-      {
-        timeout: 20_000,
-        interval: 250,
-        timeoutMsg: "SQL autosave did not create a .sql file with the typed content.",
-      },
-    );
+      await editor.waitUntilReady({ documentPath: saved });
+      await editor.waitForText(
+        (text) => text.includes("pub struct Config"),
+        "Reopening from the sidebar did not restore the slate's content.",
+      );
+      await statusBar.waitForLanguageMode("rust");
+      expect(fs.readFileSync(saved, "utf8")).toBe(source);
+    },
+  );
 
-    await waitForLanguageMode("sql");
+  scenario(
+    "sidebar.filter-tabs",
+    "lists an autosaved slate under All and Slates but never under Local",
+    async () => {
+      await app.newSlate();
+      // Distinct from the other scenarios' content: the probe below looks for
+      // exactly one matching file, and identical text across scenarios in this
+      // file would match several.
+      const source = `${RUST_SOURCE}// filter tabs\n`;
+      await editor.replaceText(source);
+      const saved = await waitForAutosavedFile(source);
 
-    await ensureSidebarOpen();
-    await setFilterTab("unified");
-    await (await sidebarCard(rustPath)).waitForDisplayed();
-    await (await sidebarCard(sqlPath)).waitForDisplayed();
-  });
-
-  it("reopens the first file from the sidebar with content and language restored", async () => {
-    await ensureSidebarOpen();
-    await setFilterTab("unified");
-    await openSidebarCard(rustPath);
-
-    const editor = await editorContent();
-    await browser.waitUntil(
-      async () => (await editor.getText()).includes("pub struct Config"),
-      {
-        timeout: 10_000,
-        interval: 250,
-        timeoutMsg: "The reopened Rust file content did not load.",
-      },
-    );
-
-    await waitForLanguageMode("rust");
-    expect(fs.readFileSync(rustPath, "utf8")).toBe(rustFixture);
-  });
+      await sidebar.ensureOpen();
+      await sidebar.setFilterTab("unified");
+      await sidebar.waitForCard(saved);
+      await sidebar.setFilterTab("slates");
+      await sidebar.waitForCard(saved);
+      // A managed slate is not a local file.
+      await sidebar.setFilterTab("local");
+      await sidebar.waitForCard(saved, false);
+      await sidebar.setFilterTab("unified");
+    },
+  );
 });

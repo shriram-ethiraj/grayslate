@@ -26,7 +26,7 @@
 <script lang="ts">
   import * as Dialog from "$lib/components/ui/dialog/index.js";
   import * as Select from "$lib/components/ui/select/index.js";
-  import { invoke } from "@tauri-apps/api/core";
+  import { invoke } from "$lib/ipc";
   import { DEFAULT_INDENT_CONFIG } from "$lib/editor/core/editorSession";
   import { appSettingsState } from "$lib/state/appSettings.svelte";
 
@@ -114,7 +114,11 @@
           </Select.Trigger>
           <Select.Content>
             {#each indentOptions as option (option.value)}
-              <Select.Item value={option.value} label={option.label}>
+              <Select.Item
+                value={option.value}
+                label={option.label}
+                data-testid="indent-mode-{option.value}"
+              >
                 {option.label}
               </Select.Item>
             {/each}
@@ -137,7 +141,11 @@
             </Select.Trigger>
             <Select.Content>
               {#each spaceSizeOptions as option (option.value)}
-                <Select.Item value={option.value} label={option.label}>
+                <Select.Item
+                  value={option.value}
+                  label={option.label}
+                  data-testid="indent-size-{option.value}"
+                >
                   {option.label}
                 </Select.Item>
               {/each}

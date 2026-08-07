@@ -11,7 +11,44 @@
  * large text to the UI without each feature re-implementing chunk assembly.
  */
 
-import { invoke } from "@tauri-apps/api/core";
+import {
+    invoke as tauriInvoke,
+    type InvokeArgs,
+    type InvokeOptions,
+} from "@tauri-apps/api/core";
+import {
+    beginTrackedInvoke,
+    finishTrackedInvoke,
+} from "$lib/e2e/workTracker";
+
+const TRACK_E2E_IPC = import.meta.env.MODE === "e2e";
+
+/**
+ * The single application-owned Tauri invoke boundary.
+ *
+ * E2E builds count calls here instead of mutating Tauri's non-writable
+ * `window.__TAURI_INTERNALS__.invoke` property. Production builds fold the
+ * compile-time mode check away and call Tauri directly.
+ */
+export function invoke<T>(
+    command: string,
+    args?: InvokeArgs,
+    options?: InvokeOptions,
+): Promise<T> {
+    if (!TRACK_E2E_IPC) {
+        return tauriInvoke<T>(command, args, options);
+    }
+
+    beginTrackedInvoke(command);
+    try {
+        return tauriInvoke<T>(command, args, options).finally(() => {
+            finishTrackedInvoke(command);
+        });
+    } catch (error) {
+        finishTrackedInvoke(command);
+        throw error;
+    }
+}
 
 const textDecoder = new TextDecoder("utf-8");
 
@@ -197,5 +234,3 @@ export async function invokeText(
 export function detectByFilename(filename: string): Promise<string | null> {
     return invoke<string | null>("detect_by_filename", { filename });
 }
-
-export { invoke };

@@ -1,5 +1,5 @@
 import { normalize } from "@tauri-apps/api/path";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "$lib/ipc";
 
 const NOTES_ROOT_SETTING_KEY = "notes_root";
 

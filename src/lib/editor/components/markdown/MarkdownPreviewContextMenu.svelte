@@ -6,9 +6,9 @@
   import { formatForDisplay } from "@tanstack/hotkeys";
   import {
     activateMarkdownPreview,
-    copyMarkdownPreviewSelection,
+    copyMarkdownPreviewText,
     focusMarkdownPreview,
-    hasMarkdownPreviewSelection,
+    getMarkdownPreviewSelectionText,
     selectAllMarkdownPreview,
   } from "./previewActions";
 
@@ -19,6 +19,7 @@
   let menuY = $state(0);
   let menuRef = $state<HTMLDivElement | null>(null);
   let hasSelection = $state(false);
+  let selectionText = $state("");
 
   const itemBase =
     "relative flex w-full items-center rounded-sm px-2 py-1.5 text-sm outline-hidden select-none";
@@ -26,7 +27,11 @@
 
   function openMenu(event: MouseEvent) {
     activateMarkdownPreview();
-    hasSelection = hasMarkdownPreviewSelection();
+    // Capture before the menu button takes focus. WebKit collapses a preview
+    // selection when the user clicks Copy, so reading it inside the click
+    // handler makes the command silently do nothing.
+    selectionText = getMarkdownPreviewSelectionText();
+    hasSelection = selectionText.length > 0;
     open = true;
     menuX = event.clientX;
     menuY = event.clientY;
@@ -54,7 +59,7 @@
   }
 
   async function handleCopy() {
-    const copied = await copyMarkdownPreviewSelection();
+    const copied = await copyMarkdownPreviewText(selectionText);
     if (!copied) return;
     close();
   }
@@ -112,10 +117,16 @@
     style="left: {menuX}px; top: {menuY}px;"
     role="menu"
     tabindex="-1"
+    data-testid="markdown-context-menu"
     oncontextmenu={(event) => event.preventDefault()}
   >
     {#if hasSelection}
-      <button class={itemEnabled} role="menuitem" onclick={handleCopy}>
+      <button
+        class={itemEnabled}
+        role="menuitem"
+        data-testid="markdown-context-copy"
+        onclick={handleCopy}
+      >
         <CopyIcon class="mr-2 h-4 w-4 shrink-0" />
         <span>Copy</span>
         <span class="ml-auto pl-4 text-xs text-muted-foreground"
@@ -126,7 +137,12 @@
       <div class="my-1 h-px bg-muted"></div>
     {/if}
 
-    <button class={itemEnabled} role="menuitem" onclick={handleSelectAll}>
+    <button
+      class={itemEnabled}
+      role="menuitem"
+      data-testid="markdown-context-select-all"
+      onclick={handleSelectAll}
+    >
       <TextSelect class="mr-2 h-4 w-4 shrink-0" />
       <span>Select All</span>
       <span class="ml-auto pl-4 text-xs text-muted-foreground"
