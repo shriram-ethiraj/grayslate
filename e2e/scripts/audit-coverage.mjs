@@ -68,6 +68,7 @@ const SETTINGS_EVIDENCE = {
   defaultIndentMode: "shell.settings.indent-default",
   defaultIndentSize: "shell.settings.indent-default",
   confirmBeforeDelete: "file.delete.without-confirmation",
+  automaticUpdateChecks: "shell.settings.persist-across-restart",
   defaultLineEnding: "format.eol.default-for-new",
   defaultEncoding: "format.encoding.default-for-new",
 };

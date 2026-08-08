@@ -11,6 +11,7 @@
     import { appDialogsState, closeAppDialog } from "$lib/state/appDialogs.svelte";
     import {
         appSettingsState,
+        setAutomaticUpdateChecks,
         setConfirmBeforeDelete,
         setDefaultIndentMode,
         setDefaultIndentSize,
@@ -23,6 +24,7 @@
         type DefaultLineEnding,
         type StartupBehavior,
     } from "$lib/state/appSettings.svelte";
+    import { appMenuState } from "$lib/state/appMenu.svelte";
 
     const isOpen = $derived(appDialogsState.active.type === "settings");
 
@@ -166,6 +168,28 @@
                                 aria-label="Confirm before deleting"
                             />
                         </div>
+
+                        {#if appMenuState.updatePolicy === "self-update"}
+                            <Separator />
+
+                            <div class="flex items-center justify-between gap-4 py-4">
+                                <div class="grid gap-0.5">
+                                    <span class="text-sm font-normal text-foreground">
+                                        Automatically check for updates
+                                    </span>
+                                    <p class="text-xs text-muted-foreground">
+                                        Check at startup and once a day. Updates are never downloaded
+                                        or installed automatically.
+                                    </p>
+                                </div>
+                                <Switch
+                                    data-testid="settings-automatic-update-checks"
+                                    checked={appSettingsState.automaticUpdateChecks}
+                                    onCheckedChange={(checked) => setAutomaticUpdateChecks(checked)}
+                                    aria-label="Automatically check for updates"
+                                />
+                            </div>
+                        {/if}
                     </div>
                 {:else if activePane === "editor"}
                     <h2 class="mb-2 text-base font-semibold text-foreground">Editor</h2>

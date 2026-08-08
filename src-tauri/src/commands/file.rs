@@ -28,10 +28,10 @@ use crate::filesystem::{
 };
 use crate::storage::{
     normalize_path_key, path_to_display_string, AppStorage, FileSource, RecentFileRecord,
-    SETTING_CONFIRM_BEFORE_DELETE, SETTING_DEFAULT_ENCODING, SETTING_DEFAULT_INDENT_MODE,
-    SETTING_DEFAULT_INDENT_SIZE, SETTING_DEFAULT_LINE_ENDING, SETTING_FONT_SIZE,
-    SETTING_LAST_ACTIVE_FILE, SETTING_NOTES_ROOT, SETTING_SIDEBAR_OPEN, SETTING_SIDEBAR_WIDTH,
-    SETTING_STARTUP_BEHAVIOR, SETTING_THEME, SETTING_WORD_WRAP,
+    SETTING_AUTOMATIC_UPDATE_CHECKS, SETTING_CONFIRM_BEFORE_DELETE, SETTING_DEFAULT_ENCODING,
+    SETTING_DEFAULT_INDENT_MODE, SETTING_DEFAULT_INDENT_SIZE, SETTING_DEFAULT_LINE_ENDING,
+    SETTING_FONT_SIZE, SETTING_LAST_ACTIVE_FILE, SETTING_NOTES_ROOT, SETTING_SIDEBAR_OPEN,
+    SETTING_SIDEBAR_WIDTH, SETTING_STARTUP_BEHAVIOR, SETTING_THEME, SETTING_WORD_WRAP,
 };
 
 use super::RECENT_FILES_UPDATED_EVENT;
@@ -953,6 +953,9 @@ pub fn set_app_setting(
                 }
             }
         }
+        SETTING_AUTOMATIC_UPDATE_CHECKS => {
+            validate_boolean_setting(value.as_deref(), "Automatic update checks")?;
+        }
         SETTING_DEFAULT_LINE_ENDING => {
             if let Some(ref line_ending) = value {
                 crate::line_ending::Eol::parse(line_ending)
@@ -980,6 +983,15 @@ pub fn set_app_setting(
     }
 
     storage.set_setting(&key, value.as_deref())
+}
+
+fn validate_boolean_setting(value: Option<&str>, label: &str) -> Result<(), String> {
+    if let Some(value) = value {
+        if value != "true" && value != "false" {
+            return Err(format!("{label} must be \"true\" or \"false\"."));
+        }
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -1619,6 +1631,15 @@ pub async fn duplicate_file(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn boolean_setting_validation_accepts_only_canonical_values() {
+        assert!(validate_boolean_setting(Some("true"), "Setting").is_ok());
+        assert!(validate_boolean_setting(Some("false"), "Setting").is_ok());
+        assert!(validate_boolean_setting(None, "Setting").is_ok());
+        assert!(validate_boolean_setting(Some("1"), "Setting").is_err());
+        assert!(validate_boolean_setting(Some("TRUE"), "Setting").is_err());
+    }
 
     #[test]
     fn encoding_confirmation_error_has_stable_frontend_shape() {

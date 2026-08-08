@@ -24,7 +24,17 @@
 	import { registerHotkeys } from "$lib/hotkeys";
 	import { initPlatformState, platformState } from "$lib/state/platform.svelte";
 	import { formatShortcutTooltip } from "$lib/shortcuts";
-	import { loadAllSettings, applyTheme, hydrateAppSettingsState } from "$lib/state/appSettings.svelte";
+	import {
+		appSettingsState,
+		loadAllSettings,
+		applyTheme,
+		hydrateAppSettingsState,
+	} from "$lib/state/appSettings.svelte";
+	import {
+		appMenuState,
+		ensureAppInfoLoaded,
+		startAutomaticUpdateChecks,
+	} from "$lib/state/appMenu.svelte";
 	import {
 		beginTrackedWork,
 		initializeE2ERuntime,
@@ -46,6 +56,7 @@
 	let sidebarPaneElement: HTMLDivElement | null = $state(null);
 	let sidebarOpen = $state(false);
 	let settingsHydrated = $state(false);
+	let appInfoReady = $state(false);
 
 	/** Transition class applied only during programmatic toggle, NOT during drag. */
 	let animating = $state(false);
@@ -184,6 +195,13 @@
 
 				await initPlatformState();
 				await initAppSettings();
+				try {
+					await ensureAppInfoLoaded();
+				} catch (error) {
+					console.warn("[App bootstrap] Failed to load app/update information:", error);
+				} finally {
+					appInfoReady = true;
+				}
 				if (cancelled) return;
 				if (isE2EMode) {
 					// CodeMirror must be created from hydrated preferences. The pane
@@ -256,6 +274,18 @@
 		await tick();
 		sidebarPane?.resize(hydratedWidth);
 	}
+
+	$effect(() => {
+		if (
+			!settingsHydrated ||
+			!appSettingsState.automaticUpdateChecks ||
+			appMenuState.updatePolicy !== "self-update"
+		) {
+			return;
+		}
+
+		return startAutomaticUpdateChecks();
+	});
 
 	$effect(() => {
 		return registerHotkeys([
@@ -381,7 +411,7 @@
 							</div>
 						</header>
 						<div class="flex min-h-0 min-w-0 flex-1 flex-col">
-							{#if platformState.ready && e2eApplicationStateReady}
+							{#if platformState.ready && appInfoReady && e2eApplicationStateReady}
 								{@render children()}
 							{/if}
 						</div>
