@@ -63,9 +63,11 @@
   import { confirmBeforeLeavingDocument } from "$lib/state/unsavedChangesGuard.svelte";
   import {
     OPEN_FILE_PATH_EVENT,
+    EXTERNAL_OPEN_PENDING_EVENT,
     DOCUMENT_RENAMED_EVENT,
     RESET_TO_BLANK_EVENT,
     type DocumentDescriptor,
+    type ExternalOpenRequest,
     type OpenFilePathPayload,
     type RecentFileSource,
   } from "$lib/files/recentFiles";
@@ -1084,6 +1086,13 @@
   // picker, then invoke read_file_content on the Rust side which enforces
   // the current 200 MB size limit before returning the text.
   // -----------------------------------------------------------------------
+  function isCurrentDocument(document: DocumentDescriptor): boolean {
+    return (
+      editorState.currentDocumentId === document.documentId ||
+      editorState.currentFilePath === document.displayPath
+    );
+  }
+
   async function openAuthorizedDocument(
     document: DocumentDescriptor,
     lineNumber?: number,
@@ -1096,8 +1105,8 @@
     const filePath = document.displayPath;
     // Fast path: the file is already loaded — avoid a full reload and just
     // navigate to the requested line directly.
-    if (!options?.forceReload && editorState.currentFilePath === filePath && editorView) {
-      if (lineNumber !== undefined) {
+    if (!options?.forceReload && isCurrentDocument(document)) {
+      if (lineNumber !== undefined && editorView) {
         editorGoToLine(editorView, lineNumber);
       }
       // Clean up any pending sidebar state that openRecentFile may have set
@@ -1303,6 +1312,70 @@
     if (!selected) return;
 
     await openAuthorizedDocument(selected);
+  }
+
+  let externalOpenStartupReady = false;
+  let externalOpenWasReceived = false;
+  let externalOpenWork: Promise<void> = Promise.resolve();
+
+  function reportExternalOpenResult(request: ExternalOpenRequest): void {
+    if (request.skippedCount > 0) {
+      const noun = request.skippedCount === 1 ? "file" : "files";
+      const reason = request.skippedCount === 1 ? "it was" : "they were";
+      toast.warning(
+        `${request.skippedCount} ${noun} could not be opened because ${reason} invalid, unavailable, or too large.`,
+      );
+      return;
+    }
+
+    if (request.acceptedCount > 0 && !request.document) {
+      toast.error("The files were added to the library, but the last file could not be opened.");
+      return;
+    }
+
+    if (request.newlyTrackedCount > 1) {
+      toast.success(`${request.newlyTrackedCount} files were added to the library.`);
+    }
+  }
+
+  async function drainExternalOpenRequests(): Promise<void> {
+    while (true) {
+      const request = await invoke<ExternalOpenRequest | null>("take_external_open_request");
+      if (!request) return;
+
+      externalOpenWasReceived = true;
+      reportExternalOpenResult(request);
+      if (!request.document) continue;
+
+      // Activating the document that is already open is only a request to
+      // focus Grayslate. It must not ask whether to discard edits, and it must
+      // remain a no-op while CSV table mode has the live EditorView unmounted.
+      if (isCurrentDocument(request.document)) {
+        continue;
+      }
+
+      if (await confirmBeforeLeavingDocument()) {
+        await openAuthorizedDocument(request.document);
+      }
+    }
+  }
+
+  function scheduleExternalOpenDrain(): Promise<void> {
+    externalOpenWork = externalOpenWork.then(
+      drainExternalOpenRequests,
+      drainExternalOpenRequests,
+    );
+    return externalOpenWork;
+  }
+
+  function handleExternalOpenWake(): void {
+    externalOpenWasReceived = true;
+    if (!externalOpenStartupReady) {
+      return;
+    }
+    void scheduleExternalOpenDrain().catch((error: unknown) => {
+      toast.error(readErrorMessage(error, "Could not process the files opened by the system."));
+    });
   }
 
   async function getContentForSave(): Promise<string> {
@@ -1638,41 +1711,61 @@
     }
   }
 
-  // Startup: optionally reopen the last-active file. EditorWrapper owns all
-  // document transitions, so it also owns this one-time restoration decision
-  // rather than coupling to +layout.svelte's settings-load timing. We read the
-  // settings directly (one cheap IPC call) instead of depending on when the
-  // layout's hydrate runs. On any failure we silently keep the default blank
-  // slate that `activeDocument` already initialized to.
-  onMount(async () => {
-    try {
-      const settings = await loadAllSettings();
+  // Startup: consume any OS-open activation before optionally restoring the
+  // last-active file. EditorWrapper owns all document transitions, so it also
+  // owns this one-time decision rather than coupling to +layout.svelte's
+  // settings-load timing.
+  onMount(() => {
+    let disposed = false;
+    let unlistenExternalOpen: (() => void) | undefined;
 
-      // The first blank slate is constructed before settings (or platform
-      // detection, for "system") have loaded, so its EOL was seeded with the
-      // shipped default. Re-seed it now that the real value is known. Both
-      // halves move together, so the slate stays clean.
-      if (activeDocument.kind === "untitled" && value === "") {
-        const seededEol = await resolveLineEnding(settings.defaultLineEnding);
-        const seededEncoding = settings.defaultEncoding;
-        eol = seededEol;
-        encoding = seededEncoding;
-        activeDocument = {
-          ...activeDocument,
-          lastSavedEol: seededEol,
-          lastSavedEncoding: seededEncoding,
-        };
-      }
+    void (async () => {
+      try {
+        const { listen } = await import("@tauri-apps/api/event");
+        unlistenExternalOpen = await listen(EXTERNAL_OPEN_PENDING_EVENT, handleExternalOpenWake);
 
-      if (settings.startupBehavior === "last") {
-        const lastDocument = await invoke<DocumentDescriptor | null>("get_last_active_document");
-        if (lastDocument) {
-          await openAuthorizedDocument(lastDocument, undefined, { silent: true });
+        const settings = await loadAllSettings();
+
+        // The first blank slate is constructed before settings (or platform
+        // detection, for "system") have loaded, so its EOL was seeded with the
+        // shipped default. Re-seed it now that the real value is known. Both
+        // halves move together, so the slate stays clean.
+        if (activeDocument.kind === "untitled" && value === "") {
+          const seededEol = await resolveLineEnding(settings.defaultLineEnding);
+          const seededEncoding = settings.defaultEncoding;
+          eol = seededEol;
+          encoding = seededEncoding;
+          activeDocument = {
+            ...activeDocument,
+            lastSavedEol: seededEol,
+            lastSavedEncoding: seededEncoding,
+          };
         }
+
+        externalOpenStartupReady = true;
+        await scheduleExternalOpenDrain();
+
+        // An OS activation always wins over the ordinary "reopen last"
+        // preference, including when every requested path was rejected.
+        if (!disposed && !externalOpenWasReceived && settings.startupBehavior === "last") {
+          const lastDocument = await invoke<DocumentDescriptor | null>("get_last_active_document");
+          if (lastDocument) {
+            await openAuthorizedDocument(lastDocument, undefined, { silent: true });
+          }
+        }
+      } catch (err) {
+        console.warn("[Startup] Failed to evaluate startup-file behavior:", err);
+        externalOpenStartupReady = true;
+        void scheduleExternalOpenDrain().catch((error: unknown) => {
+          toast.error(readErrorMessage(error, "Could not process the files opened by the system."));
+        });
       }
-    } catch (err) {
-      console.warn("[Startup] Failed to evaluate startup-file behavior:", err);
-    }
+    })();
+
+    return () => {
+      disposed = true;
+      unlistenExternalOpen?.();
+    };
   });
 
   // Register (and later clean up) the file-menu event listeners.

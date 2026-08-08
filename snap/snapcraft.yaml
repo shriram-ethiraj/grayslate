@@ -20,6 +20,21 @@ apps:
     plugs:
       - home
       - removable-media
+      - single-instance-client
+    slots:
+      - single-instance-server
+
+plugs:
+  single-instance-client:
+    interface: dbus
+    bus: session
+    name: app.grayslate.Grayslate.SingleInstance
+
+slots:
+  single-instance-server:
+    interface: dbus
+    bus: session
+    name: app.grayslate.Grayslate.SingleInstance
 
 parts:
   grayslate:
