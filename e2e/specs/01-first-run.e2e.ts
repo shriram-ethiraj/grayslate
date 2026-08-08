@@ -27,6 +27,10 @@ pub fn process(config: &Config) -> Result<(), String> { println!("Processing: {}
 const SQL_SOURCE = `SELECT id, name FROM customers WHERE active = 1 ORDER BY name;
 `;
 
+const JSONL_SOURCE = `{"name":"Alice","age":30}
+{"name":"Bob","age":25}
+`;
+
 /** Wait for the autosaved file's final application-owned identity. */
 async function waitForAutosavedFile(content: string): Promise<string> {
   return waitForCommittedDocument({
@@ -78,6 +82,20 @@ describe("First run", () => {
       const saved = await waitForAutosavedFile(SQL_SOURCE);
       // Naming is per-language and owned by the Rust naming registry.
       expect(path.extname(saved)).toBe(".sql");
+      expect(path.dirname(saved)).toBe(notesRoot);
+    },
+  );
+
+  scenario(
+    "language.json-lines-save-extension",
+    "names an auto-detected JSON Lines slate with the canonical extension",
+    async () => {
+      await app.newSlate();
+      await editor.replaceText(JSONL_SOURCE);
+      await statusBar.waitForDetectedLanguage("jsonl");
+
+      const saved = await waitForAutosavedFile(JSONL_SOURCE);
+      expect(path.extname(saved)).toBe(".jsonl");
       expect(path.dirname(saved)).toBe(notesRoot);
     },
   );

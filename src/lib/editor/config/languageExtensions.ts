@@ -63,6 +63,7 @@ import {
 export function getLanguageExtension(langId: string): Extension | Extension[] {
     switch (langId) {
         case "json":
+        case "jsonl":
             return [json(), jsonInlayHints, jsonFoldWidget, jsonKeyPath];
         case "javascript":
             return javascript({ jsx: true });

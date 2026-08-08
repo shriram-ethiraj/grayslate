@@ -423,6 +423,17 @@ pub(crate) fn extract_json(content: &str) -> Option<String> {
     }
 }
 
+/// JSON Lines: derive the document stem from the first nonblank record. Each
+/// record is a complete JSON value, so scanning the entire document as one JSON
+/// value would mix fields from unrelated records into the filename.
+pub(crate) fn extract_jsonl(content: &str) -> Option<String> {
+    content
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .and_then(extract_json)
+}
+
 // ===== YAML ================================================================
 
 /// YAML: extract first few `key:` lines from the bounded sample.

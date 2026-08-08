@@ -3,7 +3,7 @@
 /// **Strong detectors** (Phase 0c) are near-deterministic and run before the
 /// family classifier. They have very low false-positive rates.
 ///
-///   JSON(5) → PHP(10) → Svelte(20) → Vue(30) → HTML(40) → XML(50)
+///   JSONL(4) → JSON(5) → PHP(10) → Svelte(20) → Vue(30) → HTML(40) → XML(50)
 ///   → Dockerfile(60) → CSV(70)
 ///
 /// **Soft detectors** (Phase 2a) run AFTER the family classifier and are

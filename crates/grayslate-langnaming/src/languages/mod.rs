@@ -31,6 +31,7 @@ mod java;
 mod javascript;
 mod jinja;
 mod json_lang;
+mod jsonl;
 mod kotlin;
 mod markdown;
 mod nginx;
@@ -109,6 +110,7 @@ fn all_definitions() -> Vec<NamingDefinition> {
         // Structured formats
         csv_lang::definition(),
         json_lang::definition(),
+        jsonl::definition(),
         yaml::definition(),
         toml_lang::definition(),
         // Markup / document formats

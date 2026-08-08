@@ -6,7 +6,7 @@ use std::sync::LazyLock;
 /// Lightweight JSON structure validator — checks balanced braces/brackets
 /// with proper string/escape handling. Sufficient for detection purposes
 /// (distinguishing JSON from code) without needing a full parser.
-fn is_balanced_json(content: &str) -> bool {
+pub(crate) fn is_balanced_json(content: &str) -> bool {
     let bytes = content.trim().as_bytes();
     if bytes.is_empty() {
         return false;
@@ -70,7 +70,7 @@ fn is_balanced_json(content: &str) -> bool {
         .map_or(false, |pos| bytes[pos] == expected_close)
 }
 
-/// Structural detection for JSON, JSONL, and JSONC.
+/// Structural detection for JSON and JSONC.
 pub(crate) fn is_likely_json(trimmed: &str, was_sliced: bool) -> bool {
     let first = match trimmed.as_bytes().first() {
         Some(b) => *b,
@@ -83,26 +83,6 @@ pub(crate) fn is_likely_json(trimmed: &str, was_sliced: bool) -> bool {
     // Authoritative structure check (only when we have the complete content)
     if !was_sliced && is_balanced_json(trimmed) {
         return true;
-    }
-
-    // JSONL — each non-empty line is its own JSON value
-    let lines: Vec<&str> = trimmed
-        .lines()
-        .map(|l| l.trim())
-        .filter(|l| !l.is_empty())
-        .collect();
-    if lines.len() >= 2 {
-        let sample = &lines[..lines.len().min(5)];
-        let all_json = sample.iter().all(|line| {
-            let first_byte = line.as_bytes().first().copied().unwrap_or(0);
-            if first_byte != b'{' && first_byte != b'[' {
-                return false;
-            }
-            is_balanced_json(line)
-        });
-        if all_json {
-            return true;
-        }
     }
 
     // Structural pattern for sliced / JSONC content

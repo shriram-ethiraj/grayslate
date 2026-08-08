@@ -48,7 +48,7 @@ assert_eq!(slug, Some("hello-world-a-test".to_string()));
 | **Scripting** | Python, Ruby, Perl, PHP, Shell, PowerShell, CMD |
 | **Web** | JavaScript, TypeScript, Angular, HTML, CSS, SCSS, Sass |
 | **Frameworks** | Svelte, Vue, Jinja |
-| **Data** | JSON, YAML, TOML, CSV, XML, SQL |
+| **Data** | JSON, JSON Lines, YAML, TOML, CSV, XML, SQL |
 | **.NET** | C# |
 | **ObjC** | Objective-C, Objective-C++ |
 | **Config** | Dockerfile, Nginx |

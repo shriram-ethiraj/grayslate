@@ -69,6 +69,13 @@ mod tests {
     }
 
     #[test]
+    fn extension_json_lines() {
+        assert_eq!(detect_by_filename("records.jsonl"), Some("jsonl"));
+        assert_eq!(detect_by_filename("events.ndjson"), Some("jsonl"));
+        assert_eq!(detect_by_filename("EVENTS.NDJSON"), Some("jsonl"));
+    }
+
+    #[test]
     fn extension_typescript() {
         assert_eq!(detect_by_filename("app.ts"), Some("typescript"));
         assert_eq!(detect_by_filename("Component.tsx"), Some("typescript"));

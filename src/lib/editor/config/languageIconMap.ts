@@ -89,6 +89,7 @@ const CSHARP:       Language = { value: "csharp",       label: "C#",           t
 const SCALA:        Language = { value: "scala",        label: "Scala",        token: "SCALA",   icon: SiScala };
 const DART:         Language = { value: "dart",         label: "Dart",         token: "DART",    icon: SiDart };
 const JSON:         Language = { value: "json",         label: "JSON",         token: "JSON",    icon: SiJson };
+const JSONL:        Language = { value: "jsonl",        label: "JSON Lines",   token: "JSONL",   icon: SiJson };
 const PERL:         Language = { value: "perl",         label: "Perl",         token: "PERL",    icon: SiPerl };
 
 // All known languages
@@ -97,7 +98,7 @@ const ALL_LANGUAGES: Language[] = [
     C, CPP, JAVA, GO, XML, CSV, MARKDOWN, SHELL, CMD, EMAIL, PROMPT, DOCKERFILE,
     SVELTE, VUE, RUST, CLOJURE, SQL, PHP, SASS, SCSS, JINJA,
     ANGULAR, NGINX, POWERSHELL, RUBY, SWIFT, TOML, KOTLIN,
-    OBJECTIVEC, OBJECTIVECPP, CSHARP, SCALA, DART, JSON, PERL,
+    OBJECTIVEC, OBJECTIVECPP, CSHARP, SCALA, DART, JSON, JSONL, PERL,
 ];
 
 /**

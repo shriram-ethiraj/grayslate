@@ -25,6 +25,7 @@ mod java;
 mod javascript;
 mod jinja;
 mod json;
+mod jsonl;
 mod kotlin;
 pub(crate) mod markdown;
 mod cmd;
@@ -189,6 +190,7 @@ fn all_definitions() -> Vec<LanguageDefinition> {
         java::definition(),
         javascript::definition(),
         jinja::definition(),
+        jsonl::definition(),
         json::definition(),
         kotlin::definition(),
         markdown::definition(),
@@ -307,7 +309,7 @@ pub(crate) struct SoftStructuralEntry {
 ///   Run in Phase 2 after the family classifier, gated by `content_families`.
 ///
 /// Current assignments:
-///   Strong: json(5) php(10) svelte(20) vue(30) html(40) xml(50) dockerfile(60) csv(70)
+///   Strong: jsonl(4) json(5) php(10) svelte(20) vue(30) html(40) xml(50) dockerfile(60) csv(70)
 ///   Soft:   markdown(80) scss(90) sass(91) toml(100) sql(110) prompt(115) yaml(120)
 const STRONG_STRUCTURAL_CUTOFF: u8 = 70;
 

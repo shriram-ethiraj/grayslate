@@ -15,6 +15,7 @@ export type FileType =
     | "csv"
     | "markdown"
     | "json"
+    | "jsonl"
     | "javascript"
     | "typescript"
     | "python"
