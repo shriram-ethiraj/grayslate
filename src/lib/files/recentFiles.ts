@@ -9,6 +9,7 @@ import { openDeleteFileDialog } from "$lib/state/appDialogs.svelte";
 import { reportLibraryMutation } from "$lib/state/librarySidebar.svelte";
 
 export const OPEN_FILE_PATH_EVENT = "files://open-path";
+export const EXTERNAL_OPEN_PENDING_EVENT = "files://external-open-pending";
 export const DOCUMENT_RENAMED_EVENT = "files://document-renamed";
 export const RECENT_FILES_UPDATED_EVENT = "files://recent-updated";
 /**
@@ -28,6 +29,14 @@ export interface DocumentDescriptor {
   fileName: string;
   source: RecentFileSource;
   writable: boolean;
+}
+
+export interface ExternalOpenRequest {
+  document: DocumentDescriptor | null;
+  requestedCount: number;
+  acceptedCount: number;
+  newlyTrackedCount: number;
+  skippedCount: number;
 }
 
 export interface RecentFileRecord {

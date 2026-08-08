@@ -80,6 +80,7 @@
     "allow-set-menu-word-wrap",
     "allow-suggest-name-for-file",
     "allow-suggest-slate-name",
+    "allow-take-external-open-request",
     "allow-untrack-local-file",
     "allow-write-file-content"
   ]

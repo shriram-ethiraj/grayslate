@@ -67,6 +67,7 @@ pub const APP_COMMANDS: &[&str] = &[
     "set_menu_word_wrap",
     "suggest_name_for_file",
     "suggest_slate_name",
+    "take_external_open_request",
     "untrack_local_file",
     "write_file_content",
 ];

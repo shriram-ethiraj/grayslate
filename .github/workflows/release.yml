@@ -42,7 +42,9 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
       - name: Check frontend
-        run: pnpm run check
+        run: |
+          pnpm run check
+          pnpm run check:file-associations
       - name: Test release and package-repository scripts
         run: |
           pnpm run test:release-scripts
@@ -85,7 +87,7 @@ jobs:
             stage_target: linux-x86_64-direct
             bundle_root: target/x86_64-unknown-linux-gnu/release/bundle
             update_policy: self-update
-            system_config: ""
+            system_config: --config src-tauri/tauri.appimage.conf.json
           - name: Linux DEB and RPM x64
             os: ubuntu-22.04
             rust_targets: x86_64-unknown-linux-gnu

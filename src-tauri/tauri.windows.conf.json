@@ -1,0 +1,9 @@
+{
+  "bundle": {
+    "windows": {
+      "nsis": {
+        "installerHooks": "../packaging/windows/file-associations.nsh"
+      }
+    }
+  }
+}
