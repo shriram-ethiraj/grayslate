@@ -5,9 +5,9 @@ import { TIMEOUTS } from "../config/timeouts.js";
 import {
   directoryInventory,
   expectNoNewFiles,
-  expectSettledAbsent,
 } from "../assertions/matchers.js";
 import { scenario } from "../coverage/scenario.js";
+import { forceAutosaveCycle } from "../driver/autosave.js";
 import { waitForFile, waitForFileWithoutWebDriver } from "../driver/wait.js";
 import { externalRoot, notesRoot, openPath, openText } from "../fixtures/factories.js";
 import * as app from "../pages/app.js";
@@ -58,24 +58,16 @@ describe("Local file save lifecycle", () => {
       await titleBar.waitForDirty(true);
       await titleBar.waitForSaveEnabled(true);
 
-      // The previous version slept 2.5 s and asserted once, which made the
-      // check weaker the slower the machine: the autosave simply had not fired
-      // yet, so it passed for the wrong reason. Instead reach a state where a
-      // violation would already be visible, then require the file to stay
-      // untouched across every sample of a window longer than the 1.5 s idle
-      // debounce that governs slate autosave.
-      await expectSettledAbsent({
-        precondition: async () => {
-          await titleBar.waitForDirty(true);
-        },
-        invariant: async () =>
-          fs.readFileSync(seeded.localPath, "utf8") === INITIAL &&
-          directoryInventory(notesRoot).length === seeded.slatesBefore.length,
-        message:
-          "Autosave must never write a local file, nor create a slate for one, " +
-          "before the user saves.",
-        quietForMs: 4_000,
-      });
+      const forcedCycle = await forceAutosaveCycle();
+      expect(forcedCycle.source).toBe("local");
+      // Rust intentionally tracks autosave generations only for slates. The
+      // user-visible dirty state below is authoritative for a local document.
+      expect(forcedCycle.backendDirty).toBe(false);
+      expect(forcedCycle.scheduledActions).toBe(0);
+      expect(fs.readFileSync(seeded.localPath, "utf8")).toBe(INITIAL);
+      expect(directoryInventory(notesRoot)).toHaveLength(
+        seeded.slatesBefore.length,
+      );
 
       // Still dirty: nothing silently saved it behind the user's back.
       expect(await titleBar.isDirty()).toBe(true);
@@ -188,5 +180,6 @@ describe("Local file save lifecycle", () => {
       expectNoNewFiles(externalRoot, seeded.externalBefore);
       expectNoNewFiles(notesRoot, seeded.slatesBefore);
     },
+    { completion: "window-closed" },
   );
 });

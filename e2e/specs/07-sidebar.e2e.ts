@@ -63,25 +63,30 @@ describe("Library sidebar", () => {
   /** Three files with distinct names and sizes, for ordering assertions. */
   async function seedSortable(): Promise<string[]> {
     return seedLibraryFiles([
-      { name: "alpha-sort.txt", body: "a".repeat(64) },
-      { name: "beta-sort.txt", body: "b".repeat(256) },
-      { name: "gamma-sort.txt", body: "c".repeat(1024) },
+      { name: "alpha-2-sort.txt", body: "a".repeat(64) },
+      { name: "alpha-10-sort.txt", body: "b".repeat(256) },
+      { name: "Éclair-sort.txt", body: "c".repeat(1024) },
+      { name: "zeta-sort.txt", body: "d".repeat(2048) },
     ]);
   }
 
   scenario("sidebar.sort.name", "orders the list by name in both directions", async () => {
     await seedSortable();
+    const collator = new Intl.Collator("en-US", {
+      numeric: true,
+      sensitivity: "base",
+    });
 
     await sidebar.setSort("name-asc");
     await sidebar.waitForPaths((paths) => {
       const names = paths.map((file) => path.basename(file));
-      return names.join() === [...names].sort().join();
+      return names.join() === [...names].sort(collator.compare).join();
     }, "Ascending name sort did not order the list.");
 
     await sidebar.setSort("name-desc");
     await sidebar.waitForPaths((paths) => {
       const names = paths.map((file) => path.basename(file));
-      return names.join() === [...names].sort().reverse().join();
+      return names.join() === [...names].sort(collator.compare).reverse().join();
     }, "Descending name sort did not order the list.");
   });
 
@@ -475,14 +480,18 @@ describe("Library sidebar", () => {
     "sidebar.search.modifiers",
     "changes results for case-sensitive, whole-word, and regex searches",
     async () => {
+      // Keep this token unique within the spec file. Scenarios share one app
+      // session and earlier search fixtures remain in the library, so a common
+      // word such as "TOKEN" can legitimately match an unrelated fixture.
+      const token = "GRAYSLATEE2ECASEMODIFIER";
       const [upper, lower] = await seedLibraryFiles([
-        { name: "case-upper.txt", body: "TOKENCASE marker\n" },
-        { name: "case-lower.txt", body: "tokencase marker\n" },
+        { name: "case-upper.txt", body: `${token}SUFFIX marker\n` },
+        { name: "case-lower.txt", body: `${token.toLowerCase()}suffix marker\n` },
       ]);
 
       try {
         // Case-insensitive by default: both files match.
-        await sidebar.search("tokencase");
+        await sidebar.search(`${token.toLowerCase()}suffix`);
         await sidebar.waitForPaths(
           (paths) => paths.includes(upper) && paths.includes(lower),
           "A case-insensitive search did not match both files.",
@@ -496,15 +505,15 @@ describe("Library sidebar", () => {
 
         await sidebar.toggleSearchOption("case");
         await sidebar.clearSearch();
-        await sidebar.search("TOKEN");
+        await sidebar.search(token);
         await sidebar.toggleSearchOption("word");
         await sidebar.waitForPaths(
           (paths) => paths.length === 0,
-          "Whole-word search incorrectly matched TOKEN inside TOKENCASE.",
+          `Whole-word search incorrectly matched ${token} inside a longer word.`,
         );
 
         await sidebar.clearSearch();
-        await sidebar.search("TOKEN(?:CASE|MISS)");
+        await sidebar.search(`${token}(?:SUFFIX|MISS)`);
         await sidebar.toggleSearchOption("case");
         await sidebar.toggleSearchOption("regex");
         await sidebar.waitForPaths(

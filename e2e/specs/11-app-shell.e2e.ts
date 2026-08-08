@@ -163,9 +163,20 @@ describe("App shell and lifecycle", () => {
 
       // The class flipping is not enough on its own: it would still pass if the
       // stylesheet never resolved. Require the page to have actually repainted.
-      const backgroundAfter = await readComputedStyleBySelector("body", ["background-color"]);
-      expect(backgroundAfter?.["background-color"]).not.toBe(
-        backgroundBefore?.["background-color"],
+      let backgroundAfter = backgroundBefore;
+      await waitFor(
+        async () => {
+          backgroundAfter = await readComputedStyleBySelector("body", ["background-color"]);
+          return (
+            backgroundAfter?.["background-color"] !== backgroundBefore?.["background-color"]
+          );
+        },
+        {
+          message: () =>
+            "The body did not repaint after the theme changed. " +
+            `Before: ${backgroundBefore?.["background-color"] ?? "missing"}; ` +
+            `last observed: ${backgroundAfter?.["background-color"] ?? "missing"}.`,
+        },
       );
       expect(await app.storedPreference("theme")).toBe(wasDark ? "light" : "dark");
 

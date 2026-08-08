@@ -1,7 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
 import { expect } from "@wdio/globals";
-import { INTERVALS, TIMEOUTS } from "../config/timeouts.js";
 
 /**
  * Shared assertions for the facts this suite actually cares about: exact bytes
@@ -74,58 +73,4 @@ export function expectNoNewFiles(
       `  before: ${baseline.join(", ") || "(empty)"}\n` +
       `  after:  ${now.join(", ")}`,
   );
-}
-
-export interface SettledAbsentOptions {
-  /**
-   * A positive wait proving the system advanced far enough that a violation
-   * would already have surfaced — for example, "the save that *should* happen
-   * has landed on disk". Without this the invariant is sampled against a system
-   * that simply has not started working yet, and the assertion passes vacuously.
-   */
-  precondition: () => Promise<void>;
-  /** Sampled repeatedly; must hold for the entire quiet window. */
-  invariant: () => boolean | Promise<boolean>;
-  /** What must stay true, phrased as the guarantee under test. */
-  message: string;
-  quietForMs?: number;
-  intervalMs?: number;
-}
-
-/**
- * Assert that something stays absent, without sleeping.
- *
- * This replaces the `browser.pause(2_500)`-then-assert pattern the suite used
- * for its most valuable negatives (autosave must not touch a local file; a
- * repeated Save must not fork a second slate; a blocked navigation must not
- * proceed). A fixed sleep makes those assertions *weaker* the slower the
- * machine gets: on a loaded CI VM the violation simply had not happened yet, so
- * the test passed for the wrong reason.
- *
- * The contract here is different: advance the system to a known point, then
- * require the invariant to hold across every sample of a quiet window.
- */
-export async function expectSettledAbsent(options: SettledAbsentOptions): Promise<void> {
-  await options.precondition();
-
-  const quietForMs = options.quietForMs ?? TIMEOUTS.quiescence;
-  const intervalMs = options.intervalMs ?? INTERVALS.slow;
-  const deadline = Date.now() + quietForMs;
-  let samples = 0;
-
-  while (Date.now() < deadline) {
-    if (!(await options.invariant())) {
-      throw new Error(
-        `Invariant broke after ${samples} sample(s) in the quiet window: ${options.message}`,
-      );
-    }
-    samples += 1;
-    await new Promise((resolve) => setTimeout(resolve, intervalMs));
-  }
-
-  if (samples === 0) {
-    throw new Error(
-      `Quiet window elapsed without sampling the invariant: ${options.message}`,
-    );
-  }
 }

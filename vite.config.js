@@ -2,8 +2,35 @@ import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
 import { sveltekit } from "@sveltejs/kit/vite";
 import Icons from "unplugin-icons/vite";
+import { fileURLToPath } from "node:url";
 
 const host = process.env.TAURI_DEV_HOST;
+const E2E_RUNTIME_ID = "virtual:grayslate-e2e-runtime";
+
+/**
+ * Select the real E2E runtime before Vite constructs the production graph.
+ *
+ * @param {string} mode
+ * @returns {import("vite").Plugin}
+ */
+function resolveE2ERuntime(mode) {
+  const implementation = fileURLToPath(
+    new URL(
+      mode === "e2e"
+        ? "./src/lib/e2e/runtime.e2e.ts"
+        : "./src/lib/e2e/runtime.production.ts",
+      import.meta.url,
+    ),
+  );
+
+  return {
+    name: "grayslate:e2e-runtime",
+    enforce: "pre",
+    resolveId(source) {
+      return source === E2E_RUNTIME_ID ? implementation : null;
+    },
+  };
+}
 
 /**
  * Serve `~icons/<collection>/<icon>?raw` modules on the Windows dev server.
@@ -65,8 +92,9 @@ function serveRawIconsOnWindows() {
 }
 
 // https://vite.dev/config/
-export default defineConfig(async () => ({
+export default defineConfig(({ mode }) => ({
   plugins: [
+    resolveE2ERuntime(mode),
     tailwindcss(),
     sveltekit(),
     Icons({

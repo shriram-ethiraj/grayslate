@@ -50,7 +50,7 @@ async function ensureOpenState(expectedOpen: boolean): Promise<void> {
         message: expectedOpen
           ? "The sidebar never expanded after toggling it."
           : "The sidebar never collapsed after toggling it.",
-        timeoutMs: TIMEOUTS.quiescence,
+        timeoutMs: TIMEOUTS.ui,
         intervalMs: INTERVALS.fast,
       });
       return;
@@ -168,7 +168,7 @@ export async function setFilterTab(tab: FilterTab): Promise<void> {
       // filtered cards.
       await waitFor(async () => (await attributeOf(testId, "data-state")) === "active", {
         message: `The ${tab} sidebar filter did not become active.`,
-        timeoutMs: TIMEOUTS.quiescence,
+        timeoutMs: TIMEOUTS.ui,
         intervalMs: INTERVALS.fast,
       });
       await waitForTestId("sidebar-file-list");

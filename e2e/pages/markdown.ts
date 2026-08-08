@@ -47,7 +47,10 @@ export async function setVisible(visible: boolean): Promise<ReturnType<typeof $>
 
 /** Click the preview toggle without waiting for a render to settle. */
 export async function requestVisible(visible: boolean): Promise<void> {
-  await waitUntilReady({ language: "markdown" });
+  // Opening needs a settled editor. Closing deliberately must not: cancellation
+  // tests call this while render_markdown_preview is blocked in Rust, and an
+  // idle barrier here would wait for the very operation the click must cancel.
+  if (visible) await waitUntilReady({ language: "markdown" });
   const desired = String(visible);
   const toggle = await byTestId("action-toggle-preview");
   await toggle.waitForClickable({

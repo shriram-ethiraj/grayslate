@@ -1,5 +1,7 @@
 import { $, browser } from "@wdio/globals";
 import { TIMEOUTS } from "../../config/timeouts.js";
+import { invokeInApp } from "../../driver/invoke.js";
+import { waitFor } from "../../driver/wait.js";
 
 /**
  * Probes for the webview security boundary.
@@ -17,6 +19,40 @@ export interface SecurityHeaders {
   contentTypeOptions: string | null;
   permissionsPolicy: string | null;
   fetchError?: string;
+}
+
+export interface NavigationObservation {
+  kind: "navigation" | "new-window";
+  url: string;
+  allowed: boolean;
+}
+
+export async function armNavigationProbe(): Promise<void> {
+  await invokeInApp<void>("e2e_arm_navigation_probe");
+}
+
+export async function waitForNavigationObservation(
+  kind: NavigationObservation["kind"],
+): Promise<NavigationObservation> {
+  let observation: NavigationObservation | null = null;
+  await waitFor(
+    async () => {
+      observation = await invokeInApp<NavigationObservation | null>(
+        "e2e_navigation_observation",
+      );
+      return observation?.kind === kind;
+    },
+    {
+      message: () =>
+        `Rust never observed the denied ${kind} decision. ` +
+        `Last observation: ${JSON.stringify(observation)}`,
+      timeoutMs: TIMEOUTS.ui,
+    },
+  );
+  if (!observation) {
+    throw new Error(`The ${kind} observation completed without a value.`);
+  }
+  return observation;
 }
 
 export async function readSecurityHeaders(): Promise<SecurityHeaders> {

@@ -1,6 +1,6 @@
 import type { EditorView } from "codemirror";
 import type { Text } from "@codemirror/state";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "$lib/ipc";
 import { toast } from "$lib/components/ui/sonner";
 import { editorState } from "$lib/state/editor.svelte";
 

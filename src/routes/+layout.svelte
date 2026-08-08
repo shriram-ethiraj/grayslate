@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from "svelte";
+	import { onDestroy, onMount } from "svelte";
 	import { tick } from "svelte";
 	import AppSidebar from "$lib/components/app-sidebar.svelte";
 	import ThemeToggle from "$lib/components/theme-toggle.svelte";
@@ -25,30 +25,72 @@
 	import { initPlatformState, platformState } from "$lib/state/platform.svelte";
 	import { formatShortcutTooltip } from "$lib/shortcuts";
 	import { loadAllSettings, applyTheme, hydrateAppSettingsState } from "$lib/state/appSettings.svelte";
+	import {
+		beginTrackedWork,
+		initializeE2ERuntime,
+		markE2EReady,
+	} from "virtual:grayslate-e2e-runtime";
 	import LucideFilePlusCorner from '~icons/lucide/file-plus-corner';
 	import "./layout.css";
 
 	const { children } = $props();
 
-	// The WebdriverIO guest bridge is bundled and initialized only by the
-	// dedicated `vite --mode e2e` build. Normal development and release bundles
-	// do not import this test-only command surface.
-	onMount(() => {
-		if (import.meta.env.MODE === "e2e") {
-			void import("@wdio/tauri-plugin");
-		}
-	});
+	const isE2EMode = import.meta.env.MODE === "e2e";
+	const tooltipDelayDuration = isE2EMode ? 0 : 500;
+	const tooltipSkipDelayDuration = isE2EMode ? 0 : 300;
+	let e2eRuntimeReady = $state(!isE2EMode);
+	let e2eApplicationStateReady = $state(!isE2EMode);
+	let e2eRuntimeError = $state<string | null>(null);
 
 	let sidebarPane: ReturnType<typeof ResizablePane> | undefined = $state();
+	let sidebarPaneElement: HTMLDivElement | null = $state(null);
 	let sidebarOpen = $state(false);
 	let settingsHydrated = $state(false);
 
 	/** Transition class applied only during programmatic toggle, NOT during drag. */
 	let animating = $state(false);
 	let expandingProgrammatically = $state(false);
+	const SIDEBAR_TRANSITION_RECOVERY_MS = 1_000;
+	let sidebarTransitionRecovery: ReturnType<typeof setTimeout> | undefined;
+	let finishTrackedSidebarTransition: (() => void) | undefined;
 
 	/** The last non-zero size of the sidebar pane, used to restore after close. */
 	let lastExpandedSize = $state(20);
+
+	function finishProgrammaticSidebarTransition(): void {
+		if (sidebarTransitionRecovery !== undefined) {
+			clearTimeout(sidebarTransitionRecovery);
+			sidebarTransitionRecovery = undefined;
+		}
+		finishTrackedSidebarTransition?.();
+		finishTrackedSidebarTransition = undefined;
+		animating = false;
+		expandingProgrammatically = false;
+	}
+
+	function beginProgrammaticSidebarTransition(expanding: boolean): void {
+		finishProgrammaticSidebarTransition();
+		finishTrackedSidebarTransition = beginTrackedWork("sidebar-programmatic-transition");
+		animating = true;
+		expandingProgrammatically = expanding;
+		// Recovery only: normal completion is driven by transitionend. This
+		// handles an unchanged target size or a browser cancelling the event.
+		sidebarTransitionRecovery = setTimeout(
+			finishProgrammaticSidebarTransition,
+			SIDEBAR_TRANSITION_RECOVERY_MS,
+		);
+	}
+
+	function handleSidebarTransitionEnd(event: TransitionEvent): void {
+		if (
+			event.target !== sidebarPaneElement ||
+			event.currentTarget !== sidebarPaneElement ||
+			event.propertyName !== "flex-grow"
+		) {
+			return;
+		}
+		finishProgrammaticSidebarTransition();
+	}
 
 	/**
 	 * Fired by Sidebar.Provider when the user clicks the trigger or
@@ -58,8 +100,7 @@
 		if (settingsHydrated) {
 			setSidebarOpen(newOpen);
 		}
-		animating = true;
-		expandingProgrammatically = newOpen;
+		beginProgrammaticSidebarTransition(newOpen);
 		tick().then(() => {
 			if (newOpen) {
 				// Restore to the last known width rather than the default.
@@ -67,10 +108,6 @@
 			} else {
 				sidebarPane?.collapse();
 			}
-			setTimeout(() => {
-				animating = false;
-				expandingProgrammatically = false;
-			}, 210);
 		});
 	}
 
@@ -107,8 +144,7 @@
 	/** A real pointer drag takes ownership from the programmatic transition. */
 	function handlePaneDraggingChange(isDragging: boolean) {
 		if (isDragging) {
-			animating = false;
-			expandingProgrammatically = false;
+			finishProgrammaticSidebarTransition();
 		}
 	}
 
@@ -127,10 +163,57 @@
 		return !!activeView && !!activeElement && activeView.dom.contains(activeElement);
 	}
 
+	// The test-only runtime must exist before any child component mounts and
+	// starts IPC. Its lifecycle stays `booting` until platform/settings state is
+	// hydrated and the initial layout has committed. Normal development and
+	// release bundles resolve the virtual runtime import to a no-op module before
+	// Vite constructs the graph, so test-only modules never become build entries.
 	onMount(() => {
-		void initPlatformState();
-		void initAppSettings();
+		let cancelled = false;
+		void (async () => {
+			try {
+				if (isE2EMode) {
+					await initializeE2ERuntime();
+					// Mount the pane controller while the lifecycle is still
+					// `booting`. Persisted layout can then be applied through the
+					// same controller path as normal startup, while the driver stays
+					// causally blocked until markE2EReady() below.
+					e2eRuntimeReady = true;
+					await tick();
+				}
+
+				await initPlatformState();
+				await initAppSettings();
+				if (cancelled) return;
+				if (isE2EMode) {
+					// CodeMirror must be created from hydrated preferences. The pane
+					// shell is already mounted above, but the page/editor subtree stays
+					// absent until font, wrapping, and format defaults are authoritative.
+					e2eApplicationStateReady = true;
+					await tick();
+				}
+
+				await applyHydratedSidebarLayout();
+				await tick();
+				if (cancelled) return;
+				markE2EReady();
+			} catch (error) {
+				if (cancelled) return;
+				if (isE2EMode) {
+					const message = error instanceof Error ? error.message : String(error);
+					console.error("[E2E bootstrap] Failed to initialize the test runtime:", error);
+					e2eRuntimeError = message;
+					return;
+				}
+				console.warn("[App bootstrap] Failed to initialize application state:", error);
+			}
+		})();
+		return () => {
+			cancelled = true;
+		};
 	});
+
+	onDestroy(finishProgrammaticSidebarTransition);
 
 	async function initAppSettings() {
 		try {
@@ -154,24 +237,24 @@
 				applyTheme(isDark);
 			}
 
-			// Expand sidebar if the saved state says it should be open.
-			if (settings.sidebarOpen) {
-				animating = true;
-				expandingProgrammatically = true;
-				await tick();
-				sidebarPane?.expand();
-				await tick();
-				sidebarPane?.resize(settings.sidebarWidth);
-				setTimeout(() => {
-					animating = false;
-					expandingProgrammatically = false;
-				}, 210);
-			}
 		} catch (error) {
 			console.warn("[AppSettings] Failed to load settings:", error);
 			// Keep sidebar controls functional when settings hydration fails.
 			settingsHydrated = true;
 		}
+	}
+
+	async function applyHydratedSidebarLayout(): Promise<void> {
+		if (!sidebarOpen) return;
+		// Expanding a collapsed pane first emits its minimum size. Keep the
+		// hydrated target in a local so that intermediate resize notification
+		// cannot replace the width we are about to restore.
+		const hydratedWidth = lastExpandedSize;
+		beginProgrammaticSidebarTransition(true);
+		await tick();
+		sidebarPane?.expand();
+		await tick();
+		sidebarPane?.resize(hydratedWidth);
 	}
 
 	$effect(() => {
@@ -212,7 +295,20 @@
 	});
 </script>
 
-<Tooltip.Provider delayDuration={500} skipDelayDuration={300} disableHoverableContent>
+{#if e2eRuntimeError}
+<main
+	class="flex h-screen w-full items-center justify-center overflow-hidden p-6 text-sm text-destructive"
+	data-testid="e2e-bootstrap-error"
+	role="alert"
+>
+	E2E runtime failed to initialize: {e2eRuntimeError}
+</main>
+{:else if e2eRuntimeReady}
+<Tooltip.Provider
+	delayDuration={tooltipDelayDuration}
+	skipDelayDuration={tooltipSkipDelayDuration}
+	disableHoverableContent
+>
 <div class="flex h-screen w-full flex-col overflow-hidden">
 	<Titlebar />
 	<!-- Sidebar.Provider supplies open/close state & Ctrl+B shortcut.
@@ -230,6 +326,7 @@
 			<ResizablePaneGroup direction="horizontal">
 				<ResizablePane
 					bind:this={sidebarPane}
+					bind:ref={sidebarPaneElement}
 					id="sidebar"
 					defaultSize={0}
 					minSize={15}
@@ -239,6 +336,7 @@
 					onCollapse={handlePaneCollapse}
 					onExpand={handlePaneExpand}
 					onResize={handlePaneResize}
+					ontransitionend={handleSidebarTransitionEnd}
 					class={animating
 						? "transition-[flex-grow] duration-200 ease-linear"
 						: ""}
@@ -283,7 +381,7 @@
 							</div>
 						</header>
 						<div class="flex min-h-0 min-w-0 flex-1 flex-col">
-							{#if platformState.ready}
+							{#if platformState.ready && e2eApplicationStateReady}
 								{@render children()}
 							{/if}
 						</div>
@@ -295,3 +393,4 @@
 </div>
 <Toaster position="top-right" offset={{ top: "96px", right: "24px" }} mobileOffset={{ top: "96px", right: "16px", left: "16px" }} />
 </Tooltip.Provider>
+{/if}

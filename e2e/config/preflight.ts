@@ -27,6 +27,19 @@ function onPath(command: string): boolean {
   }
 }
 
+function hasConfiguredLocale(localeName: string | undefined): boolean {
+  if (!localeName) return false;
+  try {
+    const installed = execFileSync("locale", ["-a"], { encoding: "utf8" });
+    const normalize = (value: string): string =>
+      value.toLowerCase().replace(/[^a-z0-9]/g, "");
+    const wanted = normalize(localeName);
+    return installed.split(/\r?\n/).some((locale) => normalize(locale) === wanted);
+  } catch {
+    return false;
+  }
+}
+
 export function checkEnvironment(appBinaryPath: string, driverPath?: string): PreflightProblem[] {
   const problems: PreflightProblem[] = [];
 
@@ -43,7 +56,9 @@ export function checkEnvironment(appBinaryPath: string, driverPath?: string): Pr
     problems.push({
       what: "tauri-driver not found",
       why: "WebDriver cannot reach the Tauri window without the bridge.",
-      fix: "cargo install tauri-driver --locked (or set TAURI_DRIVER_PATH)",
+      fix:
+        "cargo install tauri-driver --version 2.0.6 --locked " +
+        "(or set TAURI_DRIVER_PATH)",
       fatal: true,
     });
   }
@@ -83,6 +98,17 @@ export function checkEnvironment(appBinaryPath: string, driverPath?: string): Pr
     });
   }
 
+  if (!onPath("xprop")) {
+    problems.push({
+      what: "xprop not found",
+      why:
+        "The Linux launcher verifies that Openbox has claimed the X11 root " +
+        "window before starting window-state scenarios.",
+      fix: "sudo apt-get install x11-utils",
+      fatal: true,
+    });
+  }
+
   if (!onPath("xclip") && !onPath("xsel")) {
     problems.push({
       what: "No native X11 clipboard reader (xclip or xsel)",
@@ -91,6 +117,17 @@ export function checkEnvironment(appBinaryPath: string, driverPath?: string): Pr
         "they do not mutate or refocus the app webview.",
       fix: "sudo apt-get install xclip",
       fatal: false,
+    });
+  }
+
+  if (!hasConfiguredLocale(process.env.LC_ALL)) {
+    problems.push({
+      what: `Configured locale ${process.env.LC_ALL ?? "<unset>"} is unavailable`,
+      why:
+        "Sidebar collation and WebKit Intl defaults must use the same installed " +
+        "locale on developer machines and CI workers.",
+      fix: "sudo locale-gen en_US.UTF-8",
+      fatal: true,
     });
   }
 

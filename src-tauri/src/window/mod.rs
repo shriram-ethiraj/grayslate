@@ -30,9 +30,16 @@ pub fn create_main_window(app: &tauri::App) -> Result<(), Box<dyn Error>> {
 
     tauri::WebviewWindowBuilder::from_config(app.handle(), config)?
         .on_navigation(move |url| {
-            is_allowed_app_navigation(url, dev_url.as_ref(), use_https_scheme)
+            let allowed = is_allowed_app_navigation(url, dev_url.as_ref(), use_https_scheme);
+            #[cfg(feature = "e2e")]
+            crate::commands::e2e::record_navigation_decision("navigation", url.as_str(), allowed);
+            allowed
         })
-        .on_new_window(|_, _| tauri::webview::NewWindowResponse::Deny)
+        .on_new_window(|_url, _| {
+            #[cfg(feature = "e2e")]
+            crate::commands::e2e::record_navigation_decision("new-window", _url.as_str(), false);
+            tauri::webview::NewWindowResponse::Deny
+        })
         // Tauri 2.11.5's typed `Permissions-Policy` configuration currently
         // emits the misspelled header name `Permission-Policy`. Inject the
         // correctly named header on bundled custom-protocol responses until

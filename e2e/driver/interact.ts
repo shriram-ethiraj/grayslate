@@ -1,5 +1,5 @@
 import { $, browser } from "@wdio/globals";
-import { TIMEOUTS } from "../config/timeouts.js";
+import { INTERVALS, TIMEOUTS } from "../config/timeouts.js";
 
 /**
  * Interaction with bounded reacquisition.
@@ -70,8 +70,8 @@ export async function dismissTransientOverlays(): Promise<void> {
           );
         }),
       {
-        timeout: 2_000,
-        interval: 50,
+        timeout: TIMEOUTS.overlay,
+        interval: INTERVALS.fast,
         timeoutMsg: "Overlays stayed open after moving the pointer away.",
       },
     )
@@ -129,7 +129,7 @@ export async function withFreshElement<T>(
       // Let any pending re-render settle before re-finding the node.
       await browser.waitUntil(async () => (await $(selector)).isExisting(), {
         timeout: timeoutMs,
-        interval: 50,
+        interval: INTERVALS.fast,
         timeoutMsg: `'${selector}' disappeared while retrying.`,
       });
     }

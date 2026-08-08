@@ -178,9 +178,15 @@ pub fn run() {
             #[cfg(feature = "e2e")]
             commands::e2e::e2e_arm_minimize_probe,
             #[cfg(feature = "e2e")]
+            commands::e2e::e2e_arm_navigation_probe,
+            #[cfg(feature = "e2e")]
             commands::e2e::e2e_arm_operation_gate,
             #[cfg(feature = "e2e")]
+            commands::e2e::e2e_force_autosave_cycle,
+            #[cfg(feature = "e2e")]
             commands::e2e::e2e_minimize_observation,
+            #[cfg(feature = "e2e")]
+            commands::e2e::e2e_navigation_observation,
             #[cfg(feature = "e2e")]
             commands::e2e::e2e_operation_gate_reached,
             #[cfg(feature = "e2e")]

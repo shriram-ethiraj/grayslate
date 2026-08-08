@@ -1,7 +1,7 @@
 <script lang="ts">
   import { Window } from "@tauri-apps/api/window";
   import { emit, listen } from "@tauri-apps/api/event";
-  import { invoke } from "@tauri-apps/api/core";
+  import { invoke } from "$lib/ipc";
   import { onMount, onDestroy } from "svelte";
   import * as Menubar from "$lib/components/ui/menubar/index.js";
   import { AppTooltip } from "$lib/components/ui/tooltip/index.js";
@@ -53,6 +53,7 @@
   import { formatForDisplay } from "@tanstack/hotkeys";
   import { platformState } from "$lib/state/platform.svelte";
   import { librarySidebarState } from "$lib/state/librarySidebar.svelte";
+  import { markE2EClosing, markE2EReady } from "virtual:grayslate-e2e-runtime";
 
   const appWindow = new Window("main");
 
@@ -127,7 +128,9 @@
 
       // A failed flush deliberately keeps the window open so text is never
       // discarded because its selected encoding cannot be written.
+      markE2EClosing();
       await invoke("prepare_close").catch((error: unknown) => {
+        markE2EReady();
         console.error("Close: prepare_close failed:", error);
         toast.error(typeof error === "string"
           ? error

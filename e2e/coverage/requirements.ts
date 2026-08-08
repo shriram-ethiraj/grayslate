@@ -228,12 +228,13 @@ export const REQUIREMENTS: readonly Requirement[] = [
   { id: "security.headers", area: "security", behavior: "The webview is served restrictive security headers.", coverage: "e2e" },
   { id: "security.navigation", area: "security", behavior: "External top-level navigation and new windows are denied.", coverage: "e2e" },
   { id: "security.e2e-shims-present-in-test-build", area: "security", behavior: "The E2E command surface is reachable only in the explicitly opted-in test build.", coverage: "e2e" },
-  { id: "security.e2e-shims-absent-in-release", area: "security", behavior: "A normal release binary contains none of the test-only commands.", coverage: "static", reason: "The release-surface CI job builds without the e2e feature and scripts/verify-release-build.mjs derives every forbidden name from E2E_COMMANDS before scanning the artifact." },
+  { id: "security.e2e-shims-absent-in-release", area: "security", behavior: "A normal release contains neither test-only backend commands nor the E2E frontend runtime.", coverage: "static", reason: "The release-surface CI job builds without the e2e feature or Vite mode; scripts/verify-release-build.mjs derives every forbidden command from E2E_COMMANDS and scans the uncompressed frontend output for stable E2E markers." },
 
   // ── Harness ──────────────────────────────────────────────────────────────
   { id: "harness.test-hooks-present", area: "harness", behavior: "Every stable test hook the suite depends on is present in the shell, editor, status bar, and menus.", coverage: "e2e" },
   { id: "harness.no-native-tooltips", area: "harness", behavior: "No element carries a native title attribute, which would produce an OS tooltip that overlays and intercepts clicks.", coverage: "e2e" },
   { id: "harness.spec-discovery", area: "harness", behavior: "Every spec file on disk is discovered and run.", coverage: "e2e" },
+  { id: "harness.deterministic-runtime", area: "harness", behavior: "The E2E runtime installs deterministic motion, IPC work tracking, and pinned locale/timezone.", coverage: "e2e" },
   { id: "harness.security-independent", area: "harness", behavior: "Security runs in a blocking CI job independent from functional and visual results.", coverage: "e2e" },
   { id: "harness.sandbox-isolation", area: "harness", behavior: "Each spec file starts against a sandbox nobody else has written to.", coverage: "e2e" },
   { id: "harness.isolated-home", area: "harness", behavior: "The suite runs against an isolated HOME, never the developer's.", coverage: "e2e" },

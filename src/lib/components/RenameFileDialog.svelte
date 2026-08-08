@@ -1,7 +1,7 @@
 <script lang="ts">
     import { tick } from "svelte";
     import { emit } from "@tauri-apps/api/event";
-    import { invoke } from "@tauri-apps/api/core";
+    import { invoke } from "$lib/ipc";
     import { toast } from "$lib/components/ui/sonner";
     import * as Dialog from "$lib/components/ui/dialog/index.js";
     import { Button } from "$lib/components/ui/button/index.js";

@@ -24,6 +24,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { parseBinaryPathArgument } from "./verify-release-build-args.mjs";
+import {
+  findForbiddenFrontendMarkers,
+  FORBIDDEN_FRONTEND_MARKERS,
+} from "./verify-release-build-core.mjs";
 
 const COMMAND_NAMES_PATH = path.resolve(
   import.meta.dirname,
@@ -52,7 +56,8 @@ function forbiddenCommands() {
   return names;
 }
 
-const FORBIDDEN = forbiddenCommands();
+const FORBIDDEN_COMMANDS = forbiddenCommands();
+const FRONTEND_DIST_PATH = path.resolve(import.meta.dirname, "..", "build");
 
 let requestedBinaryPath;
 try {
@@ -76,17 +81,32 @@ if (!fs.existsSync(binaryPath)) {
 }
 
 const contents = fs.readFileSync(binaryPath);
-const found = FORBIDDEN.filter((symbol) => contents.includes(symbol));
+const foundCommands = FORBIDDEN_COMMANDS.filter((symbol) => contents.includes(symbol));
+let foundFrontendMarkers;
+try {
+  foundFrontendMarkers = findForbiddenFrontendMarkers(FRONTEND_DIST_PATH);
+} catch (error) {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exit(2);
+}
 
-if (found.length > 0) {
+if (foundCommands.length > 0 || foundFrontendMarkers.length > 0) {
+  const findings = [
+    ...foundCommands.map((symbol) => `  - backend command: ${symbol}`),
+    ...foundFrontendMarkers.map((symbol) => `  - frontend marker: ${symbol}`),
+  ];
   console.error(
-    `\nRELEASE BLOCKED: ${binaryPath} contains test-only command name(s):\n` +
-      found.map((symbol) => `  - ${symbol}`).join("\n") +
-      "\n\nThis binary was built with --features e2e. A distributed build must " +
-      "never set that feature (see src-tauri/Cargo.toml).\n",
+    `\nRELEASE BLOCKED: test-only surface was found in the release build:\n` +
+      findings.join("\n") +
+      "\n\nA distributed build must use neither the Cargo e2e feature nor the " +
+      "Vite e2e mode.\n",
   );
   process.exit(1);
 }
 
-console.log(`OK: ${path.basename(binaryPath)} contains none of: ${FORBIDDEN.join(", ")}`);
+console.log(
+  `OK: ${path.basename(binaryPath)} contains no E2E backend commands and ` +
+    `${path.basename(FRONTEND_DIST_PATH)} contains none of: ` +
+    FORBIDDEN_FRONTEND_MARKERS.join(", "),
+);
 process.exit(0);

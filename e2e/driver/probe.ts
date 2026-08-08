@@ -23,6 +23,79 @@ export interface EditorReadinessSnapshot {
   ready: boolean;
 }
 
+export interface PendingWorkSnapshot {
+  phase: "booting" | "ready" | "closing";
+  inFlight: number;
+  commands: string[];
+  tasks: string[];
+  revision: number;
+}
+
+export interface PendingWorkFrames {
+  first: PendingWorkSnapshot | null;
+  second: PendingWorkSnapshot | null;
+}
+
+interface E2EWindowBridge {
+  pending(): PendingWorkSnapshot;
+}
+
+/** Read the E2E-only application work tracker without starting any IPC. */
+export async function readPendingWork(): Promise<PendingWorkSnapshot | null> {
+  return browser.execute(() => {
+    const bridge = (
+      window as unknown as { __grayslateE2E?: E2EWindowBridge }
+    ).__grayslateE2E;
+    return bridge?.pending() ?? null;
+  });
+}
+
+/**
+ * Sample pending work on consecutive animation frames.
+ *
+ * A zero count at two ordinary polling instants can miss a short invoke that
+ * starts and finishes between them. The monotonically increasing revision
+ * makes that activity visible even when both endpoint counts are zero.
+ */
+export async function readPendingWorkAcrossFrames(): Promise<PendingWorkFrames> {
+  return browser.executeAsync((done) => {
+    const read = (): PendingWorkSnapshot | null => {
+      const bridge = (
+        window as unknown as { __grayslateE2E?: E2EWindowBridge }
+      ).__grayslateE2E;
+      return bridge?.pending() ?? null;
+    };
+
+    requestAnimationFrame(() => {
+      const first = read();
+      requestAnimationFrame(() => {
+        done({ first, second: read() });
+      });
+    });
+  });
+}
+
+/** Locale and timezone resolved by the packaged app's actual WebKit runtime. */
+export async function readIntlEnvironment(): Promise<{
+  locale: string;
+  timeZone: string;
+}> {
+  return browser.execute(() => ({
+    locale: new Intl.Collator(undefined, {
+      numeric: true,
+      sensitivity: "base",
+    }).resolvedOptions().locale,
+    timeZone: new Intl.DateTimeFormat().resolvedOptions().timeZone,
+  }));
+}
+
+/** Whether the E2E-only motion override was installed before the UI mounted. */
+export async function readHasDeterministicMotionStyle(): Promise<boolean> {
+  return browser.execute(
+    () => document.getElementById("grayslate-e2e-determinism") !== null,
+  );
+}
+
 /** Read readiness from the same visible editor/status state a user sees. */
 export async function readEditorReadiness(): Promise<EditorReadinessSnapshot> {
   return browser.execute(() => {

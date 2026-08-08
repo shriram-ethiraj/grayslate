@@ -2,7 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { browser } from "@wdio/globals";
 import type { TauriCapabilities } from "@wdio/tauri-service";
-import { waitUntilReady } from "../pages/editor.js";
+import { clearRetryLog, readRetryLog } from "../driver/interact.js";
+import { waitForBootstrap, waitUntilReady } from "../pages/editor.js";
 import {
   artifactRoot,
   configureSandboxEnvironment,
@@ -71,7 +72,11 @@ if (isWorkerProcess) {
   fs.mkdirSync(artifactDirectory, { recursive: true });
 }
 
-let mainWindowPinned = false;
+const runRetries: {
+  title: string;
+  retries: { selector: string; attempt: number; reason: string }[];
+}[] = [];
+let workerRuntimeReady = false;
 
 const tauriCapabilities: TauriCapabilities = {
   browserName: "tauri",
@@ -143,6 +148,9 @@ export function makeConfig(suites?: SuiteName[]): WebdriverIO.Config {
     capabilities: [tauriCapabilities],
     mochaOpts: {
       ui: "bdd",
+      // Every spec file owns an isolated app process. Once one scenario proves
+      // that process is broken, continuing only creates dependent noise.
+      bail: true,
       // A native Tauri session includes driver startup, real Rust detection,
       // and debounced autosave. Keep this separate from the individual waits in
       // the spec so a slow GitHub Actions VM does not abort the whole scenario.
@@ -156,34 +164,56 @@ export function makeConfig(suites?: SuiteName[]): WebdriverIO.Config {
         "utf8",
       );
     },
-    beforeSuite: async function () {
-      // Pin the known production window label once per worker and wait for the
-      // initial CodeMirror session before the spec starts interacting with it.
-      if (!mainWindowPinned) {
-        await browser.tauri.switchWindow("main");
-        // Give the app a predictable, generous viewport. At the default size
-        // the sidebar header's controls overlap the search input, so a click on
-        // the sort control lands on the input instead — an environment artifact
-        // that looks exactly like a product bug.
-        await browser
-          .setWindowSize(1440, 900)
-          .catch(() => {
-            // Some drivers refuse to resize; the tests that depend on layout
-            // will report it themselves rather than failing everything here.
-          });
-        mainWindowPinned = true;
+    beforeTest: async function () {
+      clearRetryLog();
+      if (workerRuntimeReady) return;
+
+      // Run startup as part of the first Mocha scenario so a failure is a real
+      // test failure and `bail` stops the isolated worker immediately. WDIO's
+      // top-level `before` hook only logs failures and then continues.
+      const handles = await browser.getWindowHandles();
+      if (handles.length !== 1) {
+        throw new Error(
+          `Expected one initial Grayslate window, received ${JSON.stringify(handles)}.`,
+        );
       }
+      await browser.switchToWindow(handles[0]!);
+      // Give the app a predictable, generous viewport. At the default size the
+      // sidebar header's controls overlap the search input.
+      await browser.setWindowSize(1440, 900).catch(() => {
+        // Layout-sensitive scenarios carry their own assertion if resize
+        // support is unavailable.
+      });
+      await waitForBootstrap();
       await waitUntilReady();
+      workerRuntimeReady = true;
     },
     afterTest: async function (test, _context, result) {
+      const stem = artifactStem(test.title);
+      const retries = readRetryLog().map((entry) => ({ ...entry }));
+      if (retries.length > 0) {
+        runRetries.push({ title: test.title, retries });
+      }
+
+      if (!result.passed || retries.length > 0) {
+        fs.writeFileSync(
+          path.join(artifactDirectory, `${stem}.json`),
+          `${JSON.stringify(
+            {
+              workerId,
+              title: test.title,
+              passed: result.passed,
+              retries,
+            },
+            null,
+            2,
+          )}\n`,
+          "utf8",
+        );
+      }
+
       if (result.passed) return;
 
-      const stem = artifactStem(test.title);
-      fs.writeFileSync(
-        path.join(artifactDirectory, `${stem}.json`),
-        `${JSON.stringify({ workerId, title: test.title }, null, 2)}\n`,
-        "utf8",
-      );
       try {
         await browser.saveScreenshot(path.join(artifactDirectory, `${stem}.png`));
       } catch {
@@ -199,6 +229,24 @@ export function makeConfig(suites?: SuiteName[]): WebdriverIO.Config {
       } catch {
         // Preserve the original test failure if page source is unavailable.
       }
+    },
+    after: function () {
+      fs.writeFileSync(
+        path.join(artifactDirectory, "retries.json"),
+        `${JSON.stringify(
+          {
+            workerId,
+            totalRetries: runRetries.reduce(
+              (total, test) => total + test.retries.length,
+              0,
+            ),
+            tests: runRetries,
+          },
+          null,
+          2,
+        )}\n`,
+        "utf8",
+      );
     },
   };
 }

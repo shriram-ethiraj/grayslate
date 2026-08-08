@@ -2,6 +2,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { expect } from "@wdio/globals";
 import { scenario } from "../../coverage/scenario.js";
+import {
+  readHasDeterministicMotionStyle,
+  readIntlEnvironment,
+  readPendingWork,
+} from "../../driver/probe.js";
 import { discoverSpecs } from "../../config/specs.js";
 import { notesRoot, homeDirectory } from "../../helpers/sandbox.js";
 
@@ -68,6 +73,27 @@ describe("Meta — harness contract", () => {
     async () => {
     expect(process.env.HOME).toBe(homeDirectory);
     expect(homeDirectory).toContain(".e2e-tmp");
+    },
+  );
+
+  scenario(
+    "harness.deterministic-runtime",
+    "installs deterministic motion and IPC tracking with a pinned locale and timezone",
+    async () => {
+      expect(await readHasDeterministicMotionStyle()).toBe(true);
+      const pending = await readPendingWork();
+      expect(pending).not.toBeNull();
+      expect(pending?.phase).toBe("ready");
+      expect(pending?.inFlight).toBe(0);
+      expect(pending?.commands).toEqual([]);
+      expect(pending?.tasks).toEqual([]);
+
+      const intl = await readIntlEnvironment();
+      expect(intl.locale).toBe("en-US");
+      expect(intl.timeZone).toBe("UTC");
+      expect(process.env.LC_ALL).toBe("en_US.UTF-8");
+      expect(process.env.LANG).toBe("en_US.UTF-8");
+      expect(process.env.TZ).toBe("UTC");
     },
   );
 });

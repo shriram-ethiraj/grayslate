@@ -7,13 +7,18 @@ the autosave/naming path.
 On Linux, install the WebDriver prerequisites once:
 
 ```sh
-sudo apt-get install openbox webkit2gtk-driver xclip xvfb
-cargo install tauri-driver --locked
+sudo apt-get install locales openbox webkit2gtk-driver x11-utils xclip xvfb
+sudo locale-gen en_US.UTF-8
+cargo install tauri-driver --version 2.0.6 --locked
 ```
 
 `openbox` is not optional: the native window-state tests ask the compositor to
 maximize, minimize, and restore the window; without a window manager those
 transitions are ignored or cannot be remapped.
+
+`xprop` (from `x11-utils`) proves Openbox has claimed the X11 root window before
+the suite starts. The generated `en_US.UTF-8` locale keeps WebKit collation and
+the Node-side sort oracle identical on local machines and GitHub workers.
 
 `xclip` lets clipboard assertions read the real X11 clipboard without injecting
 a focus-stealing paste target into the app.
@@ -46,12 +51,12 @@ manager. If `tauri-driver` is installed outside Cargo's default location, set
 | Command | What it does |
 | --- | --- |
 | `pnpm run e2e:build` | Compile the packaged app with `--features e2e`. |
-| `pnpm run e2e:check` | Type-check the suite, then run the convention lint. |
+| `pnpm run e2e:check` | Type-check, convention-lint, and strictly audit coverage. |
 | `pnpm run e2e:lint` | Convention lint only (see "Rules" below). |
 | `pnpm run e2e:coverage` | Strictly require every automatable behavior to be claimed. |
 | `pnpm run e2e:coverage:report` | Print the reconciliation report without changing strict CI policy. |
 | `pnpm run e2e:coverage:strict` | Explicit alias for the strict coverage audit. |
-| `pnpm run verify:release-build` | Assert a built binary carries no test-only commands. |
+| `pnpm run verify:release-build` | Assert the release binary and frontend carry no test-only surface. |
 | `pnpm run e2e:test` | Every suite, in tier order. |
 | `pnpm run e2e:functional` | Functional and lifecycle behavior only. |
 | `pnpm run e2e:security` | Packaged capability, CSP, and authorization checks. |
@@ -62,7 +67,7 @@ manager. If `tauri-driver` is installed outside Cargo's default location, set
 | `pnpm run e2e:ci:visual` | Advisory visual tier inside Xvfb with Openbox. |
 
 Run a single spec with
-`npx wdio run e2e/wdio.conf.ts --spec e2e/specs/<file>`, or one tier with
+`pnpm exec wdio run e2e/wdio.conf.ts --spec e2e/specs/<file>`, or one tier with
 `--suite functional`.
 
 ## Layout
@@ -126,11 +131,10 @@ because an early failure then cascades.
 `pnpm run e2e:lint` enforces these. Each exists because breaking it produced a
 test that passed for the wrong reason.
 
-1. **No fixed sleeps.** `browser.pause` is banned in specs. For a negative
-   assertion use `expectSettledAbsent` from `assertions/matchers.ts`: it
-   advances the system to a known point, then requires the invariant to hold
-   across a sampled quiet window. A sleep does the opposite — it gets *weaker*
-   the slower the machine.
+1. **No fixed sleeps.** `browser.pause` is banned in specs. Negative assertions
+   use deterministic boundary observations: autosave tests force a real
+   scheduler cycle, and navigation tests wait for the Rust allow/deny hook
+   before checking that files, URLs, and windows stayed unchanged.
 2. **Every wait carries a timeout and a message.** Prefer the wrappers in
    `driver/wait.ts`; a bare `waitUntil` inherits the global ceiling and fails
    with a message that names nothing.
@@ -160,24 +164,28 @@ carries them:
 
 Both run the production authorization code.
 
-The other two commands queue an Open/Save dialog result and then exercise the
+Two commands queue an Open/Save dialog result and then exercise the
 normal dialog-owning production command. They cover both accepted and cancelled
 dialog boundaries without granting the webview a general filesystem picker.
 
 Three operation-gate commands arm, observe, and release deterministic
 cancellation checkpoints. Two external-action commands queue native
-confirmation and read the validated file-manager/browser handoff. These five
-commands only coordinate or observe the E2E build; all path, URL, document
-grant, and source-authority validation remains in the production commands.
+confirmation and read the validated file-manager/browser handoff. Autosave has
+one command that forces the real scheduler to evaluate the active document and
+waits for its normal frontend-content round trip. Two navigation-probe commands
+arm and read the production webview allow/deny hook. These commands only
+coordinate or observe the E2E build; all path, URL, document grant, source
+authority, and save validation remains in the production paths.
 
 ## CI
 
 `.github/workflows/e2e.yml` runs Linux-only packaged validation in independent
 functional and security jobs. The visual job always runs but is advisory. A
 separate normal release build derives and scans the complete `E2E_COMMANDS`
-inventory to prove every test-only command
-are absent. JUnit XML, failure metadata, screenshots, and page source are
-uploaded from each worker's `.e2e-tmp/workers/*/artifacts/` directory.
+inventory and scans the uncompressed frontend output for stable E2E runtime
+markers. JUnit XML, failure metadata, screenshots, page source, and interaction
+retry counts are uploaded from each worker's
+`.e2e-tmp/workers/*/artifacts/` directory.
 
 The few unobservable native integrations are covered by the
 [Linux release smoke checklist](MANUAL_RELEASE_CHECKLIST.md). Automated tests

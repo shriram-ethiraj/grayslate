@@ -12,9 +12,9 @@ use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Condvar, Mutex, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 
 use crate::document::{
     classify_existing_document, DocumentDescriptor, DocumentRegistry, DocumentRights,
@@ -241,6 +241,137 @@ pub fn e2e_minimize_observation() -> E2eMinimizeObservation {
         observed: MINIMIZE_OBSERVED.load(Ordering::SeqCst),
         restored: MINIMIZE_RESTORED.load(Ordering::SeqCst),
     }
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct E2EAutosaveCycle {
+    source: Option<String>,
+    backend_dirty: bool,
+    scheduled_actions: usize,
+}
+
+/// Run the real autosave scheduler immediately and wait for its normal
+/// frontend-content roundtrip and disk write to settle.
+#[tauri::command]
+pub async fn e2e_force_autosave_cycle(
+    app: tauri::AppHandle,
+    window: tauri::Window,
+) -> Result<E2EAutosaveCycle, String> {
+    const SETTLE_TIMEOUT: Duration = Duration::from_secs(20);
+    const POLL_INTERVAL: Duration = Duration::from_millis(10);
+
+    let window_label = window.label().to_string();
+    let deadline = Instant::now() + SETTLE_TIMEOUT;
+    let mut scheduled_actions = 0;
+
+    loop {
+        let registry = app.state::<crate::autosave::AutosaveRegistry>();
+        let Some((source, dirty, save_in_flight, failure)) = registry.e2e_state(&window_label)
+        else {
+            return Ok(E2EAutosaveCycle {
+                source: None,
+                backend_dirty: false,
+                scheduled_actions,
+            });
+        };
+
+        if let Some(failure) = failure {
+            return Err(format!("Forced autosave cycle failed: {failure}"));
+        }
+
+        if source != "slates" {
+            // Exercise the real scheduler even for local documents. It must
+            // return no work: local dirty state is frontend-owned and local
+            // files are excluded from backend autosave by source.
+            let actions = registry.check_and_force_saves();
+            scheduled_actions += actions.len();
+            drop(registry);
+            crate::autosave::dispatch_save_actions(&app, actions);
+            return Ok(E2EAutosaveCycle {
+                source: Some(source.to_string()),
+                backend_dirty: dirty,
+                scheduled_actions,
+            });
+        }
+
+        if !dirty {
+            return Ok(E2EAutosaveCycle {
+                source: Some(source.to_string()),
+                backend_dirty: false,
+                scheduled_actions,
+            });
+        }
+
+        if !save_in_flight {
+            let actions = registry.check_and_force_saves();
+            scheduled_actions += actions.len();
+            drop(registry);
+            crate::autosave::dispatch_save_actions(&app, actions);
+        }
+
+        if Instant::now() >= deadline {
+            return Err(format!(
+                "Forced autosave cycle did not settle within {} seconds.",
+                SETTLE_TIMEOUT.as_secs()
+            ));
+        }
+        tokio::time::sleep(POLL_INTERVAL).await;
+    }
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct E2ENavigationObservation {
+    kind: String,
+    url: String,
+    allowed: bool,
+}
+
+#[derive(Default)]
+struct NavigationProbe {
+    armed: bool,
+    observation: Option<E2ENavigationObservation>,
+}
+
+static NAVIGATION_PROBE: OnceLock<Mutex<NavigationProbe>> = OnceLock::new();
+
+fn navigation_probe() -> &'static Mutex<NavigationProbe> {
+    NAVIGATION_PROBE.get_or_init(|| Mutex::new(NavigationProbe::default()))
+}
+
+/// Called from the production navigation hooks only while an E2E probe is armed.
+pub fn record_navigation_decision(kind: &str, url: &str, allowed: bool) {
+    let mut probe = navigation_probe()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if !probe.armed || probe.observation.is_some() {
+        return;
+    }
+    probe.observation = Some(E2ENavigationObservation {
+        kind: kind.to_string(),
+        url: url.to_string(),
+        allowed,
+    });
+}
+
+#[tauri::command]
+pub fn e2e_arm_navigation_probe() -> Result<(), String> {
+    let mut probe = navigation_probe()
+        .lock()
+        .map_err(|_| "E2E navigation probe is poisoned.".to_string())?;
+    probe.armed = true;
+    probe.observation = None;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn e2e_navigation_observation() -> Result<Option<E2ENavigationObservation>, String> {
+    Ok(navigation_probe()
+        .lock()
+        .map_err(|_| "E2E navigation probe is poisoned.".to_string())?
+        .observation
+        .clone())
 }
 
 #[derive(Clone, Debug, serde::Serialize)]

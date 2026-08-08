@@ -108,10 +108,8 @@ function stripComments(source) {
 
 // ── R3: no fixed sleeps ────────────────────────────────────────────────────
 //
-// Every `browser.pause` in the audited suite guarded a *negative* assertion,
-// which is the one place a sleep is actively harmful: on a slower machine the
-// violation simply had not happened yet, so the test passed for the wrong
-// reason. Use `expectSettledAbsent` from `e2e/assertions/matchers.ts`.
+// Every `browser.pause` in the audited suite guarded a state transition or a
+// negative assertion. Both now have an observable frontend/backend signal.
 function checkNoFixedSleeps(file, source) {
   const key = relative(file);
   if (MIGRATION_BACKLOG.has(key)) return;
@@ -120,7 +118,7 @@ function checkNoFixedSleeps(file, source) {
       key,
       lineOf(source, match.index),
       "no-fixed-sleeps",
-      "browser.pause() is banned in specs. Use expectSettledAbsent() for negatives, or a waitFor() on the real signal.",
+      "browser.pause() is banned in specs. Wait for the real frontend/backend signal.",
     );
   }
 }

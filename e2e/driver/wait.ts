@@ -2,6 +2,10 @@ import fs from "node:fs";
 import { $, browser } from "@wdio/globals";
 import { INTERVALS, TIMEOUTS } from "../config/timeouts.js";
 import { isTransientWebDriverError } from "./interact.js";
+import {
+  readPendingWorkAcrossFrames,
+  type PendingWorkFrames,
+} from "./probe.js";
 
 /**
  * Wait primitives that make the compliant path the easy path.
@@ -31,6 +35,47 @@ export interface WaitOptions {
 
 /** Identifies an unmet condition without conflating it with a driver failure. */
 export class WaitTimeoutError extends Error {}
+
+/**
+ * Wait until all instrumented application IPC is complete and no new command
+ * starts between two consecutive rendered frames.
+ *
+ * Tauri Channel payloads outlive their initiating invoke, so large CSV and
+ * transformation flows must still wait on their document-length/end-state
+ * signals. Frontend debounce timers likewise remain outside this barrier.
+ */
+export async function waitForAppStable(options?: Partial<WaitOptions>): Promise<void> {
+  let latest: PendingWorkFrames | undefined;
+  const baseMessage = (): string => {
+    const configured = options?.message;
+    if (typeof configured === "function") return configured();
+    return configured ?? "The application did not become idle.";
+  };
+  await waitFor(
+    async () => {
+      latest = await readPendingWorkAcrossFrames();
+      const { first, second } = latest;
+      return (
+        first !== null &&
+        second !== null &&
+        first.phase === "ready" &&
+        second.phase === "ready" &&
+        first.inFlight === 0 &&
+        second.inFlight === 0 &&
+        first.revision === second.revision
+      );
+    },
+    {
+      message: () =>
+        `${baseMessage()} Last frame samples: ${JSON.stringify(latest ?? null)}`,
+      timeoutMs: options?.timeoutMs ?? TIMEOUTS.idle,
+      intervalMs: options?.intervalMs ?? INTERVALS.fast,
+    },
+  );
+}
+
+/** Backwards-compatible name for callers that only need the stability barrier. */
+export const waitForIdle = waitForAppStable;
 
 /** Poll `predicate` until it is true, or fail with `message`. */
 export async function waitFor(

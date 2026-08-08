@@ -287,8 +287,19 @@ impl AutosaveRegistry {
 
     /// Called by the timer thread to determine which documents need saving.
     pub fn check_and_trigger_saves(&self) -> Vec<SaveAction> {
+        self.check_and_trigger_saves_with_mode(AutosaveTriggerMode::Clocked(Instant::now()))
+    }
+
+    /// E2E-only scheduler entry that makes eligible dirty slates immediately
+    /// due while preserving every production eligibility and action path.
+    #[cfg(feature = "e2e")]
+    pub fn check_and_force_saves(&self) -> Vec<SaveAction> {
+        self.check_and_trigger_saves_with_mode(AutosaveTriggerMode::ForceDue)
+    }
+
+    fn check_and_trigger_saves_with_mode(&self, mode: AutosaveTriggerMode) -> Vec<SaveAction> {
         let mut map = self.inner.lock().unwrap_or_else(|p| p.into_inner());
-        let now = Instant::now();
+        let now = mode.now();
         let mut actions = Vec::new();
 
         for (label, doc) in map.iter_mut() {
@@ -297,15 +308,19 @@ impl AutosaveRegistry {
                 continue;
             }
 
-            // Check for content request timeout on in-flight saves
+            // Production ticks recover a lost frontend response after the
+            // configured timeout. A forced E2E cycle must not manufacture that
+            // timeout by advancing the clock; it waits for the real request.
             if doc.save_in_flight {
-                if let Some(request_at) = doc.pending_request_at {
-                    if now.duration_since(request_at)
-                        > Duration::from_millis(CONTENT_REQUEST_TIMEOUT_MS)
-                    {
-                        doc.save_in_flight = false;
-                        doc.pending_request_id = None;
-                        doc.pending_request_at = None;
+                if mode.is_clocked() {
+                    if let Some(request_at) = doc.pending_request_at {
+                        if now.duration_since(request_at)
+                            > Duration::from_millis(CONTENT_REQUEST_TIMEOUT_MS)
+                        {
+                            doc.save_in_flight = false;
+                            doc.pending_request_id = None;
+                            doc.pending_request_at = None;
+                        }
                     }
                 }
                 continue;
@@ -328,7 +343,9 @@ impl AutosaveRegistry {
                 .map(|t| now.duration_since(t).as_millis() as u64)
                 .unwrap_or(0); // New/untitled documents wait for the idle debounce first
 
-            let should_save = idle_ms >= IDLE_DEBOUNCE_MS || since_last_save_ms >= MAX_LATENCY_MS;
+            let should_save = mode.is_forced()
+                || idle_ms >= IDLE_DEBOUNCE_MS
+                || since_last_save_ms >= MAX_LATENCY_MS;
 
             if should_save {
                 if doc.csv_table_active {
@@ -352,6 +369,24 @@ impl AutosaveRegistry {
         }
 
         actions
+    }
+
+    #[cfg(feature = "e2e")]
+    pub fn e2e_state(
+        &self,
+        window_label: &str,
+    ) -> Option<(&'static str, bool, bool, Option<String>)> {
+        let map = self.inner.lock().unwrap_or_else(|p| p.into_inner());
+        map.get(window_label).map(|doc| {
+            (
+                doc.source.as_str(),
+                doc.is_dirty(),
+                doc.save_in_flight,
+                (doc.failed_generation == Some(doc.generation))
+                    .then(|| doc.failed_message.clone())
+                    .flatten(),
+            )
+        })
     }
 
     /// Mark a save as complete after content was successfully written.
@@ -498,6 +533,35 @@ impl AutosaveRegistry {
                 true
             }
             _ => false,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum AutosaveTriggerMode {
+    Clocked(Instant),
+    #[cfg(feature = "e2e")]
+    ForceDue,
+}
+
+impl AutosaveTriggerMode {
+    fn now(self) -> Instant {
+        match self {
+            Self::Clocked(now) => now,
+            #[cfg(feature = "e2e")]
+            Self::ForceDue => Instant::now(),
+        }
+    }
+
+    fn is_clocked(self) -> bool {
+        matches!(self, Self::Clocked(_))
+    }
+
+    fn is_forced(self) -> bool {
+        match self {
+            Self::Clocked(_) => false,
+            #[cfg(feature = "e2e")]
+            Self::ForceDue => true,
         }
     }
 }
@@ -805,29 +869,33 @@ pub fn run_timer_loop(app_handle: tauri::AppHandle) {
 
         let registry = app_handle.state::<AutosaveRegistry>();
         let actions = registry.check_and_trigger_saves();
+        dispatch_save_actions(&app_handle, actions);
+    }
+}
 
-        for action in actions {
-            match action {
-                SaveAction::CsvDirect {
-                    window_label,
-                    path,
-                    generation,
-                } => {
-                    handle_csv_direct_save(&app_handle, &window_label, path.as_deref(), generation);
-                }
-                SaveAction::RequestContent {
-                    window_label,
-                    request_id,
-                } => {
-                    if let Some(window) = app_handle.get_webview_window(&window_label) {
-                        let payload = ContentRequestPayload { request_id };
-                        if let Err(e) = window.emit(AUTOSAVE_REQUEST_CONTENT_EVENT, payload) {
-                            eprintln!("Autosave: failed to emit content request: {}", e);
-                            registry.clear_in_flight(&window_label);
-                        }
-                    } else {
+pub(crate) fn dispatch_save_actions(app_handle: &tauri::AppHandle, actions: Vec<SaveAction>) {
+    let registry = app_handle.state::<AutosaveRegistry>();
+    for action in actions {
+        match action {
+            SaveAction::CsvDirect {
+                window_label,
+                path,
+                generation,
+            } => {
+                handle_csv_direct_save(app_handle, &window_label, path.as_deref(), generation);
+            }
+            SaveAction::RequestContent {
+                window_label,
+                request_id,
+            } => {
+                if let Some(window) = app_handle.get_webview_window(&window_label) {
+                    let payload = ContentRequestPayload { request_id };
+                    if let Err(e) = window.emit(AUTOSAVE_REQUEST_CONTENT_EVENT, payload) {
+                        eprintln!("Autosave: failed to emit content request: {}", e);
                         registry.clear_in_flight(&window_label);
                     }
+                } else {
+                    registry.clear_in_flight(&window_label);
                 }
             }
         }
@@ -1696,6 +1764,75 @@ mod tests {
         assert!(
             matches!(&actions[0], SaveAction::RequestContent { window_label, request_id: 1 } if window_label == "main"),
             "untitled slate should trigger once idle debounce expires"
+        );
+    }
+
+    #[cfg(feature = "e2e")]
+    #[test]
+    fn forced_check_makes_a_recent_dirty_slate_due() {
+        let registry = AutosaveRegistry::default();
+        registry.register(
+            "main",
+            None,
+            FileSource::Slates,
+            "auto".into(),
+            Eol::Lf.into(),
+        );
+        registry.notify_changed("main", 1);
+
+        assert!(registry.check_and_trigger_saves().is_empty());
+        let actions = registry.check_and_force_saves();
+        assert!(
+            matches!(&actions[..], [SaveAction::RequestContent { window_label, request_id: 1 }] if window_label == "main")
+        );
+    }
+
+    #[cfg(feature = "e2e")]
+    #[test]
+    fn forced_check_preserves_local_file_exclusion() {
+        let registry = AutosaveRegistry::default();
+        registry.register(
+            "main",
+            Some(PathBuf::from("/tmp/local.txt")),
+            FileSource::Local,
+            "auto".into(),
+            Eol::Lf.into(),
+        );
+        registry.notify_changed("main", 1);
+
+        assert!(registry.check_and_force_saves().is_empty());
+        assert_eq!(
+            registry.e2e_state("main"),
+            Some(("local", true, false, None))
+        );
+    }
+
+    #[cfg(feature = "e2e")]
+    #[test]
+    fn forced_check_does_not_fake_an_in_flight_timeout() {
+        let registry = AutosaveRegistry::default();
+        registry.register(
+            "main",
+            Some(PathBuf::from("/tmp/test.md")),
+            FileSource::Slates,
+            "auto".into(),
+            Eol::Lf.into(),
+        );
+        registry.notify_changed("main", 1);
+
+        {
+            let mut map = registry.inner.lock().unwrap();
+            let doc = map.get_mut("main").unwrap();
+            doc.save_in_flight = true;
+            doc.pending_request_id = Some(1);
+            doc.pending_request_at =
+                Some(Instant::now() - Duration::from_millis(CONTENT_REQUEST_TIMEOUT_MS + 1));
+        }
+
+        assert!(registry.check_and_force_saves().is_empty());
+        assert_eq!(
+            registry.e2e_state("main"),
+            Some(("slates", true, true, None))
         );
     }
 

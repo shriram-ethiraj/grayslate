@@ -8,7 +8,7 @@ import {
   readEditorText,
   type EditorReadinessSnapshot,
 } from "../driver/probe.js";
-import { waitFor } from "../driver/wait.js";
+import { waitFor, waitForIdle } from "../driver/wait.js";
 import { clickSelector } from "../driver/interact.js";
 import { byTestId, clickTestId, existsTestId } from "./common.js";
 
@@ -87,52 +87,81 @@ export interface ReadyOptions {
 }
 
 /**
+ * Wait for the E2E bootstrap to mount the editor shell, or surface its explicit
+ * error immediately instead of allowing every scenario in the worker to time out.
+ */
+export async function waitForBootstrap(): Promise<void> {
+  let bootstrapError: string | null = null;
+  await waitFor(
+    async () => {
+      const errorElement = await $("[data-testid='e2e-bootstrap-error']");
+      if (await errorElement.isExisting()) {
+        bootstrapError = await errorElement.getText();
+        return true;
+      }
+      return (await $("[data-testid='editor']")).isExisting();
+    },
+    {
+      message: "The E2E runtime never mounted the editor shell or an explicit bootstrap error.",
+      timeoutMs: TIMEOUTS.editor,
+      intervalMs: INTERVALS.fast,
+    },
+  );
+
+  if (bootstrapError !== null) {
+    throw new Error(bootstrapError);
+  }
+}
+
+/**
  * Wait for a specific editor/document state.
  *
- * Requires the snapshot to be identical across two consecutive samples, so a
- * mid-transition state (an old document still mounted while a new one loads)
- * cannot satisfy the wait.
+ * First reaches the requested visible state, then proves tracked application
+ * work has stopped across two rendered frames and validates the state again.
  */
 export async function waitUntilReady(
   options: ReadyOptions = {},
 ): Promise<EditorReadinessSnapshot> {
   let latest: EditorReadinessSnapshot | undefined;
-  let previousMatch = "";
-  let stableMatches = 0;
+  const timeoutMs = options.timeoutMs ?? TIMEOUTS.editor;
+  const deadline = Date.now() + timeoutMs;
 
-  await waitFor(
-    async () => {
-      latest = await readEditorReadiness();
-      if (!latest.ready) return false;
-      if (options.documentPath !== undefined && latest.documentPath !== options.documentPath) {
-        return false;
-      }
-      if (
-        options.documentLength !== undefined &&
-        latest.documentLength !== options.documentLength
-      ) {
-        return false;
-      }
-      if (options.language !== undefined && latest.language !== options.language) {
-        return false;
-      }
+  const matches = (snapshot: EditorReadinessSnapshot): boolean =>
+    snapshot.ready &&
+    (options.documentPath === undefined ||
+      snapshot.documentPath === options.documentPath) &&
+    (options.documentLength === undefined ||
+      snapshot.documentLength === options.documentLength) &&
+    (options.language === undefined || snapshot.language === options.language);
 
-      const match = JSON.stringify(latest);
-      stableMatches = match === previousMatch ? stableMatches + 1 : 1;
-      previousMatch = match;
-      return stableMatches >= 2;
-    },
-    {
-      message:
-        `Editor never reached the requested state ${JSON.stringify(options)}. ` +
-        `Last snapshot: ${JSON.stringify(latest ?? null)}`,
-      timeoutMs: options.timeoutMs ?? TIMEOUTS.editor,
-      intervalMs: INTERVALS.fast,
-    },
-  );
+  while (Date.now() < deadline) {
+    const remaining = Math.max(1, deadline - Date.now());
+    await waitFor(
+      async () => {
+        latest = await readEditorReadiness();
+        return matches(latest);
+      },
+      {
+        message:
+          `Editor never reached the requested state ${JSON.stringify(options)}. ` +
+          `Last snapshot: ${JSON.stringify(latest ?? null)}`,
+        timeoutMs: remaining,
+        intervalMs: INTERVALS.fast,
+      },
+    );
+
+    await waitForIdle({
+      timeoutMs: Math.max(1, deadline - Date.now()),
+      message: "The editor reached its target state but application work did not settle.",
+    });
+    latest = await readEditorReadiness();
+    if (matches(latest)) return latest;
+  }
 
   if (!latest) throw new Error("Editor readiness completed without a snapshot.");
-  return latest;
+  throw new Error(
+    `Editor changed after becoming idle. Last snapshot: ${JSON.stringify(latest)}`,
+  );
 }
 
 /** Wait until the live document text satisfies a predicate. */

@@ -4,9 +4,9 @@ import { expect } from "@wdio/globals";
 import { TIMEOUTS } from "../config/timeouts.js";
 import { directoryInventory } from "../assertions/matchers.js";
 import { scenario } from "../coverage/scenario.js";
-import { waitFor } from "../driver/wait.js";
 import { notesRoot } from "../fixtures/factories.js";
 import * as app from "../pages/app.js";
+import { waitForCommittedDocument } from "../pages/document.js";
 import * as editor from "../pages/editor.js";
 import * as sidebar from "../pages/sidebar.js";
 import * as statusBar from "../pages/statusBar.js";
@@ -27,24 +27,13 @@ pub fn process(config: &Config) -> Result<(), String> { println!("Processing: {}
 const SQL_SOURCE = `SELECT id, name FROM customers WHERE active = 1 ORDER BY name;
 `;
 
-/** Wait for the single autosaved file whose content matches, and return it. */
+/** Wait for the autosaved file's final application-owned identity. */
 async function waitForAutosavedFile(content: string): Promise<string> {
-  let found = "";
-  await waitFor(
-    () => {
-      const matches = directoryInventory(notesRoot)
-        .map((name) => path.join(notesRoot, name))
-        .filter((candidate) => fs.readFileSync(candidate, "utf8") === content);
-      if (matches.length !== 1) return false;
-      found = matches[0] ?? "";
-      return found !== "";
-    },
-    {
-      message: "Autosave did not produce exactly one file with the typed content.",
-      timeoutMs: TIMEOUTS.disk,
-    },
-  );
-  return found;
+  return waitForCommittedDocument({
+    content,
+    directory: notesRoot,
+    timeoutMs: TIMEOUTS.disk,
+  });
 }
 
 describe("First run", () => {

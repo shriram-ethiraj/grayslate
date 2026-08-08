@@ -16,6 +16,8 @@ concurrency:
 env:
   CI: "true"
   CARGO_TERM_COLOR: always
+  GRAYSLATE_E2E_LOCALE: en_US.UTF-8
+  TAURI_DRIVER_VERSION: 2.0.6
 
 jobs:
   static:
@@ -64,6 +66,10 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Build E2E binary
         run: pnpm run e2e:build
+      - name: Install pinned Tauri WebDriver bridge
+        run: |
+          cargo install tauri-driver --version "${TAURI_DRIVER_VERSION}" --locked --root "${RUNNER_TEMP}/tauri-driver"
+          cp "${RUNNER_TEMP}/tauri-driver/bin/tauri-driver" target/release/tauri-driver
       - name: Report Rust compiler cache statistics
         if: always()
         run: '"${SCCACHE_PATH}" --show-stats'
@@ -71,7 +77,9 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: grayslate-e2e-binary
-          path: target/release/Grayslate
+          path: |
+            target/release/Grayslate
+            target/release/tauri-driver
           if-no-files-found: error
           retention-days: 1
 
@@ -91,18 +99,24 @@ jobs:
       - name: Install Linux WebDriver dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --no-install-recommends openbox webkit2gtk-driver xclip xvfb
+          sudo apt-get install --no-install-recommends locales openbox webkit2gtk-driver x11-utils xclip xvfb
+          sudo locale-gen "${GRAYSLATE_E2E_LOCALE}"
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
-      - name: Install Tauri WebDriver bridge
-        run: cargo install tauri-driver --locked
       - name: Download E2E binary
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: grayslate-e2e-binary
           path: target/release
-      - name: Make E2E binary executable
-        run: chmod +x target/release/Grayslate
+      - name: Prepare E2E runtime
+        run: |
+          chmod +x target/release/Grayslate target/release/tauri-driver
+          echo "TAURI_DRIVER_PATH=${GITHUB_WORKSPACE}/target/release/tauri-driver" >> "${GITHUB_ENV}"
+          echo "runner image: ${ImageOS} ${ImageVersion}"
+          . /etc/os-release
+          echo "linux: ${PRETTY_NAME}"
+          dpkg-query -W openbox webkit2gtk-driver x11-utils xclip xvfb
+          locale -a | grep -i '^en_US\.utf8$'
       - name: Run functional packaged E2E
         run: pnpm run e2e:ci:functional
       - name: Upload functional results
@@ -110,6 +124,17 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: grayslate-e2e-functional-results
+          path: .e2e-tmp/workers/*/artifacts/
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Repeat timing-sensitive lifecycle specs
+        id: stability
+        run: pnpm run e2e:ci:stability
+      - name: Upload stability results
+        if: steps.stability.outcome != 'skipped'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: grayslate-e2e-stability-results
           path: .e2e-tmp/workers/*/artifacts/
           if-no-files-found: ignore
           retention-days: 7
@@ -130,18 +155,24 @@ jobs:
       - name: Install Linux WebDriver dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --no-install-recommends openbox webkit2gtk-driver xclip xvfb
+          sudo apt-get install --no-install-recommends locales openbox webkit2gtk-driver x11-utils xclip xvfb
+          sudo locale-gen "${GRAYSLATE_E2E_LOCALE}"
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
-      - name: Install Tauri WebDriver bridge
-        run: cargo install tauri-driver --locked
       - name: Download E2E binary
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: grayslate-e2e-binary
           path: target/release
-      - name: Make E2E binary executable
-        run: chmod +x target/release/Grayslate
+      - name: Prepare E2E runtime
+        run: |
+          chmod +x target/release/Grayslate target/release/tauri-driver
+          echo "TAURI_DRIVER_PATH=${GITHUB_WORKSPACE}/target/release/tauri-driver" >> "${GITHUB_ENV}"
+          echo "runner image: ${ImageOS} ${ImageVersion}"
+          . /etc/os-release
+          echo "linux: ${PRETTY_NAME}"
+          dpkg-query -W openbox webkit2gtk-driver x11-utils xclip xvfb
+          locale -a | grep -i '^en_US\.utf8$'
       - name: Run packaged security E2E
         run: pnpm run e2e:ci:security
       - name: Upload security results
@@ -170,18 +201,24 @@ jobs:
       - name: Install Linux WebDriver dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --no-install-recommends openbox webkit2gtk-driver xclip xvfb
+          sudo apt-get install --no-install-recommends locales openbox webkit2gtk-driver x11-utils xclip xvfb
+          sudo locale-gen "${GRAYSLATE_E2E_LOCALE}"
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
-      - name: Install Tauri WebDriver bridge
-        run: cargo install tauri-driver --locked
       - name: Download E2E binary
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: grayslate-e2e-binary
           path: target/release
-      - name: Make E2E binary executable
-        run: chmod +x target/release/Grayslate
+      - name: Prepare E2E runtime
+        run: |
+          chmod +x target/release/Grayslate target/release/tauri-driver
+          echo "TAURI_DRIVER_PATH=${GITHUB_WORKSPACE}/target/release/tauri-driver" >> "${GITHUB_ENV}"
+          echo "runner image: ${ImageOS} ${ImageVersion}"
+          . /etc/os-release
+          echo "linux: ${PRETTY_NAME}"
+          dpkg-query -W openbox webkit2gtk-driver x11-utils xclip xvfb
+          locale -a | grep -i '^en_US\.utf8$'
       - name: Run visual packaged E2E
         run: pnpm run e2e:ci:visual
       - name: Upload visual results
@@ -194,7 +231,7 @@ jobs:
           retention-days: 7
 
   release-surface:
-    name: Normal release excludes E2E commands
+    name: Normal release excludes E2E surface
     runs-on: ubuntu-22.04
     timeout-minutes: 35
     env:
@@ -223,5 +260,5 @@ jobs:
       - name: Report Rust compiler cache statistics
         if: always()
         run: '"${SCCACHE_PATH}" --show-stats'
-      - name: Verify test-only commands are absent
+      - name: Verify test-only backend and frontend surfaces are absent
         run: pnpm run verify:release-build target/release-audit/release/Grayslate

@@ -5,13 +5,13 @@ import { TIMEOUTS } from "../config/timeouts.js";
 import {
   directoryInventory,
   expectNoNewFiles,
-  expectSettledAbsent,
 } from "../assertions/matchers.js";
 import { scenario } from "../coverage/scenario.js";
+import { forceAutosaveCycle } from "../driver/autosave.js";
 import { waitFor, waitForFile, waitForFileWithoutWebDriver } from "../driver/wait.js";
 import { notesRoot, openPath } from "../fixtures/factories.js";
 import * as app from "../pages/app.js";
-import * as dialogs from "../pages/dialogs.js";
+import { waitForCommittedDocument } from "../pages/document.js";
 import * as editor from "../pages/editor.js";
 import * as titleBar from "../pages/titleBar.js";
 
@@ -40,25 +40,11 @@ describe("Slate save lifecycle", () => {
     await app.newSlate();
     await editor.replaceText(content);
 
-    let slatePath = "";
-    await waitFor(
-      async () => {
-        // Use the application's document identity as the source of truth.
-        // Scanning by file contents can briefly select the same-directory
-        // atomic-write temp file before Rust renames it into place.
-        const activePath = await titleBar.documentPath();
-        if (!activePath || path.dirname(activePath) !== notesRoot) return false;
-        if (!fs.existsSync(activePath)) return false;
-        if (fs.readFileSync(activePath, "utf8") !== content) return false;
-
-        slatePath = activePath;
-        return true;
-      },
-      {
-        message: `Autosave did not establish an active slate containing ${JSON.stringify(content)}.`,
-        timeoutMs: TIMEOUTS.disk,
-      },
-    );
+    const slatePath = await waitForCommittedDocument({
+      content,
+      directory: notesRoot,
+      timeoutMs: TIMEOUTS.disk,
+    });
 
     await editor.waitUntilReady({
       documentPath: slatePath,
@@ -130,20 +116,13 @@ describe("Slate save lifecycle", () => {
       await editor.save();
       await waitForCurrentDocumentContent(third);
 
-      // The old version slept 2.5 s before checking that no second slate had
-      // appeared, which made the assertion weaker on slower machines. Hold the
-      // invariant across a sampled window instead, starting from a point where
-      // the write has demonstrably landed.
-      await expectSettledAbsent({
-        precondition: async () => {
-          await waitForFile(slatePath, (content) => content === third, {
-            message: "The manual save never reached disk.",
-          });
-        },
-        invariant: async () => directoryInventory(notesRoot).length === before.length,
-        message: "Autosave and manual save together must never fork a second slate.",
-        quietForMs: 4_000,
+      await waitForFile(slatePath, (content) => content === third, {
+        message: "The manual save never reached disk.",
       });
+      const forcedCycle = await forceAutosaveCycle();
+      expect(forcedCycle.source).toBe("slates");
+      expect(forcedCycle.backendDirty).toBe(false);
+      expect(directoryInventory(notesRoot)).toHaveLength(before.length);
     },
   );
 
@@ -183,14 +162,14 @@ describe("Slate save lifecycle", () => {
       await editor.replaceText(closed);
       await titleBar.closeWindow();
 
-      // A slate is never dirty, so closing must not raise the guard at all.
-      expect(await dialogs.unsavedChanges.isOpen()).toBe(false);
-
       // The window is destroyed after the backend flush, so poll the disk
-      // directly rather than through a session that is going away.
+      // directly rather than making any WebDriver query after the click. The
+      // successful destruction itself proves the local-file guard did not
+      // intercept this slate close; that guard is covered independently.
       await waitForFileWithoutWebDriver(slatePath, (content) => content === closed, {
         message: `Closing did not flush the pending edit to ${slatePath}.`,
       });
     },
+    { completion: "window-closed" },
   );
 });

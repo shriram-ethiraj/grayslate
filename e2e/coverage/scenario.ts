@@ -1,4 +1,20 @@
 import { requirementById } from "./requirements.js";
+import { waitForAppStable } from "../driver/wait.js";
+
+export interface ScenarioOptions {
+  /**
+   * Ordinary scenarios must leave a stable, usable app behind. Use
+   * `window-closed` only when successful completion intentionally destroys the
+   * sole WebDriver window and the body verifies its terminal state out of
+   * process.
+   */
+  completion?: "stable" | "window-closed";
+}
+
+const WINDOW_CLOSING_REQUIREMENTS = new Set([
+  "file.slate.close-flushes",
+  "file.identity.local-lifecycle",
+]);
 
 /**
  * Declare a test that claims one behavior from the registry.
@@ -21,6 +37,7 @@ export function scenario(
   requirementId: string,
   title: string,
   body: () => Promise<void>,
+  options: ScenarioOptions = {},
 ): void {
   const requirement = requirementById(requirementId);
   if (!requirement) {
@@ -36,5 +53,37 @@ export function scenario(
     );
   }
 
-  it(`[${requirementId}] ${title}`, body);
+  const completion = options.completion ?? "stable";
+  if (
+    completion === "window-closed" &&
+    !WINDOW_CLOSING_REQUIREMENTS.has(requirementId)
+  ) {
+    throw new Error(
+      `Scenario '${requirementId}' cannot bypass stable cleanup. ` +
+        "Only audited scenarios that intentionally destroy the sole app window may use window-closed.",
+    );
+  }
+  if (
+    completion === "stable" &&
+    WINDOW_CLOSING_REQUIREMENTS.has(requirementId)
+  ) {
+    throw new Error(
+      `Scenario '${requirementId}' destroys the app window and must declare ` +
+        `{ completion: 'window-closed' }.`,
+    );
+  }
+
+  it(`[${requirementId}] ${title}`, async () => {
+    await waitForAppStable({
+      message: `Scenario '${requirementId}' started before the application was stable.`,
+    });
+
+    await body();
+
+    if (completion === "stable") {
+      await waitForAppStable({
+        message: `Scenario '${requirementId}' left application work unsettled.`,
+      });
+    }
+  });
 }

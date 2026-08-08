@@ -57,6 +57,9 @@ export const recencySectionLabels: Record<RecencyBucket, string> = {
 // Formatting
 // ---------------------------------------------------------------------------
 
+// Relative labels such as "Just now" and "Yesterday" intentionally follow the
+// real wall clock. E2E tests must assert the underlying ordering/buckets rather
+// than these presentation strings.
 const shortDayFormatter = new Intl.DateTimeFormat(undefined, { weekday: "short" });
 const shortDateFormatter = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" });
 const fullDateFormatter = new Intl.DateTimeFormat(undefined, { day: "numeric", month: "short", year: "numeric" });
