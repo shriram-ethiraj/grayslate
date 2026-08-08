@@ -481,7 +481,7 @@ pub async fn prepare_close(
     csv_registry: tauri::State<'_, CsvSessionRegistry>,
     save_coordinator: tauri::State<'_, SaveCoordinator>,
 ) -> Result<(), String> {
-    flush_before_close(
+    flush_before_exit(
         &app,
         &window,
         &registry,
@@ -502,7 +502,7 @@ pub async fn prepare_close(
 
 /// Flush the active slate before the window is destroyed. Any failure aborts
 /// close so an encoding error or unavailable disk can never discard text.
-async fn flush_before_close(
+pub(crate) async fn flush_before_exit(
     app: &tauri::AppHandle,
     window: &tauri::Window,
     registry: &AutosaveRegistry,

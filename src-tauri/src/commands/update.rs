@@ -2,9 +2,19 @@ use std::sync::atomic::{AtomicU8, Ordering};
 
 use serde::Serialize;
 use tauri::{AppHandle, State};
+#[cfg(not(feature = "e2e"))]
 use tauri_plugin_updater::UpdaterExt;
 
-use crate::update_policy::{current_update_policy, UpdatePolicy};
+#[cfg(not(feature = "e2e"))]
+use crate::commands::autosave::flush_before_exit;
+use crate::{
+    autosave::AutosaveRegistry,
+    commands::csv::CsvSessionRegistry,
+    document::DocumentRegistry,
+    save_coordinator::SaveCoordinator,
+    storage::AppStorage,
+    update_policy::{current_update_policy, UpdatePolicy},
+};
 
 const UPDATE_IDLE: u8 = 0;
 const UPDATE_CHECKING: u8 = 1;
@@ -91,6 +101,7 @@ fn current_version(app: &AppHandle) -> String {
     app.package_info().version.to_string()
 }
 
+#[cfg(not(feature = "e2e"))]
 fn build_updater(app: &AppHandle) -> Result<tauri_plugin_updater::Updater, UpdateCommandError> {
     let builder = app.updater_builder();
 
@@ -115,68 +126,122 @@ pub async fn check_for_updates(
     require_self_update_policy()?;
     let _operation = operations.begin(UPDATE_CHECKING)?;
     let version = current_version(&app);
-    let updater = build_updater(&app)?;
 
-    let update = updater.check().await.map_err(|error| {
-        UpdateCommandError::new(
-            "check-failed",
-            format!("Failed to check for updates: {error}"),
-        )
-    })?;
-
-    match update {
-        Some(update) => Ok(UpdateCheckResponse::Available {
-            message: format!("Grayslate {} is available.", update.version),
-            current_version: update.current_version,
-            version: update.version,
-            published_at: update.date.map(|date| date.to_string()),
-        }),
-        None => Ok(UpdateCheckResponse::UpToDate {
+    #[cfg(feature = "e2e")]
+    {
+        Ok(UpdateCheckResponse::UpToDate {
             message: "Grayslate is up to date.".to_string(),
             current_version: version,
-        }),
+        })
+    }
+
+    #[cfg(not(feature = "e2e"))]
+    {
+        let updater = build_updater(&app)?;
+        let update = updater.check().await.map_err(|error| {
+            UpdateCommandError::new(
+                "check-failed",
+                format!("Failed to check for updates: {error}"),
+            )
+        })?;
+
+        match update {
+            Some(update) => Ok(UpdateCheckResponse::Available {
+                message: format!("Grayslate {} is available.", update.version),
+                current_version: update.current_version,
+                version: update.version,
+                published_at: update.date.map(|date| date.to_string()),
+            }),
+            None => Ok(UpdateCheckResponse::UpToDate {
+                message: "Grayslate is up to date.".to_string(),
+                current_version: version,
+            }),
+        }
     }
 }
 
 #[tauri::command]
 pub async fn install_available_update(
     app: AppHandle,
+    window: tauri::Window,
     operations: State<'_, UpdateOperationState>,
+    autosave: State<'_, AutosaveRegistry>,
+    documents: State<'_, DocumentRegistry>,
+    storage: State<'_, AppStorage>,
+    csv_registry: State<'_, CsvSessionRegistry>,
+    save_coordinator: State<'_, SaveCoordinator>,
 ) -> Result<UpdateInstallResponse, UpdateCommandError> {
     require_self_update_policy()?;
     let _operation = operations.begin(UPDATE_INSTALLING)?;
-    let updater = build_updater(&app)?;
-    let update = updater
-        .check()
-        .await
-        .map_err(|error| {
+
+    #[cfg(feature = "e2e")]
+    {
+        let _ = (
+            app,
+            window,
+            autosave,
+            documents,
+            storage,
+            csv_registry,
+            save_coordinator,
+        );
+        Err(UpdateCommandError::new(
+            "no-update",
+            "No update is currently available in the E2E fixture.",
+        ))
+    }
+
+    #[cfg(not(feature = "e2e"))]
+    {
+        let updater = build_updater(&app)?;
+        let update = updater
+            .check()
+            .await
+            .map_err(|error| {
+                UpdateCommandError::new(
+                    "check-failed",
+                    format!("Failed to check for updates: {error}"),
+                )
+            })?
+            .ok_or_else(|| {
+                UpdateCommandError::new("no-update", "No update is currently available.")
+            })?;
+
+        let version = update.version.clone();
+        let update_bytes = update.download(|_, _| {}, || {}).await.map_err(|error| {
             UpdateCommandError::new(
-                "check-failed",
-                format!("Failed to check for updates: {error}"),
+                "download-failed",
+                format!("Failed to download update {version}: {error}"),
             )
-        })?
-        .ok_or_else(|| UpdateCommandError::new("no-update", "No update is currently available."))?;
-
-    let version = update.version.clone();
-    let update_bytes = update.download(|_, _| {}, || {}).await.map_err(|error| {
-        UpdateCommandError::new(
-            "download-failed",
-            format!("Failed to download update {version}: {error}"),
+        })?;
+        // The Windows updater exits the process as soon as installation begins.
+        // Flush the managed slate at the last possible moment; a failure must keep
+        // the current app running instead of trading user data for an update.
+        flush_before_exit(
+            &app,
+            &window,
+            autosave.inner(),
+            documents.inner(),
+            storage.inner(),
+            csv_registry.inner(),
+            save_coordinator.inner(),
         )
-    })?;
-    update.install(update_bytes).map_err(|error| {
-        UpdateCommandError::new(
-            "install-failed",
-            format!("Failed to install update {version}: {error}"),
-        )
-    })?;
+        .await
+        .map_err(|error| UpdateCommandError::new("save-failed", error))?;
+        update.install(update_bytes).map_err(|error| {
+            UpdateCommandError::new(
+                "install-failed",
+                format!("Failed to install update {version}: {error}"),
+            )
+        })?;
 
-    Ok(UpdateInstallResponse {
-        version: version.clone(),
-        message: format!(
-            "Grayslate {version} has been installed. Restart the app when convenient to use the update."
-        ),
-    })
+        Ok(UpdateInstallResponse {
+            version: version.clone(),
+            message: format!(
+                "Grayslate {version} has been installed. Restart the app when convenient to use the update."
+            ),
+        })
+    }
 }
 
 #[cfg(test)]

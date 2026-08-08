@@ -145,6 +145,24 @@ export async function setConfirmBeforeDelete(enabled: boolean): Promise<void> {
   );
 }
 
+export async function automaticUpdateChecksEnabled(): Promise<boolean> {
+  await showPane("general");
+  return (await attributeOf("settings-automatic-update-checks", "aria-checked")) === "true";
+}
+
+export async function setAutomaticUpdateChecks(enabled: boolean): Promise<void> {
+  await showPane("general");
+  if ((await automaticUpdateChecksEnabled()) === enabled) return;
+  await clickTestId("settings-automatic-update-checks");
+  await waitFor(
+    async () => (await automaticUpdateChecksEnabled()) === enabled,
+    {
+      message: `'Automatically check for updates' never became ${enabled}.`,
+      timeoutMs: TIMEOUTS.ui,
+    },
+  );
+}
+
 /** The visible label on a setting's trigger, for round-trip assertions. */
 export async function triggerLabel(setting: string): Promise<string> {
   return textOf(`settings-${setting}`);

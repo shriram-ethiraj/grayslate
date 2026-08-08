@@ -13,6 +13,7 @@ const KEY_DEFAULT_INDENT_SIZE = "default_indent_size";
 const KEY_CONFIRM_BEFORE_DELETE = "confirm_before_delete";
 const KEY_DEFAULT_LINE_ENDING = "default_line_ending";
 const KEY_DEFAULT_ENCODING = "default_encoding";
+const KEY_AUTOMATIC_UPDATE_CHECKS = "automatic_update_checks";
 
 export type ThemeSetting = "dark" | "light";
 export type StartupBehavior = "new" | "last";
@@ -61,6 +62,7 @@ export interface AppSettings {
     defaultIndentMode: DefaultIndentMode;
     defaultIndentSize: number;
     confirmBeforeDelete: boolean;
+    automaticUpdateChecks: boolean;
     defaultLineEnding: DefaultLineEnding;
     defaultEncoding: DefaultCharacterEncoding;
 }
@@ -74,6 +76,7 @@ export const DEFAULT_STARTUP_BEHAVIOR: StartupBehavior = "new";
 export const DEFAULT_DEFAULT_INDENT_MODE: DefaultIndentMode = "spaces";
 export const DEFAULT_DEFAULT_INDENT_SIZE = 2;
 export const DEFAULT_CONFIRM_BEFORE_DELETE = true;
+export const DEFAULT_AUTOMATIC_UPDATE_CHECKS = true;
 // LF and UTF-8 are the recommended fresh-install defaults and fail-safe
 // frontend fallbacks if settings cannot be loaded.
 export const DEFAULT_DEFAULT_LINE_ENDING: DefaultLineEnding = "lf";
@@ -90,6 +93,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     defaultIndentMode: DEFAULT_DEFAULT_INDENT_MODE,
     defaultIndentSize: DEFAULT_DEFAULT_INDENT_SIZE,
     confirmBeforeDelete: DEFAULT_CONFIRM_BEFORE_DELETE,
+    automaticUpdateChecks: DEFAULT_AUTOMATIC_UPDATE_CHECKS,
     defaultLineEnding: DEFAULT_DEFAULT_LINE_ENDING,
     defaultEncoding: DEFAULT_DEFAULT_ENCODING,
 };
@@ -120,6 +124,7 @@ export async function loadAllSettings(): Promise<AppSettings> {
         defaultIndentMode: raw[KEY_DEFAULT_INDENT_MODE] === "tab" ? "tab" : "spaces",
         defaultIndentSize: Number.isFinite(storedIndentSize) ? storedIndentSize : DEFAULT_DEFAULT_INDENT_SIZE,
         confirmBeforeDelete: raw[KEY_CONFIRM_BEFORE_DELETE] !== "false",
+        automaticUpdateChecks: raw[KEY_AUTOMATIC_UPDATE_CHECKS] !== "false",
         defaultLineEnding: storedLineEnding === "crlf" ? "crlf" : DEFAULT_DEFAULT_LINE_ENDING,
         defaultEncoding: isCharacterEncoding(storedEncoding)
             ? storedEncoding
@@ -186,6 +191,7 @@ export const appSettingsState = $state<{
     defaultIndentMode: DefaultIndentMode;
     defaultIndentSize: number;
     confirmBeforeDelete: boolean;
+    automaticUpdateChecks: boolean;
     defaultLineEnding: DefaultLineEnding;
     defaultEncoding: DefaultCharacterEncoding;
 }>({
@@ -193,6 +199,7 @@ export const appSettingsState = $state<{
     defaultIndentMode: DEFAULT_DEFAULT_INDENT_MODE,
     defaultIndentSize: DEFAULT_DEFAULT_INDENT_SIZE,
     confirmBeforeDelete: DEFAULT_CONFIRM_BEFORE_DELETE,
+    automaticUpdateChecks: DEFAULT_AUTOMATIC_UPDATE_CHECKS,
     defaultLineEnding: DEFAULT_DEFAULT_LINE_ENDING,
     defaultEncoding: DEFAULT_DEFAULT_ENCODING,
 });
@@ -203,6 +210,7 @@ export function hydrateAppSettingsState(settings: AppSettings): void {
     appSettingsState.defaultIndentMode = settings.defaultIndentMode;
     appSettingsState.defaultIndentSize = settings.defaultIndentSize;
     appSettingsState.confirmBeforeDelete = settings.confirmBeforeDelete;
+    appSettingsState.automaticUpdateChecks = settings.automaticUpdateChecks;
     appSettingsState.defaultLineEnding = settings.defaultLineEnding;
     appSettingsState.defaultEncoding = settings.defaultEncoding;
 }
@@ -228,6 +236,11 @@ export function setDefaultIndentSize(size: number): void {
 export function setConfirmBeforeDelete(confirm: boolean): void {
     appSettingsState.confirmBeforeDelete = confirm;
     saveSetting(KEY_CONFIRM_BEFORE_DELETE, String(confirm));
+}
+
+export function setAutomaticUpdateChecks(enabled: boolean): void {
+    appSettingsState.automaticUpdateChecks = enabled;
+    saveSetting(KEY_AUTOMATIC_UPDATE_CHECKS, String(enabled));
 }
 
 export function setDefaultLineEnding(lineEnding: DefaultLineEnding): void {

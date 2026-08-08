@@ -16,6 +16,7 @@
     import { appDialogsState, closeAppDialog } from "$lib/state/appDialogs.svelte";
     import { invoke } from "$lib/ipc";
     import { toast } from "$lib/components/ui/sonner";
+    import { platformState } from "$lib/state/platform.svelte";
 
     type AboutLinkTarget = "license" | "releases" | "releaseNotes" | "repository";
 
@@ -35,6 +36,7 @@
     const updateFailed = $derived(appMenuState.updateStatus === "error");
     const canSelfUpdate = $derived(appMenuState.updatePolicy === "self-update");
     const isBusy = $derived(isChecking || isInstalling);
+    const isWindows = $derived(platformState.osType === "windows");
     const currentVersionLabel = $derived(
         appMenuState.currentVersion || appMenuState.appVersion || "Unknown",
     );
@@ -131,6 +133,7 @@
                         data-testid="about-update-status"
                         data-update-status={appMenuState.updateStatus}
                         data-update-policy={appMenuState.updatePolicy}
+                        data-update-source={appMenuState.updateDiscoverySource ?? "none"}
                     >
                         {#if isChecking}
                             <div class="flex items-center gap-2 text-foreground">
@@ -154,6 +157,13 @@
                                     {/if}
                                 </Button>
                             </div>
+                            {#if isInstalling}
+                                <p class="text-muted-foreground">{appMenuState.updateMessage}</p>
+                            {:else if isWindows}
+                                <p class="text-muted-foreground">
+                                    Grayslate must close when the Windows installer starts.
+                                </p>
+                            {/if}
                         {:else if isUpToDate || isInstalled}
                             <div class="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
                                 <BadgeCheck class="size-4" />
@@ -179,7 +189,7 @@
 
                     </div>
 
-                    {#if canSelfUpdate}
+                    {#if canSelfUpdate && !isInstalled}
                         <div>
                             <Button
                                 variant="outline"

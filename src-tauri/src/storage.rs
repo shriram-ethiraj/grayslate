@@ -20,6 +20,7 @@ pub const SETTING_DEFAULT_INDENT_SIZE: &str = "default_indent_size";
 pub const SETTING_CONFIRM_BEFORE_DELETE: &str = "confirm_before_delete";
 pub const SETTING_DEFAULT_LINE_ENDING: &str = "default_line_ending";
 pub const SETTING_DEFAULT_ENCODING: &str = "default_encoding";
+pub const SETTING_AUTOMATIC_UPDATE_CHECKS: &str = "automatic_update_checks";
 
 /// All app setting keys that the app validates/converts at the command layer.
 /// Used for batch-loading at startup so the frontend doesn't need to hardcode them.
@@ -37,6 +38,7 @@ pub const ALL_SETTING_KEYS: &[&str] = &[
     SETTING_CONFIRM_BEFORE_DELETE,
     SETTING_DEFAULT_LINE_ENDING,
     SETTING_DEFAULT_ENCODING,
+    SETTING_AUTOMATIC_UPDATE_CHECKS,
 ];
 
 const DATABASE_FILENAME: &str = "grayslate.sqlite3";

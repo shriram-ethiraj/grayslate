@@ -15,9 +15,16 @@ pub enum UpdatePolicy {
 }
 
 pub fn current_update_policy() -> UpdatePolicy {
+    // The packaged E2E binary uses a deterministic updater response so the
+    // self-update-only settings and UI can be exercised without network access.
+    #[cfg(feature = "e2e")]
+    return UpdatePolicy::SelfUpdate;
+
+    #[cfg(not(feature = "e2e"))]
     parse_update_policy(option_env!("GRAYSLATE_UPDATE_POLICY"))
 }
 
+#[cfg(any(not(feature = "e2e"), test))]
 fn parse_update_policy(value: Option<&str>) -> UpdatePolicy {
     match value {
         Some("self-update") => UpdatePolicy::SelfUpdate,

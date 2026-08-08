@@ -198,10 +198,17 @@ describe("Restart and persisted settings", () => {
 
   scenario(
     "shell.settings.persist-across-restart",
-    "keeps font size, word wrap, and new-document format defaults after restart",
+    "keeps shell and new-document defaults after restart",
     async () => {
       const originalWrap = await wordWrapState();
       const originalFont = await renderedFontSize();
+      const originalAutomaticUpdateChecks =
+        (await settings.persistedValue("automatic_update_checks")) ?? "true";
+
+      await settings.open();
+      await settings.setAutomaticUpdateChecks(false);
+      await settings.close();
+      await settings.waitForPersistedValue("automatic_update_checks", "false");
 
       await titleBar.editMenu("word-wrap");
       const expectedWrap = originalWrap === "true" ? "false" : "true";
@@ -229,6 +236,10 @@ describe("Restart and persisted settings", () => {
       expect(await wordWrapState()).toBe(expectedWrap);
       await statusBar.waitForEol("crlf");
       await statusBar.waitForEncoding("utf-8-bom");
+      expect(await settings.persistedValue("automatic_update_checks")).toBe("false");
+      await settings.open();
+      expect(await settings.automaticUpdateChecksEnabled()).toBe(false);
+      await settings.close();
 
       // Restore the shipped defaults for scenarios that follow in this worker.
       await titleBar.viewMenu("reset-font");
@@ -243,6 +254,13 @@ describe("Restart and persisted settings", () => {
       await settings.close();
       await settings.waitForPersistedValue("default_line_ending", "lf");
       await settings.waitForPersistedValue("default_encoding", "utf-8");
+      await settings.open();
+      await settings.setAutomaticUpdateChecks(originalAutomaticUpdateChecks === "true");
+      await settings.close();
+      await settings.waitForPersistedValue(
+        "automatic_update_checks",
+        originalAutomaticUpdateChecks,
+      );
     },
   );
 });
