@@ -251,7 +251,7 @@ export const transformationActions: TransformationActionDefinition[] = [
         description: "Parse each nonblank line as JSON and combine the values into one formatted array.",
         category: "JSON",
         keywords: ["json", "jsonl", "ndjson", "lines", "array", "convert"],
-        fileTypes: ["json", "text"],
+        fileTypes: ["jsonl", "json", "text"],
         supportsSelection: true,
         outputLanguage: "json",
         icon: MaterialSymbolsTransformRounded,
@@ -264,7 +264,7 @@ export const transformationActions: TransformationActionDefinition[] = [
         keywords: ["json", "jsonl", "ndjson", "lines", "array", "convert"],
         fileTypes: ["json"],
         supportsSelection: true,
-        outputLanguage: "text",
+        outputLanguage: "jsonl",
         icon: MaterialSymbolsTransformRounded,
     },
     {

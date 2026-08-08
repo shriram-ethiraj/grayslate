@@ -132,6 +132,7 @@ export const REQUIREMENTS: readonly Requirement[] = [
   { id: "language.detect-from-file", area: "language", behavior: "Opening a real fixture shows the right language for representative families.", coverage: "e2e" },
   { id: "language.manual-override", area: "language", behavior: "Choosing a language overrides detection, and Auto restores it.", coverage: "e2e" },
   { id: "language.save-extension", area: "language", behavior: "Saving an untitled slate picks the canonical extension for its language.", coverage: "e2e" },
+  { id: "language.json-lines-save-extension", area: "language", behavior: "Auto-detected JSON Lines slates use the canonical .jsonl extension.", coverage: "e2e" },
   { id: "language.detector-matrix", area: "language", behavior: "Per-language detection across all supported languages.", coverage: "rust", reason: "Exhaustively covered by the crates/grayslate-langdetect unit tests; driving 40+ languages through the UI would be slower and prove less." },
   { id: "language.naming-matrix", area: "language", behavior: "Per-language canonical extensions and naming kinds, including -email and -prompt.", coverage: "rust", reason: "Exhaustively covered by the crates/grayslate-langnaming unit tests." },
 
@@ -144,6 +145,7 @@ export const REQUIREMENTS: readonly Requirement[] = [
   { id: "transform.family.message", area: "transformations", behavior: "A statistics action reports through a toast and leaves the document alone.", coverage: "e2e" },
   { id: "transform.family.error", area: "transformations", behavior: "Invalid input produces an error message and no document change.", coverage: "e2e" },
   { id: "transform.family.language-switch", area: "transformations", behavior: "A converting action switches the active language to the output format.", coverage: "e2e" },
+  { id: "transform.json-array-to-lines-language-switch", area: "transformations", behavior: "JSON Array to JSON Lines switches the active language to JSON Lines.", coverage: "e2e" },
   { id: "transform.large.chunked", area: "transformations", behavior: "A multi-megabyte result assembles correctly and stays one undo step.", coverage: "e2e" },
   { id: "transform.large.cancel", area: "transformations", behavior: "Cancelling a long transformation leaves the document unchanged and usable.", coverage: "e2e" },
   { id: "transform.registry.correctness", area: "transformations", behavior: "Every registered transformation produces the right output for its inputs.", coverage: "rust", reason: "126 unit tests in src-tauri/src/commands/transform.rs cover the registry exhaustively; E2E covers one representative per UI/transport behavior family instead." },

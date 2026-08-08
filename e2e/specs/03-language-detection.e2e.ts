@@ -19,6 +19,7 @@ import * as statusBar from "../pages/statusBar.js";
 const FAMILIES: { fixture: string; as: string; language: string }[] = [
   { fixture: "sample.py", as: "detect-python.py", language: "python" },
   { fixture: "sample.json", as: "detect-json.json", language: "json" },
+  { fixture: "sample.jsonl", as: "detect-json-lines.jsonl", language: "jsonl" },
   { fixture: "sample.sql", as: "detect-sql.sql", language: "sql" },
   { fixture: "sample.md", as: "detect-markdown.md", language: "markdown" },
   { fixture: "sample.csv", as: "detect-csv.csv", language: "csv" },

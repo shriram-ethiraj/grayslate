@@ -303,6 +303,26 @@ mod tests {
     }
 
     #[test]
+    fn detect_json_lines_records() {
+        let content = concat!(
+            "{\"name\": \"Alice\", \"age\": 30}\n",
+            "{\"name\": \"Bob\", \"age\": 25}\n",
+            "{\"name\": \"Charlie\", \"age\": 35}\n",
+        );
+        assert_eq!(detect_language(content, None), Some("jsonl"));
+    }
+
+    #[test]
+    fn detect_json_lines_when_byte_bound_slices_a_record() {
+        let content = format!(
+            "{{\"name\":\"Alice\"}}\n{{\"name\":\"Bob\"}}\n{{\"payload\":\"{}\"}}\n",
+            "x".repeat(MAX_DETECTION_BYTES),
+        );
+        assert!(content.len() > MAX_DETECTION_BYTES);
+        assert_eq!(detect_language(&content, None), Some("jsonl"));
+    }
+
+    #[test]
     fn detect_html_doctype() {
         assert_eq!(
             detect_language("<!DOCTYPE html>\n<html><body></body></html>", None),

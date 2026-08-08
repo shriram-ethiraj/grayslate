@@ -306,6 +306,7 @@ mod tests {
     #[test]
     fn extension_map_covers_common_langs() {
         assert_eq!(language_to_extension("json"), "json");
+        assert_eq!(language_to_extension("jsonl"), "jsonl");
         assert_eq!(language_to_extension("typescript"), "ts");
         assert_eq!(language_to_extension("python"), "py");
         assert_eq!(language_to_extension("rust"), "rs");

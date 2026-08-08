@@ -176,6 +176,19 @@ describe("Transformations", () => {
   );
 
   scenario(
+    "transform.json-array-to-lines-language-switch",
+    "switches JSON array output to the JSON Lines language",
+    async () => {
+      await openText("array-to-lines.json", '[{"name":"Alice"},{"name":"Bob"}]');
+      await statusBar.waitForLanguageMode("json");
+
+      await transformations.run("json.array-to-lines");
+      await editor.waitForExactText('{"name":"Alice"}\n{"name":"Bob"}\n');
+      await statusBar.waitForLanguageMode("jsonl");
+    },
+  );
+
+  scenario(
     "transform.large.chunked",
     "assembles a multi-megabyte chunked result and keeps it one undo step",
     async () => {
