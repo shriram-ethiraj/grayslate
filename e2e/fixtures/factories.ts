@@ -108,6 +108,20 @@ export async function requestOpenPath(filePath: string): Promise<DocumentDescrip
   return descriptor;
 }
 
+/**
+ * Submit fixture paths through the production native-drop queue.
+ *
+ * The backend shim is compiled only into the E2E binary and returns after the
+ * ordered background queue has classified, tracked, and granted the batch.
+ * The frontend still receives and drains the normal external-open event.
+ */
+export async function dropPaths(filePaths: readonly string[]): Promise<void> {
+  if (filePaths.length === 0) {
+    throw new Error("A simulated native drop requires at least one path.");
+  }
+  await invokeInApp<void>("e2e_drop_paths", { paths: [...filePaths] });
+}
+
 /** Grant a Save-As target path through the real authorization path. */
 export async function grantSavePath(
   targetPath: string,

@@ -61,6 +61,7 @@
     setPendingSidebarOpenFile,
   } from "$lib/state/librarySidebar.svelte";
   import { confirmBeforeLeavingDocument } from "$lib/state/unsavedChangesGuard.svelte";
+  import { appDialogsState } from "$lib/state/appDialogs.svelte";
   import {
     OPEN_FILE_PATH_EVENT,
     EXTERNAL_OPEN_PENDING_EVENT,
@@ -1317,6 +1318,7 @@
   let externalOpenStartupReady = false;
   let externalOpenWasReceived = false;
   let externalOpenWork: Promise<void> = Promise.resolve();
+  let deferredExternalOpenRequest: ExternalOpenRequest | undefined;
 
   function reportExternalOpenResult(request: ExternalOpenRequest): void {
     if (request.skippedCount > 0) {
@@ -1339,9 +1341,23 @@
   }
 
   async function drainExternalOpenRequests(): Promise<void> {
+    // The backend retains and merges incoming requests until we take them.
+    // Do not consume one while another app-level dialog owns the single modal
+    // slot, or an unsaved-changes prompt would replace that dialog.
+    if (appDialogsState.active.type !== "none") return;
+
     while (true) {
-      const request = await invoke<ExternalOpenRequest | null>("take_external_open_request");
+      const request = deferredExternalOpenRequest
+        ?? await invoke<ExternalOpenRequest | null>("take_external_open_request");
       if (!request) return;
+
+      // A dialog may have opened during the IPC round trip. Keep the already
+      // authorized request locally rather than consuming or replacing it.
+      if (appDialogsState.active.type !== "none") {
+        deferredExternalOpenRequest = request;
+        return;
+      }
+      deferredExternalOpenRequest = undefined;
 
       externalOpenWasReceived = true;
       reportExternalOpenResult(request);
@@ -1370,13 +1386,26 @@
 
   function handleExternalOpenWake(): void {
     externalOpenWasReceived = true;
-    if (!externalOpenStartupReady) {
+    if (!externalOpenStartupReady || appDialogsState.active.type !== "none") {
       return;
     }
     void scheduleExternalOpenDrain().catch((error: unknown) => {
-      toast.error(readErrorMessage(error, "Could not process the files opened by the system."));
+      toast.error(readErrorMessage(error, "Could not process the incoming files."));
     });
   }
+
+  // A native drop or OS activation may arrive while Settings, Rename, Delete,
+  // or another app dialog is open. The Rust queue remains authoritative; once
+  // the modal slot is free, resume the same serialized drain used at startup.
+  $effect(() => {
+    if (!externalOpenStartupReady || appDialogsState.active.type !== "none") {
+      return;
+    }
+
+    void scheduleExternalOpenDrain().catch((error: unknown) => {
+      toast.error(readErrorMessage(error, "Could not process the incoming files."));
+    });
+  });
 
   async function getContentForSave(): Promise<string> {
     if (activeLanguage === "csv" && editorState.csv.showTable && csvTableView) {

@@ -74,6 +74,19 @@ pub fn run() {
         .menu(menu::build_native_menu)
         .on_menu_event(menu::handle_macos_menu_event);
 
+    // File paths delivered by a native drop must enter the document grant
+    // boundary in Rust. The webview observes the same Tauri event only to
+    // render drop feedback; it cannot authorize paths itself.
+    let builder = builder.on_window_event(|window, event| {
+        if let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {
+            commands::external_open::enqueue_dropped_paths(
+                window.app_handle(),
+                window.label(),
+                paths.clone(),
+            );
+        }
+    });
+
     builder
         .setup(|app| {
             let storage = storage::AppStorage::initialize(app.handle()).map_err(|error| {
@@ -205,6 +218,8 @@ pub fn run() {
             commands::e2e::e2e_arm_navigation_probe,
             #[cfg(feature = "e2e")]
             commands::e2e::e2e_arm_operation_gate,
+            #[cfg(feature = "e2e")]
+            commands::e2e::e2e_drop_paths,
             #[cfg(feature = "e2e")]
             commands::e2e::e2e_force_autosave_cycle,
             #[cfg(feature = "e2e")]

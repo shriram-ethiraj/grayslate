@@ -10,6 +10,7 @@
     "allow-e2e-arm-minimize-probe",
     "allow-e2e-arm-navigation-probe",
     "allow-e2e-arm-operation-gate",
+    "allow-e2e-drop-paths",
     "allow-e2e-force-autosave-cycle",
     "allow-e2e-minimize-observation",
     "allow-e2e-navigation-observation",

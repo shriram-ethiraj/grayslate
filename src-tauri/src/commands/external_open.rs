@@ -30,6 +30,18 @@ pub struct ExternalOpenRequest {
 #[derive(Default)]
 pub struct ExternalOpenState {
     pending: Mutex<VecDeque<ExternalOpenRequest>>,
+    dropped: Mutex<DroppedPathQueue>,
+}
+
+struct DroppedPathBatch {
+    window_label: String,
+    paths: Vec<PathBuf>,
+}
+
+#[derive(Default)]
+struct DroppedPathQueue {
+    worker_running: bool,
+    batches: VecDeque<DroppedPathBatch>,
 }
 
 static EARLY_CLI_ACTIVATIONS: OnceLock<Mutex<VecDeque<Vec<PathBuf>>>> = OnceLock::new();
@@ -58,6 +70,41 @@ impl ExternalOpenState {
             merged.skipped_count += request.skipped_count;
         }
         Some(merged)
+    }
+
+    /// Returns true only for the caller responsible for starting the worker.
+    fn push_dropped(&self, batch: DroppedPathBatch) -> bool {
+        let mut dropped = self
+            .dropped
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        dropped.batches.push_back(batch);
+        if dropped.worker_running {
+            return false;
+        }
+        dropped.worker_running = true;
+        true
+    }
+
+    fn pop_dropped(&self) -> Option<DroppedPathBatch> {
+        let mut dropped = self
+            .dropped
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let batch = dropped.batches.pop_front();
+        if batch.is_none() {
+            dropped.worker_running = false;
+        }
+        batch
+    }
+
+    #[cfg(feature = "e2e")]
+    pub fn dropped_paths_idle(&self) -> Result<bool, String> {
+        let dropped = self
+            .dropped
+            .lock()
+            .map_err(|_| "Dropped-path queue is poisoned.".to_string())?;
+        Ok(!dropped.worker_running && dropped.batches.is_empty())
     }
 }
 
@@ -144,7 +191,7 @@ pub fn flush_staged_cli_activations(app: &tauri::AppHandle) {
         staged.drain(..).collect::<Vec<_>>()
     };
     for paths in batches {
-        enqueue_paths(app, paths);
+        enqueue_paths(app, "main", paths);
     }
 }
 
@@ -154,7 +201,35 @@ pub fn enqueue_opened_urls(app: &tauri::AppHandle, urls: Vec<Url>) {
         .into_iter()
         .filter_map(|url| url.to_file_path().ok())
         .collect::<Vec<_>>();
-    enqueue_paths(app, paths);
+    enqueue_paths(app, "main", paths);
+}
+
+/// Accept file paths supplied by Tauri's native drag/drop window event.
+///
+/// This is deliberately a Rust-only boundary: exposing an IPC command that
+/// accepts arbitrary paths would let untrusted webview code forge a drop and
+/// grant itself filesystem access without a native user gesture.
+pub fn enqueue_dropped_paths(app: &tauri::AppHandle, window_label: &str, paths: Vec<PathBuf>) {
+    if paths.is_empty() {
+        return;
+    }
+
+    let state = app.state::<ExternalOpenState>();
+    let should_start_worker = state.push_dropped(DroppedPathBatch {
+        window_label: window_label.to_string(),
+        paths,
+    });
+    if !should_start_worker {
+        return;
+    }
+
+    let worker_app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || loop {
+        let Some(batch) = worker_app.state::<ExternalOpenState>().pop_dropped() else {
+            return;
+        };
+        enqueue_paths(&worker_app, &batch.window_label, batch.paths);
+    });
 }
 
 fn argument_to_path(argument: &str, cwd: &Path) -> Option<PathBuf> {
@@ -182,7 +257,7 @@ fn argument_to_path(argument: &str, cwd: &Path) -> Option<PathBuf> {
     })
 }
 
-fn enqueue_paths(app: &tauri::AppHandle, paths: Vec<PathBuf>) {
+fn enqueue_paths(app: &tauri::AppHandle, window_label: &str, paths: Vec<PathBuf>) {
     if paths.is_empty() {
         return;
     }
@@ -228,7 +303,12 @@ fn enqueue_paths(app: &tauri::AppHandle, paths: Vec<PathBuf>) {
 
     let document = accepted.last().and_then(|(path, source)| {
         documents
-            .grant_existing("main", path, *source, DocumentRights::tracked(*source))
+            .grant_existing(
+                window_label,
+                path,
+                *source,
+                DocumentRights::tracked(*source),
+            )
             .map(|document| document.descriptor())
             .map_err(|error| {
                 eprintln!("[External Open] Failed to authorize an incoming file: {error}");
@@ -264,6 +344,29 @@ pub fn take_external_open_request(
 mod tests {
     use super::*;
 
+    fn request(
+        path: Option<&str>,
+        requested_count: usize,
+        accepted_count: usize,
+        newly_tracked_count: usize,
+        skipped_count: usize,
+    ) -> ExternalOpenRequest {
+        ExternalOpenRequest {
+            document: path.map(|display_path| DocumentDescriptor {
+                document_id: display_path.to_string(),
+                generation: 1,
+                display_path: display_path.to_string(),
+                file_name: display_path.to_string(),
+                source: "local".to_string(),
+                writable: true,
+            }),
+            requested_count,
+            accepted_count,
+            newly_tracked_count,
+            skipped_count,
+        }
+    }
+
     #[test]
     fn argv_paths_resolve_against_the_launch_directory() {
         assert_eq!(
@@ -274,9 +377,15 @@ mod tests {
 
     #[test]
     fn argv_accepts_only_local_file_urls() {
+        let local_path = if cfg!(windows) {
+            PathBuf::from(r"C:\tmp\example.json")
+        } else {
+            PathBuf::from("/tmp/example.json")
+        };
+        let local_url = Url::from_file_path(&local_path).expect("test path should form a file URL");
         assert_eq!(
-            argument_to_path("file:///tmp/example.json", Path::new("/work")),
-            Some(PathBuf::from("/tmp/example.json"))
+            argument_to_path(local_url.as_str(), Path::new("/work")),
+            Some(local_path)
         );
         assert_eq!(
             argument_to_path("https://example.com/example.json", Path::new("/work")),
@@ -292,5 +401,52 @@ mod tests {
     #[test]
     fn argv_ignores_flags() {
         assert_eq!(argument_to_path("--verbose", Path::new("/work")), None);
+    }
+
+    #[test]
+    fn pending_requests_merge_counts_and_keep_the_last_document() {
+        let state = ExternalOpenState::default();
+        state.push(request(Some("first.txt"), 2, 1, 1, 1));
+        state.push(request(None, 1, 0, 0, 1));
+        state.push(request(Some("last.txt"), 3, 3, 2, 0));
+
+        let merged = state.pop().expect("queued requests should merge");
+        assert_eq!(merged.requested_count, 6);
+        assert_eq!(merged.accepted_count, 4);
+        assert_eq!(merged.newly_tracked_count, 3);
+        assert_eq!(merged.skipped_count, 2);
+        assert_eq!(
+            merged.document.map(|document| document.display_path),
+            Some("last.txt".to_string())
+        );
+        assert!(state.pop().is_none());
+    }
+
+    #[test]
+    fn dropped_batches_are_fifo_and_only_start_one_worker() {
+        let state = ExternalOpenState::default();
+        assert!(state.push_dropped(DroppedPathBatch {
+            window_label: "first".to_string(),
+            paths: vec![PathBuf::from("first.txt")],
+        }));
+        assert!(!state.push_dropped(DroppedPathBatch {
+            window_label: "second".to_string(),
+            paths: vec![PathBuf::from("second.txt")],
+        }));
+
+        assert_eq!(
+            state.pop_dropped().map(|batch| batch.window_label),
+            Some("first".to_string())
+        );
+        assert_eq!(
+            state.pop_dropped().map(|batch| batch.window_label),
+            Some("second".to_string())
+        );
+        assert!(state.pop_dropped().is_none());
+
+        assert!(state.push_dropped(DroppedPathBatch {
+            window_label: "third".to_string(),
+            paths: vec![PathBuf::from("third.txt")],
+        }));
     }
 }
