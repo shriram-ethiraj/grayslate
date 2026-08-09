@@ -33,6 +33,8 @@
     "preview": "vite preview",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+    "check:file-associations": "node scripts/file-associations.mjs --check",
+    "generate:file-associations": "node scripts/file-associations.mjs --write",
     "release:version": "node scripts/release/set-version.mjs",
     "test:release-scripts": "node --test scripts/release/release-scripts.test.mjs",
     "test:package-repository": "node --test scripts/package-repository/package-repository.test.mjs",

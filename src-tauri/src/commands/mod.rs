@@ -5,6 +5,7 @@ pub mod detection;
 #[cfg(feature = "e2e")]
 pub mod e2e;
 pub mod external;
+pub mod external_open;
 pub mod file;
 pub mod findstats;
 pub mod markdown;

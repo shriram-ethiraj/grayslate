@@ -9,6 +9,11 @@ finish-args:
   - --socket=wayland
   - --device=dri
   - --filesystem=xdg-documents/Grayslate:create
+  # The single-instance plugin uses a per-app session D-Bus name. Both
+  # permissions are required: the primary process owns it and later launches
+  # call it to forward their file arguments.
+  - --own-name=app.grayslate.Grayslate.SingleInstance
+  - --talk-name=app.grayslate.Grayslate.SingleInstance
 sdk-extensions:
   - org.freedesktop.Sdk.Extension.node22
   - org.freedesktop.Sdk.Extension.rust-stable

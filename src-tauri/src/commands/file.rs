@@ -37,7 +37,7 @@ use crate::storage::{
 use super::RECENT_FILES_UPDATED_EVENT;
 
 /// Maximum file size allowed to be opened: 200 MB.
-const MAX_FILE_SIZE: u64 = 200 * 1024 * 1024;
+pub(crate) const MAX_FILE_SIZE: u64 = 200 * 1024 * 1024;
 const FILE_READ_CHUNK_SIZE: usize = 256 * 1024;
 const FILE_READ_CANCELLED_MESSAGE: &str = "File read cancelled.";
 const MAX_RECENT_FILES_LIMIT: usize = 200;

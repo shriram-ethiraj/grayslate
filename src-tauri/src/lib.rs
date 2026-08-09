@@ -22,10 +22,26 @@ pub mod window;
 mod capability_tests;
 #[cfg(test)]
 mod command_names;
+#[cfg(test)]
+mod file_association_tests;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let builder = tauri::Builder::default()
+    let builder = tauri::Builder::default();
+
+    // This must be the first plugin so a second OS "Open With" activation is
+    // redirected before any other plugin can observe or mutate app state.
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
+        commands::external_open::focus_main_window(app);
+        commands::external_open::enqueue_cli_activation(
+            app,
+            args.into_iter().skip(1),
+            std::path::Path::new(&cwd),
+        );
+    }));
+
+    let builder = builder
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
@@ -66,6 +82,7 @@ pub fn run() {
             app.manage(storage);
             app.manage(commands::file::FileReadCancellationRegistry::default());
             app.manage(document::DocumentRegistry::default());
+            app.manage(commands::external_open::ExternalOpenState::default());
             app.manage(commands::search::SearchRuntimeState::default());
             app.manage(commands::transform::TransformationCancellationRegistry::default());
             app.manage(commands::findstats::EditorFindState::default());
@@ -88,6 +105,12 @@ pub fn run() {
 
             #[cfg(target_os = "macos")]
             window::apply_macos_window_styling(app);
+
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
+            commands::external_open::flush_staged_cli_activations(app.handle());
+
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
+            commands::external_open::enqueue_initial_activation(app.handle());
 
             // Test-only: grant the e2e fixture open/save shims at runtime. This
             // capability lives outside the auto-scanned `capabilities/` dir and
@@ -164,6 +187,7 @@ pub fn run() {
             commands::external::get_app_info,
             commands::external::open_about_link,
             commands::external::open_markdown_link,
+            commands::external_open::take_external_open_request,
             commands::autosave::autosave_activate_untitled,
             commands::autosave::autosave_activate_document,
             commands::autosave::autosave_notify_changed,
@@ -204,6 +228,22 @@ pub fn run() {
             menu::set_menu_word_wrap,
             menu::set_menu_save_enabled,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            #[cfg(target_os = "macos")]
+            match event {
+                tauri::RunEvent::Opened { urls } => {
+                    commands::external_open::focus_main_window(app);
+                    commands::external_open::enqueue_opened_urls(app, urls);
+                }
+                tauri::RunEvent::Reopen { .. } => {
+                    commands::external_open::focus_main_window(app);
+                }
+                _ => {}
+            }
+
+            #[cfg(not(target_os = "macos"))]
+            let _ = (app, event);
+        });
 }

@@ -30,6 +30,18 @@ const MAX_DETECTION_BYTES: usize = 50_000;
 /// IDs outside this set fall back to "text".
 pub(crate) use languages::SUPPORTED_LANGUAGES;
 
+/// Every filename extension recognized by the detector, normalized without a
+/// leading dot and sorted for deterministic installer metadata generation.
+pub fn supported_extensions() -> Vec<&'static str> {
+    let mut extensions = languages::EXTENSION_MAP
+        .iter()
+        .map(|(extension, _)| extension.trim_start_matches('.'))
+        .collect::<Vec<_>>();
+    extensions.sort_unstable();
+    extensions.dedup();
+    extensions
+}
+
 /// Detect the language of a document from its content and/or filename.
 ///
 /// Returns a language ID string (e.g. "python", "json", "rust") or `None`
