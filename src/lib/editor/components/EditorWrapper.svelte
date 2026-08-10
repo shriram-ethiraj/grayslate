@@ -1398,7 +1398,9 @@
   // or another app dialog is open. The Rust queue remains authoritative; once
   // the modal slot is free, resume the same serialized drain used at startup.
   $effect(() => {
-    if (!externalOpenStartupReady || appDialogsState.active.type !== "none") {
+    const activeDialogType = appDialogsState.active.type;
+
+    if (!externalOpenStartupReady || activeDialogType !== "none") {
       return;
     }
 
