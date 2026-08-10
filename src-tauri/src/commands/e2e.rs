@@ -21,6 +21,8 @@ use crate::document::{
 };
 use crate::storage::AppStorage;
 
+use super::external_open::{enqueue_dropped_paths, ExternalOpenState};
+
 const OPERATION_GATES: &[&str] = &[
     "file-read",
     "editor-find",
@@ -532,6 +534,46 @@ pub async fn e2e_queue_save_path(
         .map_err(|_| "Queued save dialog responses are poisoned.".to_string())?
         .push_back(response_from(path));
     Ok(())
+}
+
+/// Submit paths through the exact native-drop queue used by the production
+/// `WindowEvent::DragDrop` handler.
+///
+/// This command exists only in the E2E build. Waiting for the background queue
+/// to become idle gives WebDriver a deterministic boundary without replacing
+/// Rust classification, tracking, document grants, frontend dialog guards, or
+/// the authorized editor-open flow.
+#[tauri::command]
+pub async fn e2e_drop_paths(
+    app: tauri::AppHandle,
+    window: tauri::Window,
+    paths: Vec<String>,
+) -> Result<(), String> {
+    if paths.is_empty() {
+        return Err("At least one dropped path is required.".to_string());
+    }
+
+    enqueue_dropped_paths(
+        &app,
+        window.label(),
+        paths.into_iter().map(PathBuf::from).collect(),
+    );
+
+    const SETTLE_TIMEOUT: Duration = Duration::from_secs(20);
+    const POLL_INTERVAL: Duration = Duration::from_millis(5);
+    let deadline = Instant::now() + SETTLE_TIMEOUT;
+    loop {
+        if app.state::<ExternalOpenState>().dropped_paths_idle()? {
+            return Ok(());
+        }
+        if Instant::now() >= deadline {
+            return Err(format!(
+                "Dropped paths did not finish processing within {} seconds.",
+                SETTLE_TIMEOUT.as_secs()
+            ));
+        }
+        tokio::time::sleep(POLL_INTERVAL).await;
+    }
 }
 
 /// Frontend open event (mirror of `OPEN_FILE_PATH_EVENT` in `recentFiles.ts`).

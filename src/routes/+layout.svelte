@@ -21,6 +21,7 @@
 	import { emit } from "@tauri-apps/api/event";
 	import { Toaster } from "$lib/components/ui/sonner/index.js";
 	import EditorActions from "$lib/editor/components/EditorActions.svelte";
+	import FileDropOverlay from "$lib/components/FileDropOverlay.svelte";
 	import { registerHotkeys } from "$lib/hotkeys";
 	import { initPlatformState, platformState } from "$lib/state/platform.svelte";
 	import { formatShortcutTooltip } from "$lib/shortcuts";
@@ -419,6 +420,7 @@
 				</ResizablePane>
 			</ResizablePaneGroup>
 		</Sidebar.Provider>
+		<FileDropOverlay />
 	</div>
 </div>
 <Toaster position="top-right" offset={{ top: "96px", right: "24px" }} mobileOffset={{ top: "96px", right: "16px", left: "16px" }} />

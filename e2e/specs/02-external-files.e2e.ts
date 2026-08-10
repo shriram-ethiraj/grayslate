@@ -8,8 +8,9 @@ import {
   releaseOperationGate,
   waitForOperationGate,
 } from "../driver/operationGate.js";
-import { waitForFile } from "../driver/wait.js";
+import { waitForAppStable, waitForFile } from "../driver/wait.js";
 import {
+  dropPaths,
   externalRoot,
   notesRoot,
   openFixture,
@@ -62,6 +63,115 @@ describe("External files", () => {
       await sidebar.setFilterTab("slates");
       await sidebar.waitForCard(target, false);
       await sidebar.setFilterTab("unified");
+    },
+  );
+
+  scenario(
+    "file.drop.multiple",
+    "tracks every dropped file and opens the final valid path",
+    async () => {
+      const first = provisionText("drop-first.json", "{\"order\":1}\n");
+      const last = provisionText("drop-last.py", "print('opened last')\n");
+      const missing = path.join(externalRoot, "drop-missing.txt");
+
+      await dropPaths([first, missing, last]);
+
+      await editor.waitUntilReady({ documentPath: last });
+      await statusBar.waitForDetectedLanguage("python");
+      await transformations.waitForToastContaining("1 file could not be opened");
+      await sidebar.ensureOpen();
+      await sidebar.setFilterTab("local");
+      await sidebar.waitForCard(first);
+      await sidebar.waitForCard(last);
+      await sidebar.setFilterTab("unified");
+    },
+  );
+
+  scenario(
+    "file.drop.invalid-batch",
+    "warns and keeps the editor usable when every dropped path is invalid",
+    async () => {
+      const source = await openText("drop-invalid-source.txt", "source remains\n");
+      const oversized = provisionSparseFile(
+        "drop-over-200mb.txt",
+        200 * 1024 * 1024 + 1,
+      );
+
+      await dropPaths([externalRoot, oversized]);
+
+      await transformations.waitForToastContaining("2 files could not be opened");
+      await editor.waitUntilReady({ documentPath: source });
+      await editor.waitForExactText("source remains\n");
+      await editor.replaceText("still usable after invalid drop");
+      await editor.waitForExactText("still usable after invalid drop");
+    },
+  );
+
+  scenario(
+    "file.drop.unsaved-guard",
+    "preserves edits on Cancel and opens the drop after Discard",
+    async () => {
+      const source = await openText("drop-guard-source.txt", "saved source\n");
+      const target = provisionText("drop-guard-target.txt", "dropped target\n");
+      const edited = "unsaved source edit";
+
+      await editor.replaceText(edited);
+      await dropPaths([target]);
+      await dialogs.unsavedChanges.waitForOpen();
+      await dialogs.unsavedChanges.cancel();
+      await dialogs.unsavedChanges.waitForClosed();
+
+      await editor.waitUntilReady({ documentPath: source });
+      expect(await editor.text()).toBe(edited);
+      expect(await titleBar.isDirty()).toBe(true);
+
+      await dropPaths([target]);
+      await dialogs.unsavedChanges.waitForOpen();
+      await dialogs.unsavedChanges.discard();
+      await dialogs.unsavedChanges.waitForClosed();
+      await editor.waitUntilReady({ documentPath: target });
+      expect(fs.readFileSync(source, "utf8")).toBe("saved source\n");
+    },
+  );
+
+  scenario(
+    "file.drop.dialog-queue",
+    "keeps the active dialog open and processes the drop after it closes",
+    async () => {
+      const source = await openText("drop-dialog-source.txt", "source stays visible\n");
+      const target = provisionText("drop-dialog-target.txt", "opens after dialog\n");
+
+      await titleBar.helpMenu("about");
+      await dialogs.about.waitForOpen();
+      await dropPaths([target]);
+
+      expect(await dialogs.about.text()).toContain("Grayslate");
+      await editor.waitUntilReady({ documentPath: source });
+      await editor.waitForExactText("source stays visible\n");
+
+      await dialogs.about.close();
+      await editor.waitUntilReady({ documentPath: target });
+      await editor.waitForExactText("opens after dialog\n");
+    },
+  );
+
+  scenario(
+    "file.drop.active-noop",
+    "does not reload or prompt when the active file is dropped again",
+    async () => {
+      const target = await openText("drop-active.txt", "saved active text\n");
+      const edited = "active unsaved text";
+
+      await editor.replaceText(edited);
+      await dropPaths([target]);
+      await waitForAppStable({
+        message: "Re-dropping the active document did not settle.",
+      });
+
+      expect(await dialogs.unsavedChanges.isOpen()).toBe(false);
+      await editor.waitUntilReady({ documentPath: target });
+      expect(await editor.text()).toBe(edited);
+      expect(await titleBar.isDirty()).toBe(true);
     },
   );
 

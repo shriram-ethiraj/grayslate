@@ -82,6 +82,7 @@ pub const E2E_COMMANDS: &[&str] = &[
     "e2e_arm_minimize_probe",
     "e2e_arm_navigation_probe",
     "e2e_arm_operation_gate",
+    "e2e_drop_paths",
     "e2e_force_autosave_cycle",
     "e2e_minimize_observation",
     "e2e_navigation_observation",
