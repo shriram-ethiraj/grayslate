@@ -223,6 +223,15 @@ export async function search(query: string): Promise<void> {
   await input.setValue(query);
 }
 
+export async function focusSearch(): Promise<void> {
+  const input = await byTestId("sidebar-search-input");
+  await input.waitForDisplayed({
+    timeout: TIMEOUTS.ui,
+    timeoutMsg: "The sidebar search input never appeared.",
+  });
+  await input.click();
+}
+
 export async function clearSearch(): Promise<void> {
   await clickTestId("sidebar-clear-search");
 }

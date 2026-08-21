@@ -2,6 +2,7 @@
   import { EditorView } from "codemirror";
   import EditorContextMenu from "$lib/editor/components/EditorContextMenu.svelte";
   import FindReplace from "$lib/editor/components/FindReplace.svelte";
+  import { clearMarkdownPreviewSelection } from "$lib/editor/components/markdown/previewActions";
   import { editorState } from "$lib/state/editor.svelte";
   import { updateSearchStats } from "$lib/editor/core/actions";
   import {
@@ -172,11 +173,10 @@
     function activateEditorSurface() {
       editorState.activeSurface = "editor";
       // Clear any DOM text selection from the markdown preview so the
-      // two panes don't show simultaneous highlights side-by-side.
-      const domSel = window.getSelection();
-      if (domSel && !domSel.isCollapsed) {
-        domSel.removeAllRanges();
-      }
+      // two panes don't show simultaneous highlights side-by-side. Keep
+      // CodeMirror-owned DOM selection intact: WKWebView uses it to reconcile
+      // pointer gestures with the EditorState selection.
+      clearMarkdownPreviewSelection();
     }
 
     // Assign to both the local $state variable and the bindable prop so

@@ -5,7 +5,7 @@ import {
   releaseOperationGate,
   waitForOperationGate,
 } from "../driver/operationGate.js";
-import { pressMod, SHIFT, TAB } from "../driver/keys.js";
+import { pressMod, pressModShift, SHIFT, TAB, typeText } from "../driver/keys.js";
 import { readComputedStyleBySelector, readDocumentLength } from "../driver/probe.js";
 import { waitFor } from "../driver/wait.js";
 import { openText } from "../fixtures/factories.js";
@@ -14,6 +14,7 @@ import { clickTestId, pressEscape } from "../pages/common.js";
 import * as dialogs from "../pages/dialogs.js";
 import * as editor from "../pages/editor.js";
 import * as findReplace from "../pages/findReplace.js";
+import * as sidebar from "../pages/sidebar.js";
 import * as statusBar from "../pages/statusBar.js";
 import * as titleBar from "../pages/titleBar.js";
 
@@ -25,6 +26,11 @@ import * as titleBar from "../pages/titleBar.js";
  * waited for rather than read straight after typing.
  */
 const HAYSTACK = "alpha Alpha ALPHA alphabet\nbeta\nalpha\n";
+
+async function redoFocusedControl(): Promise<void> {
+  if (process.platform === "darwin") await pressModShift("z");
+  else await pressMod("y");
+}
 
 describe("Editor core", () => {
   scenario(
@@ -345,6 +351,91 @@ describe("Editor core", () => {
     await editor.redo();
     await editor.waitForExactText("original and more");
   });
+
+  scenario(
+    "editor.focused-text-shortcuts",
+    "keeps standard editing commands inside sidebar and find textboxes",
+    async () => {
+      const documentText = "editor content must not change";
+      await openText("focused-shortcuts.txt", documentText);
+
+      await sidebar.ensureOpen();
+      await sidebar.search("");
+      await sidebar.focusSearch();
+      await typeText("sidebar query");
+
+      await pressMod("a");
+      await typeText("replacement");
+      expect(await sidebar.searchValue()).toBe("replacement");
+      await editor.waitForExactText(documentText);
+
+      await typeText("!");
+      const sidebarEditedValue = await sidebar.searchValue();
+      await pressMod("z");
+      await waitFor(async () => (await sidebar.searchValue()) !== sidebarEditedValue, {
+        message: "Undo did not stay within the sidebar search input.",
+      });
+      await redoFocusedControl();
+      await waitFor(async () => (await sidebar.searchValue()) === sidebarEditedValue, {
+        message: "Redo did not restore the sidebar search input.",
+      });
+
+      await pressMod("a");
+      await pressMod("c");
+      await waitForClipboardText(sidebarEditedValue);
+      await pressMod("x");
+      await waitFor(async () => (await sidebar.searchValue()) === "", {
+        message: "Cut did not clear the selected sidebar query.",
+      });
+      await editor.waitForExactText(documentText);
+      await pressMod("v");
+      await waitFor(async () => (await sidebar.searchValue()) === sidebarEditedValue, {
+        message: "Paste did not restore the sidebar query.",
+      });
+      await sidebar.clearSearch();
+
+      await editor.focus();
+      await findReplace.openReplace();
+      await findReplace.focusQuery();
+      await typeText("find text");
+      await pressMod("a");
+      await typeText("needle");
+      expect(await findReplace.queryValue()).toBe("needle");
+
+      await typeText("!");
+      const findEditedValue = await findReplace.queryValue();
+      await pressMod("z");
+      await waitFor(async () => (await findReplace.queryValue()) !== findEditedValue, {
+        message: "Undo did not stay within the Find textbox.",
+      });
+      await redoFocusedControl();
+      await waitFor(async () => (await findReplace.queryValue()) === findEditedValue, {
+        message: "Redo did not restore the Find textbox.",
+      });
+
+      await findReplace.focusReplacement();
+      await typeText("replacement text");
+      await pressMod("a");
+      await typeText("swap");
+      expect(await findReplace.replacementValue()).toBe("swap");
+
+      await typeText("!");
+      const replaceEditedValue = await findReplace.replacementValue();
+      await pressMod("z");
+      await waitFor(
+        async () => (await findReplace.replacementValue()) !== replaceEditedValue,
+        { message: "Undo did not stay within the Replace textbox." },
+      );
+      await redoFocusedControl();
+      await waitFor(
+        async () => (await findReplace.replacementValue()) === replaceEditedValue,
+        { message: "Redo did not restore the Replace textbox." },
+      );
+
+      await editor.waitForExactText(documentText);
+      await pressEscape();
+    },
+  );
 
   scenario(
     "editor.clipboard.copy-document",

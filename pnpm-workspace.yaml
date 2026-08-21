@@ -6,3 +6,5 @@ packages:
 onlyBuiltDependencies:
   - esbuild
   - '@tailwindcss/oxide'
+patchedDependencies:
+  '@codemirror/view@6.43.9': patches/@codemirror__view@6.43.9.patch

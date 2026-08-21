@@ -1,0 +1,30 @@
+diff --git a/dist/index.cjs b/dist/index.cjs
+index f1d7845929c970496a2b60b4d7200ffce8e69fa8..a2665bfd874c6cb9a2a754ee5d7279fdd83fcff2 100644
+--- a/dist/index.cjs
++++ b/dist/index.cjs
+@@ -702,8 +702,8 @@ function restoreScrollStack(stack, vert = true) {
+     }
+ }
+ let preventScrollSupported = null;
+-// Safari 26 breaks preventScroll support
+-if (browser.safari && browser.safari_version >= 26)
++// Safari 26 and versionless WKWebViews break preventScroll support
++if (browser.safari && (browser.safari_version >= 26 || browser.safari_version === 0))
+     preventScrollSupported = false;
+ // Feature-detects support for .focus({preventScroll: true}), and uses
+ // a fallback kludge when not supported.
+diff --git a/dist/index.js b/dist/index.js
+index c2513c71f4a9df0e1391c9c320ba91b2b2b73338..2199a63d2578167dc853fc5ac0706b36e811f023 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -699,8 +699,8 @@ function restoreScrollStack(stack, vert = true) {
+     }
+ }
+ let preventScrollSupported = null;
+-// Safari 26 breaks preventScroll support
+-if (browser.safari && browser.safari_version >= 26)
++// Safari 26 and versionless WKWebViews break preventScroll support
++if (browser.safari && (browser.safari_version >= 26 || browser.safari_version === 0))
+     preventScrollSupported = false;
+ // Feature-detects support for .focus({preventScroll: true}), and uses
+ // a fallback kludge when not supported.
