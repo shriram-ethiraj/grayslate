@@ -44,7 +44,41 @@ struct DroppedPathQueue {
     batches: VecDeque<DroppedPathBatch>,
 }
 
-static EARLY_CLI_ACTIVATIONS: OnceLock<Mutex<VecDeque<Vec<PathBuf>>>> = OnceLock::new();
+#[derive(Default)]
+struct StagedPathActivationQueue {
+    pending: Mutex<VecDeque<Vec<PathBuf>>>,
+}
+
+static STAGED_PATH_ACTIVATIONS: OnceLock<StagedPathActivationQueue> = OnceLock::new();
+
+impl StagedPathActivationQueue {
+    fn push(&self, paths: Vec<PathBuf>) {
+        self.pending
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .push_back(paths);
+    }
+
+    fn drain_if_ready(&self, ready: bool) -> Vec<Vec<PathBuf>> {
+        if !ready {
+            return Vec::new();
+        }
+
+        self.pending
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .drain(..)
+            .collect()
+    }
+
+    #[cfg(test)]
+    fn is_empty(&self) -> bool {
+        self.pending
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .is_empty()
+    }
+}
 
 impl ExternalOpenState {
     fn push(&self, request: ExternalOpenRequest) {
@@ -131,8 +165,7 @@ pub fn enqueue_cli_activation(
         .into_iter()
         .filter_map(|argument| argument_to_path(&argument, cwd))
         .collect::<Vec<_>>();
-    stage_cli_paths(paths);
-    flush_staged_cli_activations(app);
+    enqueue_path_activation(app, paths);
 }
 
 pub fn enqueue_initial_activation(app: &tauri::AppHandle) {
@@ -152,56 +185,66 @@ pub fn enqueue_initial_activation(app: &tauri::AppHandle) {
         })
         .collect::<Vec<_>>();
     let has_paths = !paths.is_empty();
-    stage_cli_paths(paths);
-    flush_staged_cli_activations(app);
+    enqueue_path_activation(app, paths);
     if has_paths {
         focus_main_window(app);
     }
 }
 
-fn stage_cli_paths(paths: Vec<PathBuf>) {
-    if paths.is_empty() {
-        return;
-    }
-    EARLY_CLI_ACTIVATIONS
-        .get_or_init(|| Mutex::new(VecDeque::new()))
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .push_back(paths);
+fn staged_path_activations() -> &'static StagedPathActivationQueue {
+    STAGED_PATH_ACTIVATIONS.get_or_init(StagedPathActivationQueue::default)
 }
 
-/// A secondary instance can reach the plugin during the narrow interval
-/// between plugin setup and application setup. Keep those argv batches in a
-/// process-local staging queue until the storage and document states exist.
-pub fn flush_staged_cli_activations(app: &tauri::AppHandle) {
-    if app.try_state::<AppStorage>().is_none()
-        || app.try_state::<DocumentRegistry>().is_none()
-        || app.try_state::<ExternalOpenState>().is_none()
-    {
-        return;
+fn activation_states_ready(app: &tauri::AppHandle) -> bool {
+    app.try_state::<AppStorage>().is_some()
+        && app.try_state::<DocumentRegistry>().is_some()
+        && app.try_state::<ExternalOpenState>().is_some()
+}
+
+fn stage_and_drain_if_ready(
+    queue: &StagedPathActivationQueue,
+    paths: Vec<PathBuf>,
+    ready: impl FnOnce() -> bool,
+) -> Vec<Vec<PathBuf>> {
+    if paths.is_empty() {
+        return Vec::new();
     }
 
-    let Some(staged) = EARLY_CLI_ACTIVATIONS.get() else {
-        return;
-    };
-    let batches = {
-        let mut staged = staged
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        staged.drain(..).collect::<Vec<_>>()
-    };
+    // Stage before checking readiness. If setup completes concurrently, either
+    // its flush drains this batch or the readiness check below does; the batch
+    // cannot land after setup's final flush with nobody left to process it.
+    queue.push(paths);
+    queue.drain_if_ready(ready())
+}
+
+fn enqueue_path_activation(app: &tauri::AppHandle, paths: Vec<PathBuf>) {
+    let batches = stage_and_drain_if_ready(staged_path_activations(), paths, || {
+        activation_states_ready(app)
+    });
     for paths in batches {
         enqueue_paths(app, "main", paths);
     }
 }
 
+/// Native OS activation can arrive before Tauri's setup callback. Keep every
+/// path batch process-local until storage, document grants, and request state
+/// have all been managed, then replay the batches in arrival order.
+pub fn flush_staged_path_activations(app: &tauri::AppHandle) {
+    let batches = staged_path_activations().drain_if_ready(activation_states_ready(app));
+    for paths in batches {
+        enqueue_paths(app, "main", paths);
+    }
+}
+
+fn opened_urls_to_paths(urls: impl IntoIterator<Item = Url>) -> Vec<PathBuf> {
+    urls.into_iter()
+        .filter_map(|url| url.to_file_path().ok())
+        .collect()
+}
+
 #[cfg(target_os = "macos")]
 pub fn enqueue_opened_urls(app: &tauri::AppHandle, urls: Vec<Url>) {
-    let paths = urls
-        .into_iter()
-        .filter_map(|url| url.to_file_path().ok())
-        .collect::<Vec<_>>();
-    enqueue_paths(app, "main", paths);
+    enqueue_path_activation(app, opened_urls_to_paths(urls));
 }
 
 /// Accept file paths supplied by Tauri's native drag/drop window event.
@@ -401,6 +444,48 @@ mod tests {
     #[test]
     fn argv_ignores_flags() {
         assert_eq!(argument_to_path("--verbose", Path::new("/work")), None);
+    }
+
+    #[test]
+    fn staged_activations_wait_for_readiness_and_drain_once() {
+        let queue = StagedPathActivationQueue::default();
+        let first = vec![PathBuf::from("first.json")];
+
+        assert!(stage_and_drain_if_ready(&queue, first.clone(), || false).is_empty());
+        assert!(!queue.is_empty());
+        assert_eq!(queue.drain_if_ready(true), vec![first]);
+        assert!(queue.drain_if_ready(true).is_empty());
+        assert!(queue.is_empty());
+    }
+
+    #[test]
+    fn staged_activations_are_fifo_and_ready_batches_drain_immediately() {
+        let queue = StagedPathActivationQueue::default();
+        let first = vec![PathBuf::from("first.json")];
+        let second = vec![PathBuf::from("second.jsonl")];
+        let ready = vec![PathBuf::from("ready.txt")];
+
+        assert!(stage_and_drain_if_ready(&queue, first.clone(), || false).is_empty());
+        assert!(stage_and_drain_if_ready(&queue, second.clone(), || false).is_empty());
+        assert_eq!(
+            stage_and_drain_if_ready(&queue, ready.clone(), || true),
+            vec![first, second, ready]
+        );
+        assert!(queue.is_empty());
+    }
+
+    #[test]
+    fn empty_and_non_file_url_activations_are_ignored() {
+        let queue = StagedPathActivationQueue::default();
+        assert!(stage_and_drain_if_ready(&queue, Vec::new(), || true).is_empty());
+        assert!(queue.is_empty());
+
+        let urls = vec![
+            Url::parse("https://example.com/example.json").unwrap(),
+            Url::parse("mailto:test@example.com").unwrap(),
+        ];
+        assert!(opened_urls_to_paths(urls).is_empty());
+        assert!(queue.is_empty());
     }
 
     #[test]

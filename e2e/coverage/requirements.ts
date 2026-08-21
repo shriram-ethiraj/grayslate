@@ -56,6 +56,7 @@ export const REQUIREMENTS: readonly Requirement[] = [
   { id: "file.slate.switch-flushes", area: "file-lifecycle", behavior: "Switching away from a slate flushes the pending edit to the same file.", coverage: "e2e" },
   { id: "file.slate.close-flushes", area: "file-lifecycle", behavior: "Closing the window flushes a slate without prompting, since slates are never dirty.", coverage: "e2e" },
   { id: "file.external.open", area: "file-lifecycle", behavior: "An external file opens as a local document and appears under All and Local.", coverage: "e2e" },
+  { id: "file.association.os-activation", area: "file-lifecycle", behavior: "An associated file opens through the OS on both cold and warm application activation.", coverage: "manual", reason: "Linux WebDriver cannot synthesize macOS LaunchServices Apple events; verify cold and warm Open With behavior against the packaged macOS artifact.", owner: "release reviewer" },
   { id: "file.drop.multiple", area: "file-lifecycle", behavior: "Dropping several valid files tracks all of them and opens the last file in OS order.", coverage: "e2e" },
   { id: "file.drop.invalid-batch", area: "file-lifecycle", behavior: "An entirely invalid drop warns and leaves the active editor unchanged.", coverage: "e2e" },
   { id: "file.drop.unsaved-guard", area: "file-lifecycle", behavior: "A dropped file uses the normal unsaved-local-file Cancel and Discard guard.", coverage: "e2e" },
