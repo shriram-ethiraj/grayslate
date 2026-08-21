@@ -360,7 +360,6 @@ describe("Editor core", () => {
       await openText("focused-shortcuts.txt", documentText);
 
       await sidebar.ensureOpen();
-      await sidebar.search("");
       await sidebar.focusSearch();
       await typeText("sidebar query");
 
