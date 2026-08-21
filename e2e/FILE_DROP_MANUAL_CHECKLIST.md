@@ -29,10 +29,15 @@ that Tauri receives from Windows, macOS, or Linux.
   and collapsed, and while a large CSV is in table mode. Confirm there is no
   layout growth, excessive CPU use, or virtualizer instability.
 
-## Platform launcher behavior
+## Platform launcher and file-association behavior
 
 - **macOS:** Drop an associated file on the Grayslate Dock icon. Confirm the app
   activates and opens it through the same unsaved-change guard.
+- **macOS:** With Grayslate fully closed, use Finder's **Open With** on a small
+  `.json` file and then on a `.jsonl` file. Confirm each cold launch survives,
+  opens the requested document, and produces no new Grayslate `.ips` crash
+  report. Repeat **Open With** while Grayslate is already running and confirm
+  the existing process focuses and opens the document.
 - **Linux:** On desktop environments that support launcher drops, drop one or
   more associated files on the launcher and confirm `%F` delivers them in order.
   Record the distribution, desktop environment, and packaging format.
