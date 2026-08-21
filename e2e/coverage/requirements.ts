@@ -125,6 +125,7 @@ export const REQUIREMENTS: readonly Requirement[] = [
   { id: "editor.word-wrap.toggle", area: "editor", behavior: "Word wrap toggles to a definite state.", coverage: "e2e" },
   { id: "editor.font-size", area: "editor", behavior: "Font size increases, decreases, and resets.", coverage: "e2e" },
   { id: "editor.undo-redo", area: "editor", behavior: "Undo and redo round-trip an edit exactly.", coverage: "e2e" },
+  { id: "editor.focused-text-shortcuts", area: "editor", behavior: "Standard editing shortcuts stay within the focused textbox instead of mutating the document editor.", coverage: "e2e" },
   { id: "editor.clipboard.copy-document", area: "editor", behavior: "Copy places the whole document on the system clipboard.", coverage: "e2e" },
   { id: "editor.clipboard.cut-paste-select-all", area: "editor", behavior: "Cut, paste, and select all operate on the real selection.", coverage: "e2e" },
   { id: "editor.context-menu.clipboard", area: "editor", behavior: "The editor context menu cuts, copies, and selects all.", coverage: "e2e" },

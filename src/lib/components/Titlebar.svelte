@@ -43,6 +43,10 @@
     editorSelectAll,
   } from "$lib/editor/core/actions";
   import {
+    handleFocusedTextEdit,
+    type FocusedTextEditAction,
+  } from "$lib/editor/focusedTextEdit";
+  import {
     copyMarkdownPreviewSelectionOrAll,
     isMarkdownPreviewActive,
     selectAllMarkdownPreview,
@@ -158,7 +162,7 @@
         void handleCheckForUpdates();
       });
 
-      unlistenEditAction = await listen<string>(
+      unlistenEditAction = await listen<EditAction>(
         "menu://edit-action",
         (event) => {
           handleEdit(event.payload);
@@ -226,7 +230,14 @@
     await emit("menu://save-file-as");
   }
 
-  async function handleEdit(action: string) {
+  type EditAction =
+    | FocusedTextEditAction
+    | "goToLine"
+    | "find"
+    | "findFiles"
+    | "replace";
+
+  async function handleEdit(action: EditAction) {
     const view = editorState.activeView;
     const isCsvTableVisible =
       editorState.fileType === "csv" && editorState.csv.showTable;
@@ -234,6 +245,25 @@
       editorState.fileType === "markdown" && editorState.markdown.showPreview;
     const markdownPreviewActive =
       isMarkdownPreviewVisible && isMarkdownPreviewActive();
+
+    const activeElement = document.activeElement;
+    const csvEditInputOwnsCopy =
+      action === "copy" &&
+      isCsvTableVisible &&
+      activeElement instanceof HTMLElement &&
+      activeElement.closest('[data-testid="csv-table"]') !== null;
+
+    if (
+      !csvEditInputOwnsCopy &&
+      (action === "undo" ||
+        action === "redo" ||
+        action === "cut" ||
+        action === "copy" ||
+        action === "selectAll") &&
+      handleFocusedTextEdit(action, view?.dom)
+    ) {
+      return;
+    }
 
     switch (action) {
       case "undo":

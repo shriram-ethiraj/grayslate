@@ -80,6 +80,24 @@ export function hasMarkdownPreviewSelection(): boolean {
   return getMarkdownPreviewSelectionText().length > 0;
 }
 
+/** Clear only a native DOM selection that belongs to the Markdown preview. */
+export function clearMarkdownPreviewSelection(): boolean {
+  if (!previewElement) return false;
+
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+    return false;
+  }
+
+  const belongsToPreview =
+    isNodeInsidePreview(selection.anchorNode, previewElement) ||
+    isNodeInsidePreview(selection.focusNode, previewElement);
+  if (!belongsToPreview) return false;
+
+  selection.removeAllRanges();
+  return true;
+}
+
 /** Copy text captured before a context-menu item takes browser focus. */
 export async function copyMarkdownPreviewText(text: string): Promise<boolean> {
   if (!text) return false;

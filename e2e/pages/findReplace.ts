@@ -54,6 +54,32 @@ export async function setReplacement(value: string): Promise<void> {
   await input.setValue(value);
 }
 
+export async function focusQuery(): Promise<void> {
+  const input = await byTestId("find-input");
+  await input.waitForDisplayed({
+    timeout: TIMEOUTS.ui,
+    timeoutMsg: "The find input never appeared.",
+  });
+  await input.click();
+}
+
+export async function focusReplacement(): Promise<void> {
+  const input = await byTestId("replace-input");
+  await input.waitForDisplayed({
+    timeout: TIMEOUTS.ui,
+    timeoutMsg: "The replace input never appeared.",
+  });
+  await input.click();
+}
+
+export async function queryValue(): Promise<string> {
+  return (await byTestId("find-input")).getValue();
+}
+
+export async function replacementValue(): Promise<string> {
+  return (await byTestId("replace-input")).getValue();
+}
+
 export async function toggleOption(option: "case" | "word" | "regex"): Promise<void> {
   await clickTestId(`find-opt-${option}`);
 }
