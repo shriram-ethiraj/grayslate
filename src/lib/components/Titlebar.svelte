@@ -344,6 +344,54 @@
     }
   }
 
+  function handleLinuxFocusedTextShortcut(
+    event: KeyboardEvent,
+    action: "undo" | "redo",
+  ): void {
+    if (!handleFocusedTextEdit(action, editorState.activeView?.dom)) return;
+
+    // WebKitGTK does not reliably apply its native input history command for
+    // Ctrl+Z / Ctrl+Y. Claim the shortcut only when a regular text control
+    // owns focus; CodeMirror and CSV table history continue through their own
+    // scoped keymaps.
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  $effect(() => {
+    if (!isLinux) return;
+
+    return registerHotkeys([
+      {
+        key: "Mod+Z",
+        callback: (event) => handleLinuxFocusedTextShortcut(event, "undo"),
+        options: {
+          ignoreInputs: false,
+          preventDefault: false,
+          stopPropagation: false,
+        },
+      },
+      {
+        key: "Mod+Shift+Z",
+        callback: (event) => handleLinuxFocusedTextShortcut(event, "redo"),
+        options: {
+          ignoreInputs: false,
+          preventDefault: false,
+          stopPropagation: false,
+        },
+      },
+      {
+        key: "Mod+Y",
+        callback: (event) => handleLinuxFocusedTextShortcut(event, "redo"),
+        options: {
+          ignoreInputs: false,
+          preventDefault: false,
+          stopPropagation: false,
+        },
+      },
+    ]);
+  });
+
   $effect(() => {
     return registerHotkeys([
       {

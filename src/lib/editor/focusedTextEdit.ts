@@ -65,11 +65,13 @@ function selectTextControlContents(
 }
 
 /**
- * Route a macOS native Edit-menu action to the focused browser text control.
+ * Route an intercepted edit action to the focused browser text control.
  *
- * Custom native menu accelerators consume the original key event before
- * WKWebView can apply its normal input behavior. Re-running the browser edit
- * command here preserves the focused control's own selection and undo history.
+ * Custom macOS menu accelerators consume the original key event before
+ * WKWebView can apply its normal input behavior, while WebKitGTK does not
+ * reliably apply native undo/redo shortcuts to controlled inputs. Re-running
+ * the browser edit command here preserves the focused control's own selection
+ * and undo history on both paths.
  * Returning true means the action was claimed even if there was nothing to
  * copy, cut, undo, or redo, so the command must never fall through to the
  * document editor.
