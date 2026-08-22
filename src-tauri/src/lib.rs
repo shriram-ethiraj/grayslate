@@ -120,7 +120,7 @@ pub fn run() {
             window::apply_macos_window_styling(app);
 
             #[cfg(not(any(target_os = "android", target_os = "ios")))]
-            commands::external_open::flush_staged_cli_activations(app.handle());
+            commands::external_open::flush_staged_path_activations(app.handle());
 
             #[cfg(any(target_os = "windows", target_os = "linux"))]
             commands::external_open::enqueue_initial_activation(app.handle());
