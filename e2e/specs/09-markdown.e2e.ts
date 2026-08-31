@@ -23,6 +23,7 @@ import {
 import { waitForClipboardText } from "../driver/clipboard.js";
 import * as editor from "../pages/editor.js";
 import * as markdown from "../pages/markdown.js";
+import * as transformations from "../pages/transformations.js";
 
 /**
  * Markdown preview.
@@ -162,6 +163,7 @@ describe("Markdown preview", () => {
       await markdown.openContextMenu();
       await markdown.chooseContextMenuItem("copy");
       await waitForClipboardText(selected);
+      await transformations.waitForToast("Content copied to clipboard.");
       await markdown.setVisible(false);
     },
   );

@@ -112,6 +112,15 @@ impl CsvSessionRegistry {
             entry.flag.store(true, Ordering::Relaxed);
         }
     }
+
+    pub fn dispose_window(&self, window_label: &str) {
+        self.cancel(window_label);
+        self.remove(window_label);
+        self.cancel_flags
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .remove(window_label);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -181,8 +190,7 @@ pub async fn csv_initialize(
 #[tauri::command]
 pub fn csv_dispose(registry: tauri::State<'_, CsvSessionRegistry>, window: Window) {
     let window_label = window.label();
-    registry.cancel(window_label);
-    registry.remove(window_label);
+    registry.dispose_window(window_label);
 
     #[cfg(feature = "e2e")]
     crate::commands::e2e::operation_mark_reached("csv-dispose");

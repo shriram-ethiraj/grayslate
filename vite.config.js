@@ -91,6 +91,72 @@ function serveRawIconsOnWindows() {
   };
 }
 
+/**
+ * Fail production builds if a future static import reconnects the first-frame
+ * shell to CodeMirror or other intentionally deferred application surfaces.
+ * Dynamic imports are boundaries and are deliberately not traversed.
+ *
+ * @returns {import("vite").Plugin}
+ */
+function enforceStartupBundleBoundary() {
+  let isSsrBuild = false;
+
+  return {
+    name: "grayslate:startup-bundle-boundary",
+    configResolved(config) {
+      isSsrBuild = Boolean(config.build.ssr);
+    },
+    generateBundle(_options, bundle) {
+      if (isSsrBuild) return;
+
+      /** @type {Map<string, { fileName: string, imports: string[], modules: Record<string, unknown> }>} */
+      const chunks = new Map();
+      for (const output of Object.values(bundle)) {
+        if (output.type === "chunk") chunks.set(output.fileName, output);
+      }
+      const roots = [...chunks.values()].filter((chunk) =>
+        Object.keys(chunk.modules).some((moduleId) =>
+          moduleId.endsWith("/src/routes/+layout.svelte") ||
+          moduleId.endsWith("/src/routes/+page.svelte"),
+        ),
+      );
+      /** @type {Set<string>} */
+      const reachable = new Set();
+      /** @param {{ fileName: string, imports: string[], modules: Record<string, unknown> }} chunk */
+      const visit = (chunk) => {
+        if (reachable.has(chunk.fileName)) return;
+        reachable.add(chunk.fileName);
+        for (const imported of chunk.imports) {
+          const dependency = chunks.get(imported);
+          if (dependency) visit(dependency);
+        }
+      };
+      roots.forEach(visit);
+
+      const forbiddenFragments = [
+        "/node_modules/.pnpm/@codemirror+",
+        "/node_modules/@codemirror/",
+        "/node_modules/.pnpm/codemirror@",
+        "/src/lib/editor/components/EditorWrapper.svelte",
+        "/src/lib/components/app-sidebar.svelte",
+      ];
+      const violations = [...reachable].flatMap((fileName) => {
+        const chunk = chunks.get(fileName);
+        if (!chunk) return [];
+        return Object.keys(chunk.modules).filter((moduleId) =>
+          forbiddenFragments.some((fragment) => moduleId.includes(fragment)),
+        );
+      });
+
+      if (violations.length > 0) {
+        this.error(
+          `Startup shell contains deferred modules:\n${[...new Set(violations)].join("\n")}`,
+        );
+      }
+    },
+  };
+}
+
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => ({
   plugins: [
@@ -102,6 +168,7 @@ export default defineConfig(({ mode }) => ({
       autoInstall: false,
     }),
     serveRawIconsOnWindows(),
+    enforceStartupBundleBoundary(),
   ],
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //

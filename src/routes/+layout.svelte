@@ -1,9 +1,10 @@
 <script lang="ts">
-	import { onDestroy, onMount } from "svelte";
+	import { onDestroy, onMount, type Component } from "svelte";
 	import { tick } from "svelte";
-	import AppSidebar from "$lib/components/app-sidebar.svelte";
 	import ThemeToggle from "$lib/components/theme-toggle.svelte";
 	import Titlebar from "$lib/components/Titlebar.svelte";
+	import StartupReveal from "$lib/components/StartupReveal.svelte";
+	import { Button } from "$lib/components/ui/button/index.js";
 	import * as Sidebar from "$lib/components/ui/sidebar/index.js";
 	import * as Tooltip from "$lib/components/ui/tooltip/index.js";
 	import { TooltipButton } from "$lib/components/ui/tooltip/index.js";
@@ -18,7 +19,8 @@
 		ResizablePane,
 		ResizableHandle,
 	} from "$lib/components/ui/resizable/index.js";
-	import { emit } from "@tauri-apps/api/event";
+	import { getCurrentWindow } from "@tauri-apps/api/window";
+	import { emitToCurrentWindow } from "$lib/windowing";
 	import { Toaster } from "$lib/components/ui/sonner/index.js";
 	import EditorActions from "$lib/editor/components/EditorActions.svelte";
 	import FileDropOverlay from "$lib/components/FileDropOverlay.svelte";
@@ -26,15 +28,13 @@
 	import { initPlatformState, platformState } from "$lib/state/platform.svelte";
 	import { formatShortcutTooltip } from "$lib/shortcuts";
 	import {
-		appSettingsState,
 		loadAllSettings,
-		applyTheme,
+		applyThemeClass,
 		hydrateAppSettingsState,
 	} from "$lib/state/appSettings.svelte";
 	import {
-		appMenuState,
 		ensureAppInfoLoaded,
-		startAutomaticUpdateChecks,
+		startUpdateStatusSync,
 	} from "$lib/state/appMenu.svelte";
 	import {
 		beginTrackedWork,
@@ -45,6 +45,9 @@
 	import "./layout.css";
 
 	const { children } = $props();
+	const appWindow = getCurrentWindow();
+	type SettingChangedPayload = { key: string; value: string | null };
+	type AppSidebarProps = { onReady?: () => void };
 
 	const isE2EMode = import.meta.env.MODE === "e2e";
 	const tooltipDelayDuration = isE2EMode ? 0 : 500;
@@ -57,19 +60,32 @@
 	let sidebarPaneElement: HTMLDivElement | null = $state(null);
 	let sidebarOpen = $state(false);
 	let settingsHydrated = $state(false);
-	let appInfoReady = $state(false);
+	let shellElement: HTMLDivElement | null = $state(null);
+	let shellRevealed = $state(false);
+	let bootShellDismissed = false;
+	let AppSidebar = $state<Component<AppSidebarProps> | undefined>(undefined);
+	let sidebarContentReady = $state(false);
+	let sidebarPaneReady = $state(false);
+	let sidebarRevealComplete = $state(false);
+	let sidebarLoadError = $state<string | undefined>(undefined);
+	let sidebarRevealGeneration = $state(0);
+	let sidebarImportPromise: Promise<void> | undefined;
+	let shellRevealFrame: number | undefined;
+	let shellRevealRecovery: ReturnType<typeof setTimeout> | undefined;
+	let finishTrackedShellReveal: (() => void) | undefined;
 
 	/** Transition class applied only during programmatic toggle, NOT during drag. */
 	let animating = $state(false);
 	let expandingProgrammatically = $state(false);
-	const SIDEBAR_TRANSITION_RECOVERY_MS = 1_000;
+	const SIDEBAR_TRANSITION_RECOVERY_MS = 350;
 	let sidebarTransitionRecovery: ReturnType<typeof setTimeout> | undefined;
 	let finishTrackedSidebarTransition: (() => void) | undefined;
 
 	/** The last non-zero size of the sidebar pane, used to restore after close. */
 	let lastExpandedSize = $state(20);
 
-	function finishProgrammaticSidebarTransition(): void {
+	function finishProgrammaticSidebarTransition(markExpansionReady = true): void {
+		const completedExpansion = markExpansionReady && expandingProgrammatically;
 		if (sidebarTransitionRecovery !== undefined) {
 			clearTimeout(sidebarTransitionRecovery);
 			sidebarTransitionRecovery = undefined;
@@ -78,10 +94,13 @@
 		finishTrackedSidebarTransition = undefined;
 		animating = false;
 		expandingProgrammatically = false;
+		if (completedExpansion && !sidebarRevealComplete) {
+			sidebarPaneReady = true;
+		}
 	}
 
 	function beginProgrammaticSidebarTransition(expanding: boolean): void {
-		finishProgrammaticSidebarTransition();
+		finishProgrammaticSidebarTransition(false);
 		finishTrackedSidebarTransition = beginTrackedWork("sidebar-programmatic-transition");
 		animating = true;
 		expandingProgrammatically = expanding;
@@ -112,6 +131,10 @@
 		if (settingsHydrated) {
 			setSidebarOpen(newOpen);
 		}
+		if (!sidebarRevealComplete) {
+			sidebarPaneReady = false;
+		}
+		if (newOpen) void ensureSidebarLoaded();
 		beginProgrammaticSidebarTransition(newOpen);
 		tick().then(() => {
 			if (newOpen) {
@@ -156,12 +179,16 @@
 	/** A real pointer drag takes ownership from the programmatic transition. */
 	function handlePaneDraggingChange(isDragging: boolean) {
 		if (isDragging) {
-			finishProgrammaticSidebarTransition();
+			finishProgrammaticSidebarTransition(false);
+			return;
+		}
+		if (sidebarOpen && !sidebarRevealComplete) {
+			sidebarPaneReady = true;
 		}
 	}
 
 	async function handleNewFile() {
-		await emit("menu://new-file");
+		await emitToCurrentWindow("menu://new-file");
 	}
 
 	const isNewFileDisabled = $derived(
@@ -173,6 +200,42 @@
 		const activeElement = document.activeElement;
 
 		return !!activeView && !!activeElement && activeView.dom.contains(activeElement);
+	}
+
+	function finishShellReveal(): void {
+		if (bootShellDismissed) return;
+		bootShellDismissed = true;
+		if (shellRevealFrame !== undefined) cancelAnimationFrame(shellRevealFrame);
+		if (shellRevealRecovery !== undefined) clearTimeout(shellRevealRecovery);
+		shellRevealFrame = undefined;
+		shellRevealRecovery = undefined;
+		performance.mark("grayslate:svelte-shell-ready");
+		document.getElementById("grayslate-boot-shell")?.remove();
+		finishTrackedShellReveal?.();
+		finishTrackedShellReveal = undefined;
+	}
+
+	function startShellReveal(): void {
+		if (shellRevealed || bootShellDismissed) return;
+		finishTrackedShellReveal = beginTrackedWork("startup-shell-reveal");
+		shellRevealFrame = requestAnimationFrame(() => {
+			shellRevealFrame = undefined;
+			shellRevealed = true;
+			if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+				requestAnimationFrame(finishShellReveal);
+				return;
+			}
+			shellRevealRecovery = setTimeout(finishShellReveal, 300);
+		});
+	}
+
+	function handleShellTransitionEnd(event: TransitionEvent): void {
+		if (
+			event.target !== shellElement ||
+			event.currentTarget !== shellElement ||
+			event.propertyName !== "opacity"
+		) return;
+		finishShellReveal();
 	}
 
 	// The test-only runtime must exist before any child component mounts and
@@ -192,17 +255,19 @@
 					// causally blocked until markE2EReady() below.
 					e2eRuntimeReady = true;
 					await tick();
+				} else {
+					await tick();
 				}
+				startShellReveal();
 
-				await initPlatformState();
-				await initAppSettings();
-				try {
-					await ensureAppInfoLoaded();
-				} catch (error) {
-					console.warn("[App bootstrap] Failed to load app/update information:", error);
-				} finally {
-					appInfoReady = true;
-				}
+				const platformPromise = initPlatformState();
+				const settingsPromise = initAppSettings();
+				setTimeout(() => {
+					void ensureAppInfoLoaded().catch((error: unknown) => {
+						console.warn("[App bootstrap] Failed to load app/update information:", error);
+					});
+				}, 500);
+				await Promise.all([platformPromise, settingsPromise]);
 				if (cancelled) return;
 				if (isE2EMode) {
 					// CodeMirror must be created from hydrated preferences. The pane
@@ -232,7 +297,12 @@
 		};
 	});
 
-	onDestroy(finishProgrammaticSidebarTransition);
+	onDestroy(() => {
+		finishProgrammaticSidebarTransition(false);
+		if (shellRevealFrame !== undefined) cancelAnimationFrame(shellRevealFrame);
+		if (shellRevealRecovery !== undefined) clearTimeout(shellRevealRecovery);
+		finishTrackedShellReveal?.();
+	});
 
 	async function initAppSettings() {
 		try {
@@ -253,7 +323,7 @@
 			// Reconcile theme: SQLite is authoritative over localStorage.
 			const isDark = settings.theme === "dark";
 			if (document.documentElement.classList.contains("dark") !== isDark) {
-				applyTheme(isDark);
+				applyThemeClass(isDark);
 			}
 
 		} catch (error) {
@@ -265,27 +335,71 @@
 
 	async function applyHydratedSidebarLayout(): Promise<void> {
 		if (!sidebarOpen) return;
-		// Expanding a collapsed pane first emits its minimum size. Keep the
-		// hydrated target in a local so that intermediate resize notification
-		// cannot replace the width we are about to restore.
+		// Resize directly from collapsed to the persisted target. Calling
+		// expand() first would briefly animate to minSize before resizing again.
 		const hydratedWidth = lastExpandedSize;
+		sidebarPaneReady = false;
 		beginProgrammaticSidebarTransition(true);
-		await tick();
-		sidebarPane?.expand();
 		await tick();
 		sidebarPane?.resize(hydratedWidth);
 	}
 
 	$effect(() => {
-		if (
-			!settingsHydrated ||
-			!appSettingsState.automaticUpdateChecks ||
-			appMenuState.updatePolicy !== "self-update"
-		) {
-			return;
-		}
+		const cleanupPromise = startUpdateStatusSync().catch((error: unknown) => {
+			console.warn("[Updater] Failed to synchronize update status:", error);
+			return undefined;
+		});
+		return () => {
+			void cleanupPromise.then((cleanup) => cleanup?.());
+		};
+	});
 
-		return startAutomaticUpdateChecks();
+	$effect(() => {
+		const unlistenPromise = appWindow.listen<SettingChangedPayload>(
+			"settings://changed",
+			(event) => {
+				if (event.payload.key === "theme") {
+					applyThemeClass(event.payload.value !== "light");
+				}
+			},
+		);
+		return () => {
+			void unlistenPromise.then((unlisten) => unlisten());
+		};
+	});
+
+	function ensureSidebarLoaded(): Promise<void> {
+		if (AppSidebar) return Promise.resolve();
+		if (sidebarImportPromise) return sidebarImportPromise;
+
+		sidebarLoadError = undefined;
+		sidebarContentReady = false;
+		const finishTracking = beginTrackedWork("lazy-sidebar-import");
+		sidebarImportPromise = import("$lib/components/app-sidebar.svelte")
+			.then((module) => {
+				AppSidebar = module.default;
+			})
+			.catch((error: unknown) => {
+				sidebarLoadError = error instanceof Error ? error.message : String(error);
+				sidebarContentReady = true;
+			})
+			.finally(() => {
+				sidebarImportPromise = undefined;
+				finishTracking();
+			});
+		return sidebarImportPromise;
+	}
+
+	function retrySidebarLoad(): void {
+		sidebarRevealGeneration += 1;
+		sidebarRevealComplete = false;
+		sidebarContentReady = false;
+		void ensureSidebarLoaded();
+	}
+
+	$effect(() => {
+		if (!settingsHydrated || !sidebarOpen || AppSidebar || sidebarImportPromise) return;
+		void ensureSidebarLoaded();
 	});
 
 	$effect(() => {
@@ -340,7 +454,12 @@
 	skipDelayDuration={tooltipSkipDelayDuration}
 	disableHoverableContent
 >
-<div class="flex h-screen w-full flex-col overflow-hidden">
+<div
+	bind:this={shellElement}
+	class="startup-shell relative z-10 flex h-screen w-full flex-col overflow-hidden bg-background"
+	data-startup-shell-ready={shellRevealed}
+	ontransitionend={handleShellTransitionEnd}
+>
 	<Titlebar />
 	<!-- Sidebar.Provider supplies open/close state & Ctrl+B shortcut.
 				 Actual sizing is handled by paneforge (ResizablePane), NOT the
@@ -372,8 +491,25 @@
 						? "transition-[flex-grow] duration-200 ease-linear"
 						: ""}
 				>
-					<div class="h-full w-full" style="--sidebar-width: 100%;">
-						<AppSidebar />
+					<div class="flex h-full min-h-0 w-full" style="--sidebar-width: 100%;">
+						{#if sidebarOpen || AppSidebar || sidebarLoadError}
+							{#key sidebarRevealGeneration}
+								<StartupReveal
+									variant="sidebar"
+									ready={sidebarRevealComplete || (sidebarPaneReady && sidebarContentReady)}
+									onRevealComplete={() => { sidebarRevealComplete = true; }}
+								>
+									{#if AppSidebar}
+										<AppSidebar onReady={() => { sidebarContentReady = true; }} />
+									{:else if sidebarLoadError}
+										<div class="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 p-6 text-center" role="alert">
+											<p class="text-sm text-destructive">The sidebar could not be loaded.</p>
+											<Button size="sm" variant="secondary" onclick={retrySidebarLoad}>Retry</Button>
+										</div>
+									{/if}
+								</StartupReveal>
+							{/key}
+						{/if}
 					</div>
 				</ResizablePane>
 				<ResizableHandle
@@ -412,7 +548,7 @@
 							</div>
 						</header>
 						<div class="flex min-h-0 min-w-0 flex-1 flex-col">
-							{#if platformState.ready && appInfoReady && e2eApplicationStateReady}
+							{#if e2eApplicationStateReady}
 								{@render children()}
 							{/if}
 						</div>

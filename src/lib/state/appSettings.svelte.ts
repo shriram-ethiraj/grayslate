@@ -102,7 +102,9 @@ const prefersDark = typeof window !== "undefined"
     ? window.matchMedia("(prefers-color-scheme: dark)").matches
     : true;
 
-export async function loadAllSettings(): Promise<AppSettings> {
+let settingsLoadPromise: Promise<AppSettings> | undefined;
+
+async function loadAllSettingsUncached(): Promise<AppSettings> {
     const raw = await invoke<Record<string, string>>("get_all_settings");
     const storedTheme = raw[KEY_THEME];
     const theme: ThemeSetting = storedTheme === "light" || storedTheme === "dark"
@@ -132,18 +134,37 @@ export async function loadAllSettings(): Promise<AppSettings> {
     };
 }
 
+/** Share the authoritative startup read across layout and editor bootstrap. */
+export function loadAllSettings(): Promise<AppSettings> {
+    settingsLoadPromise ??= loadAllSettingsUncached().catch((error: unknown) => {
+        settingsLoadPromise = undefined;
+        throw error;
+    });
+    return settingsLoadPromise;
+}
+
 export async function saveSetting(key: string, value: string | null): Promise<void> {
     // A `null` value maps to Rust `Option::None`, which deletes the key.
     await invoke("set_app_setting", { key, value });
 }
 
-export function applyTheme(isDark: boolean): void {
+export const themeState = $state<{ current: ThemeSetting }>({
+    current: getThemeFromLocalStorage(),
+});
+
+export function applyThemeClass(isDark: boolean): void {
+    themeState.current = isDark ? "dark" : "light";
     if (isDark) {
         document.documentElement.classList.add("dark");
     } else {
         document.documentElement.classList.remove("dark");
     }
+    document.documentElement.style.colorScheme = isDark ? "dark" : "light";
     localStorage.setItem("theme", isDark ? "dark" : "light");
+}
+
+export function applyTheme(isDark: boolean): void {
+    applyThemeClass(isDark);
     saveSetting(KEY_THEME, isDark ? "dark" : "light");
 }
 

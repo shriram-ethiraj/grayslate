@@ -24,6 +24,7 @@ import * as dialogs from "../pages/dialogs.js";
 import * as editor from "../pages/editor.js";
 import * as sidebar from "../pages/sidebar.js";
 import * as settings from "../pages/settings.js";
+import * as transformations from "../pages/transformations.js";
 import { waitForClipboardText } from "../driver/clipboard.js";
 
 /**
@@ -390,9 +391,8 @@ describe("Library sidebar", () => {
       ]);
 
       await sidebar.cardAction(target, "copy-path");
-      // Assert the clipboard itself rather than the toast copy: the message
-      // wording is presentation, the path on the clipboard is the behavior.
       await waitForClipboardText(target!);
+      await transformations.waitForToast("File path copied to clipboard.");
     },
   );
 

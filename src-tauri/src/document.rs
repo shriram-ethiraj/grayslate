@@ -395,6 +395,26 @@ impl DocumentRegistry {
                 .remove(&(window_label.to_string(), entry.document.path));
         }
     }
+
+    /// Revoke every document capability issued to a window that is closing.
+    pub fn revoke_window(&self, window_label: &str) {
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let ids = state
+            .by_id
+            .iter()
+            .filter_map(|(id, entry)| (entry.window_label == window_label).then(|| id.clone()))
+            .collect::<Vec<_>>();
+        for id in ids {
+            if let Some(entry) = state.by_id.remove(&id) {
+                state
+                    .by_window_path
+                    .remove(&(window_label.to_string(), entry.document.path));
+            }
+        }
+    }
 }
 
 fn validate_existing_regular_file(path: &Path) -> Result<PathBuf, String> {

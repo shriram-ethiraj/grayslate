@@ -1,166 +1,160 @@
-/**
- * languageExtensions.ts
- *
- * Maps a language identifier string to the corresponding CodeMirror 6
- * extension set.  Keeping this in its own module means Editor.svelte does
- * not have to import every language package directly, and the mapping is
- * easily unit-testable in isolation.
- */
-
-import { json } from "@codemirror/lang-json";
-import { javascript } from "@codemirror/lang-javascript";
-import { python } from "@codemirror/lang-python";
-import { html } from "@codemirror/lang-html";
-import { css } from "@codemirror/lang-css";
-import { yaml } from "@codemirror/lang-yaml";
-import { cpp } from "@codemirror/lang-cpp";
-import { java } from "@codemirror/lang-java";
-import { go } from "@codemirror/lang-go";
-import { xml } from "@codemirror/lang-xml";
-import { markdown } from "@codemirror/lang-markdown";
-import { jsonInlayHints } from "$lib/editor/extensions/jsonInlayHints";
-import { jsonFoldWidget } from "$lib/editor/extensions/jsonFoldWidget";
-import { jsonKeyPath } from "$lib/editor/extensions/jsonKeyPath";
-import { svelte } from "@replit/codemirror-lang-svelte";
-import { rust } from "@codemirror/lang-rust";
-import { clojure } from "@nextjournal/lang-clojure";
-import { sql } from "@codemirror/lang-sql";
-import { php } from "@codemirror/lang-php";
-import { sass } from "@codemirror/lang-sass";
-import { jinja } from "@codemirror/lang-jinja";
-import { angular } from "@codemirror/lang-angular";
-import { vue } from "@codemirror/lang-vue";
-
-import { markdownAutocompleteProvider } from "$lib/editor/components/markdown/markdownAutocomplete";
-import { autocompletion } from "@codemirror/autocomplete";
-import { autocompleteDisplayConfig } from "$lib/editor/extensions/autocompleteFactory";
-import { csvRainbowHighlight } from "$lib/editor/extensions/csvRainbowHighlight";
-import { csvCellHeaderTooltip } from "$lib/editor/extensions/csvCellHeaderTooltip";
 import type { Extension } from "@codemirror/state";
-import { StreamLanguage } from "@codemirror/language";
-import { shell } from "@codemirror/legacy-modes/mode/shell";
-import { dockerFile } from "@codemirror/legacy-modes/mode/dockerfile";
-import { nginx } from "@codemirror/legacy-modes/mode/nginx";
-import { powerShell } from "@codemirror/legacy-modes/mode/powershell";
-import { perl } from "@codemirror/legacy-modes/mode/perl";
-import { ruby } from "@codemirror/legacy-modes/mode/ruby";
-import { swift } from "@codemirror/legacy-modes/mode/swift";
-import { toml } from "@codemirror/legacy-modes/mode/toml";
-import {
-    kotlin,
-    objectiveC,
-    objectiveCpp,
-    csharp,
-    scala,
-    dart,
-} from "@codemirror/legacy-modes/mode/clike";
 
-/**
- * Returns the CodeMirror extension (or extension array) for the given
- * language identifier.  Returns an empty array for unknown / plain-text
- * languages so callers can always spread or pass the return value directly.
- */
-export function getLanguageExtension(langId: string): Extension | Extension[] {
-    switch (langId) {
-        case "json":
-        case "jsonl":
-            return [json(), jsonInlayHints, jsonFoldWidget, jsonKeyPath];
-        case "javascript":
-            return javascript({ jsx: true });
-        case "typescript":
-            return javascript({ typescript: true, jsx: true });
-        case "python":
-            return python();
-        case "html":
-            return html();
-        case "css":
-            return css();
-        case "yaml":
-            return yaml();
-        // cpp() covers both C and C++ syntax
-        case "c":
-        case "cpp":
-            return cpp();
-        case "java":
-            return java();
-        case "go":
-            return go();
-        case "xml":
-            return xml();
-        case "svelte":
-            return svelte();
-        case "vue":
-            return vue();
-        case "rust":
-            return rust();
-        case "clojure":
-            return clojure();
-        case "csv":
-            // No Lezer grammar — the rainbow column highlighter IS the
-            // CSV syntax highlighting.  The codemirror-lang-csv grammar
-            // would tag everything as `tags.string`, causing the theme's
-            // green string colour to override the rainbow colours once
-            // the async parse completes.
-            //
-            // Each extension is self-contained and independently
-            // publishable — compose them here for the full experience.
-            return [csvRainbowHighlight, csvCellHeaderTooltip];
-        case "shell":
-            return StreamLanguage.define(shell);
-        // Windows Batch/CMD — no dedicated CM6 highlighter exists; shell is the closest.
-        case "cmd":
-            return StreamLanguage.define(shell);
-        // Email and prompt — plain text with no code highlighting.
-        case "email":
-        case "prompt":
-            return [];
-        case "dockerfile":
-            return StreamLanguage.define(dockerFile);
-        case "markdown":
-            return [
-                markdown(),
-                autocompletion({
-                    ...autocompleteDisplayConfig,
-                    override: [markdownAutocompleteProvider],
-                }),
-            ];
-        case "sql":
-            return sql();
-        case "php":
-            return php();
-        case "sass":
-            return sass({ indented: true });
-        case "scss":
-            return sass();
-        case "jinja":
-            return jinja();
-        case "angular":
-            return angular();
-        case "nginx":
-            return StreamLanguage.define(nginx);
-        case "perl":
-            return StreamLanguage.define(perl);
-        case "powershell":
-            return StreamLanguage.define(powerShell);
-        case "ruby":
-            return StreamLanguage.define(ruby);
-        case "swift":
-            return StreamLanguage.define(swift);
-        case "toml":
-            return StreamLanguage.define(toml);
-        case "kotlin":
-            return StreamLanguage.define(kotlin);
-        case "objectivec":
-            return StreamLanguage.define(objectiveC);
-        case "objectivecpp":
-            return StreamLanguage.define(objectiveCpp);
-        case "csharp":
-            return StreamLanguage.define(csharp);
-        case "scala":
-            return StreamLanguage.define(scala);
-        case "dart":
-            return StreamLanguage.define(dart);
-        default:
-            return [];
+type LanguageExtensionLoader = () => Promise<Extension>;
+
+const extensionPromises = new Map<string, Promise<Extension>>();
+
+function canonicalLanguageId(language: string): string {
+    switch (language) {
+        case "jsonl": return "json";
+        case "c": return "cpp";
+        case "cmd": return "shell";
+        default: return language;
     }
+}
+
+const loaders: Record<string, LanguageExtensionLoader> = {
+    json: async () => {
+        const [language, inlay, fold, keyPath] = await Promise.all([
+            import("@codemirror/lang-json"),
+            import("$lib/editor/extensions/jsonInlayHints"),
+            import("$lib/editor/extensions/jsonFoldWidget"),
+            import("$lib/editor/extensions/jsonKeyPath"),
+        ]);
+        return [language.json(), inlay.jsonInlayHints, fold.jsonFoldWidget, keyPath.jsonKeyPath];
+    },
+    javascript: async () => (await import("@codemirror/lang-javascript")).javascript({ jsx: true }),
+    typescript: async () => (await import("@codemirror/lang-javascript")).javascript({
+        typescript: true,
+        jsx: true,
+    }),
+    python: async () => (await import("@codemirror/lang-python")).python(),
+    html: async () => (await import("@codemirror/lang-html")).html(),
+    css: async () => (await import("@codemirror/lang-css")).css(),
+    yaml: async () => (await import("@codemirror/lang-yaml")).yaml(),
+    cpp: async () => (await import("@codemirror/lang-cpp")).cpp(),
+    java: async () => (await import("@codemirror/lang-java")).java(),
+    go: async () => (await import("@codemirror/lang-go")).go(),
+    xml: async () => (await import("@codemirror/lang-xml")).xml(),
+    svelte: async () => (await import("@replit/codemirror-lang-svelte")).svelte(),
+    vue: async () => (await import("@codemirror/lang-vue")).vue(),
+    rust: async () => (await import("@codemirror/lang-rust")).rust(),
+    clojure: async () => (await import("@nextjournal/lang-clojure")).clojure(),
+    sql: async () => (await import("@codemirror/lang-sql")).sql(),
+    php: async () => (await import("@codemirror/lang-php")).php(),
+    sass: async () => (await import("@codemirror/lang-sass")).sass({ indented: true }),
+    scss: async () => (await import("@codemirror/lang-sass")).sass(),
+    jinja: async () => (await import("@codemirror/lang-jinja")).jinja(),
+    angular: async () => (await import("@codemirror/lang-angular")).angular(),
+    csv: async () => {
+        const [rainbow, tooltip] = await Promise.all([
+            import("$lib/editor/extensions/csvRainbowHighlight"),
+            import("$lib/editor/extensions/csvCellHeaderTooltip"),
+        ]);
+        return [rainbow.csvRainbowHighlight, tooltip.csvCellHeaderTooltip];
+    },
+    markdown: async () => {
+        const [language, autocomplete, provider, display] = await Promise.all([
+            import("@codemirror/lang-markdown"),
+            import("@codemirror/autocomplete"),
+            import("$lib/editor/components/markdown/markdownAutocomplete"),
+            import("$lib/editor/extensions/autocompleteFactory"),
+        ]);
+        return [
+            language.markdown(),
+            autocomplete.autocompletion({
+                ...display.autocompleteDisplayConfig,
+                override: [provider.markdownAutocompleteProvider],
+            }),
+        ];
+    },
+    shell: async () => {
+        const [language, mode] = await Promise.all([
+            import("@codemirror/language"),
+            import("@codemirror/legacy-modes/mode/shell"),
+        ]);
+        return language.StreamLanguage.define(mode.shell);
+    },
+    dockerfile: async () => {
+        const [language, mode] = await Promise.all([
+            import("@codemirror/language"),
+            import("@codemirror/legacy-modes/mode/dockerfile"),
+        ]);
+        return language.StreamLanguage.define(mode.dockerFile);
+    },
+    nginx: async () => {
+        const [language, mode] = await Promise.all([
+            import("@codemirror/language"),
+            import("@codemirror/legacy-modes/mode/nginx"),
+        ]);
+        return language.StreamLanguage.define(mode.nginx);
+    },
+    powershell: async () => {
+        const [language, mode] = await Promise.all([
+            import("@codemirror/language"),
+            import("@codemirror/legacy-modes/mode/powershell"),
+        ]);
+        return language.StreamLanguage.define(mode.powerShell);
+    },
+    perl: async () => {
+        const [language, mode] = await Promise.all([
+            import("@codemirror/language"),
+            import("@codemirror/legacy-modes/mode/perl"),
+        ]);
+        return language.StreamLanguage.define(mode.perl);
+    },
+    ruby: async () => {
+        const [language, mode] = await Promise.all([
+            import("@codemirror/language"),
+            import("@codemirror/legacy-modes/mode/ruby"),
+        ]);
+        return language.StreamLanguage.define(mode.ruby);
+    },
+    swift: async () => {
+        const [language, mode] = await Promise.all([
+            import("@codemirror/language"),
+            import("@codemirror/legacy-modes/mode/swift"),
+        ]);
+        return language.StreamLanguage.define(mode.swift);
+    },
+    toml: async () => {
+        const [language, mode] = await Promise.all([
+            import("@codemirror/language"),
+            import("@codemirror/legacy-modes/mode/toml"),
+        ]);
+        return language.StreamLanguage.define(mode.toml);
+    },
+    kotlin: () => loadCLikeMode("kotlin"),
+    objectivec: () => loadCLikeMode("objectiveC"),
+    objectivecpp: () => loadCLikeMode("objectiveCpp"),
+    csharp: () => loadCLikeMode("csharp"),
+    scala: () => loadCLikeMode("scala"),
+    dart: () => loadCLikeMode("dart"),
+};
+
+type CLikeModeName = "kotlin" | "objectiveC" | "objectiveCpp" | "csharp" | "scala" | "dart";
+
+async function loadCLikeMode(modeName: CLikeModeName): Promise<Extension> {
+    const [language, modes] = await Promise.all([
+        import("@codemirror/language"),
+        import("@codemirror/legacy-modes/mode/clike"),
+    ]);
+    return language.StreamLanguage.define(modes[modeName]);
+}
+
+/** Load and cache only the active document's language support in this webview. */
+export function loadLanguageExtension(language: string): Promise<Extension> {
+    const languageId = canonicalLanguageId(language);
+    const loader = loaders[languageId];
+    if (!loader) return Promise.resolve([]);
+
+    const cached = extensionPromises.get(languageId);
+    if (cached) return cached;
+
+    const loading = loader().catch((error: unknown) => {
+        extensionPromises.delete(languageId);
+        throw error;
+    });
+    extensionPromises.set(languageId, loading);
+    return loading;
 }

@@ -1,16 +1,49 @@
-import { Compartment, EditorState, Transaction, type Annotation } from "@codemirror/state";
-import { indentLess, indentMore, isolateHistory, redo } from "@codemirror/commands";
-import { indentUnit } from "@codemirror/language";
-import { EditorView, gutters, keymap } from "@codemirror/view";
-import { basicSetup } from "codemirror";
+import { Compartment, EditorState, Transaction, type Annotation, type Extension } from "@codemirror/state";
+import {
+    defaultKeymap,
+    history,
+    historyKeymap,
+    indentLess,
+    indentMore,
+    isolateHistory,
+    redo,
+} from "@codemirror/commands";
+import {
+    bracketMatching,
+    defaultHighlightStyle,
+    foldGutter,
+    foldKeymap,
+    indentOnInput,
+    indentUnit,
+    syntaxHighlighting,
+} from "@codemirror/language";
+import {
+    crosshairCursor,
+    drawSelection,
+    dropCursor,
+    EditorView,
+    gutters,
+    highlightActiveLine,
+    highlightActiveLineGutter,
+    highlightSpecialChars,
+    keymap,
+    lineNumbers,
+    rectangularSelection,
+} from "@codemirror/view";
+import {
+    autocompletion,
+    closeBrackets,
+    closeBracketsKeymap,
+    completionKeymap,
+} from "@codemirror/autocomplete";
 import { codeMirrorTooltips } from "$lib/editor/extensions/codeMirrorTooltips";
-import { search } from "@codemirror/search";
+import { highlightSelectionMatches, search } from "@codemirror/search";
 import { scrollPastEnd } from "@codemirror/view";
 import { createTheme } from "$lib/hooks/create-theme";
 import { andromedaConfig } from "$lib/themes/andromeda";
 import { materialLightConfig } from "$lib/themes/material-light";
 import { colorHints } from "$lib/editor/extensions/colorHints";
-import { getLanguageExtension } from "$lib/editor/config/languageExtensions";
+import { loadLanguageExtension } from "$lib/editor/config/languageExtensions";
 import { contextMenuExtension } from "$lib/editor/extensions/contextMenuExtension";
 import {
     editorState,
@@ -74,6 +107,9 @@ export type ManagedEditorSession = {
     decorationCompartment?: Compartment;
     indentCompartment?: Compartment;
     bindings?: SessionBindings;
+    requestedLanguage?: string;
+    languageLoadGeneration: number;
+    disposed: boolean;
 };
 
 export const DEFAULT_INDENT_CONFIG: IndentConfig = { indentMode: "spaces", indentSize: 2 };
@@ -202,8 +238,38 @@ function createSearchKeymap() {
     ]);
 }
 
+// Keep the editor behavior explicit. Importing `basicSetup` through the
+// `codemirror` convenience package also evaluated its lint/search setup and
+// made it much easier for shell imports to pull the entire editor graph in.
+const editorBaseSetup: Extension = [
+    lineNumbers(),
+    highlightActiveLineGutter(),
+    highlightSpecialChars(),
+    history(),
+    foldGutter(),
+    drawSelection(),
+    dropCursor(),
+    EditorState.allowMultipleSelections.of(true),
+    indentOnInput(),
+    syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+    bracketMatching(),
+    closeBrackets(),
+    autocompletion(),
+    rectangularSelection(),
+    crosshairCursor(),
+    highlightActiveLine(),
+    highlightSelectionMatches(),
+    keymap.of([
+        ...closeBracketsKeymap,
+        ...defaultKeymap,
+        ...historyKeymap,
+        ...foldKeymap,
+        ...completionKeymap,
+    ]),
+];
+
 export function createManagedEditorSession(): ManagedEditorSession {
-    return {};
+    return { languageLoadGeneration: 0, disposed: false };
 }
 
 export function attachSessionBindings(
@@ -234,6 +300,8 @@ export function ensureManagedEditorState(
         return session.state;
     }
 
+    session.disposed = false;
+
     session.themeCompartment = new Compartment();
     session.fontSizeCompartment = new Compartment();
     session.langCompartment = new Compartment();
@@ -254,13 +322,13 @@ export function ensureManagedEditorState(
         extensions: [
             createSearchKeymap(),
             gutters(),
-            basicSetup,
+            editorBaseSetup,
             codeMirrorTooltips,
             search({}),
             scrollPastEnd(),
             session.themeCompartment.of(initialThemeExt),
             session.fontSizeCompartment.of(createFontSizeExtension(editorState.fontSize)),
-            session.langCompartment.of(getLanguageExtension(language)),
+            session.langCompartment.of([]),
             session.wordWrapCompartment.of(
                 editorState.wordWrap ? EditorView.lineWrapping : [],
             ),
@@ -278,6 +346,9 @@ export function ensureManagedEditorState(
     });
 
     syncBindings(session, session.state);
+    // Do not delay the first editable frame on parser evaluation. The selected
+    // grammar is applied through the compartment as soon as its chunk resolves.
+    void setManagedEditorLanguage(session, language);
     return session.state;
 }
 
@@ -303,17 +374,44 @@ export function setManagedEditorTheme(
     }
 }
 
-export function setManagedEditorLanguage(
+export async function setManagedEditorLanguage(
     session: ManagedEditorSession,
     language: string,
-) {
-    if (!session.view || !session.langCompartment) {
+): Promise<void> {
+    if (!session.langCompartment || session.disposed) {
         return;
     }
 
-    session.view.dispatch({
-        effects: session.langCompartment.reconfigure(getLanguageExtension(language)),
-    });
+    session.requestedLanguage = language;
+    const generation = ++session.languageLoadGeneration;
+
+    let extension: Extension;
+    try {
+        extension = await loadLanguageExtension(language);
+    } catch (error: unknown) {
+        if (generation === session.languageLoadGeneration && !session.disposed) {
+            console.warn(`[CodeMirror] Failed to load language "${language}"`, error);
+        }
+        return;
+    }
+
+    if (
+        session.disposed ||
+        generation !== session.languageLoadGeneration ||
+        session.requestedLanguage !== language ||
+        !session.langCompartment
+    ) {
+        return;
+    }
+
+    const effect = session.langCompartment.reconfigure(extension);
+
+    if (session.view) {
+        session.view.dispatch({ effects: effect });
+    } else if (session.state) {
+        session.state = session.state.update({ effects: effect }).state;
+    }
+    performance.mark(`grayslate:language-ready:${language}`);
 }
 
 export function setManagedEditorFontSize(
@@ -395,12 +493,16 @@ export function flushPendingValueSync(session: ManagedEditorSession): void {
 
 export function disposeManagedEditorSession(session: ManagedEditorSession) {
     clearValueSyncTimer(session);
+    session.disposed = true;
+    session.languageLoadGeneration += 1;
+    session.requestedLanguage = undefined;
     session.view = undefined;
     session.bindings = undefined;
     session.themeCompartment = undefined;
     session.fontSizeCompartment = undefined;
     session.langCompartment = undefined;
     session.wordWrapCompartment = undefined;
+    session.decorationCompartment = undefined;
     session.indentCompartment = undefined;
     session.state = undefined;
 }

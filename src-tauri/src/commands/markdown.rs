@@ -32,6 +32,10 @@ pub struct MarkdownPreviewState {
 }
 
 impl MarkdownPreviewState {
+    pub fn cleanup_window(&self, window_label: &str) {
+        self.cancel_active(window_label);
+    }
+
     /// Register a new render for a window, cancelling any previous
     /// in-flight render for the same window.
     fn begin_render(&self, window_label: &str) -> (u64, Arc<AtomicBool>) {

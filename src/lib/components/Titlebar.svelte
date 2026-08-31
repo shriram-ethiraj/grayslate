@@ -1,14 +1,14 @@
 <script lang="ts">
-  import { Window } from "@tauri-apps/api/window";
-  import { emit, listen } from "@tauri-apps/api/event";
+  import { getCurrentWindow } from "@tauri-apps/api/window";
   import { invoke } from "$lib/ipc";
-  import { onMount, onDestroy } from "svelte";
+  import { onMount, onDestroy, type Component } from "svelte";
   import * as Menubar from "$lib/components/ui/menubar/index.js";
   import { AppTooltip } from "$lib/components/ui/tooltip/index.js";
   import Check from "~icons/lucide/check";
   import Minus from "~icons/lucide/minus";
   import X from "~icons/lucide/x";
   import { toast } from "$lib/components/ui/sonner";
+  import { notifyFileAlreadyOpen } from "$lib/files/recentFiles";
 
   import { editorState } from "$lib/state/editor.svelte";
   import {
@@ -20,28 +20,16 @@
     resetEditorFontSize,
     setEditorWordWrap,
   } from "$lib/state/editor.svelte";
-  import AboutDialog from "$lib/components/AboutDialog.svelte";
-  import KeyboardShortcutsDialog from "$lib/components/KeyboardShortcutsDialog.svelte";
-  import SettingsDialog from "$lib/components/SettingsDialog.svelte";
-  import DeleteFileDialog from "$lib/components/DeleteFileDialog.svelte";
-  import RenameFileDialog from "$lib/components/RenameFileDialog.svelte";
-  import UnsavedChangesDialog from "$lib/components/UnsavedChangesDialog.svelte";
   import {
     checkForAppUpdates,
     openAboutDialog,
   } from "$lib/state/appMenu.svelte";
   import {
+    appDialogsState,
     openKeyboardShortcutsAppDialog,
     openSettingsAppDialog,
   } from "$lib/state/appDialogs.svelte";
   import { confirmBeforeLeavingDocument } from "$lib/state/unsavedChangesGuard.svelte";
-  import {
-    editorUndo,
-    editorRedo,
-    editorCut,
-    editorCopySelectionOrAll,
-    editorSelectAll,
-  } from "$lib/editor/core/actions";
   import {
     handleFocusedTextEdit,
     type FocusedTextEditAction,
@@ -57,9 +45,47 @@
   import { formatForDisplay } from "@tanstack/hotkeys";
   import { platformState } from "$lib/state/platform.svelte";
   import { librarySidebarState } from "$lib/state/librarySidebar.svelte";
-  import { markE2EClosing, markE2EReady } from "virtual:grayslate-e2e-runtime";
+  import { beginTrackedWork, markE2EClosing, markE2EReady } from "virtual:grayslate-e2e-runtime";
+  import {
+    createBlankWindow,
+    emitToCurrentWindow,
+    pickDocumentIntoNewWindow,
+  } from "$lib/windowing";
 
-  const appWindow = new Window("main");
+  const appWindow = getCurrentWindow();
+  let editorActionsPromise: Promise<typeof import("$lib/editor/core/actions")> | undefined;
+  let ActiveDialog = $state<Component | undefined>(undefined);
+  let dialogLoadGeneration = 0;
+
+  function loadEditorActions(): Promise<typeof import("$lib/editor/core/actions")> {
+    if (!editorActionsPromise) {
+      const finishTracking = beginTrackedWork("lazy-editor-actions-import");
+      editorActionsPromise = import("$lib/editor/core/actions").finally(finishTracking);
+    }
+    return editorActionsPromise;
+  }
+
+  $effect(() => {
+    const dialogType = appDialogsState.active.type;
+    if (dialogType === "none") return;
+    const generation = ++dialogLoadGeneration;
+    const finishTracking = beginTrackedWork(`lazy-dialog-import:${dialogType}`);
+
+    const loading: Promise<{ default: Component }> = (() => {
+      switch (dialogType) {
+        case "about": return import("$lib/components/AboutDialog.svelte");
+        case "keyboard-shortcuts": return import("$lib/components/KeyboardShortcutsDialog.svelte");
+        case "settings": return import("$lib/components/SettingsDialog.svelte");
+        case "delete": return import("$lib/components/DeleteFileDialog.svelte");
+        case "rename": return import("$lib/components/RenameFileDialog.svelte");
+        case "unsaved-changes": return import("$lib/components/UnsavedChangesDialog.svelte");
+      }
+    })();
+
+    void loading.then((module) => {
+      if (generation === dialogLoadGeneration) ActiveDialog = module.default;
+    }).finally(finishTracking);
+  });
 
   let isMaximized = $state(false);
   let unlistenResize: (() => void) | undefined;
@@ -69,12 +95,20 @@
   const isLinux = $derived(platformState.osType === "linux");
 
   const displayName = $derived.by(() => {
+    if (editorState.openingDocument?.fileName) {
+      return editorState.openingDocument.fileName;
+    }
     if (!editorState.currentFilePath) return "New Slate";
     const parts = editorState.currentFilePath.split(/[\\/]/);
     return parts[parts.length - 1] || "New Slate";
   });
+  const displayPath = $derived(
+    editorState.openingDocument?.path ?? editorState.currentFilePath ?? displayName,
+  );
   const showDirtyIndicator = $derived(
-    editorState.isDirty && editorState.currentFileSource === "local",
+    !editorState.openingDocument &&
+      editorState.isDirty &&
+      editorState.currentFileSource === "local",
   );
   /** Redo shortcut differs between platforms */
   const redoShortcut = $derived(
@@ -95,6 +129,8 @@
   let unlistenCheckForUpdates: (() => void) | undefined;
   let unlistenWordWrap: (() => void) | undefined;
   let unlistenViewAction: (() => void) | undefined;
+  let unlistenNewWindow: (() => void) | undefined;
+  let unlistenOpenFileNewWindow: (() => void) | undefined;
 
   // --- Linux / WebKitGTK first-click fix ---
   // WebKitGTK swallows the first pointerdown as a "focus the webview" event,
@@ -146,23 +182,31 @@
     // used instead. Forward native menu edit events to the same handlers
     // used by the custom Menubar on Windows/Linux.
     if (platformState.osType === "macos") {
-      unlistenAbout = await listen("menu://about", () => {
+      unlistenAbout = await appWindow.listen("menu://about", () => {
         void handleAbout();
       });
 
-      unlistenSettings = await listen("menu://settings", () => {
+      unlistenSettings = await appWindow.listen("menu://settings", () => {
         handleSettings();
       });
 
-      unlistenKeyboardShortcuts = await listen("menu://keyboard-shortcuts", () => {
+      unlistenKeyboardShortcuts = await appWindow.listen("menu://keyboard-shortcuts", () => {
         handleKeyboardShortcuts();
       });
 
-      unlistenCheckForUpdates = await listen("menu://check-for-updates", () => {
+      unlistenCheckForUpdates = await appWindow.listen("menu://check-for-updates", () => {
         void handleCheckForUpdates();
       });
 
-      unlistenEditAction = await listen<EditAction>(
+      unlistenNewWindow = await appWindow.listen("menu://new-window", () => {
+        void handleNewWindow();
+      });
+
+      unlistenOpenFileNewWindow = await appWindow.listen("menu://open-file-new-window", () => {
+        void handleOpenInNewWindow();
+      });
+
+      unlistenEditAction = await appWindow.listen<EditAction>(
         "menu://edit-action",
         (event) => {
           handleEdit(event.payload);
@@ -173,14 +217,14 @@
       // checked boolean from the native CheckMenuItem.  Setting
       // the state directly (instead of toggling) keeps the two
       // sides in lock-step regardless of muda's auto-toggle.
-      unlistenWordWrap = await listen<boolean>(
+      unlistenWordWrap = await appWindow.listen<boolean>(
         "menu://word-wrap-state",
         (event) => {
           setEditorWordWrap(event.payload);
         },
       );
 
-      unlistenViewAction = await listen<string>("menu://view-action", (event) => {
+      unlistenViewAction = await appWindow.listen<string>("menu://view-action", (event) => {
         handleView(event.payload);
       });
     }
@@ -194,6 +238,8 @@
     unlistenEditAction?.();
     unlistenWordWrap?.();
     unlistenViewAction?.();
+    unlistenNewWindow?.();
+    unlistenOpenFileNewWindow?.();
     unlistenResize?.();
     unlistenCloseRequested?.();
   });
@@ -215,19 +261,44 @@
   }
 
   async function handleNewFile() {
-    await emit("menu://new-file");
+    await emitToCurrentWindow("menu://new-file");
+  }
+
+  async function handleNewWindow() {
+    try {
+      await createBlankWindow();
+    } catch (error) {
+      toast.error(typeof error === "string" ? error : "Could not create a new window.");
+    }
   }
 
   async function handleOpen() {
-    await emit("menu://open-file");
+    await emitToCurrentWindow("menu://open-file");
+  }
+
+  async function handleOpenInNewWindow() {
+    try {
+      const picked = await pickDocumentIntoNewWindow();
+      if (
+        picked?.result.kind === "focused-existing" &&
+        (
+          editorState.currentDocumentId === picked.document.documentId ||
+          editorState.currentFilePath === picked.document.displayPath
+        )
+      ) {
+        notifyFileAlreadyOpen(picked.document.fileName || picked.document.displayPath);
+      }
+    } catch (error) {
+      toast.error(typeof error === "string" ? error : "Could not open the file in a new window.");
+    }
   }
 
   async function handleSave() {
-    await emit("menu://save-file");
+    await emitToCurrentWindow("menu://save-file");
   }
 
   async function handleSaveAs() {
-    await emit("menu://save-file-as");
+    await emitToCurrentWindow("menu://save-file-as");
   }
 
   type EditAction =
@@ -272,6 +343,7 @@
           editorState.csv.undo?.();
         } else {
           if (!view) return;
+          const { editorUndo } = await loadEditorActions();
           editorUndo(view, true);
         }
         break;
@@ -281,6 +353,7 @@
           editorState.csv.redo?.();
         } else {
           if (!view) return;
+          const { editorRedo } = await loadEditorActions();
           editorRedo(view, true);
         }
         break;
@@ -288,6 +361,7 @@
         if (markdownPreviewActive) return;
         if (isCsvTableVisible) return;
         if (!view) return;
+        const { editorCut } = await loadEditorActions();
         await editorCut(view);
         break;
       case "copy":
@@ -301,6 +375,7 @@
           return;
         }
         if (!view) return;
+        const { editorCopySelectionOrAll } = await loadEditorActions();
         await editorCopySelectionOrAll(view);
         break;
       case "goToLine":
@@ -325,6 +400,7 @@
         }
         if (isCsvTableVisible) return;
         if (!view) return;
+        const { editorSelectAll } = await loadEditorActions();
         editorSelectAll(view);
         break;
     }
@@ -399,6 +475,14 @@
         callback: (e) => {
           e.preventDefault();
           handleNewFile();
+        },
+        options: { ignoreInputs: false },
+      },
+      {
+        key: "Mod+Shift+N",
+        callback: (e) => {
+          e.preventDefault();
+          void handleNewWindow();
         },
         options: { ignoreInputs: false },
       },
@@ -503,6 +587,18 @@
     invoke("set_menu_word_wrap", { checked: editorState.wordWrap });
   });
 
+  // Keep the OS taskbar/Dock/Alt-Tab title synchronized without granting the
+  // webview unrestricted core window-title permissions.
+  $effect(() => {
+    const openingDocument = editorState.openingDocument;
+    void invoke("sync_window_title", {
+      documentId: openingDocument?.documentId ?? editorState.currentDocumentId ?? null,
+      documentGeneration:
+        openingDocument?.documentGeneration ?? editorState.currentDocumentGeneration ?? null,
+      dirty: openingDocument ? false : editorState.isDirty,
+    });
+  });
+
   // Keep the macOS native "Save" menu item enabled state in sync with isDirty.
   $effect(() => {
     if (!isMac) return;
@@ -524,10 +620,17 @@
           New Slate
           <Menubar.Shortcut>{formatForDisplay("Mod+N")}</Menubar.Shortcut>
         </Menubar.Item>
+        <Menubar.Item data-testid="menu-new-window" onclick={handleNewWindow}>
+          New Window
+          <Menubar.Shortcut>{formatForDisplay("Mod+Shift+N")}</Menubar.Shortcut>
+        </Menubar.Item>
         <Menubar.Separator />
         <Menubar.Item data-testid="menu-open-file" onclick={handleOpen}>
           Open File...
           <Menubar.Shortcut>{formatForDisplay("Mod+O")}</Menubar.Shortcut>
+        </Menubar.Item>
+        <Menubar.Item data-testid="menu-open-file-new-window" onclick={handleOpenInNewWindow}>
+          Open File in New Window...
         </Menubar.Item>
         <Menubar.Separator />
         <Menubar.Item
@@ -661,13 +764,13 @@
   <!-- Centered file name: pointer-events-none so drag-region below remains active -->
   <div class="pointer-events-none absolute inset-0 z-5 flex items-center justify-center">
     <div class="relative max-w-[40%]">
-      <AppTooltip content={editorState.currentFilePath ?? displayName} side="bottom">
+      <AppTooltip content={displayPath} side="bottom">
         {#snippet trigger({ props })}
           <span
             {...props}
             data-tauri-drag-region
             data-testid="title-file-name"
-            data-document-path={editorState.currentFilePath ?? displayName}
+            data-document-path={displayPath}
             class="pointer-events-auto block truncate pr-3 text-xs font-medium text-foreground"
           >
             {displayName}
@@ -804,9 +907,6 @@
   {/if}
 </div>
 
-<AboutDialog />
-<KeyboardShortcutsDialog />
-<SettingsDialog />
-<DeleteFileDialog />
-<RenameFileDialog />
-<UnsavedChangesDialog />
+{#if ActiveDialog}
+  <ActiveDialog />
+{/if}

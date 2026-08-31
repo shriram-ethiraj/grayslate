@@ -1,6 +1,6 @@
 <script lang="ts">
     import { tick } from "svelte";
-    import { emit } from "@tauri-apps/api/event";
+    import { emitToCurrentWindow } from "$lib/windowing";
     import { invoke } from "$lib/ipc";
     import { toast } from "$lib/components/ui/sonner";
     import * as Dialog from "$lib/components/ui/dialog/index.js";
@@ -113,7 +113,7 @@
 
             // Keep the editor's save path in sync with the renamed file.
             if (wasCurrentFile) {
-                await emit(DOCUMENT_RENAMED_EVENT, renamed);
+                await emitToCurrentWindow(DOCUMENT_RENAMED_EVENT, renamed);
             }
 
             const newName =

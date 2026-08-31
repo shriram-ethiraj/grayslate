@@ -60,7 +60,20 @@ pub fn run() {
         );
 
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    let builder = builder.plugin(tauri_plugin_window_state::Builder::default().build());
+    let builder = builder.plugin(
+        tauri_plugin_window_state::Builder::default()
+            // Restore geometry only. Visibility is controlled explicitly by
+            // the window builder so no renderer bootstrap can keep a native
+            // window hidden.
+            .with_state_flags(
+                tauri_plugin_window_state::StateFlags::SIZE
+                    | tauri_plugin_window_state::StateFlags::POSITION
+                    | tauri_plugin_window_state::StateFlags::MAXIMIZED
+                    | tauri_plugin_window_state::StateFlags::FULLSCREEN,
+            )
+            .with_filter(|label| label == "main")
+            .build(),
+    );
 
     // Test-only WebdriverIO bridge. The dependency, plugin commands, and ACL
     // grants are absent unless the dedicated E2E feature is enabled.
@@ -77,14 +90,93 @@ pub fn run() {
     // File paths delivered by a native drop must enter the document grant
     // boundary in Rust. The webview observes the same Tauri event only to
     // render drop feedback; it cannot authorize paths itself.
-    let builder = builder.on_window_event(|window, event| {
-        if let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {
+    let builder = builder.on_window_event(|window, event| match event {
+        tauri::WindowEvent::Focused(true) => {
+            if let Some(registry) = window.app_handle().try_state::<window::WindowRegistry>() {
+                registry.note_focused(window.label());
+            }
+            #[cfg(target_os = "macos")]
+            menu::sync_native_menu_for_window(window.app_handle(), window.label());
+        }
+        tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) => {
             commands::external_open::enqueue_dropped_paths(
                 window.app_handle(),
                 window.label(),
                 paths.clone(),
             );
         }
+        tauri::WindowEvent::Destroyed => {
+            if let Some(registry) = window.app_handle().try_state::<window::WindowRegistry>() {
+                if let Some(promotion) = registry.cleanup_window(window.label()) {
+                    if let (Some(storage), Some(layout)) = (
+                        window.app_handle().try_state::<storage::AppStorage>(),
+                        promotion.sidebar_layout,
+                    ) {
+                        if let Err(error) = storage
+                            .set_setting(storage::SETTING_SIDEBAR_WIDTH, Some(&layout.width))
+                            .and_then(|_| {
+                                storage
+                                    .set_setting(storage::SETTING_SIDEBAR_OPEN, Some(&layout.open))
+                            })
+                        {
+                            eprintln!(
+                                "Failed to persist promoted window {} layout: {error}",
+                                promotion.window_label
+                            );
+                        }
+                    }
+                }
+            }
+            if let Some(registry) = window
+                .app_handle()
+                .try_state::<autosave::AutosaveRegistry>()
+            {
+                registry.unregister(window.label());
+            }
+            if let Some(registry) = window
+                .app_handle()
+                .try_state::<document::DocumentRegistry>()
+            {
+                registry.revoke_window(window.label());
+            }
+            if let Some(state) = window
+                .app_handle()
+                .try_state::<commands::external_open::ExternalOpenState>()
+            {
+                state.cleanup_window(window.label());
+            }
+            if let Some(state) = window
+                .app_handle()
+                .try_state::<commands::file::FileReadCancellationRegistry>()
+            {
+                state.cancel_window_request(window.label());
+            }
+            if let Some(state) = window
+                .app_handle()
+                .try_state::<commands::csv::CsvSessionRegistry>()
+            {
+                state.dispose_window(window.label());
+            }
+            if let Some(state) = window
+                .app_handle()
+                .try_state::<commands::findstats::EditorFindState>()
+            {
+                state.cleanup_window(window.label());
+            }
+            if let Some(state) = window
+                .app_handle()
+                .try_state::<commands::markdown::MarkdownPreviewState>()
+            {
+                state.cleanup_window(window.label());
+            }
+            if let Some(state) = window
+                .app_handle()
+                .try_state::<commands::clipboard::ClipboardCopyRegistry>()
+            {
+                state.cleanup_window(window.label());
+            }
+        }
+        _ => {}
     });
 
     builder
@@ -105,6 +197,8 @@ pub fn run() {
             app.manage(autosave::AutosaveRegistry::default());
             app.manage(save_coordinator::SaveCoordinator::default());
             app.manage(commands::update::UpdateOperationState::default());
+            app.manage(commands::update::AutomaticUpdateScheduler::default());
+            app.manage(window::WindowRegistry::default());
 
             // Spawn the background autosave timer thread.
             let timer_handle = app.handle().clone();
@@ -114,10 +208,9 @@ pub fn run() {
             app.handle()
                 .plugin(tauri_plugin_updater::Builder::new().build())?;
 
-            window::create_main_window(app)?;
+            commands::update::start_automatic_update_scheduler(app.handle().clone());
 
-            #[cfg(target_os = "macos")]
-            window::apply_macos_window_styling(app);
+            window::create_main_window(app)?;
 
             #[cfg(not(any(target_os = "android", target_os = "ios")))]
             commands::external_open::flush_staged_path_activations(app.handle());
@@ -147,12 +240,16 @@ pub fn run() {
         // for that event, so `Window::close` from Rust never terminates.
         .invoke_handler(tauri::generate_handler![
             commands::file::cancel_file_read,
+            window::cancel_document_open,
+            window::claim_document_open,
+            window::create_editor_window,
             commands::file::delete_file,
             commands::file::duplicate_file,
             commands::file::untrack_local_file,
             commands::file::duplicate_local_file_as_slate,
             commands::file::get_all_settings,
             commands::file::get_app_setting,
+            commands::update::get_update_status,
             commands::file::get_last_active_document,
             commands::file::get_recent_files,
             commands::file::pick_document,
@@ -242,6 +339,8 @@ pub fn run() {
             commands::e2e::e2e_take_external_action,
             menu::set_menu_word_wrap,
             menu::set_menu_save_enabled,
+            window::sync_window_title,
+            window::take_window_launch_intent,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -249,11 +348,15 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             match event {
                 tauri::RunEvent::Opened { urls } => {
-                    commands::external_open::focus_main_window(app);
+                    if let Err(error) = window::reopen_or_create_main_window(app) {
+                        eprintln!("Failed to open a Grayslate window: {error}");
+                    }
                     commands::external_open::enqueue_opened_urls(app, urls);
                 }
                 tauri::RunEvent::Reopen { .. } => {
-                    commands::external_open::focus_main_window(app);
+                    if let Err(error) = window::reopen_or_create_main_window(app) {
+                        eprintln!("Failed to reopen Grayslate: {error}");
+                    }
                 }
                 _ => {}
             }

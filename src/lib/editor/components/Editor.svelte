@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { EditorView } from "codemirror";
+  import { EditorView } from "@codemirror/view";
   import EditorContextMenu from "$lib/editor/components/EditorContextMenu.svelte";
   import FindReplace from "$lib/editor/components/FindReplace.svelte";
   import { clearMarkdownPreviewSelection } from "$lib/editor/components/markdown/previewActions";
@@ -32,6 +32,7 @@
     editorView?: EditorView;
     session?: ManagedEditorSession;
     indentConfig?: IndentConfig;
+    onReady?: () => void;
   }
 
   let {
@@ -45,6 +46,7 @@
     editorView = $bindable<EditorView | undefined>(undefined),
     session = createManagedEditorSession(),
     indentConfig = DEFAULT_INDENT_CONFIG,
+    onReady,
   }: EditorProps = $props();
 
   // $state so the value propagates reactively as a prop to JsonContextMenu.
@@ -101,7 +103,7 @@
   $effect(() => {
     const lang = language;
     if (!view) return;
-    setManagedEditorLanguage(session, lang);
+    void setManagedEditorLanguage(session, lang);
   });
 
   // ---------------------------------------------------------------------------
@@ -186,6 +188,9 @@
     editorView = cmView;
     editorState.activeView = cmView;
     editorState.activeSurface = "editor";
+    document.documentElement.dataset.editorReady = "true";
+    performance.mark("grayslate:editor-view-ready");
+    onReady?.();
 
     cmView.dom.addEventListener("pointerdown", activateEditorSurface, {
       passive: true,
@@ -242,6 +247,9 @@
         }
         if (editorState.activeSurface === "editor") {
           editorState.activeSurface = undefined;
+        }
+        if (editorState.activeView === undefined) {
+          delete document.documentElement.dataset.editorReady;
         }
         view = undefined;
         editorView = undefined;

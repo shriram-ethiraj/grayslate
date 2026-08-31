@@ -1,13 +1,13 @@
 <script lang="ts">
   import Editor from "$lib/editor/components/Editor.svelte";
-  import MarkdownPreview from "$lib/editor/components/markdown/MarkdownPreview.svelte";
-  import CsvTableView from "./csv/CsvTableView.svelte";
+  import type MarkdownPreviewType from "$lib/editor/components/markdown/MarkdownPreview.svelte";
+  import type CsvTableViewType from "./csv/CsvTableView.svelte";
   import StatusBar from "$lib/editor/components/StatusBar.svelte";
   import EncodingConfirmationDialog from "$lib/editor/components/EncodingConfirmationDialog.svelte";
   import EditorLoader from "$lib/editor/components/EditorLoader.svelte";
   import GoToLineDialog from "$lib/editor/components/GoToLineDialog.svelte";
   import IndentationPicker, { type IndentConfig, type IndentSelection } from "$lib/editor/components/IndentationPicker.svelte";
-  import TransformationsPalette from "$lib/editor/components/TransformationsPalette.svelte";
+  import type TransformationsPaletteType from "$lib/editor/components/TransformationsPalette.svelte";
   import {
     ResizablePaneGroup,
     ResizablePane,
@@ -37,6 +37,7 @@
     openEditorPopup,
     openGoToLinePanel,
     registerEditorPopup,
+    registerEditorPopupLoader,
     syncEditorPopupOpenState,
     hideEditorLoader,
     updateEditorLoader,
@@ -67,12 +68,19 @@
     EXTERNAL_OPEN_PENDING_EVENT,
     DOCUMENT_RENAMED_EVENT,
     RESET_TO_BLANK_EVENT,
+    notifyFileAlreadyOpen,
     type DocumentDescriptor,
     type ExternalOpenRequest,
     type OpenFilePathPayload,
     type RecentFileSource,
   } from "$lib/files/recentFiles";
-  import { onMount, untrack } from "svelte";
+  import { onMount, tick, untrack } from "svelte";
+  import { beginTrackedWork } from "virtual:grayslate-e2e-runtime";
+  import { getCurrentWindow } from "@tauri-apps/api/window";
+  import {
+    type OpenDisposition,
+    type WindowLaunchIntent,
+  } from "$lib/windowing";
   import {
     appSettingsState,
     loadAllSettings,
@@ -84,16 +92,24 @@
     type CharacterEncoding,
     type Eol,
   } from "$lib/state/appSettings.svelte";
-  import {
-    type ExecuteTransformationResponse,
-    type ExecuteTransformationRequest,
-    getTransformationAction,
-    type TransformationActionId,
-    type TransformationMessageLevel,
-    type TransformationChannelEvent,
+  import type {
+    ExecuteTransformationResponse,
+    ExecuteTransformationRequest,
+    TransformationActionId,
+    TransformationMessageLevel,
+    TransformationChannelEvent,
   } from "$lib/transformations/actions";
 
   type SavedDocumentSource = "slates" | "local";
+  const appWindow = getCurrentWindow();
+  let { onReady }: { onReady?: () => void } = $props();
+  let initialEditorReadyReported = false;
+
+  function reportInitialEditorReady(): void {
+    if (initialEditorReadyReported) return;
+    initialEditorReadyReported = true;
+    onReady?.();
+  }
 
   // `lastSavedEol` is the EOL baseline, exactly parallel to `lastSavedValue`:
   // the live EOL lives in the `eol` state below, and the two are compared to
@@ -607,6 +623,23 @@
       }
     | undefined
   >(undefined);
+  let CsvTableView = $state<typeof CsvTableViewType | undefined>(undefined);
+  let MarkdownPreview = $state<typeof MarkdownPreviewType | undefined>(undefined);
+  let TransformationsPalette = $state<typeof TransformationsPaletteType | undefined>(undefined);
+  let transformationsPalettePromise: Promise<void> | undefined;
+
+  function loadTransformationsPalette(): Promise<void> {
+    if (!transformationsPalettePromise) {
+      const finishTracking = beginTrackedWork("lazy-transformations-import");
+      transformationsPalettePromise = import("$lib/editor/components/TransformationsPalette.svelte")
+        .then(async (module) => {
+          TransformationsPalette = module.default;
+          await tick();
+        })
+        .finally(finishTracking);
+    }
+    return transformationsPalettePromise;
+  }
   let csvMirrorQueue = $state.raw<CsvMirrorTextUpdate[]>([]);
   let csvMirrorDrainHandle = $state.raw<
     | { kind: "idle"; id: number }
@@ -661,6 +694,7 @@
   }
 
   async function executeTransformation(actionId: TransformationActionId): Promise<boolean> {
+    const { getTransformationAction } = await import("$lib/transformations/actions");
     const action = getTransformationAction(actionId);
     if (!action) {
       toast.error("Unknown transformation.");
@@ -1087,6 +1121,40 @@
   // picker, then invoke read_file_content on the Rust side which enforces
   // the current 200 MB size limit before returning the text.
   // -----------------------------------------------------------------------
+  function getOpeningFileName(document: DocumentDescriptor): string {
+    return document.fileName || document.displayPath.replace(/\\/g, "/").split("/").pop() || "File";
+  }
+
+  function stageOpeningDocument(document: DocumentDescriptor, immediateLoader = false): void {
+    const filename = getOpeningFileName(document);
+    editorState.openingDocument = {
+      documentId: document.documentId,
+      documentGeneration: document.generation,
+      path: document.displayPath,
+      fileName: filename,
+    };
+    startLoaderTicker("Reading file…", filename, {
+      ceiling: 65,
+      factor: 0.06,
+      minStep: 0.3,
+      interval: 80,
+      startAt: 5,
+      graceMs: immediateLoader ? 0 : 150,
+    });
+  }
+
+  function clearOpeningDocument(document: DocumentDescriptor): boolean {
+    const openingDocument = editorState.openingDocument;
+    if (
+      openingDocument?.documentId !== document.documentId ||
+      openingDocument.documentGeneration !== document.generation
+    ) {
+      return false;
+    }
+    editorState.openingDocument = undefined;
+    return true;
+  }
+
   function isCurrentDocument(document: DocumentDescriptor): boolean {
     return (
       editorState.currentDocumentId === document.documentId ||
@@ -1101,6 +1169,7 @@
       silent?: boolean;
       encoding?: CharacterEncoding;
       forceReload?: boolean;
+      reservationId?: string;
     },
   ): Promise<void> {
     const filePath = document.displayPath;
@@ -1110,14 +1179,51 @@
       if (lineNumber !== undefined && editorView) {
         editorGoToLine(editorView, lineNumber);
       }
+      if (!options?.silent) {
+        notifyFileAlreadyOpen(document.fileName || document.displayPath);
+      }
       // Clean up any pending sidebar state that openRecentFile may have set
       // so it doesn't linger and block the editor-navigation effect later.
       clearPendingSidebarOpenFile();
+      if (clearOpeningDocument(document)) {
+        stopLoaderTicker();
+        hideEditorLoader();
+      }
       return;
     }
 
+    let reservationId = options?.reservationId;
+    if (!reservationId) {
+      let disposition: OpenDisposition;
+      try {
+        disposition = await invoke<OpenDisposition>("claim_document_open", {
+          documentId: document.documentId,
+          documentGeneration: document.generation,
+        });
+      } catch (error: unknown) {
+        clearPendingSidebarOpenFile();
+        if (clearOpeningDocument(document)) {
+          stopLoaderTicker();
+          hideEditorLoader();
+        }
+        if (!options?.silent) {
+          toast.error(readErrorMessage(error, "Failed to open file."));
+        }
+        return;
+      }
+      if (disposition.kind === "focused-existing") {
+        clearPendingSidebarOpenFile();
+        if (clearOpeningDocument(document)) {
+          stopLoaderTicker();
+          hideEditorLoader();
+        }
+        return;
+      }
+      reservationId = disposition.reservationId;
+    }
+
     const requestVersion = beginFileOpenRequest();
-    const filename = filePath.replace(/\\/g, "/").split("/").pop() ?? "";
+    const filename = getOpeningFileName(document);
     const existingPendingFile = librarySidebarState.pendingOpenFile;
     const preservesPendingMetadata = existingPendingFile?.path === filePath;
     const revealInRecentList = preservesPendingMetadata
@@ -1132,20 +1238,13 @@
       revealInRecentList,
       lineNumber,
     });
+    stageOpeningDocument(document);
 
     try {
       // Start a decelerating progress ticker while the file is read. The
       // backend records only first-time opens so new local files appear in
       // the Local sidebar tab without bumping timestamps when tracked files are
       // reopened.
-      startLoaderTicker("Reading file…", filename, {
-        ceiling: 65,
-        factor: 0.06,
-        minStep: 0.3,
-        interval: 80,
-        startAt: 5,
-      });
-
       const previousSession = editorSession;
       const previousDocLength =
         previousSession.state?.doc.length ?? value.length;
@@ -1235,6 +1334,7 @@
         documentId: document.documentId,
         documentGeneration: document.generation,
         languageHint: language,
+        reservationId,
       });
       // Adopt as both the live style and the saved baseline: the file already
       // has these endings on disk, so this is not an unsaved change. Guarded
@@ -1293,24 +1393,35 @@
       const msg = readErrorMessage(err, "Failed to open file.");
       toast.error(msg);
     } finally {
+      if (reservationId) {
+        void invoke("cancel_document_open", { reservationId });
+      }
       if (!isActiveFileOpenRequest(requestVersion)) {
         return;
       }
 
       // Always clean up — idempotent in the success path
       clearPendingSidebarOpenFile(requestVersion);
+      clearOpeningDocument(document);
       stopLoaderTicker();
       hideEditorLoader();
     }
   }
 
   async function openFile(): Promise<void> {
-    if (!(await confirmBeforeLeavingDocument())) return;
-
     const selected = await invoke<DocumentDescriptor | null>("pick_document");
 
     // User cancelled the dialog
     if (!selected) return;
+
+    // Choosing the active document is feedback-only. In particular, do not
+    // ask the user to discard edits when there is no document switch.
+    if (isCurrentDocument(selected)) {
+      await openAuthorizedDocument(selected);
+      return;
+    }
+
+    if (!(await confirmBeforeLeavingDocument())) return;
 
     await openAuthorizedDocument(selected);
   }
@@ -1318,7 +1429,25 @@
   let externalOpenStartupReady = false;
   let externalOpenWasReceived = false;
   let externalOpenWork: Promise<void> = Promise.resolve();
+  let externalOpenPrimeWork: Promise<void> = Promise.resolve();
   let deferredExternalOpenRequest: ExternalOpenRequest | undefined;
+
+  function primeExternalOpenRequest(): Promise<void> {
+    const prime = async (): Promise<void> => {
+      if (deferredExternalOpenRequest) return;
+
+      const request = await invoke<ExternalOpenRequest | null>("take_external_open_request");
+      if (!request) return;
+
+      deferredExternalOpenRequest = request;
+      externalOpenWasReceived = true;
+      if (request.document && !isCurrentDocument(request.document)) {
+        stageOpeningDocument(request.document, true);
+      }
+    };
+    externalOpenPrimeWork = externalOpenPrimeWork.then(prime, prime);
+    return externalOpenPrimeWork;
+  }
 
   function reportExternalOpenResult(request: ExternalOpenRequest): void {
     if (request.skippedCount > 0) {
@@ -1367,11 +1496,15 @@
       // focus Grayslate. It must not ask whether to discard edits, and it must
       // remain a no-op while CSV table mode has the live EditorView unmounted.
       if (isCurrentDocument(request.document)) {
+        notifyFileAlreadyOpen(request.document.fileName || request.document.displayPath);
         continue;
       }
 
       if (await confirmBeforeLeavingDocument()) {
         await openAuthorizedDocument(request.document);
+      } else if (clearOpeningDocument(request.document)) {
+        stopLoaderTicker();
+        hideEditorLoader();
       }
     }
   }
@@ -1386,7 +1519,13 @@
 
   function handleExternalOpenWake(): void {
     externalOpenWasReceived = true;
-    if (!externalOpenStartupReady || appDialogsState.active.type !== "none") {
+    if (!externalOpenStartupReady) {
+      void primeExternalOpenRequest().catch((error: unknown) => {
+        console.warn("[Startup] Could not stage the incoming file:", error);
+      });
+      return;
+    }
+    if (appDialogsState.active.type !== "none") {
       return;
     }
     void scheduleExternalOpenDrain().catch((error: unknown) => {
@@ -1397,6 +1536,10 @@
   // A native drop or OS activation may arrive while Settings, Rename, Delete,
   // or another app dialog is open. The Rust queue remains authoritative; once
   // the modal slot is free, resume the same serialized drain used at startup.
+  $effect(() => {
+    return registerEditorPopupLoader("transformations", loadTransformationsPalette);
+  });
+
   $effect(() => {
     const activeDialogType = appDialogsState.active.type;
 
@@ -1534,6 +1677,7 @@
     content: string,
     expectedDocumentKey = getDocumentKey(activeDocument),
     targetEncoding = encoding,
+    reservationId?: string,
   ): Promise<DocumentDescriptor> {
     const previousPath = activeDocument.kind === "saved" ? activeDocument.path : undefined;
     const saved = await invoke<DocumentDescriptor>("write_file_content", {
@@ -1544,6 +1688,7 @@
       // it from the autosave registry, which the picker updates asynchronously.
       eol,
       encoding: targetEncoding,
+      reservationId: reservationId ?? null,
     });
 
     if (getDocumentKey(activeDocument) !== expectedDocumentKey) {
@@ -1733,7 +1878,25 @@
         return true;
       }
 
-      await writeDocument(selected, content, expectedDocumentKey);
+      const disposition = await invoke<OpenDisposition>("claim_document_open", {
+        documentId: selected.documentId,
+        documentGeneration: selected.generation,
+      });
+      if (disposition.kind === "focused-existing") {
+        return false;
+      }
+
+      try {
+        await writeDocument(
+          selected,
+          content,
+          expectedDocumentKey,
+          encoding,
+          disposition.reservationId,
+        );
+      } finally {
+        void invoke("cancel_document_open", { reservationId: disposition.reservationId });
+      }
       return true;
     } catch (err: unknown) {
       const msg = typeof err === "string" ? err : "Failed to save file.";
@@ -1752,8 +1915,21 @@
 
     void (async () => {
       try {
-        const { listen } = await import("@tauri-apps/api/event");
-        unlistenExternalOpen = await listen(EXTERNAL_OPEN_PENDING_EVENT, handleExternalOpenWake);
+        unlistenExternalOpen = await appWindow.listen(
+          EXTERNAL_OPEN_PENDING_EVENT,
+          handleExternalOpenWake,
+        );
+
+        const launchIntent = await invoke<WindowLaunchIntent>("take_window_launch_intent");
+
+        if (launchIntent.kind === "document") {
+          stageOpeningDocument(launchIntent.document, true);
+        } else if (launchIntent.kind === "primary-startup") {
+          // Initial file-manager/OS activations are already authorized by Rust.
+          // Stage their filename and loader before settings hydration so the
+          // startup surface never presents the target document as New Slate.
+          await primeExternalOpenRequest();
+        }
 
         const settings = await loadAllSettings();
 
@@ -1774,6 +1950,22 @@
         }
 
         externalOpenStartupReady = true;
+
+        if (launchIntent.kind === "document") {
+          const opening = openAuthorizedDocument(launchIntent.document, undefined, {
+            reservationId: launchIntent.reservationId,
+          });
+          await new Promise<void>((resolve) => setTimeout(resolve, 0));
+          await opening;
+          await scheduleExternalOpenDrain();
+          return;
+        }
+
+        if (launchIntent.kind === "blank") {
+          await scheduleExternalOpenDrain();
+          return;
+        }
+
         await scheduleExternalOpenDrain();
 
         // An OS activation always wins over the ordinary "reopen last"
@@ -1786,6 +1978,9 @@
         }
       } catch (err) {
         console.warn("[Startup] Failed to evaluate startup-file behavior:", err);
+        editorState.openingDocument = undefined;
+        stopLoaderTicker();
+        hideEditorLoader();
         externalOpenStartupReady = true;
         void scheduleExternalOpenDrain().catch((error: unknown) => {
           toast.error(readErrorMessage(error, "Could not process the files opened by the system."));
@@ -1801,20 +1996,20 @@
 
   // Register (and later clean up) the file-menu event listeners.
   $effect(() => {
-    const unlistenPromise = import("@tauri-apps/api/event").then(
-      async ({ listen }) => {
-        const unlistenNewFile = await listen("menu://new-file", () => {
+    const unlistenPromise = Promise.resolve().then(
+      async () => {
+        const unlistenNewFile = await appWindow.listen("menu://new-file", () => {
           void createNewFile();
         });
-        const unlistenResetToBlank = await listen(RESET_TO_BLANK_EVENT, () => {
+        const unlistenResetToBlank = await appWindow.listen(RESET_TO_BLANK_EVENT, () => {
           void resetToBlankDocument().catch((error: unknown) => {
             toast.error(readErrorMessage(error, "Could not save the current slate."));
           });
         });
-        const unlistenOpenFile = await listen("menu://open-file", () => {
+        const unlistenOpenFile = await appWindow.listen("menu://open-file", () => {
           void openFile();
         });
-        const unlistenOpenFilePath = await listen<OpenFilePathPayload>(OPEN_FILE_PATH_EVENT, (event) => {
+        const unlistenOpenFilePath = await appWindow.listen<OpenFilePathPayload>(OPEN_FILE_PATH_EVENT, (event) => {
           if (event.payload?.documentId) {
             void openAuthorizedDocument({
               documentId: event.payload.documentId,
@@ -1826,7 +2021,7 @@
             }, event.payload.lineNumber);
           }
         });
-        const unlistenDocumentRenamed = await listen<DocumentDescriptor>(DOCUMENT_RENAMED_EVENT, (event) => {
+        const unlistenDocumentRenamed = await appWindow.listen<DocumentDescriptor>(DOCUMENT_RENAMED_EVENT, (event) => {
           if (
             activeDocument.kind === "saved" &&
             activeDocument.documentId === event.payload.documentId
@@ -1840,10 +2035,10 @@
             saveLastActiveDocument(event.payload);
           }
         });
-        const unlistenSaveFile = await listen("menu://save-file", () => {
+        const unlistenSaveFile = await appWindow.listen("menu://save-file", () => {
           void saveFile();
         });
-        const unlistenSaveFileAs = await listen("menu://save-file-as", () => {
+        const unlistenSaveFileAs = await appWindow.listen("menu://save-file-as", () => {
           void saveFileAs();
         });
 
@@ -1868,6 +2063,34 @@
   let isCsvTableActive = $derived(
     activeLanguage === "csv" && editorState.csv.showTable,
   );
+
+  $effect(() => {
+    if (!isCsvTableActive || CsvTableView) return;
+    let cancelled = false;
+    const finishTracking = beginTrackedWork("lazy-csv-table-import");
+    void import("./csv/CsvTableView.svelte").then((module) => {
+      if (!cancelled) CsvTableView = module.default;
+    }).finally(finishTracking);
+    return () => {
+      cancelled = true;
+    };
+  });
+
+  $effect(() => {
+    if (
+      activeLanguage !== "markdown" ||
+      !editorState.markdown.showPreview ||
+      MarkdownPreview
+    ) return;
+    let cancelled = false;
+    const finishTracking = beginTrackedWork("lazy-markdown-preview-import");
+    void import("$lib/editor/components/markdown/MarkdownPreview.svelte").then((module) => {
+      if (!cancelled) MarkdownPreview = module.default;
+    }).finally(finishTracking);
+    return () => {
+      cancelled = true;
+    };
+  });
 
   let csvInfo = $state({
     rows: 0,
@@ -2093,7 +2316,9 @@
 <div class="flex flex-1 flex-col min-h-0 min-w-0">
   <GoToLineDialog bind:open={goToLineOpen} {editorView} {line} {lineCount} />
   <IndentationPicker bind:open={indentPickerOpen} bind:indentSelection content={value} />
-  <TransformationsPalette executeAction={executeTransformation} />
+  {#if TransformationsPalette}
+    <TransformationsPalette executeAction={executeTransformation} />
+  {/if}
 
   <div class="flex flex-1 min-h-0 min-w-0 relative">
     <EditorLoader
@@ -2107,13 +2332,19 @@
     {#if activeLanguage === "csv"}
       {#if isCsvTableActive}
         <div class="flex flex-1 flex-col min-h-0 min-w-0">
-          <CsvTableView
-            bind:this={csvTableView}
-            bind:content={value}
-            bind:tableInfo={csvInfo}
-            onMirrorReset={handleCsvMirrorReset}
-            onMirrorUpdate={handleCsvMirrorUpdate}
-          />
+          {#if CsvTableView}
+            <CsvTableView
+              bind:this={csvTableView}
+              bind:content={value}
+              bind:tableInfo={csvInfo}
+              onMirrorReset={handleCsvMirrorReset}
+              onMirrorUpdate={handleCsvMirrorUpdate}
+            />
+          {:else}
+            <div class="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground" role="status">
+              Loading table…
+            </div>
+          {/if}
         </div>
       {:else}
         <div class="relative flex-1 min-h-0 min-w-0">
@@ -2130,6 +2361,7 @@
                 bind:editorView
                 session={editorSession}
                 indentConfig={effectiveIndentConfig}
+                onReady={reportInitialEditorReady}
               />
             {/key}
           </div>
@@ -2160,6 +2392,7 @@
                   bind:editorView
                   session={editorSession}
                   indentConfig={effectiveIndentConfig}
+                  onReady={reportInitialEditorReady}
                 />
               {/key}
             </div>
@@ -2177,12 +2410,18 @@
               class="split-surface flex flex-col flex-1 min-h-0 min-w-0"
               data-active={editorState.activeSurface === "markdown-preview"}
             >
-              <MarkdownPreview
-                content={value}
-                {editorView}
-                documentId={editorState.currentDocumentId}
-                documentGeneration={editorState.currentDocumentGeneration}
-              />
+              {#if MarkdownPreview}
+                <MarkdownPreview
+                  content={value}
+                  {editorView}
+                  documentId={editorState.currentDocumentId}
+                  documentGeneration={editorState.currentDocumentGeneration}
+                />
+              {:else}
+                <div class="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground" role="status">
+                  Loading preview…
+                </div>
+              {/if}
             </div>
           </ResizablePane>
         {/if}
@@ -2207,6 +2446,7 @@
               bind:editorView
               session={editorSession}
               indentConfig={effectiveIndentConfig}
+              onReady={reportInitialEditorReady}
             />
           {/key}
         </div>

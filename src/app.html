@@ -17,12 +17,70 @@
         ? theme === "dark"
         : window.matchMedia("(prefers-color-scheme: dark)").matches;
       document.documentElement.classList[dark ? "add" : "remove"]("dark");
+      document.documentElement.style.colorScheme = dark ? "dark" : "light";
+      performance.mark("grayslate:theme-ready");
+      window.addEventListener("DOMContentLoaded", function () {
+        requestAnimationFrame(function () {
+          performance.mark("grayslate:boot-shell-painted");
+        });
+      }, { once: true });
     })();
   </script>
+  <style>
+    :root {
+      --boot-background: #f0f2f7;
+    }
+
+    :root.dark {
+      --boot-background: #1b1e26;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: var(--boot-background);
+    }
+
+    body {
+      isolation: isolate;
+    }
+
+    #grayslate-boot-shell {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      overflow: hidden;
+      pointer-events: none;
+      background: var(--boot-background);
+    }
+
+    .grayslate-boot-sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    [data-startup-shell-ready] {
+      position: relative;
+      z-index: 1;
+      opacity: 1;
+    }
+  </style>
   %sveltekit.head%
 </head>
 
 <body data-sveltekit-preload-data="hover">
+  <div id="grayslate-boot-shell" role="status" aria-busy="true" aria-label="Opening Grayslate">
+    <span class="grayslate-boot-sr-only">Opening Grayslate</span>
+  </div>
   <div style="display: contents">%sveltekit.body%</div>
 </body>
 
