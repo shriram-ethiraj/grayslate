@@ -59,6 +59,7 @@ pub const APP_COMMANDS: &[&str] = &[
     "read_markdown_preview_asset",
     "rename_file",
     "render_markdown_preview",
+    "respond_update_install_preflight",
     "reset_notes_root",
     "resolve_default_notes_root",
     "resolve_notes_root",

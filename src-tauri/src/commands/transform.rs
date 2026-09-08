@@ -651,32 +651,68 @@ pub enum TransformationActionId {
     StatsCountWords,
 }
 
-/// Registry of in-flight transformation requests. Each entry maps a `request_id`
-/// to an `Arc<AtomicBool>` cancellation flag. Setting the flag to `true` signals
-/// the blocking worker to abort at its next check point.
+/// Registry of in-flight transformation requests. Request counters are local to
+/// each webview, so the native window label is part of the key.
 #[derive(Default)]
 pub struct TransformationCancellationRegistry {
-    active: Mutex<HashMap<u64, Arc<AtomicBool>>>,
+    active: Mutex<HashMap<(String, u64), Arc<AtomicBool>>>,
 }
 
 impl TransformationCancellationRegistry {
     /// Register a new in-flight request and return a handle to its cancellation flag.
-    fn register(&self, request_id: u64) -> Arc<AtomicBool> {
+    fn register(&self, window_label: &str, request_id: u64) -> Arc<AtomicBool> {
         let flag = Arc::new(AtomicBool::new(false));
-        self.active.lock().unwrap().insert(request_id, flag.clone());
+        let previous = self
+            .active
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .insert((window_label.to_string(), request_id), flag.clone());
+        if let Some(previous) = previous {
+            previous.store(true, Ordering::Relaxed);
+        }
         flag
     }
 
     /// Signal cancellation for the given request. No-op if the request is not found.
-    pub fn cancel(&self, request_id: u64) {
-        if let Some(flag) = self.active.lock().unwrap().get(&request_id) {
+    pub fn cancel(&self, window_label: &str, request_id: u64) {
+        if let Some(flag) = self
+            .active
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get(&(window_label.to_string(), request_id))
+        {
             flag.store(true, Ordering::Relaxed);
         }
     }
 
-    /// Remove a completed (or cancelled) request from the registry.
-    fn finish(&self, request_id: u64) {
-        self.active.lock().unwrap().remove(&request_id);
+    /// Remove a request only when it is still the exact registered operation.
+    fn finish(&self, window_label: &str, request_id: u64, flag: &Arc<AtomicBool>) {
+        let key = (window_label.to_string(), request_id);
+        let mut active = self
+            .active
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if active
+            .get(&key)
+            .is_some_and(|registered| Arc::ptr_eq(registered, flag))
+        {
+            active.remove(&key);
+        }
+    }
+
+    pub fn cleanup_window(&self, window_label: &str) {
+        let mut active = self
+            .active
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        active.retain(|(label, _), flag| {
+            if label == window_label {
+                flag.store(true, Ordering::Relaxed);
+                false
+            } else {
+                true
+            }
+        });
     }
 }
 
@@ -3333,12 +3369,15 @@ fn dispatch_transformation(
 
 #[tauri::command]
 pub async fn execute_transformation(
+    window: tauri::Window,
     request: ExecuteTransformationRequest,
     registry: tauri::State<'_, TransformationCancellationRegistry>,
     on_event: tauri::ipc::Channel<TransformationChannelEvent>,
 ) -> Result<ExecuteTransformationTransportResponse, String> {
+    let window_label = window.label().to_string();
     let request_id = request.request_id;
-    let cancelled = registry.register(request_id);
+    let cancelled = registry.register(&window_label, request_id);
+    let worker_cancelled = Arc::clone(&cancelled);
 
     // Clone the channel handle for progress reporting inside the blocking closure.
     let progress_channel = on_event.clone();
@@ -3348,7 +3387,7 @@ pub async fn execute_transformation(
 
         execute_transformation_blocking_with_progress(
             request,
-            &cancelled,
+            &worker_cancelled,
             Box::new(move |current, total| {
                 let _ =
                     progress_channel.send(TransformationChannelEvent::Progress { current, total });
@@ -3356,7 +3395,7 @@ pub async fn execute_transformation(
         )
     })
     .await;
-    registry.finish(request_id);
+    registry.finish(&window_label, request_id, &cancelled);
 
     let response =
         joined.map_err(|error| format!("Failed to join transformation task: {}", error))??;
@@ -3387,10 +3426,11 @@ pub async fn execute_transformation(
 
 #[tauri::command]
 pub fn cancel_transformation(
+    window: tauri::Window,
     request_id: u64,
     registry: tauri::State<'_, TransformationCancellationRegistry>,
 ) {
-    registry.cancel(request_id);
+    registry.cancel(window.label(), request_id);
 }
 
 #[cfg(test)]
@@ -3404,6 +3444,40 @@ mod tests {
 
     fn test_ctx<'a>(text: &'a str, cancelled: &'a Arc<AtomicBool>) -> TransformationContext<'a> {
         TransformationContext::new(text, cancelled.as_ref())
+    }
+
+    #[test]
+    fn cancellation_ids_are_isolated_by_window() {
+        let registry = TransformationCancellationRegistry::default();
+        let first = registry.register("main", 1);
+        let second = registry.register("editor-two", 1);
+
+        registry.cancel("main", 1);
+        assert!(first.load(Ordering::Relaxed));
+        assert!(!second.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn stale_finish_does_not_remove_a_replacement_request() {
+        let registry = TransformationCancellationRegistry::default();
+        let stale = registry.register("main", 1);
+        let replacement = registry.register("main", 1);
+        assert!(stale.load(Ordering::Relaxed));
+
+        registry.finish("main", 1, &stale);
+        registry.cancel("main", 1);
+        assert!(replacement.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn window_cleanup_cancels_only_that_windows_transformations() {
+        let registry = TransformationCancellationRegistry::default();
+        let first = registry.register("main", 1);
+        let second = registry.register("editor-two", 1);
+
+        registry.cleanup_window("main");
+        assert!(first.load(Ordering::Relaxed));
+        assert!(!second.load(Ordering::Relaxed));
     }
 
     #[test]

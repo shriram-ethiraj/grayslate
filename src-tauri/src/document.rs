@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
     sync::Mutex,
 };
@@ -96,6 +96,7 @@ struct RegistryEntry {
 struct RegistryState {
     by_id: HashMap<String, RegistryEntry>,
     by_window_path: HashMap<(String, PathBuf), String>,
+    closed_windows: HashSet<String>,
 }
 
 #[derive(Default)]
@@ -225,6 +226,9 @@ impl DocumentRegistry {
             .state
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if state.closed_windows.contains(window_label) {
+            return Err(INVALID_GRANT.to_string());
+        }
         let path_key = (window_label.to_string(), path.clone());
 
         if let Some(id) = state.by_window_path.get(&path_key).cloned() {
@@ -402,6 +406,10 @@ impl DocumentRegistry {
             .state
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
+        // Native window labels are unique for the process lifetime. Retaining a
+        // tombstone prevents an in-flight search/read from recreating grants
+        // after destruction raced ahead of its async completion.
+        state.closed_windows.insert(window_label.to_string());
         let ids = state
             .by_id
             .iter()
@@ -518,6 +526,34 @@ mod tests {
                 DocumentAccess::Manage,
             )
             .is_err());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn closed_window_cannot_receive_late_document_grants() {
+        let dir = temp_dir("grayslate-closed-window-grant");
+        let path = dir.join("note.txt");
+        std::fs::write(&path, "safe").unwrap();
+        let registry = DocumentRegistry::default();
+
+        registry.revoke_window("closed-window");
+        assert!(registry
+            .grant_existing(
+                "closed-window",
+                &path,
+                FileSource::Local,
+                DocumentRights::tracked(FileSource::Local),
+            )
+            .is_err());
+        assert!(registry
+            .grant_existing(
+                "live-window",
+                &path,
+                FileSource::Local,
+                DocumentRights::tracked(FileSource::Local),
+            )
+            .is_ok());
+
         std::fs::remove_dir_all(dir).unwrap();
     }
 

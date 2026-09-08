@@ -74,6 +74,7 @@
     "allow-read-markdown-preview-asset",
     "allow-rename-file",
     "allow-render-markdown-preview",
+    "allow-respond-update-install-preflight",
     "allow-reset-notes-root",
     "allow-resolve-default-notes-root",
     "allow-resolve-notes-root",

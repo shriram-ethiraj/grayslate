@@ -8,6 +8,7 @@
 	import * as Sidebar from "$lib/components/ui/sidebar/index.js";
 	import * as Tooltip from "$lib/components/ui/tooltip/index.js";
 	import { TooltipButton } from "$lib/components/ui/tooltip/index.js";
+	import { startTooltipWindowLifecycle } from "$lib/components/ui/tooltip/tooltip-lifecycle.svelte.js";
 	import {
 		editorState,
 		openFindReplacePanel,
@@ -30,11 +31,13 @@
 	import {
 		loadAllSettings,
 		applyThemeClass,
+		applyPersistedSettingChange,
 		hydrateAppSettingsState,
 	} from "$lib/state/appSettings.svelte";
 	import {
 		ensureAppInfoLoaded,
 		startUpdateStatusSync,
+		updateInstallPreflightState,
 	} from "$lib/state/appMenu.svelte";
 	import {
 		beginTrackedWork,
@@ -297,6 +300,8 @@
 		};
 	});
 
+	onMount(() => startTooltipWindowLifecycle(appWindow));
+
 	onDestroy(() => {
 		finishProgrammaticSidebarTransition(false);
 		if (shellRevealFrame !== undefined) cancelAnimationFrame(shellRevealFrame);
@@ -358,8 +363,16 @@
 		const unlistenPromise = appWindow.listen<SettingChangedPayload>(
 			"settings://changed",
 			(event) => {
-				if (event.payload.key === "theme") {
-					applyThemeClass(event.payload.value !== "light");
+				const change = applyPersistedSettingChange(
+					event.payload.key,
+					event.payload.value,
+				);
+				if (change?.key === "theme") {
+					applyThemeClass(change.value === "dark");
+				} else if (change?.key === "fontSize") {
+					editorState.fontSize = change.value;
+				} else if (change?.key === "wordWrap") {
+					editorState.wordWrap = change.value;
 				}
 			},
 		);
@@ -458,6 +471,7 @@
 	bind:this={shellElement}
 	class="startup-shell relative z-10 flex h-screen w-full flex-col overflow-hidden bg-background"
 	data-startup-shell-ready={shellRevealed}
+	inert={updateInstallPreflightState.locked}
 	ontransitionend={handleShellTransitionEnd}
 >
 	<Titlebar />
@@ -559,6 +573,18 @@
 		<FileDropOverlay />
 	</div>
 </div>
+	{#if updateInstallPreflightState.locked}
+		<div
+			class="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-6 backdrop-blur-sm"
+			data-testid="update-install-window-lock"
+			role="status"
+			aria-live="polite"
+		>
+			<div class="rounded-md border bg-background px-4 py-3 text-sm shadow-lg">
+				Finishing update preparation…
+			</div>
+		</div>
+	{/if}
 <Toaster position="top-right" offset={{ top: "96px", right: "24px" }} mobileOffset={{ top: "96px", right: "16px", left: "16px" }} />
 </Tooltip.Provider>
 {/if}

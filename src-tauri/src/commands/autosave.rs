@@ -491,13 +491,12 @@ pub fn autosave_set_eol(
 #[tauri::command]
 pub async fn prepare_close(
     app: tauri::AppHandle,
-    window: tauri::Window,
+    window: tauri::WebviewWindow,
     registry: tauri::State<'_, AutosaveRegistry>,
     documents: tauri::State<'_, DocumentRegistry>,
     storage: tauri::State<'_, AppStorage>,
     csv_registry: tauri::State<'_, CsvSessionRegistry>,
     save_coordinator: tauri::State<'_, SaveCoordinator>,
-    windows: tauri::State<'_, WindowRegistry>,
 ) -> Result<(), String> {
     flush_before_exit(
         &app,
@@ -510,13 +509,9 @@ pub async fn prepare_close(
     )
     .await?;
 
-    // The window is going away, so its autosave registration is no longer
-    // useful; dropping it stops a timer tick from requesting content from a
-    // webview that is about to disappear.
-    registry.unregister(window.label());
-    windows.cleanup_window(window.label());
-    documents.revoke_window(window.label());
-
+    // Keep every backend registration intact until native destruction succeeds.
+    // The Destroyed handler owns teardown and primary-window promotion exactly
+    // once; a failed destroy therefore leaves this window fully operational.
     window.destroy().map_err(|error| error.to_string())
 }
 
@@ -524,7 +519,7 @@ pub async fn prepare_close(
 /// close so an encoding error or unavailable disk can never discard text.
 pub(crate) async fn flush_before_exit(
     app: &tauri::AppHandle,
-    window: &tauri::Window,
+    window: &tauri::WebviewWindow,
     registry: &AutosaveRegistry,
     documents: &DocumentRegistry,
     storage: &AppStorage,

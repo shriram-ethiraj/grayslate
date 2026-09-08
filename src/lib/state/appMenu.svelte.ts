@@ -39,6 +39,11 @@ type UpdateInstallResponse = {
     message: string;
 };
 
+type UpdateInstallPreflightPayload = {
+    requestId: number;
+    restoreUpdateDialog: boolean;
+};
+
 type BackendUpdateStatus =
     | { status: "idle" }
     | { status: "checking"; source: UpdateDiscoverySource }
@@ -66,7 +71,12 @@ export const appMenuState = $state({
     updateDiscoverySource: null as UpdateDiscoverySource | null,
 });
 
+/** True after this webview approved process exit and until Rust releases it. */
+export const updateInstallPreflightState = $state({ locked: false });
+
 let appInfoLoaded = false;
+let activeInstallPreflightRequestId: number | null = null;
+let completedInstallPreflightRequestId: number | null = null;
 
 function resetUpdateDetails(): void {
     appMenuState.availableVersion = "";
@@ -116,6 +126,72 @@ function commandErrorMessage(error: unknown, fallback: string): string {
         }
     }
     return fallback;
+}
+
+function commandErrorCode(error: unknown): string | undefined {
+    if (typeof error === "object" && error !== null && "code" in error) {
+        return typeof error.code === "string" ? error.code : undefined;
+    }
+    return undefined;
+}
+
+function blockUpdateInstallInteraction(event: Event): void {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+}
+
+function setUpdateInstallLocked(locked: boolean): void {
+    updateInstallPreflightState.locked = locked;
+    for (const eventName of ["keydown", "beforeinput", "paste", "drop"]) {
+        window.removeEventListener(eventName, blockUpdateInstallInteraction, true);
+        if (locked) {
+            window.addEventListener(eventName, blockUpdateInstallInteraction, true);
+        }
+    }
+    if (locked && document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur();
+    }
+}
+
+async function handleUpdateInstallPreflight(
+    payload: UpdateInstallPreflightPayload,
+): Promise<void> {
+    if (
+        activeInstallPreflightRequestId !== null ||
+        completedInstallPreflightRequestId === payload.requestId
+    ) {
+        return;
+    }
+    activeInstallPreflightRequestId = payload.requestId;
+
+    let allowed = false;
+    try {
+        allowed = await confirmBeforeLeavingDocument();
+    } catch (error) {
+        console.error("[Updater] Install confirmation failed:", error);
+    }
+
+    // The prompt temporarily replaces About only in the window that initiated
+    // installation. Restore it before reporting the decision so progress stays visible.
+    if (payload.restoreUpdateDialog) {
+        openAboutAppDialog();
+    }
+    if (allowed) {
+        setUpdateInstallLocked(true);
+    }
+
+    try {
+        await invoke("respond_update_install_preflight", {
+            requestId: payload.requestId,
+            allowed,
+        });
+    } catch (error) {
+        setUpdateInstallLocked(false);
+        console.error("[Updater] Could not report install confirmation:", error);
+    } finally {
+        completedInstallPreflightRequestId = payload.requestId;
+        activeInstallPreflightRequestId = null;
+    }
 }
 
 export async function ensureAppInfoLoaded(): Promise<void> {
@@ -182,21 +258,43 @@ function applyBackendUpdateStatus(status: BackendUpdateStatus): void {
     }
 }
 
-/** Mirror the process-wide Rust updater state into this webview. */
+/** Synchronize process-wide updater status and install preparation with this webview. */
 export async function startUpdateStatusSync(): Promise<() => void> {
     let eventSeen = false;
-    const unlisten = await listen<BackendUpdateStatus>("updates://status", (event) => {
-        eventSeen = true;
-        applyBackendUpdateStatus(event.payload);
-    });
+    const [unlistenStatus, unlistenPreflight, unlistenPreflightRelease] = await Promise.all([
+        listen<BackendUpdateStatus>("updates://status", (event) => {
+            eventSeen = true;
+            applyBackendUpdateStatus(event.payload);
+        }),
+        listen<UpdateInstallPreflightPayload>(
+            "updates://install-preflight",
+            (event) => {
+                void handleUpdateInstallPreflight(event.payload);
+            },
+        ),
+        listen("updates://install-preflight-release", () => {
+            activeInstallPreflightRequestId = null;
+            completedInstallPreflightRequestId = null;
+            setUpdateInstallLocked(false);
+        }),
+    ]);
     try {
         const status = await invoke<BackendUpdateStatus>("get_update_status");
         if (!eventSeen) applyBackendUpdateStatus(status);
     } catch (error) {
-        unlisten();
+        unlistenStatus();
+        unlistenPreflight();
+        unlistenPreflightRelease();
         throw error;
     }
-    return unlisten;
+    return () => {
+        unlistenStatus();
+        unlistenPreflight();
+        unlistenPreflightRelease();
+        activeInstallPreflightRequestId = null;
+        completedInstallPreflightRequestId = null;
+        setUpdateInstallLocked(false);
+    };
 }
 
 export async function checkForAppUpdates(options?: {
@@ -277,15 +375,7 @@ export async function installAvailableUpdate(): Promise<void> {
         return;
     }
 
-    const canInstall = await confirmBeforeLeavingDocument();
-    // The unsaved-changes prompt temporarily replaces About in the app-level
-    // dialog slot. Restore the update surface for either cancellation or the
-    // download/install progress state.
-    openAboutAppDialog();
-    if (!canInstall) {
-        return;
-    }
-
+    const availableMessage = appMenuState.updateMessage;
     appMenuState.updateStatus = "installing";
     appMenuState.updateMessage = platformState.osType === "windows"
         ? "Downloading the update. Grayslate will close when the Windows installer starts."
@@ -300,6 +390,11 @@ export async function installAvailableUpdate(): Promise<void> {
         appMenuState.updateMessage = result.message;
         toast.success(result.message);
     } catch (error) {
+        if (commandErrorCode(error) === "cancelled") {
+            appMenuState.updateStatus = "available";
+            appMenuState.updateMessage = availableMessage;
+            return;
+        }
         const message = commandErrorMessage(error, "Failed to install update.");
         appMenuState.updateStatus = "error";
         appMenuState.updateMessage = message;

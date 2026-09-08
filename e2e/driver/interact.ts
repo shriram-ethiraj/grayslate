@@ -183,7 +183,11 @@ export async function clearValueTestId(testId: string): Promise<void> {
  * it already inside the element and emit no enter event at all.
  */
 export async function hoverTestId(testId: string): Promise<void> {
-  const selector = `[data-testid='${testId}']`;
+  await hoverSelector(`[data-testid='${testId}']`);
+}
+
+/** Hover a raw selector through the same real pointer boundary-crossing path. */
+export async function hoverSelector(selector: string): Promise<void> {
   await withFreshElement(selector, async (element) => {
     // Park the pointer away from the target first so the move crosses a real
     // boundary and produces an enter.

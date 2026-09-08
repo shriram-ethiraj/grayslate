@@ -564,9 +564,16 @@ pub fn create_editor_window(
     window: tauri::Window,
     registry: tauri::State<'_, WindowRegistry>,
     documents: tauri::State<'_, DocumentRegistry>,
+    updates: tauri::State<'_, crate::commands::update::UpdateOperationState>,
     document_id: Option<String>,
     document_generation: Option<u64>,
 ) -> Result<CreateWindowResult, String> {
+    if updates.is_installing() {
+        return Err(
+            "A new window cannot be opened while an update is being installed.".to_string(),
+        );
+    }
+
     let source_document = match (document_id.as_deref(), document_generation) {
         (None, None) => None,
         (Some(id), Some(generation)) => {

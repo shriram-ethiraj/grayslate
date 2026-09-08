@@ -102,6 +102,23 @@ export async function waitFor(
   }
 }
 
+/** Prove a condition stays true for a bounded interval, for delayed regressions. */
+export async function requireConditionForDuration(
+  predicate: () => boolean | Promise<boolean>,
+  options: WaitOptions & { durationMs: number },
+): Promise<void> {
+  const deadline = Date.now() + options.durationMs;
+  const intervalMs = options.intervalMs ?? INTERVALS.fast;
+
+  while (Date.now() < deadline) {
+    if (!(await predicate())) {
+      const message = typeof options.message === "function" ? options.message() : options.message;
+      throw new Error(message);
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+}
+
 /**
  * Wait for an element's attribute to equal `expected`.
  *

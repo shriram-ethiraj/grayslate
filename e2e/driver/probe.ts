@@ -164,6 +164,13 @@ export async function readEditorHasFocus(): Promise<boolean> {
   });
 }
 
+/** Test id of the DOM element that currently owns keyboard focus. */
+export async function readFocusedTestId(): Promise<string | null> {
+  return browser.execute(() =>
+    document.activeElement?.getAttribute("data-testid") ?? null,
+  );
+}
+
 /** Text currently selected in the webview document. */
 export async function readDocumentSelectionText(): Promise<string> {
   return browser.execute(() => window.getSelection()?.toString() ?? "");
@@ -260,6 +267,33 @@ export async function readVisibleTooltips(): Promise<string[]> {
       .map((tooltip) => tooltip.textContent?.trim() ?? "")
       .filter(Boolean),
   );
+}
+
+/** Whether this webview currently permits transient tooltip surfaces. */
+export async function readTooltipWindowActive(): Promise<boolean> {
+  return browser.execute(
+    () => document.documentElement.dataset.tooltipWindowActive === "true",
+  );
+}
+
+/** Whether at least one element matching a selector has rendered geometry. */
+export async function isSelectorVisible(selector: string): Promise<boolean> {
+  return browser.execute((rawSelector) =>
+    Array.from(document.querySelectorAll<HTMLElement>(rawSelector)).some(
+      (element) => element.getClientRects().length > 0,
+    ), selector);
+}
+
+/** Visible state of the fold-gutter's CSS-generated tooltip. */
+export async function readFoldGutterTooltipVisible(): Promise<boolean> {
+  return browser.execute(() => {
+    const marker = document.querySelector<HTMLElement>(
+      ".cm-foldGutter [data-cm-tooltip]",
+    );
+    if (!marker) return false;
+    const style = getComputedStyle(marker, "::after");
+    return style.visibility === "visible" && Number(style.opacity) > 0;
+  });
 }
 
 /** Count elements matching a raw selector, for virtualization bounds checks. */

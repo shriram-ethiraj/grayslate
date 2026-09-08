@@ -133,6 +133,18 @@ pub fn run() {
             {
                 registry.unregister(window.label());
             }
+            if let Some(state) = window
+                .app_handle()
+                .try_state::<commands::search::SearchRuntimeState>()
+            {
+                state.cleanup_window(window.label());
+            }
+            if let Some(state) = window
+                .app_handle()
+                .try_state::<commands::transform::TransformationCancellationRegistry>(
+            ) {
+                state.cleanup_window(window.label());
+            }
             if let Some(registry) = window
                 .app_handle()
                 .try_state::<document::DocumentRegistry>()
@@ -294,6 +306,7 @@ pub fn run() {
             commands::transform::editor_detect_indent,
             commands::update::check_for_updates,
             commands::update::install_available_update,
+            commands::update::respond_update_install_preflight,
             commands::external::get_app_info,
             commands::external::open_about_link,
             commands::external::open_markdown_link,

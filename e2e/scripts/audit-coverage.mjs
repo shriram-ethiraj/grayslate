@@ -42,6 +42,7 @@ const STRICT = process.env.E2E_COVERAGE_STRICT === "1" || process.argv.includes(
 // that proves it. A new cancellation command must be added here or the audit
 // fails: the map is reconciled against the command catalog in both directions.
 const CANCELLATION_EVIDENCE = {
+  cancel_document_open: "file.open.reservation-cancel",
   cancel_file_read: "file.read.cancel",
   cancel_editor_find: "editor.find.cancel",
   cancel_transformation: "transform.large.cancel",
