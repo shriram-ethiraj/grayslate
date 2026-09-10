@@ -374,5 +374,5 @@ pub fn sync_native_menu_for_window(app: &tauri::AppHandle, window_label: &str) {
     }
     if let Ok(item) = state.save_file_item.lock() {
         let _ = item.set_enabled(save_enabled);
-    }
+    };
 }
