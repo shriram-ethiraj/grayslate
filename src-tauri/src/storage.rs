@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
+use std::sync::{Arc, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use rusqlite::{params, Connection, OptionalExtension};
@@ -46,6 +47,7 @@ const DATABASE_FILENAME: &str = "grayslate.sqlite3";
 #[derive(Clone)]
 pub struct AppStorage {
     db_path: PathBuf,
+    settings: Arc<RwLock<HashMap<String, String>>>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -97,22 +99,25 @@ impl AppStorage {
 
         let storage = Self {
             db_path: app_data_dir.join(DATABASE_FILENAME),
+            settings: Arc::new(RwLock::new(HashMap::new())),
         };
 
         storage.run_migrations()?;
+        let settings = storage.read_all_settings_from_db()?;
+        *storage
+            .settings
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = settings;
         Ok(storage)
     }
 
     pub fn get_setting(&self, key: &str) -> Result<Option<String>, String> {
-        let connection = self.open_connection()?;
-        connection
-            .query_row(
-                "SELECT value FROM app_settings WHERE key = ?1",
-                params![key],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(|error| format!("Failed to read app setting: {}", error))
+        Ok(self
+            .settings
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get(key)
+            .cloned())
     }
 
     /// The configured default line ending.
@@ -161,10 +166,31 @@ impl AppStorage {
                 .map_err(|error| format!("Failed to delete app setting: {}", error))?,
         };
 
+        let mut settings = self
+            .settings
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        match value {
+            Some(value) => {
+                settings.insert(key.to_string(), value.to_string());
+            }
+            None => {
+                settings.remove(key);
+            }
+        }
+
         Ok(())
     }
 
     pub fn get_all_settings(&self) -> Result<std::collections::HashMap<String, String>, String> {
+        Ok(self
+            .settings
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone())
+    }
+
+    fn read_all_settings_from_db(&self) -> Result<HashMap<String, String>, String> {
         let connection = self.open_connection()?;
         let mut statement = connection
             .prepare("SELECT key, value FROM app_settings")
@@ -976,8 +1002,16 @@ mod tests {
         std::fs::create_dir_all(&dir).expect("create temp dir");
         let storage = AppStorage {
             db_path: dir.join("test.sqlite3"),
+            settings: Arc::new(RwLock::new(HashMap::new())),
         };
         storage.run_migrations().expect("run migrations");
+        let settings = storage
+            .read_all_settings_from_db()
+            .expect("load settings cache");
+        *storage
+            .settings
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = settings;
         (storage, dir)
     }
 

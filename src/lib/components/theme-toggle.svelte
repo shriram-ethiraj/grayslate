@@ -2,13 +2,12 @@
     import { TooltipButton } from "$lib/components/ui/tooltip/index.js";
     import Sun from "~icons/lucide/sun";
     import Moon from "~icons/lucide/moon";
-    import { applyTheme, getThemeFromLocalStorage } from "$lib/state/appSettings.svelte";
+    import { applyTheme, themeState } from "$lib/state/appSettings.svelte";
 
-    let isDark = $state(getThemeFromLocalStorage() === "dark");
+    const isDark = $derived(themeState.current === "dark");
 
     function toggleTheme() {
-        isDark = !isDark;
-        applyTheme(isDark);
+        applyTheme(!isDark);
     }
 </script>
 

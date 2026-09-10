@@ -4,6 +4,8 @@
 struct MacOsMenuState {
     word_wrap_item: std::sync::Mutex<tauri::menu::CheckMenuItem<tauri::Wry>>,
     save_file_item: std::sync::Mutex<tauri::menu::MenuItem<tauri::Wry>>,
+    word_wrap_by_window: std::sync::Mutex<std::collections::HashMap<String, bool>>,
+    save_enabled_by_window: std::sync::Mutex<std::collections::HashMap<String, bool>>,
 }
 
 /// Build the macOS-native menu bar (File + Edit + View + Help).
@@ -48,8 +50,17 @@ pub fn build_native_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::M
                 .build(app)?,
         )
         .item(
+            &MenuItemBuilder::with_id("new-window", "New Window")
+                .accelerator("CmdOrCtrl+Shift+N")
+                .build(app)?,
+        )
+        .item(
             &MenuItemBuilder::with_id("open-file", "Open File...")
                 .accelerator("CmdOrCtrl+O")
+                .build(app)?,
+        )
+        .item(
+            &MenuItemBuilder::with_id("open-file-new-window", "Open File in New Window...")
                 .build(app)?,
         )
         .separator()
@@ -74,6 +85,8 @@ pub fn build_native_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::M
     app.manage(MacOsMenuState {
         word_wrap_item: std::sync::Mutex::new(word_wrap_item.clone()),
         save_file_item: std::sync::Mutex::new(save_file_item),
+        word_wrap_by_window: std::sync::Mutex::new(std::collections::HashMap::new()),
+        save_enabled_by_window: std::sync::Mutex::new(std::collections::HashMap::new()),
     });
 
     let edit_menu = SubmenuBuilder::new(app, "Edit")
@@ -176,7 +189,13 @@ pub fn build_native_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::M
 pub fn handle_macos_menu_event(app: &tauri::AppHandle, event: tauri::menu::MenuEvent) {
     use tauri::{Emitter, Manager};
 
-    let Some(window) = app.get_webview_window("main") else {
+    let Some(label) = app
+        .try_state::<crate::window::WindowRegistry>()
+        .and_then(|registry| registry.preferred_window_label(app))
+    else {
+        return;
+    };
+    let Some(window) = app.get_webview_window(&label) else {
         return;
     };
 
@@ -188,10 +207,12 @@ pub fn handle_macos_menu_event(app: &tauri::AppHandle, event: tauri::menu::MenuE
             let _ = window.emit("menu://settings", true);
         }
         "quit" => {
-            // Request a normal window close so the frontend's CloseRequested
-            // guard can offer Save / Discard / Cancel before `prepare_close`
-            // flushes autosave state and destroys the window.
-            let _ = window.close();
+            // Request a normal close for every editor window. Each renderer's
+            // CloseRequested guard remains responsible for Save / Discard /
+            // Cancel before `prepare_close` destroys that individual window.
+            for editor_window in app.webview_windows().values() {
+                let _ = editor_window.close();
+            }
         }
         "keyboard-shortcuts" => {
             let _ = window.emit("menu://keyboard-shortcuts", true);
@@ -202,8 +223,14 @@ pub fn handle_macos_menu_event(app: &tauri::AppHandle, event: tauri::menu::MenuE
         "new-file" => {
             let _ = window.emit("menu://new-file", true);
         }
+        "new-window" => {
+            let _ = window.emit("menu://new-window", true);
+        }
         "open-file" => {
             let _ = window.emit("menu://open-file", true);
+        }
+        "open-file-new-window" => {
+            let _ = window.emit("menu://open-file-new-window", true);
         }
         "save-file" => {
             let _ = window.emit("menu://save-file", true);
@@ -247,6 +274,9 @@ pub fn handle_macos_menu_event(app: &tauri::AppHandle, event: tauri::menu::MenuE
                 if let Ok(ci) = state.word_wrap_item.lock() {
                     checked = ci.is_checked().unwrap_or(false);
                 }
+                if let Ok(mut values) = state.word_wrap_by_window.lock() {
+                    values.insert(label.clone(), checked);
+                }
             }
             let _ = window.emit("menu://word-wrap-state", checked);
         }
@@ -268,18 +298,28 @@ pub fn handle_macos_menu_event(app: &tauri::AppHandle, event: tauri::menu::MenuE
 /// On macOS it enables or disables the native "Save" menu item to match the
 /// editor's dirty state. On other platforms this is a no-op.
 #[tauri::command]
-pub fn set_menu_save_enabled(app: tauri::AppHandle, enabled: bool) {
+pub fn set_menu_save_enabled(app: tauri::AppHandle, window: tauri::Window, enabled: bool) {
     #[cfg(target_os = "macos")]
     {
         use tauri::Manager;
         if let Some(state) = app.try_state::<MacOsMenuState>() {
-            if let Ok(item) = state.save_file_item.lock() {
-                let _ = item.set_enabled(enabled);
+            if let Ok(mut values) = state.save_enabled_by_window.lock() {
+                values.insert(window.label().to_string(), enabled);
+            }
+            if app
+                .state::<crate::window::WindowRegistry>()
+                .preferred_window_label(&app)
+                .as_deref()
+                == Some(window.label())
+            {
+                if let Ok(item) = state.save_file_item.lock() {
+                    let _ = item.set_enabled(enabled);
+                }
             }
         }
     }
     #[cfg(not(target_os = "macos"))]
-    let _ = (app, enabled);
+    let _ = (app, window, enabled);
 }
 ///
 /// On macOS it updates the native `CheckMenuItem` so the system menu bar
@@ -287,16 +327,52 @@ pub fn set_menu_save_enabled(app: tauri::AppHandle, enabled: bool) {
 /// On other platforms this is a no-op; the command is always registered so
 /// the invoke handler list does not need conditional compilation.
 #[tauri::command]
-pub fn set_menu_word_wrap(app: tauri::AppHandle, checked: bool) {
+pub fn set_menu_word_wrap(app: tauri::AppHandle, window: tauri::Window, checked: bool) {
     #[cfg(target_os = "macos")]
     {
         use tauri::Manager;
         if let Some(state) = app.try_state::<MacOsMenuState>() {
-            if let Ok(item) = state.word_wrap_item.lock() {
-                let _ = item.set_checked(checked);
+            if let Ok(mut values) = state.word_wrap_by_window.lock() {
+                values.insert(window.label().to_string(), checked);
+            }
+            if app
+                .state::<crate::window::WindowRegistry>()
+                .preferred_window_label(&app)
+                .as_deref()
+                == Some(window.label())
+            {
+                if let Ok(item) = state.word_wrap_item.lock() {
+                    let _ = item.set_checked(checked);
+                }
             }
         }
     }
     #[cfg(not(target_os = "macos"))]
-    let _ = (app, checked);
+    let _ = (app, window, checked);
+}
+
+#[cfg(target_os = "macos")]
+pub fn sync_native_menu_for_window(app: &tauri::AppHandle, window_label: &str) {
+    use tauri::Manager;
+    let Some(state) = app.try_state::<MacOsMenuState>() else {
+        return;
+    };
+    let checked = state
+        .word_wrap_by_window
+        .lock()
+        .ok()
+        .and_then(|values| values.get(window_label).copied())
+        .unwrap_or(false);
+    let save_enabled = state
+        .save_enabled_by_window
+        .lock()
+        .ok()
+        .and_then(|values| values.get(window_label).copied())
+        .unwrap_or(false);
+    if let Ok(item) = state.word_wrap_item.lock() {
+        let _ = item.set_checked(checked);
+    }
+    if let Ok(item) = state.save_file_item.lock() {
+        let _ = item.set_enabled(save_enabled);
+    }
 }

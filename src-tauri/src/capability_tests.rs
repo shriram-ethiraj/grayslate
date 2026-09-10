@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
 #[test]
-fn main_capability_is_explicit_and_least_privilege() {
+fn editor_window_capability_is_explicit_and_least_privilege() {
     let capability: serde_json::Value =
         serde_json::from_str(include_str!("../capabilities/default.json"))
             .expect("default capability must be valid JSON");
@@ -17,6 +17,11 @@ fn main_capability_is_explicit_and_least_privilege() {
         })
         .collect::<BTreeSet<_>>();
 
+    assert_eq!(
+        capability["windows"],
+        serde_json::json!(["main", "editor-*"])
+    );
+
     let app_permissions = crate::command_names::APP_COMMANDS
         .iter()
         .map(|command| format!("allow-{}", command.replace('_', "-")))
@@ -30,6 +35,7 @@ fn main_capability_is_explicit_and_least_privilege() {
     let expected_plugin_permissions = [
         "clipboard-manager:allow-write-text",
         "core:event:allow-emit",
+        "core:event:allow-emit-to",
         "core:event:allow-listen",
         "core:event:allow-unlisten",
         "core:window:allow-close",

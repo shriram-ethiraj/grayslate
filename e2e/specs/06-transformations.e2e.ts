@@ -2,7 +2,7 @@ import fs from "node:fs";
 import { browser, expect } from "@wdio/globals";
 import { TIMEOUTS } from "../config/timeouts.js";
 import { scenario } from "../coverage/scenario.js";
-import { HOME } from "../driver/keys.js";
+import { END, HOME } from "../driver/keys.js";
 import {
   armOperationGate,
   releaseOperationGate,
@@ -39,7 +39,7 @@ describe("Transformations", () => {
       await openText("insert-family.txt", "prefix ");
       await editor.focus();
       // Put the caret at the very end so the insert is unambiguous.
-      await editor.replaceText("prefix ");
+      await browser.keys(END);
 
       await transformations.run("generate.uuid-v4", false);
       await editor.waitForText(

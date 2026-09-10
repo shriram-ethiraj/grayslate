@@ -236,6 +236,17 @@
     transition-delay: 250ms;
   }
 
+  .cm-editor[data-tooltips-suspended] .cm-foldGutter [data-cm-tooltip]::after {
+    opacity: 0;
+    visibility: hidden;
+    transition: none;
+  }
+
+  html[data-tooltip-window-active="false"] [data-slot="tooltip-content"],
+  html[data-tooltip-window-active="false"] .cm-tooltip.cm-tooltip-hover {
+    display: none !important;
+  }
+
   /* JSON Key Path Tooltip */
   .cm-tooltip.cm-tooltip-hover {
     @apply !border !border-border !bg-popover !text-popover-foreground !shadow-md !rounded-lg !overflow-hidden;

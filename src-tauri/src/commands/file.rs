@@ -33,6 +33,7 @@ use crate::storage::{
     SETTING_FONT_SIZE, SETTING_LAST_ACTIVE_FILE, SETTING_NOTES_ROOT, SETTING_SIDEBAR_OPEN,
     SETTING_SIDEBAR_WIDTH, SETTING_STARTUP_BEHAVIOR, SETTING_THEME, SETTING_WORD_WRAP,
 };
+use crate::window::{focus_window, WindowRegistry};
 
 use super::RECENT_FILES_UPDATED_EVENT;
 
@@ -157,7 +158,7 @@ impl FileReadCancellationRegistry {
         cancelled
     }
 
-    fn cancel_window_request(&self, window_label: &str) {
+    pub fn cancel_window_request(&self, window_label: &str) {
         let mut active_reads = self
             .active_reads
             .lock()
@@ -798,8 +799,24 @@ pub fn get_app_setting(
 #[tauri::command]
 pub fn get_all_settings(
     storage: tauri::State<'_, AppStorage>,
+    windows: tauri::State<'_, WindowRegistry>,
+    window: tauri::Window,
 ) -> Result<std::collections::HashMap<String, String>, String> {
-    storage.get_all_settings()
+    let mut settings = storage.get_all_settings()?;
+    let layout = windows.resolve_sidebar_layout(
+        window.label(),
+        settings
+            .get(SETTING_SIDEBAR_WIDTH)
+            .cloned()
+            .unwrap_or_else(|| "20".to_string()),
+        settings
+            .get(SETTING_SIDEBAR_OPEN)
+            .cloned()
+            .unwrap_or_else(|| "false".to_string()),
+    );
+    settings.insert(SETTING_SIDEBAR_WIDTH.to_string(), layout.width);
+    settings.insert(SETTING_SIDEBAR_OPEN.to_string(), layout.open);
+    Ok(settings)
 }
 
 #[tauri::command]
@@ -862,7 +879,11 @@ pub fn set_last_active_document(
 
 #[tauri::command]
 pub fn set_app_setting(
+    app: tauri::AppHandle,
+    window: tauri::Window,
     storage: tauri::State<'_, AppStorage>,
+    windows: tauri::State<'_, WindowRegistry>,
+    automatic_updates: tauri::State<'_, super::update::AutomaticUpdateScheduler>,
     key: String,
     value: Option<String>,
 ) -> Result<(), String> {
@@ -982,7 +1003,25 @@ pub fn set_app_setting(
         }
     }
 
-    storage.set_setting(&key, value.as_deref())
+    if matches!(key.as_str(), SETTING_SIDEBAR_WIDTH | SETTING_SIDEBAR_OPEN)
+        && !windows.note_sidebar_setting(window.label(), &key, value.as_deref())
+    {
+        return Ok(());
+    }
+
+    storage.set_setting(&key, value.as_deref())?;
+    if key == SETTING_AUTOMATIC_UPDATE_CHECKS {
+        automatic_updates.settings_changed();
+    }
+    let _ = app.emit("settings://changed", SettingChangedPayload { key, value });
+    Ok(())
+}
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SettingChangedPayload {
+    key: String,
+    value: Option<String>,
 }
 
 fn validate_boolean_setting(value: Option<&str>, label: &str) -> Result<(), String> {
@@ -1153,12 +1192,14 @@ pub async fn write_file_content(
     documents: tauri::State<'_, DocumentRegistry>,
     autosave: tauri::State<'_, crate::autosave::AutosaveRegistry>,
     save_coordinator: tauri::State<'_, crate::save_coordinator::SaveCoordinator>,
+    windows: tauri::State<'_, WindowRegistry>,
     window: tauri::Window,
     document_id: String,
     document_generation: u64,
     content: String,
     eol: Option<String>,
     encoding: Option<String>,
+    reservation_id: Option<String>,
 ) -> Result<DocumentDescriptor, String> {
     // The frontend owns the live line-ending choice and sends it with the save,
     // the same way it sends `content`. Reading it back from the autosave
@@ -1187,6 +1228,12 @@ pub async fn write_file_content(
         DocumentAccess::Write,
     )?;
     let target_path = document.path.clone();
+    if let Some(owner) = windows.owner_for_path(&target_path) {
+        if owner != window.label() {
+            focus_window(&app, &owner);
+            return Err("The file is already open in another Grayslate window.".to_string());
+        }
+    }
     let save_lock = save_coordinator.for_path(&target_path);
     let _save_guard = save_lock.lock().await;
 
@@ -1224,6 +1271,16 @@ pub async fn write_file_content(
     .map_err(|error| format!("Failed to join file write task: {}", error))??;
 
     let saved = documents.mark_created(window.label(), &document_id, document_generation)?;
+    if let Some(reservation_id) = reservation_id.as_deref() {
+        windows.commit_open(window.label(), reservation_id, &saved.path)?;
+    } else {
+        windows
+            .adopt_active_path(window.label(), &saved.path)
+            .map_err(|owner| {
+                focus_window(&app, &owner);
+                "The file is already open in another Grayslate window.".to_string()
+            })?;
+    }
     revalidate_source_authority(&app, storage.inner(), &saved)?;
     storage.record_file_update(&target_path, saved.source)?;
     autosave.register_authorized(
@@ -1375,6 +1432,7 @@ pub fn untrack_local_file(
     app: tauri::AppHandle,
     storage: tauri::State<'_, AppStorage>,
     documents: tauri::State<'_, DocumentRegistry>,
+    windows: tauri::State<'_, WindowRegistry>,
     window: tauri::Window,
     document_id: String,
     document_generation: u64,
@@ -1391,6 +1449,12 @@ pub fn untrack_local_file(
     if document.source == FileSource::Slates {
         return Err("Cannot untrack a Grayslate slate file. Use Delete instead.".to_string());
     }
+    if let Some(owner) = windows.owner_for_path(&document.path) {
+        if owner != window.label() {
+            focus_window(&app, &owner);
+            return Err("That file is open in another Grayslate window.".to_string());
+        }
+    }
 
     storage.delete_tracked_file(&document.path)?;
     documents.revoke(window.label(), &document_id);
@@ -1405,6 +1469,7 @@ pub async fn delete_file(
     app: tauri::AppHandle,
     storage: tauri::State<'_, AppStorage>,
     documents: tauri::State<'_, DocumentRegistry>,
+    windows: tauri::State<'_, WindowRegistry>,
     window: tauri::Window,
     document_id: String,
     document_generation: u64,
@@ -1421,6 +1486,12 @@ pub async fn delete_file(
     if document.source != FileSource::Slates {
         return Err("Delete is only available for managed slate files.".to_string());
     }
+    if let Some(owner) = windows.owner_for_path(&document.path) {
+        if owner != window.label() {
+            focus_window(&app, &owner);
+            return Err("That slate is open in another Grayslate window.".to_string());
+        }
+    }
     let target = document.path;
 
     let target_clone = target.clone();
@@ -1434,6 +1505,7 @@ pub async fn delete_file(
     // stored.
     let _ = storage.delete_tracked_file(&target);
     documents.revoke(window.label(), &document_id);
+    windows.release_path(window.label(), &target);
     let _ = app.emit(RECENT_FILES_UPDATED_EVENT, ());
 
     Ok(())
@@ -1451,6 +1523,7 @@ pub async fn rename_file(
     storage: tauri::State<'_, AppStorage>,
     documents: tauri::State<'_, DocumentRegistry>,
     autosave: tauri::State<'_, crate::autosave::AutosaveRegistry>,
+    windows: tauri::State<'_, WindowRegistry>,
     window: tauri::Window,
     document_id: String,
     document_generation: u64,
@@ -1469,6 +1542,12 @@ pub async fn rename_file(
         return Err("Rename is only available for managed slate files.".to_string());
     }
     let old_path = document.path.clone();
+    if let Some(owner) = windows.owner_for_path(&old_path) {
+        if owner != window.label() {
+            focus_window(&app, &owner);
+            return Err("That slate is open in another Grayslate window.".to_string());
+        }
+    }
 
     let sanitized_name = sanitize_filename(&new_name);
     validate_new_filename(&sanitized_name)?;
@@ -1501,6 +1580,7 @@ pub async fn rename_file(
         renamed.path.clone(),
         renamed.generation,
     );
+    windows.replace_active_path(window.label(), &old_path, &new_path);
     let _ = app.emit(RECENT_FILES_UPDATED_EVENT, ());
 
     Ok(renamed.descriptor())

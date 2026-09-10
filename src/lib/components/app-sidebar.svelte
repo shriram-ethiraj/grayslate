@@ -24,6 +24,7 @@
         duplicateFile,
         duplicateLocalFileAsSlate,
         performFileUnlink,
+        notifyFileAlreadyOpen,
     } from "$lib/files/recentFiles";
     import {
         buildRecencySections,
@@ -42,6 +43,11 @@
     import SidebarFileList from "$lib/components/sidebar/SidebarFileList.svelte";
     import { useListNavigator } from "$lib/components/sidebar/useListNavigator.svelte";
     import { createLibraryRefreshCoordinator } from "$lib/files/libraryRefreshCoordinator";
+    import { emitToCurrentWindow } from "$lib/windowing";
+    import { tick } from "svelte";
+
+    let { onReady }: { onReady?: () => void } = $props();
+    let initialReadyReported = false;
 
     // ---------------------------------------------------------------------------
     // Component state
@@ -216,6 +222,11 @@
         } finally {
             if (showLoading) {
                 isLoading = false;
+                if (!initialReadyReported) {
+                    initialReadyReported = true;
+                    await tick();
+                    onReady?.();
+                }
             }
         }
     }
@@ -270,7 +281,10 @@
     async function openRecentFile(path: string, source: RecentFileSource, lineNumber?: number): Promise<void> {
         // Already the open file — nothing to navigate away from, so don't
         // prompt for unsaved changes or re-trigger the open flow.
-        if (path === editorState.currentFilePath) return;
+        if (path === editorState.currentFilePath) {
+            notifyFileAlreadyOpen(path);
+            return;
+        }
 
         if (!(await confirmBeforeLeavingDocument())) return;
 
@@ -295,8 +309,7 @@
             lineNumber,
         });
 
-        const { emit } = await import("@tauri-apps/api/event");
-        await emit(OPEN_FILE_PATH_EVENT, {
+        await emitToCurrentWindow(OPEN_FILE_PATH_EVENT, {
             documentId: authorizedFile.document_id,
             documentGeneration: authorizedFile.document_generation,
             path,

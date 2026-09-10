@@ -102,7 +102,11 @@ const prefersDark = typeof window !== "undefined"
     ? window.matchMedia("(prefers-color-scheme: dark)").matches
     : true;
 
-export async function loadAllSettings(): Promise<AppSettings> {
+let settingsLoadPromise: Promise<AppSettings> | undefined;
+let loadedSettings: AppSettings | undefined;
+const pendingGlobalSettingChanges = new Map<string, string | null>();
+
+async function loadAllSettingsUncached(): Promise<AppSettings> {
     const raw = await invoke<Record<string, string>>("get_all_settings");
     const storedTheme = raw[KEY_THEME];
     const theme: ThemeSetting = storedTheme === "light" || storedTheme === "dark"
@@ -132,18 +136,46 @@ export async function loadAllSettings(): Promise<AppSettings> {
     };
 }
 
+/** Share the authoritative startup read across layout and editor bootstrap. */
+export function loadAllSettings(): Promise<AppSettings> {
+    settingsLoadPromise ??= loadAllSettingsUncached()
+        .then((settings) => {
+            loadedSettings = settings;
+            for (const [key, value] of pendingGlobalSettingChanges) {
+                applyPersistedSettingChange(key, value);
+            }
+            pendingGlobalSettingChanges.clear();
+            return settings;
+        })
+        .catch((error: unknown) => {
+            settingsLoadPromise = undefined;
+            throw error;
+        });
+    return settingsLoadPromise;
+}
+
 export async function saveSetting(key: string, value: string | null): Promise<void> {
     // A `null` value maps to Rust `Option::None`, which deletes the key.
     await invoke("set_app_setting", { key, value });
 }
 
-export function applyTheme(isDark: boolean): void {
+export const themeState = $state<{ current: ThemeSetting }>({
+    current: getThemeFromLocalStorage(),
+});
+
+export function applyThemeClass(isDark: boolean): void {
+    themeState.current = isDark ? "dark" : "light";
     if (isDark) {
         document.documentElement.classList.add("dark");
     } else {
         document.documentElement.classList.remove("dark");
     }
+    document.documentElement.style.colorScheme = isDark ? "dark" : "light";
     localStorage.setItem("theme", isDark ? "dark" : "light");
+}
+
+export function applyTheme(isDark: boolean): void {
+    applyThemeClass(isDark);
     saveSetting(KEY_THEME, isDark ? "dark" : "light");
 }
 
@@ -213,6 +245,102 @@ export function hydrateAppSettingsState(settings: AppSettings): void {
     appSettingsState.automaticUpdateChecks = settings.automaticUpdateChecks;
     appSettingsState.defaultLineEnding = settings.defaultLineEnding;
     appSettingsState.defaultEncoding = settings.defaultEncoding;
+}
+
+export type LiveSettingChange =
+    | { key: "theme"; value: ThemeSetting }
+    | { key: "fontSize"; value: number }
+    | { key: "wordWrap"; value: boolean }
+    | { key: "appPreference" };
+
+/** Apply a backend-validated global setting event to this webview's live state. */
+export function applyPersistedSettingChange(
+    key: string,
+    value: string | null,
+): LiveSettingChange | null {
+    if (
+        !loadedSettings &&
+        key !== KEY_SIDEBAR_WIDTH &&
+        key !== KEY_SIDEBAR_OPEN &&
+        key !== KEY_LAST_ACTIVE_FILE
+    ) {
+        // A second window can save a setting while this window's startup read
+        // is still in flight. Replay that event over the snapshot before its
+        // callers hydrate their local state.
+        pendingGlobalSettingChanges.set(key, value);
+    }
+
+    switch (key) {
+        case KEY_THEME: {
+            const theme: ThemeSetting = value === "light" || value === "dark"
+                ? value
+                : prefersDark ? "dark" : "light";
+            if (loadedSettings) loadedSettings.theme = theme;
+            return { key: "theme", value: theme };
+        }
+        case KEY_FONT_SIZE: {
+            const parsed = value === null ? DEFAULT_FONT_SIZE : Number(value);
+            if (!Number.isFinite(parsed) || parsed < 10 || parsed > 24) return null;
+            if (loadedSettings) loadedSettings.fontSize = parsed;
+            return { key: "fontSize", value: parsed };
+        }
+        case KEY_WORD_WRAP: {
+            const wordWrap = value === "true";
+            if (loadedSettings) loadedSettings.wordWrap = wordWrap;
+            return { key: "wordWrap", value: wordWrap };
+        }
+        case KEY_STARTUP_BEHAVIOR: {
+            const behavior = value === "last" ? "last" : DEFAULT_STARTUP_BEHAVIOR;
+            appSettingsState.startupBehavior = behavior;
+            if (loadedSettings) loadedSettings.startupBehavior = behavior;
+            return { key: "appPreference" };
+        }
+        case KEY_DEFAULT_INDENT_MODE: {
+            const mode = value === "tab" ? "tab" : DEFAULT_DEFAULT_INDENT_MODE;
+            appSettingsState.defaultIndentMode = mode;
+            if (loadedSettings) loadedSettings.defaultIndentMode = mode;
+            return { key: "appPreference" };
+        }
+        case KEY_DEFAULT_INDENT_SIZE: {
+            const parsed = value === null
+                ? DEFAULT_DEFAULT_INDENT_SIZE
+                : Number(value);
+            if (!Number.isFinite(parsed) || parsed < 1 || parsed > 8) return null;
+            appSettingsState.defaultIndentSize = parsed;
+            if (loadedSettings) loadedSettings.defaultIndentSize = parsed;
+            return { key: "appPreference" };
+        }
+        case KEY_CONFIRM_BEFORE_DELETE: {
+            const confirm = value !== "false";
+            appSettingsState.confirmBeforeDelete = confirm;
+            if (loadedSettings) loadedSettings.confirmBeforeDelete = confirm;
+            return { key: "appPreference" };
+        }
+        case KEY_AUTOMATIC_UPDATE_CHECKS: {
+            const enabled = value !== "false";
+            appSettingsState.automaticUpdateChecks = enabled;
+            if (loadedSettings) loadedSettings.automaticUpdateChecks = enabled;
+            return { key: "appPreference" };
+        }
+        case KEY_DEFAULT_LINE_ENDING: {
+            const lineEnding = value === "crlf" ? "crlf" : DEFAULT_DEFAULT_LINE_ENDING;
+            appSettingsState.defaultLineEnding = lineEnding;
+            if (loadedSettings) loadedSettings.defaultLineEnding = lineEnding;
+            return { key: "appPreference" };
+        }
+        case KEY_DEFAULT_ENCODING: {
+            const encoding = isCharacterEncoding(value)
+                ? value
+                : DEFAULT_DEFAULT_ENCODING;
+            appSettingsState.defaultEncoding = encoding;
+            if (loadedSettings) loadedSettings.defaultEncoding = encoding;
+            return { key: "appPreference" };
+        }
+        default:
+            // Sidebar layout and last-active-document are window-local and
+            // deliberately remain outside global settings synchronization.
+            return null;
+    }
 }
 
 export function setStartupBehavior(behavior: StartupBehavior): void {

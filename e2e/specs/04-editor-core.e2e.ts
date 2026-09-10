@@ -17,6 +17,7 @@ import * as findReplace from "../pages/findReplace.js";
 import * as sidebar from "../pages/sidebar.js";
 import * as statusBar from "../pages/statusBar.js";
 import * as titleBar from "../pages/titleBar.js";
+import * as transformations from "../pages/transformations.js";
 
 /**
  * Core editing.
@@ -445,6 +446,7 @@ describe("Editor core", () => {
 
       await clickTestId("action-copy");
       await waitForClipboardText(body);
+      await transformations.waitForToast("Content copied to clipboard.");
     },
   );
 

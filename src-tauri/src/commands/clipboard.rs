@@ -34,6 +34,13 @@ pub struct ClipboardCopyRegistry {
 }
 
 impl ClipboardCopyRegistry {
+    pub fn cleanup_window(&self, window_label: &str) {
+        self.pending
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .remove(window_label);
+    }
+
     fn append(
         &self,
         window_label: &str,

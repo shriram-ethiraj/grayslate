@@ -183,11 +183,91 @@ export async function clearValueTestId(testId: string): Promise<void> {
  * it already inside the element and emit no enter event at all.
  */
 export async function hoverTestId(testId: string): Promise<void> {
-  const selector = `[data-testid='${testId}']`;
+  await hoverSelector(`[data-testid='${testId}']`);
+}
+
+/** Hover a raw selector through the same real pointer boundary-crossing path. */
+export async function hoverSelector(selector: string): Promise<void> {
   await withFreshElement(selector, async (element) => {
     // Park the pointer away from the target first so the move crosses a real
     // boundary and produces an enter.
     await browser.action("pointer").move({ x: 0, y: 0 }).perform();
     await element.moveTo();
+  });
+}
+
+/**
+ * Hover a rendered target by viewport coordinates.
+ *
+ * WebKitWebDriver rejects `element.moveTo()` for some rendered descendants of
+ * a contenteditable surface (notably CodeMirror fold placeholders). Reading
+ * geometry remains observational; the boundary crossing is still a real
+ * WebDriver pointer action.
+ */
+export async function hoverSelectorByGeometry(selector: string): Promise<void> {
+  await withFreshElement(selector, async () => {
+    const center = await browser.execute((rawSelector) => {
+      const element = document.querySelector<HTMLElement>(rawSelector);
+      if (!element) return null;
+      const rect = element.getBoundingClientRect();
+      const left = Math.max(0, rect.left);
+      const right = Math.min(window.innerWidth, rect.right);
+      const top = Math.max(0, rect.top);
+      const bottom = Math.min(window.innerHeight, rect.bottom);
+      if (right <= left || bottom <= top) return null;
+      return {
+        x: Math.max(1, Math.min(window.innerWidth - 1, Math.round((left + right) / 2))),
+        y: Math.max(1, Math.min(window.innerHeight - 1, Math.round((top + bottom) / 2))),
+      };
+    }, selector);
+    if (!center) throw new Error(`'${selector}' disappeared before its hover move.`);
+    await browser.action("pointer").move({ x: 0, y: 0 }).perform();
+    await browser.action("pointer").move(center).perform();
+  });
+}
+
+/** Hover visible text inside a container with a real pointer move. */
+export async function hoverTextByGeometry(
+  containerSelector: string,
+  text: string,
+): Promise<void> {
+  await withFreshElement(containerSelector, async () => {
+    const center = await browser.execute(
+      (rawSelector, targetText) => {
+        const container = document.querySelector<HTMLElement>(rawSelector);
+        if (!container) return null;
+
+        const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+        let node = walker.nextNode();
+        while (node) {
+          const offset = node.textContent?.indexOf(targetText) ?? -1;
+          if (offset >= 0) {
+            const range = document.createRange();
+            range.setStart(node, offset);
+            range.setEnd(node, offset + targetText.length);
+            const rect = range.getBoundingClientRect();
+            const left = Math.max(0, rect.left);
+            const right = Math.min(window.innerWidth, rect.right);
+            const top = Math.max(0, rect.top);
+            const bottom = Math.min(window.innerHeight, rect.bottom);
+            if (right > left && bottom > top) {
+              return {
+                x: Math.max(1, Math.min(window.innerWidth - 1, Math.round((left + right) / 2))),
+                y: Math.max(1, Math.min(window.innerHeight - 1, Math.round((top + bottom) / 2))),
+              };
+            }
+          }
+          node = walker.nextNode();
+        }
+        return null;
+      },
+      containerSelector,
+      text,
+    );
+    if (!center) {
+      throw new Error(`Visible text '${text}' was not found inside '${containerSelector}'.`);
+    }
+    await browser.action("pointer").move({ x: 0, y: 0 }).perform();
+    await browser.action("pointer").move(center).perform();
   });
 }

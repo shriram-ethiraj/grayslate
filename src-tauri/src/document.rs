@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
     sync::Mutex,
 };
@@ -96,6 +96,7 @@ struct RegistryEntry {
 struct RegistryState {
     by_id: HashMap<String, RegistryEntry>,
     by_window_path: HashMap<(String, PathBuf), String>,
+    closed_windows: HashSet<String>,
 }
 
 #[derive(Default)]
@@ -225,6 +226,9 @@ impl DocumentRegistry {
             .state
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if state.closed_windows.contains(window_label) {
+            return Err(INVALID_GRANT.to_string());
+        }
         let path_key = (window_label.to_string(), path.clone());
 
         if let Some(id) = state.by_window_path.get(&path_key).cloned() {
@@ -395,6 +399,30 @@ impl DocumentRegistry {
                 .remove(&(window_label.to_string(), entry.document.path));
         }
     }
+
+    /// Revoke every document capability issued to a window that is closing.
+    pub fn revoke_window(&self, window_label: &str) {
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        // Native window labels are unique for the process lifetime. Retaining a
+        // tombstone prevents an in-flight search/read from recreating grants
+        // after destruction raced ahead of its async completion.
+        state.closed_windows.insert(window_label.to_string());
+        let ids = state
+            .by_id
+            .iter()
+            .filter_map(|(id, entry)| (entry.window_label == window_label).then(|| id.clone()))
+            .collect::<Vec<_>>();
+        for id in ids {
+            if let Some(entry) = state.by_id.remove(&id) {
+                state
+                    .by_window_path
+                    .remove(&(window_label.to_string(), entry.document.path));
+            }
+        }
+    }
 }
 
 fn validate_existing_regular_file(path: &Path) -> Result<PathBuf, String> {
@@ -502,6 +530,34 @@ mod tests {
     }
 
     #[test]
+    fn closed_window_cannot_receive_late_document_grants() {
+        let dir = temp_dir("grayslate-closed-window-grant");
+        let path = dir.join("note.txt");
+        std::fs::write(&path, "safe").unwrap();
+        let registry = DocumentRegistry::default();
+
+        registry.revoke_window("closed-window");
+        assert!(registry
+            .grant_existing(
+                "closed-window",
+                &path,
+                FileSource::Local,
+                DocumentRights::tracked(FileSource::Local),
+            )
+            .is_err());
+        assert!(registry
+            .grant_existing(
+                "live-window",
+                &path,
+                FileSource::Local,
+                DocumentRights::tracked(FileSource::Local),
+            )
+            .is_ok());
+
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn new_grant_cannot_claim_an_existing_file() {
         let dir = temp_dir("grayslate-document-new-existing");
         let path = dir.join("occupied.txt");
@@ -516,6 +572,40 @@ mod tests {
                 DocumentRights::tracked(FileSource::Slates),
             )
             .is_err());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn new_grant_is_writable_before_the_file_exists() {
+        let dir = temp_dir("grayslate-document-new-write");
+        let path = dir.join("new.txt");
+        let registry = DocumentRegistry::default();
+        let granted = registry
+            .grant_new(
+                "main",
+                &path,
+                FileSource::Local,
+                DocumentRights::tracked(FileSource::Local),
+            )
+            .unwrap();
+
+        assert!(registry
+            .resolve(
+                "main",
+                &granted.id,
+                granted.generation,
+                DocumentAccess::Write,
+            )
+            .is_ok());
+        assert!(registry
+            .resolve(
+                "main",
+                &granted.id,
+                granted.generation,
+                DocumentAccess::Read,
+            )
+            .is_err());
+
         std::fs::remove_dir_all(dir).unwrap();
     }
 

@@ -1,9 +1,9 @@
 import { invoke } from "$lib/ipc";
 import { toast } from "$lib/components/ui/sonner";
 import { openAboutAppDialog } from "$lib/state/appDialogs.svelte";
-import { appSettingsState } from "$lib/state/appSettings.svelte";
 import { platformState } from "$lib/state/platform.svelte";
 import { confirmBeforeLeavingDocument } from "$lib/state/unsavedChangesGuard.svelte";
+import { listen } from "@tauri-apps/api/event";
 
 export type UpdatePolicy = "disabled" | "self-update" | "system-managed";
 
@@ -39,6 +39,20 @@ type UpdateInstallResponse = {
     message: string;
 };
 
+type UpdateInstallPreflightPayload = {
+    requestId: number;
+    restoreUpdateDialog: boolean;
+};
+
+type BackendUpdateStatus =
+    | { status: "idle" }
+    | { status: "checking"; source: UpdateDiscoverySource }
+    | ({ status: "up-to-date"; source: UpdateDiscoverySource } & Extract<UpdateCheckResponse, { status: "up-to-date" }>)
+    | ({ status: "available"; source: UpdateDiscoverySource } & Extract<UpdateCheckResponse, { status: "available" }>)
+    | { status: "installing"; message: string }
+    | { status: "installed"; version: string; message: string }
+    | { status: "error"; source: UpdateDiscoverySource; message: string };
+
 type AppInfo = {
     appName: string;
     appVersion: string;
@@ -57,11 +71,12 @@ export const appMenuState = $state({
     updateDiscoverySource: null as UpdateDiscoverySource | null,
 });
 
-let appInfoLoaded = false;
-let automaticCheckGeneration = 0;
+/** True after this webview approved process exit and until Rust releases it. */
+export const updateInstallPreflightState = $state({ locked: false });
 
-const AUTOMATIC_UPDATE_STARTUP_DELAY_MS = 5_000;
-const AUTOMATIC_UPDATE_INTERVAL_MS = 24 * 60 * 60 * 1_000;
+let appInfoLoaded = false;
+let activeInstallPreflightRequestId: number | null = null;
+let completedInstallPreflightRequestId: number | null = null;
 
 function resetUpdateDetails(): void {
     appMenuState.availableVersion = "";
@@ -83,13 +98,6 @@ function resetAutomaticUpdateState(): void {
     appMenuState.currentVersion = appMenuState.appVersion;
     appMenuState.updateDiscoverySource = null;
     resetUpdateDetails();
-}
-
-function automaticCheckIsCurrent(generation: number | undefined): boolean {
-    return generation !== undefined &&
-        generation === automaticCheckGeneration &&
-        appSettingsState.automaticUpdateChecks &&
-        appMenuState.updatePolicy === "self-update";
 }
 
 function applyUpdatePolicy(policy: UpdatePolicy): void {
@@ -120,6 +128,72 @@ function commandErrorMessage(error: unknown, fallback: string): string {
     return fallback;
 }
 
+function commandErrorCode(error: unknown): string | undefined {
+    if (typeof error === "object" && error !== null && "code" in error) {
+        return typeof error.code === "string" ? error.code : undefined;
+    }
+    return undefined;
+}
+
+function blockUpdateInstallInteraction(event: Event): void {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+}
+
+function setUpdateInstallLocked(locked: boolean): void {
+    updateInstallPreflightState.locked = locked;
+    for (const eventName of ["keydown", "beforeinput", "paste", "drop"]) {
+        window.removeEventListener(eventName, blockUpdateInstallInteraction, true);
+        if (locked) {
+            window.addEventListener(eventName, blockUpdateInstallInteraction, true);
+        }
+    }
+    if (locked && document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur();
+    }
+}
+
+async function handleUpdateInstallPreflight(
+    payload: UpdateInstallPreflightPayload,
+): Promise<void> {
+    if (
+        activeInstallPreflightRequestId !== null ||
+        completedInstallPreflightRequestId === payload.requestId
+    ) {
+        return;
+    }
+    activeInstallPreflightRequestId = payload.requestId;
+
+    let allowed = false;
+    try {
+        allowed = await confirmBeforeLeavingDocument();
+    } catch (error) {
+        console.error("[Updater] Install confirmation failed:", error);
+    }
+
+    // The prompt temporarily replaces About only in the window that initiated
+    // installation. Restore it before reporting the decision so progress stays visible.
+    if (payload.restoreUpdateDialog) {
+        openAboutAppDialog();
+    }
+    if (allowed) {
+        setUpdateInstallLocked(true);
+    }
+
+    try {
+        await invoke("respond_update_install_preflight", {
+            requestId: payload.requestId,
+            allowed,
+        });
+    } catch (error) {
+        setUpdateInstallLocked(false);
+        console.error("[Updater] Could not report install confirmation:", error);
+    } finally {
+        completedInstallPreflightRequestId = payload.requestId;
+        activeInstallPreflightRequestId = null;
+    }
+}
+
 export async function ensureAppInfoLoaded(): Promise<void> {
     if (appInfoLoaded) {
         return;
@@ -138,42 +212,88 @@ export async function openAboutDialog(): Promise<void> {
     openAboutAppDialog();
 }
 
-/**
- * Own the two automatic update timers for one mounted application shell.
- * Calling the returned cleanup invalidates any in-flight automatic response,
- * so disabling the preference cannot surface a late update notification.
- */
-export function startAutomaticUpdateChecks(): () => void {
-    const generation = ++automaticCheckGeneration;
-
-    const runCheck = (): void => {
-        if (
-            !automaticCheckIsCurrent(generation) ||
-            appMenuState.updateStatus === "available" ||
-            appMenuState.updateStatus === "installing" ||
-            appMenuState.updateStatus === "installed"
-        ) {
-            return;
-        }
-
-        void checkForAppUpdates({
-            openDialog: false,
-            notify: false,
-            source: "automatic",
-            automaticGeneration: generation,
-        });
-    };
-
-    const startupTimer = setTimeout(runCheck, AUTOMATIC_UPDATE_STARTUP_DELAY_MS);
-    const intervalTimer = setInterval(runCheck, AUTOMATIC_UPDATE_INTERVAL_MS);
-
-    return () => {
-        clearTimeout(startupTimer);
-        clearInterval(intervalTimer);
-        if (generation === automaticCheckGeneration) {
-            automaticCheckGeneration += 1;
-        }
+function applyBackendUpdateStatus(status: BackendUpdateStatus): void {
+    if (status.status === "idle") {
         resetAutomaticUpdateState();
+        return;
+    }
+
+    if (status.status === "checking") {
+        appMenuState.updateStatus = "checking";
+        appMenuState.updateDiscoverySource = status.source;
+        appMenuState.updateMessage = "Checking for updates...";
+        resetUpdateDetails();
+        return;
+    }
+
+    if (status.status === "installing") {
+        appMenuState.updateStatus = "installing";
+        appMenuState.updateMessage = status.message;
+        return;
+    }
+
+    if (status.status === "installed") {
+        appMenuState.updateStatus = "installed";
+        appMenuState.availableVersion = status.version;
+        appMenuState.updateMessage = status.message;
+        return;
+    }
+
+    appMenuState.updateDiscoverySource = status.source;
+    if (status.status === "error") {
+        appMenuState.updateStatus = "error";
+        appMenuState.updateMessage = status.message;
+        return;
+    }
+
+    appMenuState.currentVersion = status.current_version;
+    appMenuState.updateMessage = status.message;
+    if (status.status === "available") {
+        appMenuState.updateStatus = "available";
+        appMenuState.availableVersion = status.version;
+        appMenuState.updatePublishedAt = status.published_at ?? "";
+    } else {
+        appMenuState.updateStatus = "up-to-date";
+        resetUpdateDetails();
+    }
+}
+
+/** Synchronize process-wide updater status and install preparation with this webview. */
+export async function startUpdateStatusSync(): Promise<() => void> {
+    let eventSeen = false;
+    const [unlistenStatus, unlistenPreflight, unlistenPreflightRelease] = await Promise.all([
+        listen<BackendUpdateStatus>("updates://status", (event) => {
+            eventSeen = true;
+            applyBackendUpdateStatus(event.payload);
+        }),
+        listen<UpdateInstallPreflightPayload>(
+            "updates://install-preflight",
+            (event) => {
+                void handleUpdateInstallPreflight(event.payload);
+            },
+        ),
+        listen("updates://install-preflight-release", () => {
+            activeInstallPreflightRequestId = null;
+            completedInstallPreflightRequestId = null;
+            setUpdateInstallLocked(false);
+        }),
+    ]);
+    try {
+        const status = await invoke<BackendUpdateStatus>("get_update_status");
+        if (!eventSeen) applyBackendUpdateStatus(status);
+    } catch (error) {
+        unlistenStatus();
+        unlistenPreflight();
+        unlistenPreflightRelease();
+        throw error;
+    }
+    return () => {
+        unlistenStatus();
+        unlistenPreflight();
+        unlistenPreflightRelease();
+        activeInstallPreflightRequestId = null;
+        completedInstallPreflightRequestId = null;
+        setUpdateInstallLocked(false);
     };
 }
 
@@ -181,19 +301,11 @@ export async function checkForAppUpdates(options?: {
     openDialog?: boolean;
     notify?: boolean;
     source?: UpdateDiscoverySource;
-    automaticGeneration?: number;
 }): Promise<void> {
     await ensureAppInfoLoaded();
 
     const source = options?.source ?? "manual";
     const shouldNotify = options?.notify ?? source === "manual";
-
-    if (
-        source === "automatic" &&
-        !automaticCheckIsCurrent(options?.automaticGeneration)
-    ) {
-        return;
-    }
 
     if (options?.openDialog ?? true) {
         openAboutAppDialog();
@@ -222,13 +334,6 @@ export async function checkForAppUpdates(options?: {
 
     try {
         const result = await invoke<UpdateCheckResponse>("check_for_updates");
-        if (
-            source === "automatic" &&
-            !automaticCheckIsCurrent(options?.automaticGeneration)
-        ) {
-            resetAutomaticUpdateState();
-            return;
-        }
         appMenuState.currentVersion = result.current_version;
 
         switch (result.status) {
@@ -250,13 +355,6 @@ export async function checkForAppUpdates(options?: {
                 return;
         }
     } catch (error) {
-        if (
-            source === "automatic" &&
-            !automaticCheckIsCurrent(options?.automaticGeneration)
-        ) {
-            resetAutomaticUpdateState();
-            return;
-        }
         const message = commandErrorMessage(
             error,
             "Failed to check for updates.",
@@ -277,15 +375,7 @@ export async function installAvailableUpdate(): Promise<void> {
         return;
     }
 
-    const canInstall = await confirmBeforeLeavingDocument();
-    // The unsaved-changes prompt temporarily replaces About in the app-level
-    // dialog slot. Restore the update surface for either cancellation or the
-    // download/install progress state.
-    openAboutAppDialog();
-    if (!canInstall) {
-        return;
-    }
-
+    const availableMessage = appMenuState.updateMessage;
     appMenuState.updateStatus = "installing";
     appMenuState.updateMessage = platformState.osType === "windows"
         ? "Downloading the update. Grayslate will close when the Windows installer starts."
@@ -300,6 +390,11 @@ export async function installAvailableUpdate(): Promise<void> {
         appMenuState.updateMessage = result.message;
         toast.success(result.message);
     } catch (error) {
+        if (commandErrorCode(error) === "cancelled") {
+            appMenuState.updateStatus = "available";
+            appMenuState.updateMessage = availableMessage;
+            return;
+        }
         const message = commandErrorMessage(error, "Failed to install update.");
         appMenuState.updateStatus = "error";
         appMenuState.updateMessage = message;

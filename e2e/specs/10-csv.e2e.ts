@@ -24,6 +24,7 @@ import { clickTestId, isAriaDisabled } from "../pages/common.js";
 import * as csv from "../pages/csv.js";
 import * as editor from "../pages/editor.js";
 import * as statusBar from "../pages/statusBar.js";
+import * as transformations from "../pages/transformations.js";
 
 /**
  * CSV table mode.
@@ -227,6 +228,7 @@ describe("CSV table mode", () => {
       await csv.selectAllCells();
       await csv.copySelection();
       await waitForClipboardText('id,name\n1,"Smith, Alice"');
+      await transformations.waitForToast("Content copied to clipboard.");
     },
   );
 

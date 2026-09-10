@@ -105,6 +105,7 @@ export async function copyMarkdownPreviewText(text: string): Promise<boolean> {
   try {
     await writeText(text);
     focusMarkdownPreview();
+    toast.success("Content copied to clipboard.");
     return true;
   } catch {
     toast.error("Failed to copy text");

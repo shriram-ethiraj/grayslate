@@ -1,12 +1,14 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability for the main window",
+  "description": "Capability for Grayslate editor windows",
   "windows": [
-    "main"
+    "main",
+    "editor-*"
   ],
   "permissions": [
     "core:event:allow-emit",
+    "core:event:allow-emit-to",
     "core:event:allow-listen",
     "core:event:allow-unlisten",
     "core:window:allow-close",
@@ -26,11 +28,13 @@
     "allow-autosave-set-language-hint",
     "allow-autosave-submit-content",
     "allow-cancel-editor-find",
+    "allow-cancel-document-open",
     "allow-cancel-file-read",
     "allow-cancel-markdown-preview",
     "allow-cancel-sidebar-search",
     "allow-cancel-transformation",
     "allow-check-for-updates",
+    "allow-claim-document-open",
     "allow-clipboard-write-chunk",
     "allow-csv-cancel",
     "allow-csv-copy-to-clipboard",
@@ -42,6 +46,7 @@
     "allow-csv-mutate",
     "allow-csv-redo",
     "allow-csv-undo",
+    "allow-create-editor-window",
     "allow-delete-file",
     "allow-detect-by-filename",
     "allow-detect-language",
@@ -57,6 +62,7 @@
     "allow-get-last-active-document",
     "allow-get-memory-info",
     "allow-get-recent-files",
+    "allow-get-update-status",
     "allow-install-available-update",
     "allow-open-about-link",
     "allow-open-markdown-link",
@@ -68,6 +74,7 @@
     "allow-read-markdown-preview-asset",
     "allow-rename-file",
     "allow-render-markdown-preview",
+    "allow-respond-update-install-preflight",
     "allow-reset-notes-root",
     "allow-resolve-default-notes-root",
     "allow-resolve-notes-root",
@@ -80,7 +87,9 @@
     "allow-set-menu-word-wrap",
     "allow-suggest-name-for-file",
     "allow-suggest-slate-name",
+    "allow-sync-window-title",
     "allow-take-external-open-request",
+    "allow-take-window-launch-intent",
     "allow-untrack-local-file",
     "allow-write-file-content"
   ]

@@ -245,6 +245,17 @@ pub fn e2e_minimize_observation() -> E2eMinimizeObservation {
     }
 }
 
+/// Restore native focus to the webview invoking this E2E-only command.
+///
+/// Switching WebDriver window handles changes its browsing context but does
+/// not consistently ask Linux window managers to reactivate the native Tauri
+/// window. Keeping this as a backend test shim avoids clicking the document,
+/// which would invalidate focus-retention assertions.
+#[tauri::command]
+pub fn e2e_focus_window(window: tauri::Window) -> Result<(), String> {
+    window.set_focus().map_err(|error| error.to_string())
+}
+
 #[derive(Clone, Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct E2EAutosaveCycle {

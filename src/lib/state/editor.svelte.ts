@@ -36,6 +36,12 @@ export type FileType =
     | "auto";
 
 export type EditorSurface = "editor" | "markdown-preview";
+export interface OpeningDocument {
+    documentId: string;
+    documentGeneration: number;
+    path: string;
+    fileName: string;
+}
 export type EditorPopupId =
     | "find-replace"
     | "go-to-line"
@@ -74,7 +80,10 @@ type EditorPopupController = {
     close: () => void;
 };
 
+type EditorPopupLoader = () => Promise<void>;
+
 const editorPopupControllers = new Map<EditorPopupId, EditorPopupController>();
+const editorPopupLoaders = new Map<EditorPopupId, EditorPopupLoader>();
 
 export const editorState = $state<{
     activeView?: EditorView;
@@ -92,6 +101,8 @@ export const editorState = $state<{
     /** Opaque Rust-issued authorization for the active saved document. */
     currentDocumentId: string | undefined;
     currentDocumentGeneration: number | undefined;
+    /** Authorized document currently being read before it becomes the active editor session. */
+    openingDocument: OpeningDocument | undefined;
     /** Source classification of the current file: `"slates"` (managed notes directory) or `"local"`. */
     currentFileSource: RecentFileSource | undefined;
     /** Callback used by the unsaved-changes guard to save the current document. */
@@ -147,6 +158,7 @@ export const editorState = $state<{
     currentFilePath: undefined,
     currentDocumentId: undefined,
     currentDocumentGeneration: undefined,
+    openingDocument: undefined,
     currentFileSource: undefined,
     currentDocumentLength: 0,
     currentSelectionSize: 0,
@@ -222,6 +234,16 @@ export function registerEditorPopup(
     };
 }
 
+export function registerEditorPopupLoader(
+    id: EditorPopupId,
+    loader: EditorPopupLoader,
+): () => void {
+    editorPopupLoaders.set(id, loader);
+    return () => {
+        if (editorPopupLoaders.get(id) === loader) editorPopupLoaders.delete(id);
+    };
+}
+
 export function syncEditorPopupOpenState(id: EditorPopupId, isOpen: boolean): void {
     if (isOpen) {
         editorState.popup.active = id;
@@ -249,6 +271,13 @@ export function closeEditorPopup(id?: EditorPopupId): void {
 export function openEditorPopup(request: EditorPopupOpenRequest): boolean {
     const controller = editorPopupControllers.get(request.id);
     if (!controller) {
+        const loader = editorPopupLoaders.get(request.id);
+        if (loader) {
+            void loader().then(() => {
+                if (editorPopupControllers.has(request.id)) openEditorPopup(request);
+            });
+            return true;
+        }
         return false;
     }
 
@@ -423,10 +452,14 @@ export function startLoaderTicker(
     editorState.loader.subMessage = subMessage;
     editorState.loader.progress = _tickerProgress;
 
-    _graceTimeoutId = setTimeout(() => {
-        _graceTimeoutId = undefined;
+    if (graceMs <= 0) {
         editorState.loader.visible = true;
-    }, graceMs);
+    } else {
+        _graceTimeoutId = setTimeout(() => {
+            _graceTimeoutId = undefined;
+            editorState.loader.visible = true;
+        }, graceMs);
+    }
 
     _tickerId = setInterval(() => {
         const remaining = ceiling - _tickerProgress;

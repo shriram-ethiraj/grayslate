@@ -25,6 +25,7 @@ use crate::document::{revalidate_source_authority, DocumentAccess, DocumentRegis
 use crate::line_ending::Eol;
 use crate::save_coordinator::SaveCoordinator;
 use crate::storage::{AppStorage, FileSource};
+use crate::window::WindowRegistry;
 
 use super::{naming::save_new_slate_to_disk, RECENT_FILES_UPDATED_EVENT};
 
@@ -41,6 +42,7 @@ use super::{naming::save_new_slate_to_disk, RECENT_FILES_UPDATED_EVENT};
 pub fn autosave_activate_untitled(
     window: tauri::Window,
     registry: tauri::State<'_, AutosaveRegistry>,
+    windows: tauri::State<'_, WindowRegistry>,
     language_hint: String,
     eol: String,
     encoding: String,
@@ -50,6 +52,7 @@ pub fn autosave_activate_untitled(
         encoding: CharacterEncoding::parse(&encoding)?,
     };
     registry.activate_untitled(window.label(), language_hint, format);
+    windows.release_active(window.label());
     Ok(())
 }
 
@@ -68,9 +71,11 @@ pub fn autosave_activate_document(
     documents: tauri::State<'_, DocumentRegistry>,
     window: tauri::Window,
     registry: tauri::State<'_, AutosaveRegistry>,
+    windows: tauri::State<'_, WindowRegistry>,
     document_id: String,
     document_generation: u64,
     language_hint: String,
+    reservation_id: String,
 ) -> Result<TextFormat, String> {
     let document = documents.resolve(
         window.label(),
@@ -83,6 +88,7 @@ pub fn autosave_activate_document(
         eol: storage.resolve_default_eol(),
         encoding: storage.resolve_default_encoding(),
     });
+    windows.commit_open(window.label(), &reservation_id, &document.path)?;
     registry.register_authorized(
         window.label(),
         document.path,
@@ -128,6 +134,7 @@ pub async fn autosave_submit_content(
     documents: tauri::State<'_, DocumentRegistry>,
     storage: tauri::State<'_, AppStorage>,
     save_coordinator: tauri::State<'_, SaveCoordinator>,
+    windows: tauri::State<'_, WindowRegistry>,
     request_id: u64,
     generation: u64,
     content: String,
@@ -139,114 +146,119 @@ pub async fn autosave_submit_content(
         return Ok(()); // Silently ignore stale submissions
     }
 
-    let result: Result<(), String> =
-        async {
-            let initial_info = registry
+    let result: Result<(), String> = async {
+        let initial_info = registry
+            .get_document_info(&window_label)
+            .ok_or_else(|| "No autosave document registered for this window.".to_string())?;
+        let mut expected_path = initial_info.path;
+        let (_save_guard, doc_info) = loop {
+            let save_lock = match expected_path.as_ref() {
+                Some(path) => save_coordinator.for_path(path),
+                None => save_coordinator.for_untitled_window(&window_label),
+            };
+            let save_guard = save_lock.lock_owned().await;
+
+            // Manual Save replaces the autosave registration, invalidating this
+            // request while it waits. A stale response must never write afterward.
+            if !registry.validate_request(&window_label, request_id) {
+                return Ok(());
+            }
+            let refreshed = registry
                 .get_document_info(&window_label)
                 .ok_or_else(|| "No autosave document registered for this window.".to_string())?;
-            let mut expected_path = initial_info.path;
-            let (_save_guard, doc_info) = loop {
-                let save_lock = match expected_path.as_ref() {
-                    Some(path) => save_coordinator.for_path(path),
-                    None => save_coordinator.for_untitled_window(&window_label),
-                };
-                let save_guard = save_lock.lock_owned().await;
+            if refreshed.path == expected_path {
+                break (save_guard, refreshed);
+            }
+            expected_path = refreshed.path;
+        };
 
-                // Manual Save replaces the autosave registration, invalidating this
-                // request while it waits. A stale response must never write afterward.
-                if !registry.validate_request(&window_label, request_id) {
+        match doc_info.path {
+            Some(path) => {
+                let document_id = doc_info
+                    .document_id
+                    .as_deref()
+                    .ok_or_else(|| "Autosave document has no Rust authorization.".to_string())?;
+                let document_generation = doc_info
+                    .document_generation
+                    .ok_or_else(|| "Autosave document has no Rust authorization.".to_string())?;
+                let document = documents.resolve(
+                    &window_label,
+                    document_id,
+                    document_generation,
+                    DocumentAccess::Write,
+                )?;
+                revalidate_source_authority(&app, storage.inner(), &document)?;
+                if document.path != path || document.source != FileSource::Slates {
+                    return Err(
+                        "Autosave authorization no longer matches the active slate.".to_string()
+                    );
+                }
+                // Existing file — write using atomic temp+rename
+                let path_clone = path.clone();
+                let content_clone = content.clone();
+                let format = doc_info.format;
+                tauri::async_runtime::spawn_blocking(move || {
+                    autosave_write_to_disk(&path_clone, &content_clone, format)
+                })
+                .await
+                .map_err(|e| format!("Autosave: join error: {}", e))??;
+
+                storage.record_file_update(&path, FileSource::Slates)?;
+                let _ = app.emit(RECENT_FILES_UPDATED_EVENT, "saved");
+                registry.complete_save(&window_label, generation);
+            }
+            None => {
+                // Untitled slate with no content yet (e.g. typed then deleted
+                // everything before the first save) — nothing worth naming or
+                // writing to disk. Mark the save complete so the timer stops
+                // retrying; the file gets created once real content arrives.
+                if content.is_empty() {
+                    registry.complete_save(&window_label, generation);
                     return Ok(());
                 }
-                let refreshed = registry.get_document_info(&window_label).ok_or_else(|| {
-                    "No autosave document registered for this window.".to_string()
-                })?;
-                if refreshed.path == expected_path {
-                    break (save_guard, refreshed);
-                }
-                expected_path = refreshed.path;
-            };
 
-            match doc_info.path {
-                Some(path) => {
-                    let document_id = doc_info.document_id.as_deref().ok_or_else(|| {
-                        "Autosave document has no Rust authorization.".to_string()
-                    })?;
-                    let document_generation = doc_info.document_generation.ok_or_else(|| {
-                        "Autosave document has no Rust authorization.".to_string()
-                    })?;
-                    let document = documents.resolve(
-                        &window_label,
-                        document_id,
-                        document_generation,
-                        DocumentAccess::Write,
-                    )?;
-                    revalidate_source_authority(&app, storage.inner(), &document)?;
-                    if document.path != path || document.source != FileSource::Slates {
-                        return Err("Autosave authorization no longer matches the active slate."
-                            .to_string());
-                    }
-                    // Existing file — write using atomic temp+rename
-                    let path_clone = path.clone();
-                    let content_clone = content.clone();
-                    let format = doc_info.format;
-                    tauri::async_runtime::spawn_blocking(move || {
-                        autosave_write_to_disk(&path_clone, &content_clone, format)
-                    })
-                    .await
-                    .map_err(|e| format!("Autosave: join error: {}", e))??;
+                // Untitled slate — run naming pipeline to create the file
+                let result = save_new_slate_to_disk(
+                    &app,
+                    storage.inner(),
+                    documents.inner(),
+                    save_coordinator.inner(),
+                    &window_label,
+                    &content,
+                    &doc_info.language_hint,
+                    doc_info.format,
+                )
+                .await?;
 
-                    storage.record_file_update(&path, FileSource::Slates)?;
-                    let _ = app.emit(RECENT_FILES_UPDATED_EVENT, "saved");
-                    registry.complete_save(&window_label, generation);
-                }
-                None => {
-                    // Untitled slate with no content yet (e.g. typed then deleted
-                    // everything before the first save) — nothing worth naming or
-                    // writing to disk. Mark the save complete so the timer stops
-                    // retrying; the file gets created once real content arrives.
-                    if content.is_empty() {
-                        registry.complete_save(&window_label, generation);
-                        return Ok(());
-                    }
+                windows
+                    .adopt_active_path(&window_label, &result.authorized_path)
+                    .map_err(|_| "The new slate is already open in another window.".to_string())?;
 
-                    // Untitled slate — run naming pipeline to create the file
-                    let result = save_new_slate_to_disk(
-                        &app,
-                        storage.inner(),
-                        documents.inner(),
-                        save_coordinator.inner(),
-                        &window_label,
-                        &content,
-                        &doc_info.language_hint,
-                        doc_info.format,
-                    )
-                    .await?;
+                registry.update_authorization(
+                    &window_label,
+                    result.authorized_path.clone(),
+                    result.document_id.clone(),
+                    result.document_generation,
+                );
+                registry.complete_save(&window_label, generation);
 
-                    registry.update_authorization(
-                        &window_label,
-                        result.authorized_path.clone(),
-                        result.document_id.clone(),
-                        result.document_generation,
-                    );
-                    registry.complete_save(&window_label, generation);
-
-                    // Notify the frontend of the new path so it can update
-                    // activeDocument and the title bar.
-                    let _ = window.emit(
-                        AUTOSAVE_DOCUMENT_CREATED_EVENT,
-                        DocumentCreatedPayload {
-                            path: result.path,
-                            document_id: result.document_id,
-                            document_generation: result.document_generation,
-                            detected_language: result.detected_language,
-                        },
-                    );
-                }
+                // Notify the frontend of the new path so it can update
+                // activeDocument and the title bar.
+                let _ = window.emit(
+                    AUTOSAVE_DOCUMENT_CREATED_EVENT,
+                    DocumentCreatedPayload {
+                        path: result.path,
+                        document_id: result.document_id,
+                        document_generation: result.document_generation,
+                        detected_language: result.detected_language,
+                    },
+                );
             }
-
-            Ok(())
         }
-        .await;
+
+        Ok(())
+    }
+    .await;
 
     if let Err(message) = &result {
         registry.fail_save(&window_label, generation, message.clone());
@@ -274,6 +286,7 @@ pub async fn autosave_flush_before_switch(
     storage: tauri::State<'_, AppStorage>,
     csv_registry: tauri::State<'_, CsvSessionRegistry>,
     save_coordinator: tauri::State<'_, SaveCoordinator>,
+    windows: tauri::State<'_, WindowRegistry>,
     content: String,
     generation: u64,
 ) -> Result<(), String> {
@@ -365,6 +378,10 @@ pub async fn autosave_flush_before_switch(
                     doc_info.format,
                 )
                 .await?;
+
+                windows
+                    .adopt_active_path(&window_label, &result.authorized_path)
+                    .map_err(|_| "The new slate is already open in another window.".to_string())?;
 
                 registry.update_authorization(
                     &window_label,
@@ -474,7 +491,7 @@ pub fn autosave_set_eol(
 #[tauri::command]
 pub async fn prepare_close(
     app: tauri::AppHandle,
-    window: tauri::Window,
+    window: tauri::WebviewWindow,
     registry: tauri::State<'_, AutosaveRegistry>,
     documents: tauri::State<'_, DocumentRegistry>,
     storage: tauri::State<'_, AppStorage>,
@@ -492,11 +509,9 @@ pub async fn prepare_close(
     )
     .await?;
 
-    // The window is going away, so its autosave registration is no longer
-    // useful; dropping it stops a timer tick from requesting content from a
-    // webview that is about to disappear.
-    registry.unregister(window.label());
-
+    // Keep every backend registration intact until native destruction succeeds.
+    // The Destroyed handler owns teardown and primary-window promotion exactly
+    // once; a failed destroy therefore leaves this window fully operational.
     window.destroy().map_err(|error| error.to_string())
 }
 
@@ -504,7 +519,7 @@ pub async fn prepare_close(
 /// close so an encoding error or unavailable disk can never discard text.
 pub(crate) async fn flush_before_exit(
     app: &tauri::AppHandle,
-    window: &tauri::Window,
+    window: &tauri::WebviewWindow,
     registry: &AutosaveRegistry,
     documents: &DocumentRegistry,
     storage: &AppStorage,

@@ -53,12 +53,14 @@ class CopyFeedback {
         }
     }
 
-    succeed(byteLength: number): void {
+    succeed(): void {
         this.cancelPreparingTimer();
         if (this.toastId !== undefined) {
-            toast.success(`Copied to clipboard · ${formatByteSize(byteLength)}`, {
+            toast.success("Content copied to clipboard.", {
                 id: this.toastId,
             });
+        } else {
+            toast.success("Content copied to clipboard.");
         }
         this.finishProgress();
     }
@@ -98,11 +100,6 @@ class CopyFeedback {
         this.ownsProgressState = false;
         editorState.copyInProgress = false;
     }
-}
-
-function formatByteSize(byteLength: number): string {
-    const mebibytes = byteLength / (1024 * 1024);
-    return `${mebibytes.toFixed(mebibytes >= 100 ? 0 : 1)} MB`;
 }
 
 function isHighSurrogate(codeUnit: number): boolean {
@@ -206,7 +203,7 @@ export async function copyEditorRangeToClipboard(
             chunkIndex += 1;
         }
 
-        feedback.succeed(byteLength);
+        feedback.succeed();
         if (editorState.activeView === view && view.dom.isConnected) {
             view.focus();
         }
@@ -233,8 +230,8 @@ export async function copyCsvSessionToClipboard(
     const feedback = new CopyFeedback(estimatedSize);
 
     try {
-        const response = await invoke<CsvClipboardCopyResponse>("csv_copy_to_clipboard");
-        feedback.succeed(response.byteLength);
+        await invoke<CsvClipboardCopyResponse>("csv_copy_to_clipboard");
+        feedback.succeed();
         return true;
     } catch (error) {
         feedback.fail();

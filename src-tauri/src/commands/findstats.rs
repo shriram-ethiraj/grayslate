@@ -25,6 +25,10 @@ pub struct EditorFindState {
 }
 
 impl EditorFindState {
+    pub fn cleanup_window(&self, window_label: &str) {
+        self.cancel_active(window_label);
+    }
+
     /// Register a new scan for a window, cancelling any previous in-flight scan.
     fn begin_scan(&self, window_label: &str, request_id: u64) -> Arc<AtomicBool> {
         let mut active = self.active_scans.lock().unwrap_or_else(|p| p.into_inner());

@@ -27,6 +27,7 @@ use crate::{
     naming::{fallback_stem, language_to_extension, suggest_stem_auto},
     save_coordinator::SaveCoordinator,
     storage::{path_to_display_string, AppStorage, FileSource},
+    window::WindowRegistry,
 };
 
 use tauri::Emitter;
@@ -74,6 +75,7 @@ pub async fn save_untitled_slate(
     documents: tauri::State<'_, DocumentRegistry>,
     autosave: tauri::State<'_, crate::autosave::AutosaveRegistry>,
     save_coordinator: tauri::State<'_, SaveCoordinator>,
+    windows: tauri::State<'_, WindowRegistry>,
     window: tauri::Window,
     content: String,
     language_hint: String,
@@ -142,6 +144,9 @@ pub async fn save_untitled_slate(
                 document_generation,
                 format,
             );
+            windows
+                .adopt_active_path(window.label(), &path)
+                .map_err(|_| "The slate is already open in another window.".to_string())?;
             let (_, effective_language) = suggest_stem_auto(&content, &language_hint, None);
             let _ = app.emit(RECENT_FILES_UPDATED_EVENT, "saved");
             return Ok(SaveResult {
@@ -166,6 +171,9 @@ pub async fn save_untitled_slate(
         format,
     )
     .await?;
+    windows
+        .adopt_active_path(window.label(), &result.authorized_path)
+        .map_err(|_| "The new slate is already open in another window.".to_string())?;
     autosave.register_authorized(
         window.label(),
         result.authorized_path.clone(),

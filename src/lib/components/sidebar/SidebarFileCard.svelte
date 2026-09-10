@@ -26,7 +26,7 @@
         getRecencyTimestamp,
         type LibraryFileRecord,
     } from "$lib/files/sidebarUtils";
-    import { requestDeleteFile, type RecentFileRecord, type RecentFileSource } from "$lib/files/recentFiles";
+    import { notifyFileAlreadyOpen, requestDeleteFile, type RecentFileRecord, type RecentFileSource } from "$lib/files/recentFiles";
     import Files from "~icons/lucide/files";
     import FolderOpen from "~icons/lucide/folder-open";
     import Copy from "~icons/lucide/copy";
@@ -36,6 +36,8 @@
     import LucideUnlink2 from '~icons/lucide/unlink-2';
     import Ellipsis from "~icons/lucide/ellipsis";
     import LucideHardDrive from "~icons/lucide/hard-drive";
+    import SquareArrowOutUpRight from "~icons/lucide/square-arrow-out-up-right";
+    import { openDocumentInNewWindow } from "$lib/windowing";
 
     interface Props {
         recentFile: LibraryFileRecord;
@@ -111,6 +113,7 @@
     async function handleCopyPath(): Promise<void> {
         try {
             await writeText(recentFile.path);
+            toast.success("File path copied to clipboard.");
         } catch {
             toast.error("Failed to copy path");
         }
@@ -124,6 +127,20 @@
             });
         } catch {
             toast.error("Failed to open containing folder");
+        }
+    }
+
+    async function handleOpenInNewWindow(): Promise<void> {
+        try {
+            const result = await openDocumentInNewWindow({
+                documentId: recentFile.document_id,
+                generation: recentFile.document_generation,
+            });
+            if (result.kind === "focused-existing" && isActive) {
+                notifyFileAlreadyOpen(recentFile.file_name || recentFile.path);
+            }
+        } catch (error) {
+            toast.error(typeof error === "string" ? error : "Failed to open a new window");
         }
     }
 </script>
@@ -261,6 +278,14 @@
                                         <span>Open</span>
                                     </DropdownMenuPrimitive.Item>
                                     <DropdownMenuPrimitive.Item
+                                        data-testid="sidebar-action-open-new-window"
+                                        class={ddItemClass}
+                                        onclick={handleOpenInNewWindow}
+                                    >
+                                        <SquareArrowOutUpRight class="size-4" />
+                                        <span>Open in New Window</span>
+                                    </DropdownMenuPrimitive.Item>
+                                    <DropdownMenuPrimitive.Item
                                         data-testid="sidebar-action-reveal"
                                         class={ddItemClass}
                                         onclick={handleReveal}
@@ -372,6 +397,10 @@
         <ContextMenu.Item onclick={() => onOpen(recentFile.path, recentFile.source)}>
             <Files class="size-4" />
             <span>Open</span>
+        </ContextMenu.Item>
+        <ContextMenu.Item onclick={handleOpenInNewWindow}>
+            <SquareArrowOutUpRight class="size-4" />
+            <span>Open in New Window</span>
         </ContextMenu.Item>
         <ContextMenu.Item onclick={handleReveal}>
             <FolderOpen class="size-4" />

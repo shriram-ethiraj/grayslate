@@ -30,6 +30,7 @@ import * as sidebar from "../pages/sidebar.js";
 import * as statusBar from "../pages/statusBar.js";
 import * as titleBar from "../pages/titleBar.js";
 import * as transformations from "../pages/transformations.js";
+import { clickTestId, waitForTestId } from "../pages/common.js";
 
 /**
  * External (local) files.
@@ -42,6 +43,57 @@ import * as transformations from "../pages/transformations.js";
  * proved none of it.
  */
 describe("External files", () => {
+  scenario(
+    "file.open.active-feedback",
+    "reports the active file across sidebar, picker, and external open attempts",
+    async () => {
+      const target = await openText("already-open.txt", "saved active text\n");
+      const edited = "active unsaved text";
+      const expectedToast = '"already-open.txt" is already open in this window.';
+
+      await editor.replaceText(edited);
+      await titleBar.waitForDirty(true);
+
+      await sidebar.ensureOpen();
+      await sidebar.setFilterTab("unified");
+      await sidebar.waitForCard(target);
+      await sidebar.openCard(target);
+      await transformations.waitForToast(expectedToast);
+      await clickTestId("toast");
+      await waitForTestId("toast", { reverse: true });
+
+      await queueOpenDialogResult(target);
+      await titleBar.fileMenu("open-file");
+      await transformations.waitForToast(expectedToast);
+      await clickTestId("toast");
+      await waitForTestId("toast", { reverse: true });
+
+      await queueOpenDialogResult(target);
+      await titleBar.fileMenu("open-file-new-window");
+      await transformations.waitForToast(expectedToast);
+      await clickTestId("toast");
+      await waitForTestId("toast", { reverse: true });
+
+      // The external route must surface the same feedback without reloading.
+      await dropPaths([target]);
+      await transformations.waitForToast(expectedToast);
+      await waitForAppStable({
+        message: "Reopening the active document did not settle.",
+      });
+
+      expect(await dialogs.unsavedChanges.isOpen()).toBe(false);
+      await editor.waitUntilReady({ documentPath: target });
+      expect(await editor.text()).toBe(edited);
+      expect(await titleBar.isDirty()).toBe(true);
+
+      // Leave the shared app process clean for the remaining scenarios in
+      // this spec. Otherwise the next File > Open correctly stops at the
+      // unsaved-changes guard instead of exercising its intended open flow.
+      await titleBar.fileMenu("save");
+      await titleBar.waitForDirty(false);
+    },
+  );
+
   scenario(
     "file.external.open",
     "opens an external file through the File menu, under All and Local",

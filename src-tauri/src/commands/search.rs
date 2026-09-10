@@ -101,6 +101,10 @@ impl SearchRuntimeState {
         }
     }
 
+    pub fn cleanup_window(&self, window_label: &str) {
+        self.cancel_active(window_label);
+    }
+
     pub fn average_document_length(&self) -> Option<f32> {
         *self
             .stats
@@ -217,4 +221,20 @@ pub async fn search_sidebar_files(
 #[tauri::command]
 pub fn cancel_sidebar_search(search_state: tauri::State<'_, SearchRuntimeState>, window: Window) {
     search_state.cancel_active(window.label());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn window_cleanup_cancels_only_that_windows_search() {
+        let state = SearchRuntimeState::default();
+        let first = state.begin_request("main", 1);
+        let second = state.begin_request("editor-two", 1);
+
+        state.cleanup_window("main");
+        assert!(first.load(Ordering::Relaxed));
+        assert!(!second.load(Ordering::Relaxed));
+    }
 }

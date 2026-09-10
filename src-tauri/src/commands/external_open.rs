@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashSet, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     path::{Path, PathBuf},
     sync::{Mutex, OnceLock},
 };
@@ -11,6 +11,7 @@ use url::Url;
 use crate::{
     document::{classify_existing_document, DocumentDescriptor, DocumentRegistry, DocumentRights},
     storage::AppStorage,
+    window::WindowRegistry,
 };
 
 use super::{file::MAX_FILE_SIZE, RECENT_FILES_UPDATED_EVENT};
@@ -29,7 +30,7 @@ pub struct ExternalOpenRequest {
 
 #[derive(Default)]
 pub struct ExternalOpenState {
-    pending: Mutex<VecDeque<ExternalOpenRequest>>,
+    pending: Mutex<HashMap<String, VecDeque<ExternalOpenRequest>>>,
     dropped: Mutex<DroppedPathQueue>,
 }
 
@@ -81,18 +82,21 @@ impl StagedPathActivationQueue {
 }
 
 impl ExternalOpenState {
-    fn push(&self, request: ExternalOpenRequest) {
+    fn push(&self, window_label: &str, request: ExternalOpenRequest) {
         self.pending
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .entry(window_label.to_string())
+            .or_default()
             .push_back(request);
     }
 
-    fn pop(&self) -> Option<ExternalOpenRequest> {
-        let mut pending = self
+    fn pop(&self, window_label: &str) -> Option<ExternalOpenRequest> {
+        let mut all_pending = self
             .pending
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let pending = all_pending.get_mut(window_label)?;
         let mut merged = pending.pop_front()?;
         for request in pending.drain(..) {
             if request.document.is_some() {
@@ -103,7 +107,15 @@ impl ExternalOpenState {
             merged.newly_tracked_count += request.newly_tracked_count;
             merged.skipped_count += request.skipped_count;
         }
+        all_pending.remove(window_label);
         Some(merged)
+    }
+
+    pub fn cleanup_window(&self, window_label: &str) {
+        self.pending
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .remove(window_label);
     }
 
     /// Returns true only for the caller responsible for starting the worker.
@@ -142,15 +154,10 @@ impl ExternalOpenState {
     }
 }
 
-/// Bring the single Grayslate window forward without treating focus failure as
-/// a file-open failure. Window managers are allowed to deny focus stealing.
+/// Bring the most recently focused Grayslate window forward without treating
+/// focus failure as a file-open failure. Window managers may deny focus stealing.
 pub fn focus_main_window(app: &tauri::AppHandle) {
-    let Some(window) = app.get_webview_window("main") else {
-        return;
-    };
-    let _ = window.show();
-    let _ = window.unminimize();
-    let _ = window.set_focus();
+    crate::window::focus_preferred_window(app);
 }
 
 /// Resolve argv values delivered by the OS or the single-instance plugin.
@@ -222,7 +229,7 @@ fn enqueue_path_activation(app: &tauri::AppHandle, paths: Vec<PathBuf>) {
         activation_states_ready(app)
     });
     for paths in batches {
-        enqueue_paths(app, "main", paths);
+        enqueue_paths_to_preferred_window(app, paths);
     }
 }
 
@@ -232,10 +239,19 @@ fn enqueue_path_activation(app: &tauri::AppHandle, paths: Vec<PathBuf>) {
 pub fn flush_staged_path_activations(app: &tauri::AppHandle) {
     let batches = staged_path_activations().drain_if_ready(activation_states_ready(app));
     for paths in batches {
-        enqueue_paths(app, "main", paths);
+        enqueue_paths_to_preferred_window(app, paths);
     }
 }
 
+fn enqueue_paths_to_preferred_window(app: &tauri::AppHandle, paths: Vec<PathBuf>) {
+    let label = app
+        .state::<WindowRegistry>()
+        .preferred_window_label(app)
+        .unwrap_or_else(|| "main".to_string());
+    enqueue_paths(app, &label, paths);
+}
+
+#[cfg(any(target_os = "macos", test))]
 fn opened_urls_to_paths(urls: impl IntoIterator<Item = Url>) -> Vec<PathBuf> {
     urls.into_iter()
         .filter_map(|url| url.to_file_path().ok())
@@ -366,21 +382,27 @@ fn enqueue_paths(app: &tauri::AppHandle, window_label: &str, paths: Vec<PathBuf>
         let _ = app.emit(RECENT_FILES_UPDATED_EVENT, ());
     }
 
-    app.state::<ExternalOpenState>().push(ExternalOpenRequest {
-        document,
-        requested_count,
-        accepted_count,
-        newly_tracked_count,
-        skipped_count,
-    });
-    let _ = app.emit(EXTERNAL_OPEN_PENDING_EVENT, ());
+    app.state::<ExternalOpenState>().push(
+        window_label,
+        ExternalOpenRequest {
+            document,
+            requested_count,
+            accepted_count,
+            newly_tracked_count,
+            skipped_count,
+        },
+    );
+    if let Some(window) = app.get_webview_window(window_label) {
+        let _ = window.emit(EXTERNAL_OPEN_PENDING_EVENT, ());
+    }
 }
 
 #[tauri::command]
 pub fn take_external_open_request(
+    window: tauri::Window,
     state: tauri::State<'_, ExternalOpenState>,
 ) -> Option<ExternalOpenRequest> {
-    state.pop()
+    state.pop(window.label())
 }
 
 #[cfg(test)]
@@ -491,11 +513,11 @@ mod tests {
     #[test]
     fn pending_requests_merge_counts_and_keep_the_last_document() {
         let state = ExternalOpenState::default();
-        state.push(request(Some("first.txt"), 2, 1, 1, 1));
-        state.push(request(None, 1, 0, 0, 1));
-        state.push(request(Some("last.txt"), 3, 3, 2, 0));
+        state.push("main", request(Some("first.txt"), 2, 1, 1, 1));
+        state.push("main", request(None, 1, 0, 0, 1));
+        state.push("main", request(Some("last.txt"), 3, 3, 2, 0));
 
-        let merged = state.pop().expect("queued requests should merge");
+        let merged = state.pop("main").expect("queued requests should merge");
         assert_eq!(merged.requested_count, 6);
         assert_eq!(merged.accepted_count, 4);
         assert_eq!(merged.newly_tracked_count, 3);
@@ -504,7 +526,29 @@ mod tests {
             merged.document.map(|document| document.display_path),
             Some("last.txt".to_string())
         );
-        assert!(state.pop().is_none());
+        assert!(state.pop("main").is_none());
+    }
+
+    #[test]
+    fn pending_requests_are_isolated_by_window() {
+        let state = ExternalOpenState::default();
+        state.push("main", request(Some("main.txt"), 1, 1, 0, 0));
+        state.push("editor-1", request(Some("other.txt"), 1, 1, 0, 0));
+
+        assert_eq!(
+            state
+                .pop("editor-1")
+                .and_then(|request| request.document)
+                .map(|document| document.display_path),
+            Some("other.txt".to_string())
+        );
+        assert_eq!(
+            state
+                .pop("main")
+                .and_then(|request| request.document)
+                .map(|document| document.display_path),
+            Some("main.txt".to_string())
+        );
     }
 
     #[test]

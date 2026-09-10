@@ -30,6 +30,7 @@ export const shortcutCategories = [
         label: "General",
         shortcuts: [
             { id: "new-slate", label: "New Slate", keys: ["Mod+N"] },
+            { id: "new-window", label: "New Window", keys: ["Mod+Shift+N"] },
             { id: "open-file", label: "Open File", keys: ["Mod+O"] },
             { id: "save-file", label: "Save", keys: ["Mod+S"] },
             { id: "save-file-as", label: "Save As", keys: ["Mod+Shift+S"] },

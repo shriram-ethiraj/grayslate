@@ -1,5 +1,5 @@
 import { invoke } from "$lib/ipc";
-import { emit } from "@tauri-apps/api/event";
+import { emitToCurrentWindow } from "$lib/windowing";
 import { toast } from "$lib/components/ui/sonner";
 import { editorState } from "$lib/state/editor.svelte";
 import {
@@ -12,6 +12,13 @@ export const OPEN_FILE_PATH_EVENT = "files://open-path";
 export const EXTERNAL_OPEN_PENDING_EVENT = "files://external-open-pending";
 export const DOCUMENT_RENAMED_EVENT = "files://document-renamed";
 export const RECENT_FILES_UPDATED_EVENT = "files://recent-updated";
+
+/** Report a same-window open attempt through the app's shared toaster. */
+export function notifyFileAlreadyOpen(pathOrName: string): void {
+  const fileName = pathOrName.replace(/\\/g, "/").split("/").pop() || "File";
+  toast.info(`"${fileName}" is already open in this window.`);
+}
+
 /**
  * Resets the editor to a blank untitled slate without re-running the
  * unsaved-changes confirm gate. Emitted by callers (e.g. unlink) that have
@@ -141,7 +148,7 @@ export async function performFileDelete(file: RecentFileRecord): Promise<void> {
   reportLibraryMutation({ kind: "removed", path: file.path });
   if (wasCurrentFile) {
     // Reset the editor to a new untitled slate via the shared event bus.
-    await emit("menu://new-file");
+    await emitToCurrentWindow("menu://new-file");
   }
   toast.success(`"${file.file_name}" was deleted.`);
 }
@@ -224,7 +231,7 @@ export async function performFileUnlink(file: RecentFileRecord): Promise<void> {
     // Reset the editor to a new untitled slate. The caller already ran the
     // unsaved-changes confirm gate, so use the no-reprompt reset event
     // instead of "menu://new-file" (which would confirm a second time).
-    await emit(RESET_TO_BLANK_EVENT);
+    await emitToCurrentWindow(RESET_TO_BLANK_EVENT);
   }
   toast.success(`"${file.file_name}" unlinked from sidebar.`);
 }

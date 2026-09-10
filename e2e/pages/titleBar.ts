@@ -21,7 +21,7 @@ import {
 
 // ── Menus ──────────────────────────────────────────────────────────────────
 
-type FileItem = "new-slate" | "open-file" | "save" | "save-as" | "settings";
+type FileItem = "new-slate" | "open-file" | "open-file-new-window" | "save" | "save-as" | "settings";
 type EditItem =
   | "undo"
   | "redo"
