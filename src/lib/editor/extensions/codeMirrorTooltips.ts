@@ -30,9 +30,11 @@ function replaceNativeFoldTitles(view: EditorView): void {
 export const codeMirrorTooltips = ViewPlugin.fromClass(
     class {
         private readonly stopWatchingDeactivation: () => void;
+        private readonly view: EditorView;
         private readonly viewDom: HTMLElement;
 
         constructor(view: EditorView) {
+            this.view = view;
             this.viewDom = view.dom;
             replaceNativeFoldTitles(view);
             if (!tooltipLifecycle.active) {
@@ -61,6 +63,7 @@ export const codeMirrorTooltips = ViewPlugin.fromClass(
 
         private readonly handlePointerMove = (): void => {
             if (!tooltipLifecycle.active) return;
+            replaceNativeFoldTitles(this.view);
             delete this.viewDom.dataset.tooltipsSuspended;
         };
 

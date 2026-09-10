@@ -85,6 +85,12 @@ describe("External files", () => {
       await editor.waitUntilReady({ documentPath: target });
       expect(await editor.text()).toBe(edited);
       expect(await titleBar.isDirty()).toBe(true);
+
+      // Leave the shared app process clean for the remaining scenarios in
+      // this spec. Otherwise the next File > Open correctly stops at the
+      // unsaved-changes guard instead of exercising its intended open flow.
+      await titleBar.fileMenu("save");
+      await titleBar.waitForDirty(false);
     },
   );
 

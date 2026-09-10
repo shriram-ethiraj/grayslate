@@ -681,7 +681,10 @@ pub fn claim_document_open(
         window.label(),
         &document_id,
         document_generation,
-        DocumentAccess::Read,
+        // A claim may target a not-yet-created Save As path. Resolving it as a
+        // read would require that path to exist; write validation preserves
+        // the new-file grant while still revalidating existing documents.
+        DocumentAccess::Write,
     )?;
     match registry.reserve(window.label(), &document.path) {
         Ok(reservation_id) => Ok(OpenDisposition::OpenHere { reservation_id }),

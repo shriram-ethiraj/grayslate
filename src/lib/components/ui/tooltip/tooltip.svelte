@@ -1,6 +1,9 @@
 <script lang="ts">
 	import { Tooltip as TooltipPrimitive } from "bits-ui";
-	import { tooltipLifecycle } from "./tooltip-lifecycle.svelte.js";
+	import {
+		isSharedTooltipOpenSuppressed,
+		tooltipLifecycle,
+	} from "./tooltip-lifecycle.svelte.js";
 
 	let {
 		open = $bindable(false),
@@ -9,11 +12,13 @@
 		...restProps
 	}: TooltipPrimitive.RootProps = $props();
 
-	const effectiveOpen = $derived(tooltipLifecycle.active && open);
 	const effectiveDisabled = $derived(disabled || !tooltipLifecycle.active);
 
 	function handleOpenChange(nextOpen: boolean): void {
-		if (nextOpen && !tooltipLifecycle.active) {
+		if (
+			nextOpen &&
+			(!tooltipLifecycle.active || isSharedTooltipOpenSuppressed())
+		) {
 			open = false;
 			return;
 		}
@@ -30,7 +35,7 @@
 </script>
 
 <TooltipPrimitive.Root
-	open={effectiveOpen}
+	bind:open
 	disabled={effectiveDisabled}
 	onOpenChange={handleOpenChange}
 	{...restProps}

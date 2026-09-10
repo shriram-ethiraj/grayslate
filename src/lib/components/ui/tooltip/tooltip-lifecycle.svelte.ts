@@ -9,13 +9,21 @@ let nativeWindowFocused: boolean | null = null;
 let documentVisible = hasDocument ? document.visibilityState === "visible" : true;
 let active = $state(browserWindowFocused && documentVisible);
 let engagedSharedTrigger: HTMLElement | null = null;
+let suppressedSharedFocusTrigger: HTMLElement | null = null;
+const registeredSharedTriggers = new Set<HTMLElement>();
 
 const deactivationListeners = new Set<TooltipDeactivationListener>();
 
 function resetEngagedSharedTrigger(): void {
-	const trigger = engagedSharedTrigger;
+	const focusedElement = document.activeElement;
+	const focusedTrigger =
+		focusedElement instanceof HTMLElement && registeredSharedTriggers.has(focusedElement)
+			? focusedElement
+			: null;
+	const trigger = focusedTrigger ?? engagedSharedTrigger;
 	engagedSharedTrigger = null;
 	if (!trigger?.isConnected) return;
+	if (focusedTrigger === trigger) suppressedSharedFocusTrigger = trigger;
 
 	// Bits UI does not expose a public way to cancel its pending hover delay.
 	// Delivering the trigger's normal leave event while the root is still active
@@ -27,6 +35,18 @@ function resetEngagedSharedTrigger(): void {
 			relatedTarget: null,
 		}),
 	);
+
+	// Window deactivation deliberately preserves DOM focus. A synthetic blur
+	// runs Bits UI's close handler without changing document.activeElement, so
+	// a keyboard-opened tooltip does not reappear when the root is enabled again.
+	if (document.activeElement === trigger) {
+		trigger.dispatchEvent(
+			new FocusEvent("blur", {
+				bubbles: false,
+				relatedTarget: null,
+			}),
+		);
+	}
 }
 
 function syncDocumentMarker(): void {
@@ -141,26 +161,64 @@ export function startTooltipWindowLifecycle(appWindow: TauriWindow): () => void 
 		window.removeEventListener("pageshow", handlePageShow);
 		void nativeFocusUnlisten.then((unlisten) => unlisten?.());
 		engagedSharedTrigger = null;
+		suppressedSharedFocusTrigger = null;
 		delete document.documentElement.dataset.tooltipWindowActive;
 	};
 }
 
-/** Track the one shared tooltip trigger currently engaged by a pointer. */
+/** Reject Bits UI focus-open requests until the user genuinely re-engages. */
+export function isSharedTooltipOpenSuppressed(): boolean {
+	const trigger = suppressedSharedFocusTrigger;
+	return trigger?.isConnected === true && document.activeElement === trigger;
+}
+
+/** Track the one shared tooltip trigger currently engaged by pointer or focus. */
 export function registerTooltipTriggerLifecycle(trigger: HTMLElement): () => void {
+	registeredSharedTriggers.add(trigger);
 	const handlePointerEnter = (event: PointerEvent) => {
-		if (event.pointerType !== "touch") engagedSharedTrigger = trigger;
+		if (event.pointerType === "touch") return;
+		if (active) {
+			suppressedSharedFocusTrigger = null;
+		}
+		engagedSharedTrigger = trigger;
 	};
 	const handlePointerLeave = () => {
+		if (engagedSharedTrigger === trigger && document.activeElement !== trigger) {
+			engagedSharedTrigger = null;
+		}
+	};
+	const handleFocus = () => {
+		if (suppressedSharedFocusTrigger === trigger) {
+			return;
+		}
+		engagedSharedTrigger = trigger;
+	};
+	const handleBlur = () => {
 		if (engagedSharedTrigger === trigger) engagedSharedTrigger = null;
 	};
+	const handleKeyDown = () => {
+		// A real key interaction is a fresh engagement. In particular, Tab clears
+		// suppression before focus moves, allowing a later keyboard return to open.
+		if (active && suppressedSharedFocusTrigger === trigger) {
+			suppressedSharedFocusTrigger = null;
+		}
+	};
 
-	trigger.addEventListener("pointerenter", handlePointerEnter);
+	trigger.addEventListener("pointerenter", handlePointerEnter, true);
 	trigger.addEventListener("pointerleave", handlePointerLeave);
+	trigger.addEventListener("focus", handleFocus);
+	trigger.addEventListener("blur", handleBlur);
+	trigger.addEventListener("keydown", handleKeyDown);
 
 	return () => {
-		trigger.removeEventListener("pointerenter", handlePointerEnter);
+		registeredSharedTriggers.delete(trigger);
+		trigger.removeEventListener("pointerenter", handlePointerEnter, true);
 		trigger.removeEventListener("pointerleave", handlePointerLeave);
+		trigger.removeEventListener("focus", handleFocus);
+		trigger.removeEventListener("blur", handleBlur);
+		trigger.removeEventListener("keydown", handleKeyDown);
 		if (engagedSharedTrigger === trigger) engagedSharedTrigger = null;
+		if (suppressedSharedFocusTrigger === trigger) suppressedSharedFocusTrigger = null;
 	};
 }
 

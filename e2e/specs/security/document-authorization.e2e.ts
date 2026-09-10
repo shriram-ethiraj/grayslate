@@ -27,7 +27,13 @@ describe("Rust-owned document authorization", () => {
         ["delete_file", { ...FORGED_GRANT, path: victim, source: "slates" }],
         [
           "autosave_activate_document",
-          { ...FORGED_GRANT, languageHint: "text", path: victim, source: "slates" },
+          {
+            ...FORGED_GRANT,
+            languageHint: "text",
+            reservationId: FORGED_ID,
+            path: victim,
+            source: "slates",
+          },
         ],
       ];
 

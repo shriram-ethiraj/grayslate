@@ -288,7 +288,7 @@ export async function isSelectorVisible(selector: string): Promise<boolean> {
 export async function readFoldGutterTooltipVisible(): Promise<boolean> {
   return browser.execute(() => {
     const marker = document.querySelector<HTMLElement>(
-      ".cm-foldGutter [data-cm-tooltip]",
+      ".cm-foldGutter .cm-gutterElement:not(:first-child) [data-cm-tooltip]",
     );
     if (!marker) return false;
     const style = getComputedStyle(marker, "::after");

@@ -333,6 +333,8 @@ pub fn run() {
             #[cfg(feature = "e2e")]
             commands::e2e::e2e_force_autosave_cycle,
             #[cfg(feature = "e2e")]
+            commands::e2e::e2e_focus_window,
+            #[cfg(feature = "e2e")]
             commands::e2e::e2e_minimize_observation,
             #[cfg(feature = "e2e")]
             commands::e2e::e2e_navigation_observation,

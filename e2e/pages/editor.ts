@@ -142,7 +142,7 @@ export async function waitUntilReady(
         return matches(latest);
       },
       {
-        message:
+        message: () =>
           `Editor never reached the requested state ${JSON.stringify(options)}. ` +
           `Last snapshot: ${JSON.stringify(latest ?? null)}`,
         timeoutMs: remaining,

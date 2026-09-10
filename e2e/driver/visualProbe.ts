@@ -267,7 +267,18 @@ export async function typographySnapshot(): Promise<{
       !firstLine ||
       !firstGutterLine
     ) {
-      throw new Error("Representative UI or CodeMirror typography element is missing.");
+      const missing = [
+        ...uiSelectors.filter((_, index) => !uiElements[index]),
+        !monoElement ? "CodeMirror scroller" : null,
+        !activeFile ? "active sidebar file" : null,
+        !inactiveFile ? "inactive sidebar file" : null,
+        !content ? "CodeMirror content" : null,
+        !boldToken ? "bold syntax token" : null,
+        !italicToken ? "italic syntax token" : null,
+        !firstLine ? "first CodeMirror line" : null,
+        !firstGutterLine ? "first gutter line" : null,
+      ].filter((item): item is string => item !== null);
+      throw new Error(`Representative typography elements are missing: ${missing.join(", ")}.`);
     }
 
     const boldStyle = getComputedStyle(boldToken);

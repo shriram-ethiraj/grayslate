@@ -42,6 +42,7 @@ describe("Appearance and typography", () => {
       "# An italic comment\ndef greet(name):\n    return f\"Hello, {name}!\"\n",
     );
     await waitForLanguageMode("python");
+    await ensureSidebarOpen();
     await clickTestId("menu-file");
     await clickTestId("menu-settings");
     await (await $("[data-testid='settings-dialog']")).waitForDisplayed({
@@ -49,6 +50,23 @@ describe("Appearance and typography", () => {
       timeoutMsg: "The settings dialog never became visible.",
     });
 
+    let typographyError = "";
+    await waitFor(
+      async () => {
+        try {
+          await typographySnapshot();
+          return true;
+        } catch (error) {
+          typographyError = String((error as Error)?.message ?? error);
+          return false;
+        }
+      },
+      {
+        message: () =>
+          `The lazy Python syntax styles never became ready. Last error: ${typographyError}`,
+        timeoutMs: TIMEOUTS.editor,
+      },
+    );
     const typography = await typographySnapshot();
     expect(typography.allFacesLoaded).toBe(true);
     for (const family of typography.uiFamilies) {

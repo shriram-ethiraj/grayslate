@@ -576,6 +576,40 @@ mod tests {
     }
 
     #[test]
+    fn new_grant_is_writable_before_the_file_exists() {
+        let dir = temp_dir("grayslate-document-new-write");
+        let path = dir.join("new.txt");
+        let registry = DocumentRegistry::default();
+        let granted = registry
+            .grant_new(
+                "main",
+                &path,
+                FileSource::Local,
+                DocumentRights::tracked(FileSource::Local),
+            )
+            .unwrap();
+
+        assert!(registry
+            .resolve(
+                "main",
+                &granted.id,
+                granted.generation,
+                DocumentAccess::Write,
+            )
+            .is_ok());
+        assert!(registry
+            .resolve(
+                "main",
+                &granted.id,
+                granted.generation,
+                DocumentAccess::Read,
+            )
+            .is_err());
+
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn revoked_grant_cannot_be_reused() {
         let dir = temp_dir("grayslate-document-revoke");
         let path = dir.join("note.txt");

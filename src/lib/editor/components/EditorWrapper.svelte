@@ -850,6 +850,7 @@
     finishEncodingConfirmation(false);
     fileOpenRequestVersion += 1;
     clearPendingSidebarOpenFile();
+    editorState.openingDocument = undefined;
     void invoke("cancel_file_read").catch(() => undefined);
 
     // A superseded open request deliberately cannot hide the shared loader in
