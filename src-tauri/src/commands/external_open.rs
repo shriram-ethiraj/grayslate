@@ -9,7 +9,10 @@ use tauri::{Emitter, Manager};
 use url::Url;
 
 use crate::{
-    document::{classify_existing_document, DocumentDescriptor, DocumentRegistry, DocumentRights},
+    document::{
+        classify_existing_document, AuthorizedDocument, DocumentDescriptor, DocumentRegistry,
+        DocumentRights,
+    },
     storage::AppStorage,
     window::WindowRegistry,
 };
@@ -21,11 +24,12 @@ pub const EXTERNAL_OPEN_PENDING_EVENT: &str = "files://external-open-pending";
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExternalOpenRequest {
-    pub document: Option<DocumentDescriptor>,
+    pub documents: Vec<DocumentDescriptor>,
     pub requested_count: usize,
     pub accepted_count: usize,
     pub newly_tracked_count: usize,
     pub skipped_count: usize,
+    pub routing_failure_count: usize,
 }
 
 #[derive(Default)]
@@ -97,18 +101,11 @@ impl ExternalOpenState {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let pending = all_pending.get_mut(window_label)?;
-        let mut merged = pending.pop_front()?;
-        for request in pending.drain(..) {
-            if request.document.is_some() {
-                merged.document = request.document;
-            }
-            merged.requested_count += request.requested_count;
-            merged.accepted_count += request.accepted_count;
-            merged.newly_tracked_count += request.newly_tracked_count;
-            merged.skipped_count += request.skipped_count;
+        let request = pending.pop_front();
+        if pending.is_empty() {
+            all_pending.remove(window_label);
         }
-        all_pending.remove(window_label);
-        Some(merged)
+        request
     }
 
     pub fn cleanup_window(&self, window_label: &str) {
@@ -172,7 +169,11 @@ pub fn enqueue_cli_activation(
         .into_iter()
         .filter_map(|argument| argument_to_path(&argument, cwd))
         .collect::<Vec<_>>();
-    enqueue_path_activation(app, paths);
+    if activation_states_ready(app) {
+        route_paths_to_windows(app, paths);
+    } else {
+        enqueue_path_activation(app, paths);
+    }
 }
 
 pub fn enqueue_initial_activation(app: &tauri::AppHandle) {
@@ -260,7 +261,15 @@ fn opened_urls_to_paths(urls: impl IntoIterator<Item = Url>) -> Vec<PathBuf> {
 
 #[cfg(target_os = "macos")]
 pub fn enqueue_opened_urls(app: &tauri::AppHandle, urls: Vec<Url>) {
-    enqueue_path_activation(app, opened_urls_to_paths(urls));
+    let paths = opened_urls_to_paths(urls);
+    if app
+        .state::<WindowRegistry>()
+        .take_startup_window_for_external_open()
+    {
+        enqueue_path_activation(app, paths);
+    } else {
+        route_paths_to_windows(app, paths);
+    }
 }
 
 /// Accept file paths supplied by Tauri's native drag/drop window event.
@@ -316,9 +325,21 @@ fn argument_to_path(argument: &str, cwd: &Path) -> Option<PathBuf> {
     })
 }
 
-fn enqueue_paths(app: &tauri::AppHandle, window_label: &str, paths: Vec<PathBuf>) {
+struct PreparedPaths {
+    documents: Vec<AuthorizedDocument>,
+    requested_count: usize,
+    newly_tracked_count: usize,
+    skipped_count: usize,
+}
+
+fn prepare_paths(app: &tauri::AppHandle, window_label: &str, paths: Vec<PathBuf>) -> PreparedPaths {
     if paths.is_empty() {
-        return;
+        return PreparedPaths {
+            documents: Vec::new(),
+            requested_count: 0,
+            newly_tracked_count: 0,
+            skipped_count: 0,
+        };
     }
 
     let requested_count = paths.len();
@@ -360,41 +381,115 @@ fn enqueue_paths(app: &tauri::AppHandle, window_label: &str, paths: Vec<PathBuf>
         }
     }
 
-    let document = accepted.last().and_then(|(path, source)| {
-        documents
-            .grant_existing(
-                window_label,
-                path,
-                *source,
-                DocumentRights::tracked(*source),
-            )
-            .map(|document| document.descriptor())
-            .map_err(|error| {
-                eprintln!("[External Open] Failed to authorize an incoming file: {error}");
-                error
-            })
-            .ok()
-    });
+    let granted = accepted
+        .iter()
+        .filter_map(|(path, source)| {
+            documents
+                .grant_existing(
+                    window_label,
+                    path,
+                    *source,
+                    DocumentRights::tracked(*source),
+                )
+                .map_err(|error| {
+                    eprintln!("[External Open] Failed to authorize an incoming file: {error}");
+                    error
+                })
+                .ok()
+        })
+        .collect::<Vec<_>>();
 
-    let accepted_count = accepted.len();
+    let accepted_count = granted.len();
     let skipped_count = requested_count.saturating_sub(accepted_count);
     if newly_tracked_count > 0 {
         let _ = app.emit(RECENT_FILES_UPDATED_EVENT, ());
     }
 
-    app.state::<ExternalOpenState>().push(
-        window_label,
-        ExternalOpenRequest {
-            document,
-            requested_count,
-            accepted_count,
-            newly_tracked_count,
-            skipped_count,
-        },
-    );
+    PreparedPaths {
+        documents: granted,
+        requested_count,
+        newly_tracked_count,
+        skipped_count,
+    }
+}
+
+pub(crate) fn prepare_document_batch(
+    app: &tauri::AppHandle,
+    window_label: &str,
+    paths: Vec<PathBuf>,
+) -> ExternalOpenRequest {
+    let prepared = prepare_paths(app, window_label, paths);
+    ExternalOpenRequest {
+        documents: prepared
+            .documents
+            .into_iter()
+            .map(|document| document.descriptor())
+            .collect(),
+        accepted_count: prepared.requested_count - prepared.skipped_count,
+        requested_count: prepared.requested_count,
+        newly_tracked_count: prepared.newly_tracked_count,
+        skipped_count: prepared.skipped_count,
+        routing_failure_count: 0,
+    }
+}
+
+fn enqueue_paths(app: &tauri::AppHandle, window_label: &str, paths: Vec<PathBuf>) {
+    let request = prepare_document_batch(app, window_label, paths);
+    if request.requested_count == 0 {
+        return;
+    }
+    app.state::<ExternalOpenState>().push(window_label, request);
     if let Some(window) = app.get_webview_window(window_label) {
         let _ = window.emit(EXTERNAL_OPEN_PENDING_EVENT, ());
     }
+}
+
+fn route_paths_to_windows(app: &tauri::AppHandle, paths: Vec<PathBuf>) {
+    if paths.is_empty() {
+        return;
+    }
+    let registry = app.state::<WindowRegistry>();
+    let Some(source_label) = registry.preferred_window_label(app) else {
+        return;
+    };
+    let Some(source_window) = app.get_webview_window(&source_label) else {
+        return;
+    };
+    let prepared = prepare_paths(app, &source_label, paths);
+    if prepared.requested_count == 0 {
+        return;
+    }
+
+    let mut routing_failure_count = 0;
+    let document_count = prepared.documents.len();
+    for (index, document) in prepared.documents.iter().cloned().enumerate() {
+        if crate::window::create_document_window(
+            app,
+            &source_window,
+            registry.inner(),
+            app.state::<DocumentRegistry>().inner(),
+            document,
+            None,
+            index + 1 == document_count,
+        )
+        .is_err()
+        {
+            routing_failure_count += 1;
+        }
+    }
+
+    app.state::<ExternalOpenState>().push(
+        &source_label,
+        ExternalOpenRequest {
+            documents: Vec::new(),
+            requested_count: prepared.requested_count,
+            accepted_count: prepared.documents.len(),
+            newly_tracked_count: prepared.newly_tracked_count,
+            skipped_count: prepared.skipped_count,
+            routing_failure_count,
+        },
+    );
+    let _ = source_window.emit(EXTERNAL_OPEN_PENDING_EVENT, ());
 }
 
 #[tauri::command]
@@ -417,18 +512,22 @@ mod tests {
         skipped_count: usize,
     ) -> ExternalOpenRequest {
         ExternalOpenRequest {
-            document: path.map(|display_path| DocumentDescriptor {
-                document_id: display_path.to_string(),
-                generation: 1,
-                display_path: display_path.to_string(),
-                file_name: display_path.to_string(),
-                source: "local".to_string(),
-                writable: true,
-            }),
+            documents: path
+                .into_iter()
+                .map(|display_path| DocumentDescriptor {
+                    document_id: display_path.to_string(),
+                    generation: 1,
+                    display_path: display_path.to_string(),
+                    file_name: display_path.to_string(),
+                    source: "local".to_string(),
+                    writable: true,
+                })
+                .collect(),
             requested_count,
             accepted_count,
             newly_tracked_count,
             skipped_count,
+            routing_failure_count: 0,
         }
     }
 
@@ -511,22 +610,31 @@ mod tests {
     }
 
     #[test]
-    fn pending_requests_merge_counts_and_keep_the_last_document() {
+    fn pending_requests_remain_fifo() {
         let state = ExternalOpenState::default();
         state.push("main", request(Some("first.txt"), 2, 1, 1, 1));
         state.push("main", request(None, 1, 0, 0, 1));
         state.push("main", request(Some("last.txt"), 3, 3, 2, 0));
 
-        let merged = state.pop("main").expect("queued requests should merge");
-        assert_eq!(merged.requested_count, 6);
-        assert_eq!(merged.accepted_count, 4);
-        assert_eq!(merged.newly_tracked_count, 3);
-        assert_eq!(merged.skipped_count, 2);
+        let first = state
+            .pop("main")
+            .expect("first request should remain queued");
+        assert_eq!(first.requested_count, 2);
         assert_eq!(
-            merged.document.map(|document| document.display_path),
-            Some("last.txt".to_string())
+            first
+                .documents
+                .first()
+                .map(|document| document.display_path.as_str()),
+            Some("first.txt")
         );
-        assert!(state.pop("main").is_none());
+        assert_eq!(
+            state.pop("main").map(|request| request.requested_count),
+            Some(1)
+        );
+        assert_eq!(
+            state.pop("main").map(|request| request.requested_count),
+            Some(3)
+        );
     }
 
     #[test]
@@ -538,14 +646,14 @@ mod tests {
         assert_eq!(
             state
                 .pop("editor-1")
-                .and_then(|request| request.document)
+                .and_then(|request| request.documents.into_iter().next())
                 .map(|document| document.display_path),
             Some("other.txt".to_string())
         );
         assert_eq!(
             state
                 .pop("main")
-                .and_then(|request| request.document)
+                .and_then(|request| request.documents.into_iter().next())
                 .map(|document| document.display_path),
             Some("main.txt".to_string())
         );

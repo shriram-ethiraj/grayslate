@@ -462,6 +462,7 @@ pub fn e2e_take_external_action(
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum QueuedDialogResponse {
     Path(PathBuf),
+    Paths(Vec<PathBuf>),
     Cancel,
 }
 
@@ -523,13 +524,17 @@ fn response_from(path: Option<String>) -> QueuedDialogResponse {
 #[tauri::command]
 pub async fn e2e_queue_open_path(
     queue: tauri::State<'_, QueuedDialogPaths>,
-    path: Option<String>,
+    paths: Option<Vec<String>>,
 ) -> Result<(), String> {
+    let response = match paths {
+        Some(paths) => QueuedDialogResponse::Paths(paths.into_iter().map(PathBuf::from).collect()),
+        None => QueuedDialogResponse::Cancel,
+    };
     queue
         .open
         .lock()
         .map_err(|_| "Queued open dialog responses are poisoned.".to_string())?
-        .push_back(response_from(path));
+        .push_back(response);
     Ok(())
 }
 

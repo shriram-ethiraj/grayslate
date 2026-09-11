@@ -9,7 +9,8 @@ export type CreateWindowResult =
 
 export type OpenDisposition =
   | { kind: "open-here"; reservationId: string }
-  | { kind: "focused-existing" };
+  | { kind: "focused-existing" }
+  | { kind: "existing-owner" };
 
 export type WindowLaunchIntent =
   | { kind: "primary-startup" }
@@ -18,12 +19,8 @@ export type WindowLaunchIntent =
       kind: "document";
       document: DocumentDescriptor;
       reservationId: string;
+      lineNumber?: number;
     };
-
-export interface PickDocumentIntoNewWindowResult {
-  document: DocumentDescriptor;
-  result: CreateWindowResult;
-}
 
 export async function emitToCurrentWindow<T>(event: string, payload?: T): Promise<void> {
   await emitTo(getCurrentWindow().label, event, payload);
@@ -33,23 +30,24 @@ export async function createBlankWindow(): Promise<CreateWindowResult> {
   return invoke<CreateWindowResult>("create_editor_window", {
     documentId: null,
     documentGeneration: null,
+    lineNumber: null,
+    focusExisting: true,
   });
 }
 
 export async function openDocumentInNewWindow(
   document: Pick<DocumentDescriptor, "documentId" | "generation">,
+  lineNumber?: number,
+  focusExisting = true,
 ): Promise<CreateWindowResult> {
   return invoke<CreateWindowResult>("create_editor_window", {
     documentId: document.documentId,
     documentGeneration: document.generation,
+    lineNumber: lineNumber ?? null,
+    focusExisting,
   });
 }
 
-export async function pickDocumentIntoNewWindow(): Promise<PickDocumentIntoNewWindowResult | null> {
-  const selected = await invoke<DocumentDescriptor | null>("pick_document");
-  if (!selected) return null;
-  return {
-    document: selected,
-    result: await openDocumentInNewWindow(selected),
-  };
+export async function focusCurrentWindow(): Promise<void> {
+  await invoke("focus_current_window");
 }
