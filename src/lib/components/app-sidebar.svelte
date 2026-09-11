@@ -8,7 +8,11 @@
         reportLibraryMutation,
         setPendingSidebarOpenFile,
     } from "$lib/state/librarySidebar.svelte";
-    import { confirmBeforeLeavingDocument } from "$lib/state/unsavedChangesGuard.svelte";
+    import {
+        chooseDocumentSwitch,
+        confirmBeforeLeavingDocument,
+    } from "$lib/state/unsavedChangesGuard.svelte";
+    import { invoke } from "$lib/ipc";
     import {
         getRecentFiles,
         OPEN_FILE_PATH_EVENT,
@@ -43,7 +47,11 @@
     import SidebarFileList from "$lib/components/sidebar/SidebarFileList.svelte";
     import { useListNavigator } from "$lib/components/sidebar/useListNavigator.svelte";
     import { createLibraryRefreshCoordinator } from "$lib/files/libraryRefreshCoordinator";
-    import { emitToCurrentWindow } from "$lib/windowing";
+    import {
+        emitToCurrentWindow,
+        openDocumentInNewWindow,
+        type OpenDisposition,
+    } from "$lib/windowing";
     import { tick } from "svelte";
 
     let { onReady }: { onReady?: () => void } = $props();
@@ -286,36 +294,65 @@
             return;
         }
 
-        if (!(await confirmBeforeLeavingDocument())) return;
-
         const authorizedFile = activeResults.find((file) => file.path === path);
         if (!authorizedFile) {
             toast.error("This file authorization expired. Refresh the sidebar and try again.");
             return;
         }
 
-        // Freeze the list order so opening a file doesn't immediately re-sort
-        // the sidebar, which would be jarring for sequential file navigation.
-        suppressReorder = true;
-        lastSidebarOpenedPath = path;
-        navigator.focusHighlight(path);
-
-        const requestId = Date.now();
-        setPendingSidebarOpenFile({
-            path,
-            source,
-            requestId,
-            revealInRecentList: false,
-            lineNumber,
-        });
-
-        await emitToCurrentWindow(OPEN_FILE_PATH_EVENT, {
+        const disposition = await invoke<OpenDisposition>("claim_document_open", {
             documentId: authorizedFile.document_id,
             documentGeneration: authorizedFile.document_generation,
-            path,
-            source,
-            lineNumber,
-        } satisfies OpenFilePathPayload);
+        });
+        if (disposition.kind !== "open-here") return;
+
+        let reservationIsActive = true;
+        try {
+            const decision = await chooseDocumentSwitch("open-in-new-window");
+            if (decision !== "open-here") {
+                await invoke("cancel_document_open", { reservationId: disposition.reservationId });
+                reservationIsActive = false;
+                if (decision === "new-window") {
+                    await openDocumentInNewWindow({
+                        documentId: authorizedFile.document_id,
+                        generation: authorizedFile.document_generation,
+                    }, lineNumber);
+                }
+                return;
+            }
+
+            // Freeze the list order so opening a file doesn't immediately re-sort
+            // the sidebar, which would be jarring for sequential file navigation.
+            suppressReorder = true;
+            lastSidebarOpenedPath = path;
+            navigator.focusHighlight(path);
+
+            const requestId = Date.now();
+            setPendingSidebarOpenFile({
+                path,
+                source,
+                requestId,
+                revealInRecentList: false,
+                lineNumber,
+            });
+
+            await emitToCurrentWindow(OPEN_FILE_PATH_EVENT, {
+                documentId: authorizedFile.document_id,
+                documentGeneration: authorizedFile.document_generation,
+                path,
+                source,
+                lineNumber,
+                reservationId: disposition.reservationId,
+            } satisfies OpenFilePathPayload);
+            reservationIsActive = false;
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : String(error);
+            toast.error(message || "Failed to open file.");
+        } finally {
+            if (reservationIsActive) {
+                void invoke("cancel_document_open", { reservationId: disposition.reservationId });
+            }
+        }
     }
 
     async function handleDuplicateRecentFile(file: RecentFileRecord): Promise<void> {

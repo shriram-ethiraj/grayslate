@@ -1,6 +1,9 @@
 import { editorState } from "$lib/state/editor.svelte";
 import { appDialogsState, openUnsavedChangesDialog, closeAppDialog } from "$lib/state/appDialogs.svelte";
 import type { UnsavedChangesChoice } from "$lib/state/appDialogs.svelte";
+import type { UnsavedChangesAlternative } from "$lib/state/appDialogs.svelte";
+
+export type DocumentSwitchDecision = "open-here" | "new-window" | "cancel";
 
 /**
  * Central guard for actions that would move the user away from the current
@@ -53,6 +56,10 @@ export async function confirmBeforeLeavingDocument(
         return true;
     }
 
+    if (choice === "new-window") {
+        return false;
+    }
+
     // choice === "save"
     const save = editorState.requestSaveCurrentDocument;
     if (!save) {
@@ -63,11 +70,40 @@ export async function confirmBeforeLeavingDocument(
     return saved;
 }
 
-function promptUnsavedChanges(): Promise<UnsavedChangesChoice> {
+/**
+ * Resolve a document-switch prompt while offering a non-destructive window
+ * alternative. Saving and discarding mean "continue here"; the alternative
+ * leaves the current editor and its dirty state untouched.
+ */
+export async function chooseDocumentSwitch(
+    alternative: UnsavedChangesAlternative,
+): Promise<DocumentSwitchDecision> {
+    if (editorState.saveInProgress) {
+        const saveInProgress = editorState.requestSaveCurrentDocument;
+        if (!saveInProgress || !(await saveInProgress())) return "cancel";
+    }
+
+    if (!editorState.isDirty || editorState.currentFileSource !== "local") {
+        return "open-here";
+    }
+    if (appDialogsState.active.type === "unsaved-changes") return "cancel";
+
+    const choice = await promptUnsavedChanges(alternative);
+    if (choice === "cancel") return "cancel";
+    if (choice === "new-window") return "new-window";
+    if (choice === "discard") return "open-here";
+
+    const save = editorState.requestSaveCurrentDocument;
+    return save && await save() ? "open-here" : "cancel";
+}
+
+function promptUnsavedChanges(
+    alternative?: UnsavedChangesAlternative,
+): Promise<UnsavedChangesChoice> {
     return new Promise((resolve) => {
         openUnsavedChangesDialog((choice) => {
             closeAppDialog();
             resolve(choice);
-        });
+        }, alternative);
     });
 }

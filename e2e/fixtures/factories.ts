@@ -133,12 +133,17 @@ export async function grantSavePath(
  * Pre-select the answer the next native Open dialog would give.
  *
  * After this, the spec clicks the *real* File → Open item and the production
- * `pick_document` command consumes the queued path instead of blocking on a
+ * `pick_document` command consumes the queued selection instead of blocking on a
  * dialog WebDriver cannot drive. Everything else — classification, granting,
  * the open event, the frontend's open handler — runs unchanged.
  */
 export async function queueOpenDialogResult(targetPath: string): Promise<void> {
-  await invokeInApp<void>("e2e_queue_open_path", { path: targetPath });
+  await queueOpenDialogResults([targetPath]);
+}
+
+/** Pre-select an ordered multi-file answer for the next native Open dialog. */
+export async function queueOpenDialogResults(targetPaths: readonly string[]): Promise<void> {
+  await invokeInApp<void>("e2e_queue_open_path", { paths: [...targetPaths] });
 }
 
 /**
@@ -157,7 +162,7 @@ export async function queueSaveDialogResult(targetPath: string): Promise<void> {
  * until the suite times out. Cancellation has to be an explicit answer.
  */
 export async function queueOpenDialogCancel(): Promise<void> {
-  await invokeInApp<void>("e2e_queue_open_path", { path: null });
+  await invokeInApp<void>("e2e_queue_open_path", { paths: null });
 }
 
 /** Make the next native Save As dialog report that the user cancelled. */

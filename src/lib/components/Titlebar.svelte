@@ -8,8 +8,6 @@
   import Minus from "~icons/lucide/minus";
   import X from "~icons/lucide/x";
   import { toast } from "$lib/components/ui/sonner";
-  import { notifyFileAlreadyOpen } from "$lib/files/recentFiles";
-
   import { editorState } from "$lib/state/editor.svelte";
   import {
     decreaseEditorFontSize,
@@ -49,7 +47,6 @@
   import {
     createBlankWindow,
     emitToCurrentWindow,
-    pickDocumentIntoNewWindow,
   } from "$lib/windowing";
 
   const appWindow = getCurrentWindow();
@@ -130,7 +127,6 @@
   let unlistenWordWrap: (() => void) | undefined;
   let unlistenViewAction: (() => void) | undefined;
   let unlistenNewWindow: (() => void) | undefined;
-  let unlistenOpenFileNewWindow: (() => void) | undefined;
 
   // --- Linux / WebKitGTK first-click fix ---
   // WebKitGTK swallows the first pointerdown as a "focus the webview" event,
@@ -202,10 +198,6 @@
         void handleNewWindow();
       });
 
-      unlistenOpenFileNewWindow = await appWindow.listen("menu://open-file-new-window", () => {
-        void handleOpenInNewWindow();
-      });
-
       unlistenEditAction = await appWindow.listen<EditAction>(
         "menu://edit-action",
         (event) => {
@@ -239,7 +231,6 @@
     unlistenWordWrap?.();
     unlistenViewAction?.();
     unlistenNewWindow?.();
-    unlistenOpenFileNewWindow?.();
     unlistenResize?.();
     unlistenCloseRequested?.();
   });
@@ -277,20 +268,7 @@
   }
 
   async function handleOpenInNewWindow() {
-    try {
-      const picked = await pickDocumentIntoNewWindow();
-      if (
-        picked?.result.kind === "focused-existing" &&
-        (
-          editorState.currentDocumentId === picked.document.documentId ||
-          editorState.currentFilePath === picked.document.displayPath
-        )
-      ) {
-        notifyFileAlreadyOpen(picked.document.fileName || picked.document.displayPath);
-      }
-    } catch (error) {
-      toast.error(typeof error === "string" ? error : "Could not open the file in a new window.");
-    }
+    await emitToCurrentWindow("menu://open-file-new-window");
   }
 
   async function handleSave() {

@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { expect } from "@wdio/globals";
+import { browser, expect } from "@wdio/globals";
 import { directoryInventory, expectNoNewFiles } from "../assertions/matchers.js";
 import { scenario } from "../coverage/scenario.js";
 import {
@@ -19,6 +19,7 @@ import {
   provisionSparseFile,
   queueOpenDialogCancel,
   queueOpenDialogResult,
+  queueOpenDialogResults,
   queueSaveDialogCancel,
   queueSaveDialogResult,
   requestOpenPath,
@@ -95,6 +96,29 @@ describe("External files", () => {
   );
 
   scenario(
+    "file.menu-open.multiple",
+    "opens every File menu selection and keeps the final path in the current window",
+    async () => {
+      const mainHandle = await browser.getWindowHandle();
+      const first = provisionText("menu-open-first.json", "{\"menu\":1}\n");
+      const last = provisionText("menu-open-last.py", "print('menu final')\n");
+
+      await queueOpenDialogResults([first, last]);
+      await titleBar.fileMenu("open-file");
+
+      await editor.waitUntilReady({ documentPath: last });
+      const handles = await browser.getWindowHandles();
+      expect(handles).toHaveLength(2);
+      const secondary = handles.find((handle) => handle !== mainHandle);
+      if (!secondary) throw new Error("The preceding File menu selection did not open a window.");
+      await browser.switchToWindow(secondary);
+      await editor.waitUntilReady({ documentPath: first });
+      await browser.closeWindow();
+      await browser.switchToWindow(mainHandle);
+    },
+  );
+
+  scenario(
     "file.external.open",
     "opens an external file through the File menu, under All and Local",
     async () => {
@@ -120,8 +144,9 @@ describe("External files", () => {
 
   scenario(
     "file.drop.multiple",
-    "tracks every dropped file and opens the final valid path",
+    "tracks and opens every dropped file while keeping the final path in the target window",
     async () => {
+      const mainHandle = await browser.getWindowHandle();
       const first = provisionText("drop-first.json", "{\"order\":1}\n");
       const last = provisionText("drop-last.py", "print('opened last')\n");
       const missing = path.join(externalRoot, "drop-missing.txt");
@@ -136,6 +161,16 @@ describe("External files", () => {
       await sidebar.waitForCard(first);
       await sidebar.waitForCard(last);
       await sidebar.setFilterTab("unified");
+
+      const handles = await browser.getWindowHandles();
+      expect(handles).toHaveLength(2);
+      const secondary = handles.find((handle) => handle !== mainHandle);
+      if (!secondary) throw new Error("The preceding dropped file did not open a window.");
+      await browser.switchToWindow(secondary);
+      await editor.waitUntilReady({ documentPath: first });
+      await browser.closeWindow();
+      await browser.switchToWindow(mainHandle);
+      await editor.waitUntilReady({ documentPath: last });
     },
   );
 
@@ -161,10 +196,12 @@ describe("External files", () => {
 
   scenario(
     "file.drop.unsaved-guard",
-    "preserves edits on Cancel and opens the drop after Discard",
+    "preserves edits on Cancel or New Window and opens the drop after Discard",
     async () => {
+      const mainHandle = await browser.getWindowHandle();
       const source = await openText("drop-guard-source.txt", "saved source\n");
       const target = provisionText("drop-guard-target.txt", "dropped target\n");
+      const preceding = provisionText("drop-guard-preceding.txt", "preceding target\n");
       const edited = "unsaved source edit";
 
       await editor.replaceText(edited);
@@ -176,6 +213,40 @@ describe("External files", () => {
       await editor.waitUntilReady({ documentPath: source });
       expect(await editor.text()).toBe(edited);
       expect(await titleBar.isDirty()).toBe(true);
+
+      await dropPaths([target]);
+      await dialogs.unsavedChanges.waitForOpen();
+      await dialogs.unsavedChanges.newWindow();
+      await dialogs.unsavedChanges.waitForClosed();
+
+      const handles = await browser.getWindowHandles();
+      expect(handles).toHaveLength(2);
+      const secondary = handles.find((handle) => handle !== mainHandle);
+      if (!secondary) throw new Error("Open in New Window did not create a window.");
+      await browser.switchToWindow(secondary);
+      await editor.waitUntilReady({ documentPath: target });
+      await browser.switchToWindow(mainHandle);
+      await editor.waitUntilReady({ documentPath: source });
+      expect(await editor.text()).toBe(edited);
+      expect(await titleBar.isDirty()).toBe(true);
+
+      // The final target already belongs to the secondary window, so this
+      // navigation cannot replace the dirty receiving document and must not
+      // show a destructive-choice dialog.
+      await dropPaths([preceding, target]);
+      await waitForAppStable();
+      expect(await dialogs.unsavedChanges.isOpen()).toBe(false);
+      expect(await browser.getWindowHandles()).toHaveLength(3);
+      await editor.waitUntilReady({ documentPath: source });
+      expect(await editor.text()).toBe(edited);
+      expect(await titleBar.isDirty()).toBe(true);
+
+      for (const handle of await browser.getWindowHandles()) {
+        if (handle === mainHandle) continue;
+        await browser.switchToWindow(handle);
+        await browser.closeWindow();
+      }
+      await browser.switchToWindow(mainHandle);
 
       await dropPaths([target]);
       await dialogs.unsavedChanges.waitForOpen();
@@ -204,6 +275,42 @@ describe("External files", () => {
       await dialogs.about.close();
       await editor.waitUntilReady({ documentPath: target });
       await editor.waitForExactText("opens after dialog\n");
+    },
+  );
+
+  scenario(
+    "file.drop.all-owned-dirty",
+    "bypasses the dirty guard when every dropped file already has a window",
+    async () => {
+      const mainHandle = await browser.getWindowHandle();
+      const source = await openText("drop-owned-source.txt", "saved owner source\n");
+      const first = provisionText("drop-owned-first.txt", "first owner\n");
+      const last = provisionText("drop-owned-last.txt", "last owner\n");
+      const edited = "dirty owner source";
+
+      await editor.replaceText(edited);
+      await dropPaths([first, last]);
+      await dialogs.unsavedChanges.waitForOpen();
+      await dialogs.unsavedChanges.newWindow();
+      await dialogs.unsavedChanges.waitForClosed();
+      expect(await browser.getWindowHandles()).toHaveLength(3);
+
+      await browser.switchToWindow(mainHandle);
+      await dropPaths([first, last]);
+      await waitForAppStable();
+      expect(await dialogs.unsavedChanges.isOpen()).toBe(false);
+      await editor.waitUntilReady({ documentPath: source });
+      expect(await editor.text()).toBe(edited);
+      expect(await titleBar.isDirty()).toBe(true);
+
+      for (const handle of await browser.getWindowHandles()) {
+        if (handle === mainHandle) continue;
+        await browser.switchToWindow(handle);
+        await browser.closeWindow();
+      }
+      await browser.switchToWindow(mainHandle);
+      await titleBar.fileMenu("save");
+      await titleBar.waitForDirty(false);
     },
   );
 
@@ -367,8 +474,9 @@ describe("External files", () => {
 
   scenario(
     "file.guard.cancel-and-discard",
-    "guards unsaved local changes, keeping them on Cancel and dropping them on Discard",
+    "guards unsaved local changes across Cancel, New Window, and Discard",
     async () => {
+      const mainHandle = await browser.getWindowHandle();
       const target = await openText("guard-cancel.txt", "guard base\n");
       const edited = "guard: unsaved edit";
 
@@ -380,6 +488,22 @@ describe("External files", () => {
       await dialogs.unsavedChanges.waitForOpen();
       await dialogs.unsavedChanges.cancel();
       await dialogs.unsavedChanges.waitForClosed();
+      expect(await editor.text()).toBe(edited);
+      expect(await titleBar.isDirty()).toBe(true);
+
+      // New Window creates the slate elsewhere without touching this edit.
+      await app.requestNewSlate();
+      await dialogs.unsavedChanges.waitForOpen();
+      await dialogs.unsavedChanges.newWindow();
+      await dialogs.unsavedChanges.waitForClosed();
+      const handles = await browser.getWindowHandles();
+      expect(handles).toHaveLength(2);
+      const secondary = handles.find((handle) => handle !== mainHandle);
+      if (!secondary) throw new Error("Create in New Window did not create a window.");
+      await browser.switchToWindow(secondary);
+      await editor.waitUntilReady({ documentPath: "New Slate", documentLength: 0 });
+      await browser.closeWindow();
+      await browser.switchToWindow(mainHandle);
       expect(await editor.text()).toBe(edited);
       expect(await titleBar.isDirty()).toBe(true);
 

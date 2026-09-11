@@ -61,7 +61,11 @@
     reportLibraryMutation,
     setPendingSidebarOpenFile,
   } from "$lib/state/librarySidebar.svelte";
-  import { confirmBeforeLeavingDocument } from "$lib/state/unsavedChangesGuard.svelte";
+  import {
+    chooseDocumentSwitch,
+    confirmBeforeLeavingDocument,
+    type DocumentSwitchDecision,
+  } from "$lib/state/unsavedChangesGuard.svelte";
   import { appDialogsState } from "$lib/state/appDialogs.svelte";
   import {
     OPEN_FILE_PATH_EVENT,
@@ -78,6 +82,8 @@
   import { beginTrackedWork } from "virtual:grayslate-e2e-runtime";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import {
+    focusCurrentWindow,
+    openDocumentInNewWindow,
     type OpenDisposition,
     type WindowLaunchIntent,
   } from "$lib/windowing";
@@ -1079,8 +1085,8 @@
 
   // Resets the editor to a blank untitled slate. Does NOT confirm unsaved
   // changes itself — callers that can discard user content must run
-  // `confirmBeforeLeavingDocument()` first (either here via `createNewFile`,
-  // or upstream before emitting `RESET_TO_BLANK_EVENT`).
+  // an unsaved-changes decision first (either here via `createNewFile`, or
+  // upstream before emitting `RESET_TO_BLANK_EVENT`).
   async function resetToBlankDocument(): Promise<void> {
     invalidatePendingFileOpen();
 
@@ -1106,7 +1112,17 @@
   }
 
   async function createNewFile(): Promise<void> {
-    if (!(await confirmBeforeLeavingDocument())) return;
+    const decision = await chooseDocumentSwitch("create-in-new-window");
+    if (decision === "cancel") return;
+    if (decision === "new-window") {
+      try {
+        const { createBlankWindow } = await import("$lib/windowing");
+        await createBlankWindow();
+      } catch (error: unknown) {
+        toast.error(readErrorMessage(error, "Could not create a new window."));
+      }
+      return;
+    }
     try {
       await resetToBlankDocument();
     } catch (error: unknown) {
@@ -1156,6 +1172,13 @@
     return true;
   }
 
+  function finishOpeningDocument(document: DocumentDescriptor): void {
+    if (clearOpeningDocument(document)) {
+      stopLoaderTicker();
+      hideEditorLoader();
+    }
+  }
+
   function isCurrentDocument(document: DocumentDescriptor): boolean {
     return (
       editorState.currentDocumentId === document.documentId ||
@@ -1177,6 +1200,9 @@
     // Fast path: the file is already loaded — avoid a full reload and just
     // navigate to the requested line directly.
     if (!options?.forceReload && isCurrentDocument(document)) {
+      if (options?.reservationId) {
+        void invoke("cancel_document_open", { reservationId: options.reservationId });
+      }
       if (lineNumber !== undefined && editorView) {
         editorGoToLine(editorView, lineNumber);
       }
@@ -1212,7 +1238,7 @@
         }
         return;
       }
-      if (disposition.kind === "focused-existing") {
+      if (disposition.kind !== "open-here") {
         clearPendingSidebarOpenFile();
         if (clearOpeningDocument(document)) {
           stopLoaderTicker();
@@ -1410,21 +1436,21 @@
   }
 
   async function openFile(): Promise<void> {
-    const selected = await invoke<DocumentDescriptor | null>("pick_document");
+    const request = await invoke<ExternalOpenRequest | null>("pick_document");
+    if (!request) return;
+    reportExternalOpenResult(request);
+    await openDocumentBatch(request);
+  }
 
-    // User cancelled the dialog
-    if (!selected) return;
-
-    // Choosing the active document is feedback-only. In particular, do not
-    // ask the user to discard edits when there is no document switch.
-    if (isCurrentDocument(selected)) {
-      await openAuthorizedDocument(selected);
-      return;
+  async function openFilesInNewWindows(): Promise<void> {
+    const request = await invoke<ExternalOpenRequest | null>("pick_document");
+    if (!request) return;
+    reportExternalOpenResult(request);
+    await routeDocumentsToWindows(request.documents, true);
+    const finalDocument = request.documents.at(-1);
+    if (finalDocument && isCurrentDocument(finalDocument)) {
+      notifyFileAlreadyOpen(finalDocument.fileName || finalDocument.displayPath);
     }
-
-    if (!(await confirmBeforeLeavingDocument())) return;
-
-    await openAuthorizedDocument(selected);
   }
 
   let externalOpenStartupReady = false;
@@ -1442,8 +1468,9 @@
 
       deferredExternalOpenRequest = request;
       externalOpenWasReceived = true;
-      if (request.document && !isCurrentDocument(request.document)) {
-        stageOpeningDocument(request.document, true);
+      const finalDocument = request.documents.at(-1);
+      if (finalDocument && !isCurrentDocument(finalDocument)) {
+        stageOpeningDocument(finalDocument, true);
       }
     };
     externalOpenPrimeWork = externalOpenPrimeWork.then(prime, prime);
@@ -1456,13 +1483,15 @@
       const reason = request.skippedCount === 1 ? "it was" : "they were";
       toast.warning(
         `${request.skippedCount} ${noun} could not be opened because ${reason} invalid, unavailable, or too large.`,
+        { duration: 30_000 },
       );
-      return;
     }
 
-    if (request.acceptedCount > 0 && !request.document) {
-      toast.error("The files were added to the library, but the last file could not be opened.");
-      return;
+    if (request.routingFailureCount > 0) {
+      const noun = request.routingFailureCount === 1 ? "file" : "files";
+      toast.error(`${request.routingFailureCount} ${noun} could not be opened in a window.`, {
+        duration: 30_000,
+      });
     }
 
     if (request.newlyTrackedCount > 1) {
@@ -1470,8 +1499,83 @@
     }
   }
 
+  async function routeDocumentsToWindows(
+    documents: DocumentDescriptor[],
+    focusFinal = false,
+  ): Promise<void> {
+    for (const [index, document] of documents.entries()) {
+      try {
+        await openDocumentInNewWindow(
+          document,
+          undefined,
+          focusFinal && index + 1 === documents.length,
+        );
+      } catch (error: unknown) {
+        toast.error(readErrorMessage(error, `Could not open ${getOpeningFileName(document)}.`));
+      }
+    }
+  }
+
+  async function openDocumentBatch(request: ExternalOpenRequest): Promise<void> {
+    const documents = request.documents;
+    const finalDocument = documents.at(-1);
+    if (!finalDocument) return;
+    const preceding = documents.slice(0, -1);
+
+    let disposition: OpenDisposition;
+    try {
+      disposition = await invoke<OpenDisposition>("claim_document_open", {
+        documentId: finalDocument.documentId,
+        documentGeneration: finalDocument.generation,
+        focusExisting: false,
+      });
+    } catch (error: unknown) {
+      finishOpeningDocument(finalDocument);
+      toast.error(readErrorMessage(error, "Failed to prepare the dropped files."));
+      return;
+    }
+    if (disposition.kind !== "open-here") {
+      finishOpeningDocument(finalDocument);
+      await routeDocumentsToWindows(preceding);
+      await openDocumentInNewWindow(finalDocument);
+      if (isCurrentDocument(finalDocument)) {
+        notifyFileAlreadyOpen(finalDocument.fileName || finalDocument.displayPath);
+      }
+      return;
+    }
+
+    const alternative = documents.length > 1
+      ? "open-all-in-new-windows"
+      : "open-in-new-window";
+    let reservationIsActive = true;
+    try {
+      const decision: DocumentSwitchDecision = await chooseDocumentSwitch(alternative);
+      if (decision === "cancel") return;
+      if (decision === "new-window") {
+        await invoke("cancel_document_open", { reservationId: disposition.reservationId });
+        reservationIsActive = false;
+        finishOpeningDocument(finalDocument);
+        await routeDocumentsToWindows(documents, true);
+        return;
+      }
+
+      reservationIsActive = false;
+      await openAuthorizedDocument(finalDocument, undefined, {
+        reservationId: disposition.reservationId,
+      });
+      if (!isCurrentDocument(finalDocument)) return;
+      await routeDocumentsToWindows(preceding);
+      await focusCurrentWindow();
+    } finally {
+      if (reservationIsActive) {
+        void invoke("cancel_document_open", { reservationId: disposition.reservationId });
+        finishOpeningDocument(finalDocument);
+      }
+    }
+  }
+
   async function drainExternalOpenRequests(): Promise<void> {
-    // The backend retains and merges incoming requests until we take them.
+    // The backend retains incoming batches in FIFO order until we take them.
     // Do not consume one while another app-level dialog owns the single modal
     // slot, or an unsaved-changes prompt would replace that dialog.
     if (appDialogsState.active.type !== "none") return;
@@ -1490,23 +1594,10 @@
       deferredExternalOpenRequest = undefined;
 
       externalOpenWasReceived = true;
+      // Window creation can outlive the default toast duration, so keep batch
+      // validation feedback visible while routing runs and focus moves.
       reportExternalOpenResult(request);
-      if (!request.document) continue;
-
-      // Activating the document that is already open is only a request to
-      // focus Grayslate. It must not ask whether to discard edits, and it must
-      // remain a no-op while CSV table mode has the live EditorView unmounted.
-      if (isCurrentDocument(request.document)) {
-        notifyFileAlreadyOpen(request.document.fileName || request.document.displayPath);
-        continue;
-      }
-
-      if (await confirmBeforeLeavingDocument()) {
-        await openAuthorizedDocument(request.document);
-      } else if (clearOpeningDocument(request.document)) {
-        stopLoaderTicker();
-        hideEditorLoader();
-      }
+      await openDocumentBatch(request);
     }
   }
 
@@ -1883,7 +1974,7 @@
         documentId: selected.documentId,
         documentGeneration: selected.generation,
       });
-      if (disposition.kind === "focused-existing") {
+      if (disposition.kind !== "open-here") {
         return false;
       }
 
@@ -1953,17 +2044,19 @@
         externalOpenStartupReady = true;
 
         if (launchIntent.kind === "document") {
-          const opening = openAuthorizedDocument(launchIntent.document, undefined, {
+          const opening = openAuthorizedDocument(launchIntent.document, launchIntent.lineNumber, {
             reservationId: launchIntent.reservationId,
           });
           await new Promise<void>((resolve) => setTimeout(resolve, 0));
           await opening;
           await scheduleExternalOpenDrain();
+          await invoke("complete_window_startup");
           return;
         }
 
         if (launchIntent.kind === "blank") {
           await scheduleExternalOpenDrain();
+          await invoke("complete_window_startup");
           return;
         }
 
@@ -1977,12 +2070,14 @@
             await openAuthorizedDocument(lastDocument, undefined, { silent: true });
           }
         }
+        await invoke("complete_window_startup");
       } catch (err) {
         console.warn("[Startup] Failed to evaluate startup-file behavior:", err);
         editorState.openingDocument = undefined;
         stopLoaderTicker();
         hideEditorLoader();
         externalOpenStartupReady = true;
+        void invoke("complete_window_startup");
         void scheduleExternalOpenDrain().catch((error: unknown) => {
           toast.error(readErrorMessage(error, "Could not process the files opened by the system."));
         });
@@ -2008,7 +2103,14 @@
           });
         });
         const unlistenOpenFile = await appWindow.listen("menu://open-file", () => {
-          void openFile();
+          void openFile().catch((error: unknown) => {
+            toast.error(readErrorMessage(error, "Could not open the selected files."));
+          });
+        });
+        const unlistenOpenFileNewWindow = await appWindow.listen("menu://open-file-new-window", () => {
+          void openFilesInNewWindows().catch((error: unknown) => {
+            toast.error(readErrorMessage(error, "Could not open the selected files."));
+          });
         });
         const unlistenOpenFilePath = await appWindow.listen<OpenFilePathPayload>(OPEN_FILE_PATH_EVENT, (event) => {
           if (event.payload?.documentId) {
@@ -2019,7 +2121,9 @@
               fileName: event.payload.path.replace(/\\/g, "/").split("/").pop() ?? "",
               source: event.payload.source ?? "local",
               writable: true,
-            }, event.payload.lineNumber);
+            }, event.payload.lineNumber, {
+              reservationId: event.payload.reservationId,
+            });
           }
         });
         const unlistenDocumentRenamed = await appWindow.listen<DocumentDescriptor>(DOCUMENT_RENAMED_EVENT, (event) => {
@@ -2047,6 +2151,7 @@
           unlistenNewFile();
           unlistenResetToBlank();
           unlistenOpenFile();
+          unlistenOpenFileNewWindow();
           unlistenOpenFilePath();
           unlistenDocumentRenamed();
           unlistenSaveFile();

@@ -521,31 +521,29 @@ pub async fn read_file_content(
 #[tauri::command]
 pub async fn pick_document(
     app: tauri::AppHandle,
-    storage: tauri::State<'_, AppStorage>,
-    documents: tauri::State<'_, DocumentRegistry>,
     window: tauri::Window,
-) -> Result<Option<DocumentDescriptor>, String> {
+) -> Result<Option<super::external_open::ExternalOpenRequest>, String> {
     // Test-only: if a spec pre-selected an answer, take it instead of opening a
     // dialog WebDriver cannot drive. Everything after this point — classify,
     // grant, descriptor — is the untouched production path. A queued `Cancel`
     // returns exactly what a real cancelled dialog returns. Absent in any build
-    // that does not set `--features e2e`.
+    // that does not set `--features e2e`. Open is batch-shaped so the same seam
+    // covers native multi-selection.
     #[cfg(feature = "e2e")]
     {
         use crate::commands::e2e::{QueuedDialogPaths, QueuedDialogResponse};
         use tauri::Manager;
         match app.state::<QueuedDialogPaths>().take_open()? {
             Some(QueuedDialogResponse::Cancel) => return Ok(None),
-            Some(QueuedDialogResponse::Path(queued)) => {
-                let (canonical, source) =
-                    classify_existing_document(&app, storage.inner(), &queued)?;
-                let granted = documents.grant_existing(
+            Some(QueuedDialogResponse::Paths(paths)) => {
+                return Ok(Some(super::external_open::prepare_document_batch(
+                    &app,
                     window.label(),
-                    &canonical,
-                    source,
-                    DocumentRights::tracked(source),
-                )?;
-                return Ok(Some(granted.descriptor()));
+                    paths,
+                )));
+            }
+            Some(QueuedDialogResponse::Path(_)) => {
+                return Err("The queued Open dialog response has the wrong shape.".to_string())
             }
             None => {}
         }
@@ -558,7 +556,7 @@ pub async fn pick_document(
             .dialog()
             .file()
             .set_parent(&dialog_window)
-            .blocking_pick_file()
+            .blocking_pick_files()
     })
     .await
     .map_err(|error| format!("Failed to join open dialog task: {error}"))?;
@@ -566,17 +564,19 @@ pub async fn pick_document(
     let Some(selected) = selected else {
         return Ok(None);
     };
-    let path = selected
-        .into_path()
-        .map_err(|error| format!("Selected file is not a filesystem path: {error}"))?;
-    let (canonical, source) = classify_existing_document(&app, storage.inner(), &path)?;
-    let granted = documents.grant_existing(
-        window.label(),
-        &canonical,
-        source,
-        DocumentRights::tracked(source),
-    )?;
-    Ok(Some(granted.descriptor()))
+    let requested_count = selected.len();
+    let mut paths = Vec::with_capacity(requested_count);
+    for selected in selected {
+        match selected.into_path() {
+            Ok(path) => paths.push(path),
+            Err(error) => eprintln!("[File Picker] Ignoring a non-filesystem selection: {error}"),
+        }
+    }
+    let mut batch = super::external_open::prepare_document_batch(&app, window.label(), paths);
+    let non_path_count = requested_count.saturating_sub(batch.requested_count);
+    batch.requested_count += non_path_count;
+    batch.skipped_count += non_path_count;
+    Ok(Some(batch))
 }
 
 #[tauri::command]
@@ -608,6 +608,9 @@ pub async fn pick_save_document(
                     &queued,
                 )
                 .map(Some);
+            }
+            Some(QueuedDialogResponse::Paths(_)) => {
+                return Err("The queued Save dialog response has the wrong shape.".to_string())
             }
             None => {}
         }

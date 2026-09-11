@@ -1,7 +1,7 @@
 <script lang="ts">
     import * as Dialog from "$lib/components/ui/dialog/index.js";
     import { Button } from "$lib/components/ui/button/index.js";
-    import { appDialogsState, closeAppDialog } from "$lib/state/appDialogs.svelte";
+    import { appDialogsState } from "$lib/state/appDialogs.svelte";
     import { editorState } from "$lib/state/editor.svelte";
 
     const isOpen = $derived(appDialogsState.active.type === "unsaved-changes");
@@ -10,6 +10,18 @@
             ? appDialogsState.active.resolve
             : null,
     );
+    const alternative = $derived(
+        appDialogsState.active.type === "unsaved-changes"
+            ? appDialogsState.active.alternative
+            : undefined,
+    );
+    const alternativeLabel = $derived(
+        alternative === "open-all-in-new-windows"
+            ? "Open All in New Windows"
+            : alternative === "create-in-new-window"
+                ? "Create in New Window"
+                : "Open in New Window",
+    );
 
     const fileName = $derived.by(() => {
         const path = editorState.currentFilePath;
@@ -17,7 +29,7 @@
         return path.replace(/\\/g, "/").split("/").pop() ?? path;
     });
 
-    function handleChoice(choice: "save" | "discard" | "cancel"): void {
+    function handleChoice(choice: "save" | "discard" | "cancel" | "new-window"): void {
         resolve?.(choice);
     }
 </script>
@@ -28,7 +40,7 @@
         if (!open) handleChoice("cancel");
     }}
 >
-    <Dialog.Content data-testid="unsaved-changes-dialog" class="sm:max-w-[26rem]">
+    <Dialog.Content data-testid="unsaved-changes-dialog" class="sm:max-w-lg">
         <Dialog.Header>
             <Dialog.Title>Save changes?</Dialog.Title>
             <Dialog.Description>
@@ -38,7 +50,7 @@
             </Dialog.Description>
         </Dialog.Header>
 
-        <Dialog.Footer>
+        <Dialog.Footer class="sm:flex-wrap">
             <Button
                 variant="outline"
                 onclick={() => handleChoice("cancel")}
@@ -46,6 +58,15 @@
             >
                 Cancel
             </Button>
+            {#if alternative}
+                <Button
+                    variant="outline"
+                    onclick={() => handleChoice("new-window")}
+                    data-testid="unsaved-new-window"
+                >
+                    {alternativeLabel}
+                </Button>
+            {/if}
             <Button
                 variant="outline"
                 onclick={() => handleChoice("discard")}
