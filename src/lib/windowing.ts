@@ -5,7 +5,7 @@ import type { DocumentDescriptor } from "$lib/files/recentFiles";
 
 export type CreateWindowResult =
   | { kind: "created"; windowLabel: string }
-  | { kind: "focused-existing" };
+  | { kind: "focused-existing"; windowLabel: string };
 
 export type OpenDisposition =
   | { kind: "open-here"; reservationId: string }

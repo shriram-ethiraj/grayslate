@@ -8,7 +8,7 @@ use std::{
     },
 };
 
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 use tauri_plugin_dialog::DialogExt;
 #[cfg(not(feature = "e2e"))]
 use tauri_plugin_opener::OpenerExt;
@@ -451,7 +451,7 @@ pub async fn read_file_content(
             .transpose()?;
         let (text, detected_format) = tauri::async_runtime::spawn_blocking(move || {
             #[cfg(feature = "e2e")]
-            crate::commands::e2e::operation_checkpoint("file-read");
+            crate::commands::e2e::operation_checkpoint_for_path("file-read", Some(&read_path));
 
             let bytes = read_file_bytes_cancellable(&read_path, read_cancelled.as_ref())?;
             let decision = match requested_encoding {
@@ -536,11 +536,14 @@ pub async fn pick_document(
         match app.state::<QueuedDialogPaths>().take_open()? {
             Some(QueuedDialogResponse::Cancel) => return Ok(None),
             Some(QueuedDialogResponse::Paths(paths)) => {
-                return Ok(Some(super::external_open::prepare_document_batch(
-                    &app,
-                    window.label(),
-                    paths,
-                )));
+                return Ok(Some(
+                    super::external_open::prepare_document_batch_async(
+                        app.clone(),
+                        window.label().to_string(),
+                        paths,
+                    )
+                    .await?,
+                ));
             }
             Some(QueuedDialogResponse::Path(_)) => {
                 return Err("The queued Open dialog response has the wrong shape.".to_string())
@@ -572,7 +575,12 @@ pub async fn pick_document(
             Err(error) => eprintln!("[File Picker] Ignoring a non-filesystem selection: {error}"),
         }
     }
-    let mut batch = super::external_open::prepare_document_batch(&app, window.label(), paths);
+    let mut batch = super::external_open::prepare_document_batch_async(
+        app.clone(),
+        window.label().to_string(),
+        paths,
+    )
+    .await?;
     let non_path_count = requested_count.saturating_sub(batch.requested_count);
     batch.requested_count += non_path_count;
     batch.skipped_count += non_path_count;
@@ -861,6 +869,14 @@ pub fn set_last_active_document(
     document_id: Option<String>,
     document_generation: Option<u64>,
 ) -> Result<(), String> {
+    if app
+        .state::<WindowRegistry>()
+        .preferred_window_label(&app)
+        .as_deref()
+        != Some(window.label())
+    {
+        return Ok(());
+    }
     match (document_id.as_deref(), document_generation) {
         (None, None) => storage.set_setting(SETTING_LAST_ACTIVE_FILE, None),
         (Some(id), Some(generation)) => {
@@ -1237,6 +1253,9 @@ pub async fn write_file_content(
             return Err("The file is already open in another Grayslate window.".to_string());
         }
     }
+    if let Some(id) = reservation_id.as_deref() {
+        windows.validate_open(window.label(), id, &target_path)?;
+    }
     let save_lock = save_coordinator.for_path(&target_path);
     let _save_guard = save_lock.lock().await;
 
@@ -1253,6 +1272,13 @@ pub async fn write_file_content(
     )?;
     if document.path != target_path {
         return Err("Document path changed while waiting to save.".to_string());
+    }
+
+    // Recheck after the path lock: a reservation may have changed while waiting.
+    if let Some(id) = reservation_id.as_deref() {
+        windows.validate_open(window.label(), id, &target_path)?;
+    } else if windows.owner_for_path(&target_path).as_deref() != Some(window.label()) {
+        return Err("The file is not owned by this window. Claim it before saving.".to_string());
     }
 
     // Durable, atomic save via the shared temp-file + rename helper so a crash

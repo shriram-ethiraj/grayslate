@@ -37,6 +37,7 @@ const OPERATION_GATES: &[&str] = &[
 struct OperationGate {
     reached: bool,
     released: bool,
+    file_path: Option<PathBuf>,
 }
 
 #[derive(Default)]
@@ -72,6 +73,11 @@ fn operation_signal_path(name: &str, signal: &str) -> Option<PathBuf> {
 /// always a dedicated `spawn_blocking` task; cancellation IPC remains free to
 /// run on the async runtime while the test holds the gate.
 pub fn operation_checkpoint(name: &str) {
+    operation_checkpoint_for_path(name, None);
+}
+
+/// Optionally hold just one file, so a test can prove other loads make progress.
+pub fn operation_checkpoint_for_path(name: &str, file_path: Option<&std::path::Path>) {
     let registry = operation_gates();
     let mut gates = registry
         .gates
@@ -80,6 +86,13 @@ pub fn operation_checkpoint(name: &str) {
     let Some(gate) = gates.get_mut(name) else {
         return;
     };
+    if gate
+        .file_path
+        .as_deref()
+        .is_some_and(|expected| Some(expected) != file_path)
+    {
+        return;
+    }
     gate.reached = true;
     if let Some(path) = operation_signal_path(name, "observed") {
         let _ = std::fs::write(path, b"observed\n");
@@ -118,7 +131,7 @@ pub fn operation_mark_reached(name: &str) {
 
 /// Arm one deterministic operation checkpoint.
 #[tauri::command]
-pub fn e2e_arm_operation_gate(name: String) -> Result<(), String> {
+pub fn e2e_arm_operation_gate(name: String, file_path: Option<PathBuf>) -> Result<(), String> {
     validate_operation_gate(&name)?;
     for signal in ["observed", "release"] {
         if let Some(path) = operation_signal_path(&name, signal) {
@@ -129,7 +142,13 @@ pub fn e2e_arm_operation_gate(name: String) -> Result<(), String> {
         .gates
         .lock()
         .map_err(|_| "E2E operation gates are poisoned.".to_string())?
-        .insert(name, OperationGate::default());
+        .insert(
+            name,
+            OperationGate {
+                file_path,
+                ..OperationGate::default()
+            },
+        );
     Ok(())
 }
 
@@ -564,16 +583,18 @@ pub async fn e2e_drop_paths(
     app: tauri::AppHandle,
     window: tauri::Window,
     paths: Vec<String>,
+    preserve_current: Option<bool>,
 ) -> Result<(), String> {
     if paths.is_empty() {
         return Err("At least one dropped path is required.".to_string());
     }
 
-    enqueue_dropped_paths(
-        &app,
-        window.label(),
-        paths.into_iter().map(PathBuf::from).collect(),
-    );
+    let paths = paths.into_iter().map(PathBuf::from).collect();
+    if preserve_current.unwrap_or(false) {
+        super::external_open::enqueue_paths_to_preferred_window(&app, paths);
+    } else {
+        enqueue_dropped_paths(&app, window.label(), paths);
+    }
 
     const SETTLE_TIMEOUT: Duration = Duration::from_secs(20);
     const POLL_INTERVAL: Duration = Duration::from_millis(5);
@@ -632,7 +653,8 @@ pub async fn e2e_open_path(
     // Emit the same open event the sidebar emits so the frontend loads the file
     // through its real authorized-open handler.
     window
-        .emit(
+        .emit_to(
+            window.label(),
             OPEN_FILE_PATH_EVENT,
             OpenFilePathPayload {
                 document_id: descriptor.document_id.clone(),

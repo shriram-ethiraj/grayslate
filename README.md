@@ -45,6 +45,8 @@ Grayslate is the window you keep open next to your main editor. Paste an API res
 
 **Work with JSON faster.** Right-click a key or value to copy its path, key, or value, much like in Chrome DevTools.
 
+**Keep files in separate windows.** Open or drop up to 50 unique files at a time. Files already open return to their existing windows. Opening files from your operating system preserves the documents you are working on, and local edits are protected by Save, Discard, and Cancel choices.
+
 There is also a live Markdown preview and multiline find and replace, including matches across line breaks.
 
 Your files and transformations stay on your machine. No account, no cloud sync, no telemetry.
@@ -152,7 +154,7 @@ git clone https://github.com/shriram-ethiraj/grayslate.git
 cd grayslate
 pnpm install
 pnpm tauri dev      # run in development
-pnpm tauri build    # produce an optimized build
+pnpm tauri build --config src-tauri/tauri.system-package.conf.json  # build locally without updater signing
 ```
 
 ## FAQ

@@ -29,22 +29,27 @@ export const appDialogsState = $state<{ active: AppDialogState }>({
 });
 
 export function openAboutAppDialog(): void {
+    if (appDialogsState.active.type === "unsaved-changes") return;
     appDialogsState.active = { type: "about" };
 }
 
 export function openSettingsAppDialog(): void {
+    if (appDialogsState.active.type === "unsaved-changes") return;
     appDialogsState.active = { type: "settings" };
 }
 
 export function openKeyboardShortcutsAppDialog(): void {
+    if (appDialogsState.active.type === "unsaved-changes") return;
     appDialogsState.active = { type: "keyboard-shortcuts" };
 }
 
 export function openDeleteFileDialog(file: RecentFileRecord): void {
+    if (appDialogsState.active.type === "unsaved-changes") return;
     appDialogsState.active = { type: "delete", file };
 }
 
 export function openRenameFileDialog(file: RecentFileRecord): void {
+    if (appDialogsState.active.type === "unsaved-changes") return;
     appDialogsState.active = { type: "rename", file };
 }
 
@@ -57,4 +62,15 @@ export function openUnsavedChangesDialog(
 
 export function closeAppDialog(): void {
     appDialogsState.active = { type: "none" };
+    for (const resolve of dialogWaiters) resolve();
+    dialogWaiters.clear();
+}
+
+const dialogWaiters = new Set<() => void>();
+
+/** A queued transition must not replace Settings, Rename, or another prompt. */
+export async function waitForAppDialogSlot(): Promise<void> {
+    while (appDialogsState.active.type !== "none") {
+        await new Promise<void>((resolve) => dialogWaiters.add(resolve));
+    }
 }

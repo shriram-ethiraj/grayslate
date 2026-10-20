@@ -135,6 +135,10 @@ export const encodingConfirmation = {
   async accept(): Promise<void> {
     await clickTestId("encoding-confirmation-accept");
   },
+  async cancel(): Promise<void> {
+    await pressEscape();
+    await waitForTestId("encoding-confirmation-dialog", { reverse: true });
+  },
 };
 
 // ── Go to line ─────────────────────────────────────────────────────────────

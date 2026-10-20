@@ -1,3 +1,4 @@
+import { settleOpeningTasks } from "../../../src/lib/files/openingPool.js";
 import fs from "node:fs";
 import path from "node:path";
 import { expect } from "@wdio/globals";
@@ -20,6 +21,53 @@ import { notesRoot, homeDirectory } from "../../helpers/sandbox.js";
  * like product bugs. These tests make that breakage loud and local.
  */
 describe("Meta — harness contract", () => {
+  scenario("harness.opening-pool", "bounds work, refills slots, isolates failures, and retains selection order", async () => {
+    const deferred = Array.from({ length: 9 }, () => {
+      let resolve!: (value: number) => void;
+      let reject!: (reason: Error) => void;
+      const promise = new Promise<number>((yes, no) => { resolve = yes; reject = no; });
+      return { promise, resolve, reject };
+    });
+    const started: number[] = [];
+    let active = 0;
+    let peak = 0;
+    const startedSignals = deferred.map(() => {
+      let resolve!: () => void;
+      const promise = new Promise<void>((yes) => { resolve = yes; });
+      return { promise, resolve };
+    });
+    const completed = settleOpeningTasks(deferred.map((task, index) => async () => {
+      started.push(index);
+      peak = Math.max(peak, ++active);
+      startedSignals[index].resolve();
+      try { return await task.promise; } finally { active--; }
+    }));
+    expect(started).toEqual([0, 1, 2, 3]);
+    deferred[2].resolve(2);
+    await startedSignals[4].promise;
+    expect(started).toEqual([0, 1, 2, 3, 4]);
+    const failure = new Error("independent failure");
+    deferred[1].reject(failure);
+    await startedSignals[5].promise;
+    deferred[4].resolve(4);
+    await startedSignals[6].promise;
+    deferred[5].resolve(5);
+    await startedSignals[7].promise;
+    deferred[7].resolve(7);
+    await startedSignals[8].promise;
+    for (const index of [8, 6, 3, 0]) deferred[index].resolve(index);
+    const results = await completed;
+    expect(peak).toBe(4);
+    expect(active).toBe(0);
+    expect(results).toEqual(deferred.map((_, index) => index === 1
+      ? { status: "rejected", reason: failure }
+      : { status: "fulfilled", value: index }));
+    expect(await settleOpeningTasks([])).toEqual([]);
+    expect(await settleOpeningTasks([async () => 42])).toEqual([{ status: "fulfilled", value: 42 }]);
+    expect(await settleOpeningTasks([() => { throw failure; }, async () => 7])).toEqual([
+      { status: "rejected", reason: failure }, { status: "fulfilled", value: 7 },
+    ]);
+  });
   scenario("harness.spec-discovery", "discovers every spec file on disk", async () => {
     const discovered = discoverSpecs();
     const onDisk: string[] = [];

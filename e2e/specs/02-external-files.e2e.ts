@@ -113,7 +113,7 @@ describe("External files", () => {
       if (!secondary) throw new Error("The preceding File menu selection did not open a window.");
       await browser.switchToWindow(secondary);
       await editor.waitUntilReady({ documentPath: first });
-      await browser.closeWindow();
+      await titleBar.closeWindow();
       await browser.switchToWindow(mainHandle);
     },
   );
@@ -168,7 +168,7 @@ describe("External files", () => {
       if (!secondary) throw new Error("The preceding dropped file did not open a window.");
       await browser.switchToWindow(secondary);
       await editor.waitUntilReady({ documentPath: first });
-      await browser.closeWindow();
+      await titleBar.closeWindow();
       await browser.switchToWindow(mainHandle);
       await editor.waitUntilReady({ documentPath: last });
     },
@@ -218,6 +218,7 @@ describe("External files", () => {
       await dialogs.unsavedChanges.waitForOpen();
       await dialogs.unsavedChanges.newWindow();
       await dialogs.unsavedChanges.waitForClosed();
+      await waitForAppStable({ message: "Opening the guarded file in a new window did not finish." });
 
       const handles = await browser.getWindowHandles();
       expect(handles).toHaveLength(2);
@@ -244,7 +245,7 @@ describe("External files", () => {
       for (const handle of await browser.getWindowHandles()) {
         if (handle === mainHandle) continue;
         await browser.switchToWindow(handle);
-        await browser.closeWindow();
+        await titleBar.closeWindow();
       }
       await browser.switchToWindow(mainHandle);
 
@@ -293,6 +294,7 @@ describe("External files", () => {
       await dialogs.unsavedChanges.waitForOpen();
       await dialogs.unsavedChanges.newWindow();
       await dialogs.unsavedChanges.waitForClosed();
+      await waitForAppStable({ message: "Opening the guarded batch in new windows did not finish." });
       expect(await browser.getWindowHandles()).toHaveLength(3);
 
       await browser.switchToWindow(mainHandle);
@@ -306,7 +308,7 @@ describe("External files", () => {
       for (const handle of await browser.getWindowHandles()) {
         if (handle === mainHandle) continue;
         await browser.switchToWindow(handle);
-        await browser.closeWindow();
+        await titleBar.closeWindow();
       }
       await browser.switchToWindow(mainHandle);
       await titleBar.fileMenu("save");
@@ -496,13 +498,14 @@ describe("External files", () => {
       await dialogs.unsavedChanges.waitForOpen();
       await dialogs.unsavedChanges.newWindow();
       await dialogs.unsavedChanges.waitForClosed();
+      await waitForAppStable({ message: "Creating the alternative slate window did not finish." });
       const handles = await browser.getWindowHandles();
       expect(handles).toHaveLength(2);
       const secondary = handles.find((handle) => handle !== mainHandle);
       if (!secondary) throw new Error("Create in New Window did not create a window.");
       await browser.switchToWindow(secondary);
       await editor.waitUntilReady({ documentPath: "New Slate", documentLength: 0 });
-      await browser.closeWindow();
+      await titleBar.closeWindow();
       await browser.switchToWindow(mainHandle);
       expect(await editor.text()).toBe(edited);
       expect(await titleBar.isDirty()).toBe(true);

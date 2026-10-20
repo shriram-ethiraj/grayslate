@@ -1,9 +1,10 @@
-import { $$, expect } from "@wdio/globals";
+import { $, $$, expect } from "@wdio/globals";
 import { formatForDisplay } from "@tanstack/hotkeys";
 import { scenario } from "../coverage/scenario.js";
 import { hoverTestId } from "../driver/interact.js";
 import { readVisibleTooltips } from "../driver/probe.js";
 import { waitFor } from "../driver/wait.js";
+import { clickTestId } from "../driver/interact.js";
 import { pressEscape } from "../pages/common.js";
 import * as dialogs from "../pages/dialogs.js";
 import * as titleBar from "../pages/titleBar.js";
@@ -50,11 +51,17 @@ describe("Keyboard shortcuts help", () => {
     "shell.shortcuts.dialog",
     "opens from Help, lists every section, and filters as a plain list",
     async () => {
+      if (process.platform !== "darwin") {
+        await clickTestId("menu-file");
+        expect(await $("[data-testid='menu-open-file']").getText()).toContain("Open Files…");
+        expect(await $("[data-testid='menu-open-file-new-window']").getText()).toContain("Open Files in New Windows…");
+        await pressEscape();
+      }
       await titleBar.helpMenu("keyboard-shortcuts");
       await dialogs.keyboardShortcuts.waitForOpen();
 
       const listed = await dialogs.keyboardShortcuts.listText();
-      for (const label of ["New Slate", "Save", "Go To Line", "Select All"]) {
+      for (const label of ["New Slate", "Open Files", "Save", "Go To Line", "Select All"]) {
         expect(listed).toContain(label);
       }
 

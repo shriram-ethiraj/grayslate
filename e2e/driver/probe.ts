@@ -259,6 +259,25 @@ export async function readCellText(row: number, col: number): Promise<string | n
   }, row, col);
 }
 
+/** Read the visible toast stack in one DOM snapshot, before it can reorder. */
+export async function readVisibleToastMessages(): Promise<string[]> {
+  return browser.execute(() => {
+    return Array.from(document.querySelectorAll<HTMLElement>("[data-testid='toast-message']"))
+      .filter((message) => {
+        const toast = message.closest<HTMLElement>("[data-sonner-toast]");
+        if (!toast || toast.dataset.mounted !== "true" || toast.dataset.removed === "true") return false;
+        // A collapsed stack exposes only the front toast's text. Reading all
+        // messages at once also avoids stale WebDriver element references
+        // while Sonner removes or reorders the stack between commands.
+        if (toast.dataset.front !== "true" && toast.dataset.expanded !== "true") return false;
+        const style = getComputedStyle(toast);
+        return message.getClientRects().length > 0 && style.visibility !== "hidden" && Number(style.opacity) > 0;
+      })
+      .map((message) => message.textContent?.trim() ?? "")
+      .filter(Boolean);
+  });
+}
+
 /** The text of every currently visible tooltip. */
 export async function readVisibleTooltips(): Promise<string[]> {
   return browser.execute(() =>
@@ -282,6 +301,22 @@ export async function isSelectorVisible(selector: string): Promise<boolean> {
     Array.from(document.querySelectorAll<HTMLElement>(rawSelector)).some(
       (element) => element.getClientRects().length > 0,
     ), selector);
+}
+
+/** Whether a real click at the control's visible centre would reach it. */
+export async function isSelectorUncovered(selector: string): Promise<boolean> {
+  return browser.execute((targetSelector) => {
+    const target = document.querySelector<HTMLElement>(targetSelector);
+    if (!target || target.getClientRects().length === 0) return false;
+    const rect = target.getBoundingClientRect();
+    const left = Math.max(0, rect.left);
+    const right = Math.min(window.innerWidth, rect.right);
+    const top = Math.max(0, rect.top);
+    const bottom = Math.min(window.innerHeight, rect.bottom);
+    if (right <= left || bottom <= top) return false;
+    const hit = document.elementFromPoint((left + right) / 2, (top + bottom) / 2);
+    return hit !== null && target.contains(hit);
+  }, selector);
 }
 
 /** Visible state of the fold-gutter's CSS-generated tooltip. */
@@ -312,4 +347,11 @@ export async function readWindowGlobal(name: string): Promise<unknown> {
     (key) => (window as unknown as Record<string, unknown>)[key] ?? null,
     name,
   );
+}
+
+/** Read native focus without moving WebDriver's selected window. */
+export async function readNativeWindowStates(): Promise<{ label: string; title: string; is_focused: boolean }[]> {
+  // ipc-oracle: native focus is not represented in the webview DOM.
+  const { invokeInApp } = await import("./invoke.js");
+  return invokeInApp("plugin:wdio|get_window_states");
 }

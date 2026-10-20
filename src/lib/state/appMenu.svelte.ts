@@ -3,6 +3,7 @@ import { toast } from "$lib/components/ui/sonner";
 import { openAboutAppDialog } from "$lib/state/appDialogs.svelte";
 import { platformState } from "$lib/state/platform.svelte";
 import { confirmBeforeLeavingDocument } from "$lib/state/unsavedChangesGuard.svelte";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 
 export type UpdatePolicy = "disabled" | "self-update" | "system-managed";
@@ -266,7 +267,7 @@ export async function startUpdateStatusSync(): Promise<() => void> {
             eventSeen = true;
             applyBackendUpdateStatus(event.payload);
         }),
-        listen<UpdateInstallPreflightPayload>(
+        getCurrentWindow().listen<UpdateInstallPreflightPayload>(
             "updates://install-preflight",
             (event) => {
                 void handleUpdateInstallPreflight(event.payload);

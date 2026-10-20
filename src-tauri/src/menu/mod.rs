@@ -55,12 +55,12 @@ pub fn build_native_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::M
                 .build(app)?,
         )
         .item(
-            &MenuItemBuilder::with_id("open-file", "Open File...")
+            &MenuItemBuilder::with_id("open-file", "Open Files…")
                 .accelerator("CmdOrCtrl+O")
                 .build(app)?,
         )
         .item(
-            &MenuItemBuilder::with_id("open-file-new-window", "Open File in New Window...")
+            &MenuItemBuilder::with_id("open-file-new-window", "Open Files in New Windows…")
                 .build(app)?,
         )
         .separator()
@@ -201,10 +201,10 @@ pub fn handle_macos_menu_event(app: &tauri::AppHandle, event: tauri::menu::MenuE
 
     match event.id.as_ref() {
         "about" => {
-            let _ = window.emit("menu://about", true);
+            let _ = window.emit_to(window.label(), "menu://about", true);
         }
         "settings" => {
-            let _ = window.emit("menu://settings", true);
+            let _ = window.emit_to(window.label(), "menu://settings", true);
         }
         "quit" => {
             // Request a normal close for every editor window. Each renderer's
@@ -215,55 +215,55 @@ pub fn handle_macos_menu_event(app: &tauri::AppHandle, event: tauri::menu::MenuE
             }
         }
         "keyboard-shortcuts" => {
-            let _ = window.emit("menu://keyboard-shortcuts", true);
+            let _ = window.emit_to(window.label(), "menu://keyboard-shortcuts", true);
         }
         "check-for-updates" => {
-            let _ = window.emit("menu://check-for-updates", true);
+            let _ = window.emit_to(window.label(), "menu://check-for-updates", true);
         }
         "new-file" => {
-            let _ = window.emit("menu://new-file", true);
+            let _ = window.emit_to(window.label(), "menu://new-file", true);
         }
         "new-window" => {
-            let _ = window.emit("menu://new-window", true);
+            let _ = window.emit_to(window.label(), "menu://new-window", true);
         }
         "open-file" => {
-            let _ = window.emit("menu://open-file", true);
+            let _ = window.emit_to(window.label(), "menu://open-file", true);
         }
         "open-file-new-window" => {
-            let _ = window.emit("menu://open-file-new-window", true);
+            let _ = window.emit_to(window.label(), "menu://open-file-new-window", true);
         }
         "save-file" => {
-            let _ = window.emit("menu://save-file", true);
+            let _ = window.emit_to(window.label(), "menu://save-file", true);
         }
         "save-file-as" => {
-            let _ = window.emit("menu://save-file-as", true);
+            let _ = window.emit_to(window.label(), "menu://save-file-as", true);
         }
         "edit-undo" => {
-            let _ = window.emit("menu://edit-action", "undo");
+            let _ = window.emit_to(window.label(), "menu://edit-action", "undo");
         }
         "edit-redo" => {
-            let _ = window.emit("menu://edit-action", "redo");
+            let _ = window.emit_to(window.label(), "menu://edit-action", "redo");
         }
         "edit-cut" => {
-            let _ = window.emit("menu://edit-action", "cut");
+            let _ = window.emit_to(window.label(), "menu://edit-action", "cut");
         }
         "edit-copy" => {
-            let _ = window.emit("menu://edit-action", "copy");
+            let _ = window.emit_to(window.label(), "menu://edit-action", "copy");
         }
         "edit-go-to-line" => {
-            let _ = window.emit("menu://edit-action", "goToLine");
+            let _ = window.emit_to(window.label(), "menu://edit-action", "goToLine");
         }
         "edit-find" => {
-            let _ = window.emit("menu://edit-action", "find");
+            let _ = window.emit_to(window.label(), "menu://edit-action", "find");
         }
         "edit-find-files" => {
-            let _ = window.emit("menu://edit-action", "findFiles");
+            let _ = window.emit_to(window.label(), "menu://edit-action", "findFiles");
         }
         "edit-replace" => {
-            let _ = window.emit("menu://edit-action", "replace");
+            let _ = window.emit_to(window.label(), "menu://edit-action", "replace");
         }
         "edit-select-all" => {
-            let _ = window.emit("menu://edit-action", "selectAll");
+            let _ = window.emit_to(window.label(), "menu://edit-action", "selectAll");
         }
         "edit-word-wrap" => {
             // macOS native menus automatically toggle `CheckMenuItem` state internally.
@@ -278,16 +278,16 @@ pub fn handle_macos_menu_event(app: &tauri::AppHandle, event: tauri::menu::MenuE
                     values.insert(label.clone(), checked);
                 }
             }
-            let _ = window.emit("menu://word-wrap-state", checked);
+            let _ = window.emit_to(window.label(), "menu://word-wrap-state", checked);
         }
         "view-increase-font-size" => {
-            let _ = window.emit("menu://view-action", "increaseFontSize");
+            let _ = window.emit_to(window.label(), "menu://view-action", "increaseFontSize");
         }
         "view-decrease-font-size" => {
-            let _ = window.emit("menu://view-action", "decreaseFontSize");
+            let _ = window.emit_to(window.label(), "menu://view-action", "decreaseFontSize");
         }
         "view-reset-font-size" => {
-            let _ = window.emit("menu://view-action", "resetFontSize");
+            let _ = window.emit_to(window.label(), "menu://view-action", "resetFontSize");
         }
         _ => {}
     }

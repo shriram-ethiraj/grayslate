@@ -1,8 +1,9 @@
 import { $ } from "@wdio/globals";
 import { TIMEOUTS } from "../config/timeouts.js";
-import { readComputedStyleBySelector, readWindowGlobal } from "../driver/probe.js";
-import { waitFor } from "../driver/wait.js";
-import { attributeOf, byTestId, clickTestId, isDisplayedTestId, waitForTestId } from "./common.js";
+import { isSelectorUncovered, readComputedStyleBySelector, readWindowGlobal } from "../driver/probe.js";
+import { waitFor, waitForAppStable } from "../driver/wait.js";
+import { dismissTransientOverlays } from "../driver/interact.js";
+import { attributeOf, clickTestId, isDisplayedTestId, waitForTestId } from "./common.js";
 import { waitUntilReady } from "./editor.js";
 
 /**
@@ -21,14 +22,7 @@ export async function setVisible(visible: boolean): Promise<ReturnType<typeof $>
   await waitUntilReady({ language: "markdown" });
   const desired = String(visible);
 
-  const toggle = await byTestId("action-toggle-preview");
-  await toggle.waitForClickable({
-    timeout: TIMEOUTS.ui,
-    timeoutMsg: "The preview toggle never became clickable.",
-  });
-  if ((await toggle.getAttribute("aria-pressed")) !== desired) {
-    await toggle.click();
-  }
+  await requestVisible(visible);
 
   await waitFor(
     async () => {
@@ -50,16 +44,19 @@ export async function requestVisible(visible: boolean): Promise<void> {
   // Opening needs a settled editor. Closing deliberately must not: cancellation
   // tests call this while render_markdown_preview is blocked in Rust, and an
   // idle barrier here would wait for the very operation the click must cancel.
-  if (visible) await waitUntilReady({ language: "markdown" });
-  const desired = String(visible);
-  const toggle = await byTestId("action-toggle-preview");
-  await toggle.waitForClickable({
-    timeout: TIMEOUTS.ui,
-    timeoutMsg: "The preview toggle never became clickable.",
-  });
-  if ((await toggle.getAttribute("aria-pressed")) !== desired) {
-    await toggle.click();
+  if (visible) {
+    await waitUntilReady({ language: "markdown" });
+    await waitForAppStable();
   }
+  if ((await attributeOf("action-toggle-preview", "aria-pressed")) === String(visible)) return;
+  // File teardown or a preceding hover tooltip can still cover the toggle
+  // after document readiness. Observe the real hit target before clicking.
+  await dismissTransientOverlays();
+  await waitFor(() => isSelectorUncovered("[data-testid='action-toggle-preview']"), {
+    timeoutMs: TIMEOUTS.ui,
+    message: "The Markdown preview toggle remained covered by another surface.",
+  });
+  await clickTestId("action-toggle-preview");
 }
 
 export async function waitForRendered(): Promise<void> {

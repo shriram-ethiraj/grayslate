@@ -39,6 +39,10 @@ export interface DocumentDescriptor {
 }
 
 export interface ExternalOpenRequest {
+  requestId: string;
+  preserveCurrent: boolean;
+  duplicateCount: number;
+  limitSkippedCount: number;
   documents: DocumentDescriptor[];
   requestedCount: number;
   acceptedCount: number;

@@ -1,6 +1,7 @@
 import { $$ } from "@wdio/globals";
 import { TIMEOUTS, INTERVALS } from "../config/timeouts.js";
 import { pressMod } from "../driver/keys.js";
+import { readVisibleToastMessages } from "../driver/probe.js";
 import { waitFor } from "../driver/wait.js";
 import {
   byTestId,
@@ -61,13 +62,7 @@ export async function isPaletteActionDisabled(): Promise<boolean> {
 
 /** Visible toast messages, text only (the icon is excluded). */
 export async function visibleToasts(): Promise<string[]> {
-  const messages = await $$("[data-testid='toast-message']");
-  const texts: string[] = [];
-  for (const message of messages) {
-    if (!(await message.isDisplayed().catch(() => false))) continue;
-    texts.push((await message.getText()).trim());
-  }
-  return texts;
+  return readVisibleToastMessages();
 }
 
 /** Wait for a toast whose text exactly equals `expected`. */

@@ -47,5 +47,7 @@ while true; do
   sleep 0.1
 done
 
-pnpm run "$suite" "$@"
+# HOME/XDG isolation does not isolate the single-instance D-Bus name.
+# Keep packaged test launches separate from an already-running desktop app.
+dbus-run-session -- pnpm run "$suite" "$@"
 pnpm run e2e:retry-audit

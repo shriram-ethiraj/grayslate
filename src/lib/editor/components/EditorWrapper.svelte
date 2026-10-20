@@ -14,6 +14,7 @@
     ResizableHandle,
   } from "$lib/components/ui/resizable";
   import { detectByFilename } from "$lib/ipc";
+  import { settleOpeningTasks } from "$lib/files/openingPool";
   import { debounce } from "lodash-es";
   import type { EditorView } from "codemirror";
   import { Text } from "@codemirror/state";
@@ -66,6 +67,7 @@
     confirmBeforeLeavingDocument,
     type DocumentSwitchDecision,
   } from "$lib/state/unsavedChangesGuard.svelte";
+  import { enqueueDocumentTransition, disposeDocumentTransitions, type DocumentOpenOutcome } from "$lib/state/documentTransitions";
   import { appDialogsState } from "$lib/state/appDialogs.svelte";
   import {
     OPEN_FILE_PATH_EVENT,
@@ -80,6 +82,7 @@
   } from "$lib/files/recentFiles";
   import { onMount, tick, untrack } from "svelte";
   import { beginTrackedWork } from "virtual:grayslate-e2e-runtime";
+  import { emitTo } from "@tauri-apps/api/event";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import {
     focusCurrentWindow,
@@ -337,10 +340,23 @@
   // Picking a different line ending is a real, savable change even though the
   // canonical LF text is untouched, so it counts toward dirtiness. Switching
   // back to the saved style before saving clears it again.
+  let csvSavedVersion = $state(1);
+  let csvWasDirtyOnEntry = $state(false);
+  let csvInfo = $state({
+    rows: 0,
+    cols: 0,
+    delimiter: "",
+    errors: 0,
+    liveMirrorEnabled: false,
+    version: 0,
+  });
+
   let isDirty = $derived(
     activeDocument.source === "local" &&
-      (value !== activeDocument.lastSavedValue ||
-        eol !== activeDocument.lastSavedEol),
+      ((editorState.csv.showTable
+        ? csvWasDirtyOnEntry || csvInfo.version > csvSavedVersion
+        : value !== activeDocument.lastSavedValue) ||
+        eol !== activeDocument.lastSavedEol || encoding !== activeDocument.lastSavedEncoding),
   );
 
   // Sync activeLanguage to global editorState
@@ -376,8 +392,15 @@
 
   $effect(() => {
     editorState.requestSaveCurrentDocument = saveFile;
+    editorState.hasUnsavedLocalChanges = hasUnsavedLocalChanges;
+    editorState.flushCurrentSlate = flushCurrentSlateBeforeSwitch;
+    editorState.openAuthorizedDocument = (document, lineNumber, reservationId) =>
+      openAuthorizedDocument(document, lineNumber, { reservationId });
     return () => {
       editorState.requestSaveCurrentDocument = undefined;
+      editorState.hasUnsavedLocalChanges = undefined;
+      editorState.flushCurrentSlate = undefined;
+      editorState.openAuthorizedDocument = undefined;
     };
   });
 
@@ -469,10 +492,9 @@
 
   // Listen for autosave events from Rust.
   $effect(() => {
-    const unlistenPromise = import("@tauri-apps/api/event").then(
-      async ({ listen }) => {
+    const unlistenPromise = (async () => {
         // Rust requests content when it decides to save
-        const unlistenRequestContent = await listen<{ requestId: number }>(
+        const unlistenRequestContent = await appWindow.listen<{ requestId: number }>(
           "autosave://request-content",
           async (event) => {
             const content = editorSession.state?.doc.toString() ?? value;
@@ -516,7 +538,7 @@
         );
 
         // Rust created a new file for an untitled slate
-        const unlistenDocumentCreated = await listen<{
+        const unlistenDocumentCreated = await appWindow.listen<{
           path: string;
           documentId: string;
           documentGeneration: number;
@@ -585,7 +607,7 @@
         });
 
         // Rust asks FE to flush before window close
-        const unlistenFlushClose = await listen<{ requestId: number }>(
+        const unlistenFlushClose = await appWindow.listen<{ requestId: number }>(
           "autosave://flush-before-close",
           async (event) => {
             const content = editorSession.state?.doc.toString() ?? value;
@@ -597,7 +619,7 @@
           },
         );
 
-        const unlistenSaveFailed = await listen<{ message: string }>(
+        const unlistenSaveFailed = await appWindow.listen<{ message: string }>(
           "autosave://save-failed",
           (event) => {
             toast.error(event.payload.message, { id: "autosave-write-error" });
@@ -610,8 +632,7 @@
           unlistenFlushClose();
           unlistenSaveFailed();
         };
-      },
-    );
+      })();
 
     return () => {
       unlistenPromise.then((fn) => fn()).catch(() => {});
@@ -653,6 +674,7 @@
     | undefined
   >(undefined);
   let fileOpenRequestVersion = 0;
+  let fileReadPending = false;
 
   function beginFileOpenRequest(): number {
     finishEncodingConfirmation(false);
@@ -1033,20 +1055,38 @@
     clearColorCache();
   }
 
+  async function flushCurrentSlateBeforeSwitch(): Promise<void> {
+    if (activeDocument.source !== "slates") return;
+    // Read live content after pending CSV/text actions, not the debounced value.
+    const content = await getContentForSave();
+    if (content !== activeDocument.lastSavedValue || eol !== activeDocument.lastSavedEol || encoding !== activeDocument.lastSavedEncoding) {
+      autosaveGeneration += 1;
+      await invoke("autosave_notify_changed", { generation: autosaveGeneration });
+    }
+    await invoke("autosave_flush_before_switch", {
+      content,
+      generation: autosaveGeneration,
+      keepActive: true,
+    });
+  }
+
   async function resetEditorDocument(
     nextValue: string,
     nextDocument: ActiveDocument,
     nextLanguage = "auto",
     nextDetectedLanguage = "text",
+    prepared = false,
   ): Promise<void> {
-    // Flush unsaved slate content to Rust before switching documents.
-    if (activeDocument.source === "slates") {
-      const content = editorSession.state?.doc.toString() ?? value;
-      const gen = autosaveGeneration;
-      await invoke("autosave_flush_before_switch", {
-        content,
-        generation: gen,
-      });
+    if (!prepared) {
+      await flushCurrentSlateBeforeSwitch();
+      if (nextDocument.kind === "untitled") {
+        await invoke("autosave_activate_untitled", {
+          languageHint: nextLanguage,
+          replaceCurrent: true,
+          eol: nextDocument.lastSavedEol,
+          encoding: nextDocument.lastSavedEncoding,
+        });
+      }
     }
 
     checkLanguage.cancel();
@@ -1131,7 +1171,7 @@
   }
 
   // -----------------------------------------------------------------------
-  // Menu: "File > Open File..."
+  // Menu: "File > Open Files…"
   //
   // The Tauri menu emits "menu://open-file" when the user clicks the item
   // (or presses Ctrl/Cmd+O via its accelerator). We open a native file
@@ -1194,8 +1234,9 @@
       encoding?: CharacterEncoding;
       forceReload?: boolean;
       reservationId?: string;
+      onError?: (message: string) => void;
     },
-  ): Promise<void> {
+  ): Promise<DocumentOpenOutcome> {
     const filePath = document.displayPath;
     // Fast path: the file is already loaded — avoid a full reload and just
     // navigate to the requested line directly.
@@ -1216,7 +1257,7 @@
         stopLoaderTicker();
         hideEditorLoader();
       }
-      return;
+      return "existing-owner";
     }
 
     let reservationId = options?.reservationId;
@@ -1226,6 +1267,8 @@
         disposition = await invoke<OpenDisposition>("claim_document_open", {
           documentId: document.documentId,
           documentGeneration: document.generation,
+          purpose: options?.forceReload ? "reload" : "open",
+          lineNumber,
         });
       } catch (error: unknown) {
         clearPendingSidebarOpenFile();
@@ -1236,7 +1279,7 @@
         if (!options?.silent) {
           toast.error(readErrorMessage(error, "Failed to open file."));
         }
-        return;
+        return "failed";
       }
       if (disposition.kind !== "open-here") {
         clearPendingSidebarOpenFile();
@@ -1244,7 +1287,7 @@
           stopLoaderTicker();
           hideEditorLoader();
         }
-        return;
+        return "existing-owner";
       }
       reservationId = disposition.reservationId;
     }
@@ -1277,6 +1320,7 @@
         previousSession.state?.doc.length ?? value.length;
       let requestedEncoding = options?.encoding;
       let content: string;
+      fileReadPending = true;
       try {
         content = await invokeText("read_file_content", {
           documentId: document.documentId,
@@ -1288,11 +1332,12 @@
         if (requestedEncoding || !isEncodingChoiceRequired(error)) throw error;
         stopLoaderTicker();
         hideEditorLoader();
+        await focusCurrentWindow();
         const accepted = await confirmSuggestedEncoding(
           error.suggestedEncoding,
           error.reason,
         );
-        if (!accepted || !isActiveFileOpenRequest(requestVersion)) return;
+        if (!accepted || !isActiveFileOpenRequest(requestVersion)) return "cancelled";
         requestedEncoding = error.suggestedEncoding;
         startLoaderTicker("Reading file…", filename, {
           ceiling: 65,
@@ -1308,8 +1353,9 @@
           encoding: requestedEncoding,
         });
       }
+      fileReadPending = false;
       if (!isActiveFileOpenRequest(requestVersion)) {
-        return;
+        return "cancelled";
       }
 
       stopLoaderTicker();
@@ -1318,7 +1364,7 @@
       // Yield to let the UI repaint before loading into the editor.
       await new Promise<void>((r) => setTimeout(r, 0));
       if (!isActiveFileOpenRequest(requestVersion)) {
-        return;
+        return "cancelled";
       }
 
       // Use extension/filename-only detection — no content scan needed on open.
@@ -1335,6 +1381,18 @@
       // used to mark every Windows file dirty the instant it opened.
       const canonicalContent = normalizeToLf(content);
 
+      await flushCurrentSlateBeforeSwitch();
+      if (!isActiveFileOpenRequest(requestVersion)) return "cancelled";
+      // Keep the old session alive until Rust accepts ownership and autosave.
+      const detectedFormat = await invoke<{
+        eol: Eol;
+        encoding: CharacterEncoding;
+      }>("autosave_activate_document", {
+        documentId: document.documentId,
+        documentGeneration: document.generation,
+        languageHint: nextLanguage,
+        reservationId,
+      });
       await resetEditorDocument(
         canonicalContent,
         {
@@ -1344,25 +1402,13 @@
           path: filePath,
           source: document.source,
           lastSavedValue: canonicalContent,
-          // Placeholder until activation reports what Rust detected; adopted
-          // together with `eol` below so the pair is never mismatched.
-          lastSavedEol: resolveDefaultEol(),
-          lastSavedEncoding: requestedEncoding ?? resolveDefaultEncoding(),
+          lastSavedEol: detectedFormat.eol,
+          lastSavedEncoding: detectedFormat.encoding,
         },
         nextLanguage,
         nextDetectedLanguage,
+        true,
       );
-      // Activation returns the line ending Rust detected while reading this
-      // file's bytes — no second read, no extra round-trip.
-      const detectedFormat = await invoke<{
-        eol: Eol;
-        encoding: CharacterEncoding;
-      }>("autosave_activate_document", {
-        documentId: document.documentId,
-        documentGeneration: document.generation,
-        languageHint: language,
-        reservationId,
-      });
       // Adopt as both the live style and the saved baseline: the file already
       // has these endings on disk, so this is not an unsaved change. Guarded
       // rather than early-returned — a superseded request must still fall
@@ -1392,46 +1438,49 @@
       await new Promise<void>((r) => setTimeout(r, 10));
 
       // Navigate to the requested line after the editor view is initialized.
-      if (lineNumber !== undefined && editorView) {
-        editorGoToLine(editorView, lineNumber);
-      }
-
       disposeManagedEditorSession(previousSession);
+      const pendingLine = await invoke<number | null>("complete_document_open", {
+        documentId: document.documentId,
+        documentGeneration: document.generation,
+      });
+      const targetLine = pendingLine ?? lineNumber;
+      if (targetLine !== undefined && editorView) editorGoToLine(editorView, targetLine);
 
       // Reclaim stale heap from the previous file through the shared controller.
       requestFileOpenReclaim(previousDocLength, canonicalContent.length);
       clearPendingSidebarOpenFile(requestVersion);
+      return "opened";
     } catch (err: unknown) {
       if (!isActiveFileOpenRequest(requestVersion)) {
-        return;
+        return "cancelled";
       }
 
       if (err === "File read cancelled.") {
-        return;
+        return "cancelled";
       }
 
       // Startup restoration passes `silent` so a since-deleted last-active file
       // fails quietly to the default blank slate instead of nagging on launch.
       if (options?.silent) {
         console.warn(`[Startup] Could not reopen last file "${filePath}":`, err);
-        return;
+        return "cancelled";
       }
 
       const msg = readErrorMessage(err, "Failed to open file.");
-      toast.error(msg);
+      if (options?.onError) options.onError(msg);
+      else toast.error(msg);
+      return "failed";
     } finally {
+      fileReadPending = false;
       if (reservationId) {
         void invoke("cancel_document_open", { reservationId });
       }
-      if (!isActiveFileOpenRequest(requestVersion)) {
-        return;
+      if (isActiveFileOpenRequest(requestVersion)) {
+        clearPendingSidebarOpenFile(requestVersion);
+        clearOpeningDocument(document);
+        stopLoaderTicker();
+        hideEditorLoader();
       }
-
-      // Always clean up — idempotent in the success path
-      clearPendingSidebarOpenFile(requestVersion);
-      clearOpeningDocument(document);
-      stopLoaderTicker();
-      hideEditorLoader();
     }
   }
 
@@ -1446,7 +1495,7 @@
     const request = await invoke<ExternalOpenRequest | null>("pick_document");
     if (!request) return;
     reportExternalOpenResult(request);
-    await routeDocumentsToWindows(request.documents, true);
+    await routeDocumentsToWindows(request.documents, true, request);
     const finalDocument = request.documents.at(-1);
     if (finalDocument && isCurrentDocument(finalDocument)) {
       notifyFileAlreadyOpen(finalDocument.fileName || finalDocument.displayPath);
@@ -1477,7 +1526,17 @@
     return externalOpenPrimeWork;
   }
 
-  function reportExternalOpenResult(request: ExternalOpenRequest): void {
+  type OpenFeedback = Pick<ExternalOpenRequest, "skippedCount" | "limitSkippedCount" | "routingFailureCount" | "newlyTrackedCount"> & { errors?: string[] };
+
+  function reportExternalOpenResult(request: OpenFeedback): void {
+    // Sonner puts the newest toast in front. Report success first so it
+    // cannot cover a warning about files that did not open in this batch.
+    if (request.newlyTrackedCount > 1) {
+      toast.success(`${request.newlyTrackedCount} files were added to the library.`);
+    }
+    if (request.limitSkippedCount > 0) {
+      toast.warning(`Up to 50 files can be opened at a time. ${request.limitSkippedCount} additional files were skipped.`, { duration: 30_000 });
+    }
     if (request.skippedCount > 0) {
       const noun = request.skippedCount === 1 ? "file" : "files";
       const reason = request.skippedCount === 1 ? "it was" : "they were";
@@ -1494,24 +1553,66 @@
       });
     }
 
-    if (request.newlyTrackedCount > 1) {
-      toast.success(`${request.newlyTrackedCount} files were added to the library.`);
-    }
+    for (const error of request.errors ?? []) toast.error(error, { duration: 30_000 });
   }
 
   async function routeDocumentsToWindows(
     documents: DocumentDescriptor[],
     focusFinal = false,
+    feedback?: OpenFeedback,
+    openInReceivingWindow?: () => Promise<DocumentOpenOutcome>,
   ): Promise<void> {
-    for (const [index, document] of documents.entries()) {
-      try {
-        await openDocumentInNewWindow(
-          document,
-          undefined,
-          focusFinal && index + 1 === documents.length,
-        );
-      } catch (error: unknown) {
-        toast.error(readErrorMessage(error, `Could not open ${getOpeningFileName(document)}.`));
+    const jobs = documents.map((document, index) => ({ document, index }));
+    // Start the receiving load in the first wave, using one of the same four
+    // slots. Keep the original indices for feedback and final-focus selection.
+    if (openInReceivingWindow) {
+      const receivingJob = jobs.pop();
+      if (receivingJob) jobs.unshift(receivingJob);
+    }
+    const results = await settleOpeningTasks(jobs.map(({ document, index }) => async () => {
+      if (openInReceivingWindow && index === documents.length - 1) {
+        const outcome = await openInReceivingWindow();
+        if (outcome === "failed") throw new Error("Could not open file.");
+        return outcome === "opened" || outcome === "existing-owner" ? appWindow.label : undefined;
+      }
+      const result = await openDocumentInNewWindow(document, undefined, false);
+      // A reused owner can still be loading. Its reservation occupies a slot
+      // until readiness (or cancellation), just like a newly created window.
+      await invoke("wait_document_open", {
+        documentId: document.documentId,
+        documentGeneration: document.generation,
+        targetWindow: result.windowLabel,
+      });
+      return result.windowLabel;
+    }));
+    let finalOpened: DocumentDescriptor | undefined;
+    let finalWindow: string | undefined;
+    const errors: string[] = [...(feedback?.errors ?? [])];
+    const ordered = jobs.map((job, index) => ({ ...job, result: results[index] }))
+      .sort((left, right) => left.index - right.index);
+    for (const { document, result } of ordered) {
+      if (result.status === "fulfilled") {
+        if (result.value) {
+          finalOpened = document;
+          finalWindow = result.value;
+        }
+      } else {
+        const message = `${getOpeningFileName(document)}: ${readErrorMessage(result.reason, "Could not open file.")}`;
+        errors.push(message);
+        toast.error(message, { duration: 30_000 });
+      }
+    }
+    if (focusFinal && finalOpened) {
+      if (finalWindow === appWindow.label) await focusCurrentWindow();
+      else await openDocumentInNewWindow(finalOpened);
+      if (finalWindow && finalWindow !== appWindow.label) {
+        await emitTo(finalWindow, "files://open-feedback", {
+          skippedCount: feedback?.skippedCount ?? 0,
+          limitSkippedCount: feedback?.limitSkippedCount ?? 0,
+          routingFailureCount: feedback?.routingFailureCount ?? 0,
+          newlyTrackedCount: feedback?.newlyTrackedCount ?? 0,
+          errors,
+        } satisfies OpenFeedback);
       }
     }
   }
@@ -1520,8 +1621,11 @@
     const documents = request.documents;
     const finalDocument = documents.at(-1);
     if (!finalDocument) return;
-    const preceding = documents.slice(0, -1);
-
+    if (request.preserveCurrent && (activeDocument.kind !== "untitled" || (editorSession.state?.doc.length ?? value.length) > 0)) {
+      finishOpeningDocument(finalDocument);
+      await routeDocumentsToWindows(documents, true, request);
+      return;
+    }
     let disposition: OpenDisposition;
     try {
       disposition = await invoke<OpenDisposition>("claim_document_open", {
@@ -1531,13 +1635,16 @@
       });
     } catch (error: unknown) {
       finishOpeningDocument(finalDocument);
-      toast.error(readErrorMessage(error, "Failed to prepare the dropped files."));
+      // Include preparation failures at their selection index too; the other
+      // documents can still open without replacing the receiving document.
+      await routeDocumentsToWindows(documents, true, request, async () => {
+        throw error;
+      });
       return;
     }
     if (disposition.kind !== "open-here") {
       finishOpeningDocument(finalDocument);
-      await routeDocumentsToWindows(preceding);
-      await openDocumentInNewWindow(finalDocument);
+      await routeDocumentsToWindows(documents, true, request);
       if (isCurrentDocument(finalDocument)) {
         notifyFileAlreadyOpen(finalDocument.fileName || finalDocument.displayPath);
       }
@@ -1555,17 +1662,20 @@
         await invoke("cancel_document_open", { reservationId: disposition.reservationId });
         reservationIsActive = false;
         finishOpeningDocument(finalDocument);
-        await routeDocumentsToWindows(documents, true);
+        await routeDocumentsToWindows(documents, true, request);
         return;
       }
 
       reservationIsActive = false;
-      await openAuthorizedDocument(finalDocument, undefined, {
-        reservationId: disposition.reservationId,
+      await routeDocumentsToWindows(documents, true, request, async () => {
+        let failure: string | undefined;
+        const outcome = await openAuthorizedDocument(finalDocument, undefined, {
+          reservationId: disposition.reservationId,
+          onError: (message) => { failure = message; },
+        });
+        if (outcome === "failed") throw new Error(failure ?? "Could not open file.");
+        return outcome;
       });
-      if (!isCurrentDocument(finalDocument)) return;
-      await routeDocumentsToWindows(preceding);
-      await focusCurrentWindow();
     } finally {
       if (reservationIsActive) {
         void invoke("cancel_document_open", { reservationId: disposition.reservationId });
@@ -1596,8 +1706,14 @@
       externalOpenWasReceived = true;
       // Window creation can outlive the default toast duration, so keep batch
       // validation feedback visible while routing runs and focus moves.
-      reportExternalOpenResult(request);
-      await openDocumentBatch(request);
+      await enqueueDocumentTransition(async () => {
+        try {
+          reportExternalOpenResult(request);
+          await openDocumentBatch(request);
+        } finally {
+          await invoke("complete_external_open_request", { requestId: request.requestId });
+        }
+      });
     }
   }
 
@@ -1645,7 +1761,9 @@
   });
 
   async function getContentForSave(): Promise<string> {
-    if (activeLanguage === "csv" && editorState.csv.showTable && csvTableView) {
+    // Before parsing has produced a session there can be no table edits.
+    // Use the retained text so New Slate/Close can cancel a pending CSV parse.
+    if (activeLanguage === "csv" && editorState.csv.showTable && csvTableView && csvInfo.version > 0) {
       await csvTableView.waitForPendingActions();
       if (csvInfo.liveMirrorEnabled) {
         await drainCsvMirrorQueueNow();
@@ -1671,6 +1789,20 @@
   let saveActionInFlight: Promise<boolean> | undefined;
   let pendingSaveActions: SaveAction[] = [];
 
+  async function hasUnsavedLocalChanges(): Promise<boolean> {
+    if (activeDocument.source !== "local") return false;
+    if (editorState.csv.showTable && csvTableView) {
+      await csvTableView.waitForPendingActions();
+      await tick();
+      // Session mutations are authoritative even when large tables are not
+      // mirrored into CodeMirror. Parsing alone does not dirty the document.
+      return csvWasDirtyOnEntry || csvInfo.version > csvSavedVersion ||
+        eol !== activeDocument.lastSavedEol || encoding !== activeDocument.lastSavedEncoding;
+    }
+    const content = await getContentForSave();
+    return content !== activeDocument.lastSavedValue || eol !== activeDocument.lastSavedEol || encoding !== activeDocument.lastSavedEncoding;
+  }
+
   function currentDocumentNeedsSave(): boolean {
     if (activeLanguage === "csv" && editorState.csv.showTable) {
       return true;
@@ -1680,7 +1812,7 @@
     return activeDocument.kind === "untitled"
       ? true
       : currentContent !== activeDocument.lastSavedValue ||
-          eol !== activeDocument.lastSavedEol;
+          eol !== activeDocument.lastSavedEol || encoding !== activeDocument.lastSavedEncoding;
   }
 
   function snapshotActiveDocument(): ActiveDocument {
@@ -1772,6 +1904,7 @@
     reservationId?: string,
   ): Promise<DocumentDescriptor> {
     const previousPath = activeDocument.kind === "saved" ? activeDocument.path : undefined;
+    const savedCsvVersion = csvInfo.version;
     const saved = await invoke<DocumentDescriptor>("write_file_content", {
       documentId: document.documentId,
       documentGeneration: document.generation,
@@ -1799,12 +1932,18 @@
       lastSavedEncoding: targetEncoding,
     };
     encoding = targetEncoding;
+    csvSavedVersion = savedCsvVersion;
+    csvWasDirtyOnEntry = false;
     if (previousPath !== saved.displayPath) {
       reportLibraryMutation({ kind: "created", path: saved.displayPath, source: saved.source });
     }
     // Flush any pending debounced value sync so that `isDirty`
     // resolves immediately after saving (value === lastSavedValue).
     flushPendingValueSync(editorSession);
+    await invoke("complete_document_open", {
+      documentId: saved.documentId,
+      documentGeneration: saved.generation,
+    });
     saveLastActiveDocument(saved);
     return saved;
   }
@@ -1973,6 +2112,7 @@
       const disposition = await invoke<OpenDisposition>("claim_document_open", {
         documentId: selected.documentId,
         documentGeneration: selected.generation,
+        purpose: "save-as",
       });
       if (disposition.kind !== "open-here") {
         return false;
@@ -2044,9 +2184,9 @@
         externalOpenStartupReady = true;
 
         if (launchIntent.kind === "document") {
-          const opening = openAuthorizedDocument(launchIntent.document, launchIntent.lineNumber, {
+          const opening = enqueueDocumentTransition(() => openAuthorizedDocument(launchIntent.document, launchIntent.lineNumber, {
             reservationId: launchIntent.reservationId,
-          });
+          }));
           await new Promise<void>((resolve) => setTimeout(resolve, 0));
           await opening;
           await scheduleExternalOpenDrain();
@@ -2067,7 +2207,7 @@
         if (!disposed && !externalOpenWasReceived && settings.startupBehavior === "last") {
           const lastDocument = await invoke<DocumentDescriptor | null>("get_last_active_document");
           if (lastDocument) {
-            await openAuthorizedDocument(lastDocument, undefined, { silent: true });
+            await enqueueDocumentTransition(() => openAuthorizedDocument(lastDocument, undefined, { silent: true }));
           }
         }
         await invoke("complete_window_startup");
@@ -2094,27 +2234,32 @@
   $effect(() => {
     const unlistenPromise = Promise.resolve().then(
       async () => {
+        const unlistenOpenFeedback = await appWindow.listen<OpenFeedback>("files://open-feedback", (event) => reportExternalOpenResult(event.payload));
+        const unlistenNavigateLine = await appWindow.listen<number>("files://navigate-line", (event) => {
+          if (editorView) editorGoToLine(editorView, event.payload);
+        });
         const unlistenNewFile = await appWindow.listen("menu://new-file", () => {
-          void createNewFile();
+          if (fileReadPending) invalidatePendingFileOpen();
+          void enqueueDocumentTransition(createNewFile).catch((error: unknown) => toast.error(readErrorMessage(error, "Could not create a new slate.")));
         });
         const unlistenResetToBlank = await appWindow.listen(RESET_TO_BLANK_EVENT, () => {
-          void resetToBlankDocument().catch((error: unknown) => {
+          void enqueueDocumentTransition(resetToBlankDocument).catch((error: unknown) => {
             toast.error(readErrorMessage(error, "Could not save the current slate."));
           });
         });
         const unlistenOpenFile = await appWindow.listen("menu://open-file", () => {
-          void openFile().catch((error: unknown) => {
+          void enqueueDocumentTransition(openFile).catch((error: unknown) => {
             toast.error(readErrorMessage(error, "Could not open the selected files."));
           });
         });
         const unlistenOpenFileNewWindow = await appWindow.listen("menu://open-file-new-window", () => {
-          void openFilesInNewWindows().catch((error: unknown) => {
+          void enqueueDocumentTransition(openFilesInNewWindows).catch((error: unknown) => {
             toast.error(readErrorMessage(error, "Could not open the selected files."));
           });
         });
         const unlistenOpenFilePath = await appWindow.listen<OpenFilePathPayload>(OPEN_FILE_PATH_EVENT, (event) => {
           if (event.payload?.documentId) {
-            void openAuthorizedDocument({
+            void enqueueDocumentTransition(() => openAuthorizedDocument({
               documentId: event.payload.documentId,
               generation: event.payload.documentGeneration,
               displayPath: event.payload.path,
@@ -2123,7 +2268,7 @@
               writable: true,
             }, event.payload.lineNumber, {
               reservationId: event.payload.reservationId,
-            });
+            })).catch((error: unknown) => toast.error(readErrorMessage(error, "Could not open file.")));
           }
         });
         const unlistenDocumentRenamed = await appWindow.listen<DocumentDescriptor>(DOCUMENT_RENAMED_EVENT, (event) => {
@@ -2141,13 +2286,15 @@
           }
         });
         const unlistenSaveFile = await appWindow.listen("menu://save-file", () => {
-          void saveFile();
+          void enqueueDocumentTransition(saveFile).catch((error: unknown) => toast.error(readErrorMessage(error, "Could not save file.")));
         });
         const unlistenSaveFileAs = await appWindow.listen("menu://save-file-as", () => {
-          void saveFileAs();
+          void enqueueDocumentTransition(saveFileAs).catch((error: unknown) => toast.error(readErrorMessage(error, "Could not save file.")));
         });
 
         return () => {
+          unlistenOpenFeedback();
+          unlistenNavigateLine();
           unlistenNewFile();
           unlistenResetToBlank();
           unlistenOpenFile();
@@ -2198,14 +2345,6 @@
     };
   });
 
-  let csvInfo = $state({
-    rows: 0,
-    cols: 0,
-    delimiter: "",
-    errors: 0,
-    liveMirrorEnabled: false,
-  });
-
   async function requestCsvTableMode(showTable: boolean): Promise<void> {
     if (showTable === editorState.csv.showTable) {
       return;
@@ -2215,6 +2354,8 @@
     invoke("autosave_set_csv_mode", { active: showTable }).catch(() => {});
 
     if (showTable) {
+      csvWasDirtyOnEntry = (editorSession.state?.doc.toString() ?? value) !== activeDocument.lastSavedValue;
+      csvSavedVersion = 1;
       editorState.csv.showTable = true;
       return;
     }
@@ -2332,26 +2473,28 @@
     });
   }
 
-  async function handleReopenEncoding(nextEncoding: CharacterEncoding): Promise<boolean> {
+  function handleReopenEncoding(nextEncoding: CharacterEncoding): Promise<boolean> {
+    return enqueueDocumentTransition(() => reopenEncodingNow(nextEncoding));
+  }
+
+  async function reopenEncodingNow(nextEncoding: CharacterEncoding): Promise<boolean> {
     if (activeDocument.kind !== "saved") return false;
 
     if (activeDocument.source === "local") {
       // Close the encoding modal before opening the app-level save/discard
       // prompt. Read CodeMirror directly because the global dirty flag may
       // still be waiting on the large-document value-sync debounce.
-      if (currentDocumentNeedsSave()) {
+      if (await hasUnsavedLocalChanges()) {
         closeEditorPopup("encoding-picker");
       }
       const canReopen = await confirmBeforeLeavingDocument({
-        hasUnsavedLocalChanges: currentDocumentNeedsSave,
+        hasUnsavedLocalChanges,
       });
       if (!canReopen) return false;
     } else {
       // Reopening must read bytes only after the latest slate content reaches
       // disk. Use the ordinary save coordinator instead of the later
-      // switch-flush: the latter unregisters autosave, which would leave the
-      // still-open slate unprotected if decoding with the requested encoding
-      // fails.
+      // switch-flush, which occurs after reading the replacement.
       if (
         (currentDocumentNeedsSave() || editorState.saveInProgress) &&
         !(await saveFile())
@@ -2360,7 +2503,7 @@
       }
     }
 
-    await openAuthorizedDocument(
+    const outcome = await openAuthorizedDocument(
       {
         documentId: activeDocument.documentId,
         generation: activeDocument.documentGeneration,
@@ -2372,14 +2515,14 @@
       undefined,
       { encoding: nextEncoding, forceReload: true },
     );
-    return encoding === nextEncoding;
+    return outcome === "opened";
   }
 
   async function handleSaveEncoding(nextEncoding: CharacterEncoding): Promise<boolean> {
-    return requestSaveAction({
+    return enqueueDocumentTransition(() => requestSaveAction({
       kind: "save-with-encoding",
       targetEncoding: nextEncoding,
-    });
+    }));
   }
 
   $effect(() => {
@@ -2401,6 +2544,7 @@
     editorState.csv.requestShowTable = requestCsvTableMode;
 
     return () => {
+      disposeDocumentTransitions();
       invalidatePendingFileOpen();
       checkLanguage.cancel();
       clearCsvMirrorState();

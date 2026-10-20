@@ -20,7 +20,7 @@ export async function confirmBeforeLeavingDocument(
          * Read the editor's live document state when a caller cannot rely on
          * the debounced global dirty flag yet.
          */
-        hasUnsavedLocalChanges?: () => boolean;
+        hasUnsavedLocalChanges?: () => boolean | Promise<boolean>;
     } = {},
 ): Promise<boolean> {
     // A document switch must not replace the active authorization while a
@@ -36,7 +36,7 @@ export async function confirmBeforeLeavingDocument(
     // Slates (including untitled documents) are autosaved by the backend, so
     // only local files need an explicit unsaved-changes prompt.
     const hasUnsavedLocalChanges =
-        options.hasUnsavedLocalChanges?.() ?? editorState.isDirty;
+        await (options.hasUnsavedLocalChanges?.() ?? editorState.hasUnsavedLocalChanges?.() ?? editorState.isDirty);
     if (!hasUnsavedLocalChanges || editorState.currentFileSource !== "local") {
         return true;
     }
@@ -83,7 +83,8 @@ export async function chooseDocumentSwitch(
         if (!saveInProgress || !(await saveInProgress())) return "cancel";
     }
 
-    if (!editorState.isDirty || editorState.currentFileSource !== "local") {
+    if (editorState.currentFileSource !== "local" ||
+        !(await (editorState.hasUnsavedLocalChanges?.() ?? editorState.isDirty))) {
         return "open-here";
     }
     if (appDialogsState.active.type === "unsaved-changes") return "cancel";

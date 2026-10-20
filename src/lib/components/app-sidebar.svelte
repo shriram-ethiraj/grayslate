@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { enqueueDocumentTransition } from "$lib/state/documentTransitions";
     import { registerHotkey } from "$lib/hotkeys";
     import * as Sidebar from "$lib/components/ui/sidebar/index.js";
     import { editorState } from "$lib/state/editor.svelte";
@@ -15,9 +16,7 @@
     import { invoke } from "$lib/ipc";
     import {
         getRecentFiles,
-        OPEN_FILE_PATH_EVENT,
         RECENT_FILES_UPDATED_EVENT,
-        type OpenFilePathPayload,
         type RecentFileRecord,
         type RecentFileSource,
         type SidebarSearchResult,
@@ -48,7 +47,6 @@
     import { useListNavigator } from "$lib/components/sidebar/useListNavigator.svelte";
     import { createLibraryRefreshCoordinator } from "$lib/files/libraryRefreshCoordinator";
     import {
-        emitToCurrentWindow,
         openDocumentInNewWindow,
         type OpenDisposition,
     } from "$lib/windowing";
@@ -287,24 +285,31 @@
     // ---------------------------------------------------------------------------
 
     async function openRecentFile(path: string, source: RecentFileSource, lineNumber?: number): Promise<void> {
-        // Already the open file — nothing to navigate away from, so don't
-        // prompt for unsaved changes or re-trigger the open flow.
-        if (path === editorState.currentFilePath) {
-            notifyFileAlreadyOpen(path);
-            return;
-        }
-
+        // Capture the authorized selection now: the visible results can change
+        // while this request waits behind a dialog or another transition.
         const authorizedFile = activeResults.find((file) => file.path === path);
         if (!authorizedFile) {
             toast.error("This file authorization expired. Refresh the sidebar and try again.");
             return;
         }
+        try {
+            await enqueueDocumentTransition(() => openRecentFileNow(authorizedFile, source, lineNumber));
+        } catch (error: unknown) {
+            toast.error(error instanceof Error ? error.message : String(error));
+        }
+    }
 
+    async function openRecentFileNow(authorizedFile: RecentFileRecord, source: RecentFileSource, lineNumber?: number): Promise<void> {
+        const path = authorizedFile.path;
         const disposition = await invoke<OpenDisposition>("claim_document_open", {
             documentId: authorizedFile.document_id,
             documentGeneration: authorizedFile.document_generation,
+            lineNumber,
         });
-        if (disposition.kind !== "open-here") return;
+        if (disposition.kind !== "open-here") {
+            if (path === editorState.currentFilePath) notifyFileAlreadyOpen(path);
+            return;
+        }
 
         let reservationIsActive = true;
         try {
@@ -336,14 +341,15 @@
                 lineNumber,
             });
 
-            await emitToCurrentWindow(OPEN_FILE_PATH_EVENT, {
+            if (!editorState.openAuthorizedDocument) throw new Error("The editor is not ready.");
+            await editorState.openAuthorizedDocument({
                 documentId: authorizedFile.document_id,
-                documentGeneration: authorizedFile.document_generation,
-                path,
+                generation: authorizedFile.document_generation,
+                displayPath: path,
+                fileName: authorizedFile.file_name,
                 source,
-                lineNumber,
-                reservationId: disposition.reservationId,
-            } satisfies OpenFilePathPayload);
+                writable: true,
+            }, lineNumber, disposition.reservationId);
             reservationIsActive = false;
         } catch (error: unknown) {
             const message = error instanceof Error ? error.message : String(error);

@@ -122,6 +122,11 @@ export async function dropPaths(filePaths: readonly string[]): Promise<void> {
   await invokeInApp<void>("e2e_drop_paths", { paths: [...filePaths] });
 }
 
+/** Deliver a warm OS activation through the shared native preparation queue. */
+export async function activatePaths(filePaths: readonly string[]): Promise<void> {
+  await invokeInApp<void>("e2e_drop_paths", { paths: [...filePaths], preserveCurrent: true });
+}
+
 /** Grant a Save-As target path through the real authorization path. */
 export async function grantSavePath(
   targetPath: string,

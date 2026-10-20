@@ -1,5 +1,6 @@
 import type { EditorView } from "codemirror";
-import type { RecentFileSource } from "$lib/files/recentFiles";
+import type { DocumentOpenOutcome } from "$lib/state/documentTransitions";
+import type { DocumentDescriptor, RecentFileSource } from "$lib/files/recentFiles";
 import { saveSetting } from "$lib/state/appSettings.svelte";
 
 export const DEFAULT_EDITOR_FONT_SIZE = 14;
@@ -107,6 +108,9 @@ export const editorState = $state<{
     currentFileSource: RecentFileSource | undefined;
     /** Callback used by the unsaved-changes guard to save the current document. */
     requestSaveCurrentDocument?: () => Promise<boolean>;
+    hasUnsavedLocalChanges?: () => Promise<boolean>;
+    flushCurrentSlate?: () => Promise<void>;
+    openAuthorizedDocument?: (document: DocumentDescriptor, lineNumber?: number, reservationId?: string) => Promise<DocumentOpenOutcome>;
     currentDocumentLength: number;
     currentSelectionSize: number;
     /** True while a large or slow native clipboard copy is in progress. */

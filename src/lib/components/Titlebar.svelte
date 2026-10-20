@@ -27,6 +27,7 @@
     openKeyboardShortcutsAppDialog,
     openSettingsAppDialog,
   } from "$lib/state/appDialogs.svelte";
+  import { enqueueDocumentTransition } from "$lib/state/documentTransitions";
   import { confirmBeforeLeavingDocument } from "$lib/state/unsavedChangesGuard.svelte";
   import {
     handleFocusedTextEdit,
@@ -157,20 +158,25 @@
     unlistenCloseRequested = await appWindow.onCloseRequested(async (event) => {
       event.preventDefault();
 
-      const canClose = await confirmBeforeLeavingDocument();
-      if (!canClose) {
-        return;
-      }
+      await enqueueDocumentTransition(async () => {
+        const canClose = await confirmBeforeLeavingDocument();
+        if (!canClose) {
+          return;
+        }
 
-      // A failed flush deliberately keeps the window open so text is never
-      // discarded because its selected encoding cannot be written.
-      markE2EClosing();
-      await invoke("prepare_close").catch((error: unknown) => {
-        markE2EReady();
-        console.error("Close: prepare_close failed:", error);
-        toast.error(typeof error === "string"
-          ? error
-          : "Could not save this slate. The window was kept open.");
+        // A failed flush deliberately keeps the window open so text is never
+        // discarded because its selected encoding cannot be written.
+        markE2EClosing();
+        await (async () => {
+          await editorState.flushCurrentSlate?.();
+          await invoke("prepare_close");
+        })().catch((error: unknown) => {
+          markE2EReady();
+          console.error("Close: prepare_close failed:", error);
+          toast.error(typeof error === "string"
+            ? error
+            : "Could not save this slate. The window was kept open.");
+        });
       });
     });
 
@@ -604,11 +610,11 @@
         </Menubar.Item>
         <Menubar.Separator />
         <Menubar.Item data-testid="menu-open-file" onclick={handleOpen}>
-          Open File...
+          Open Files…
           <Menubar.Shortcut>{formatForDisplay("Mod+O")}</Menubar.Shortcut>
         </Menubar.Item>
         <Menubar.Item data-testid="menu-open-file-new-window" onclick={handleOpenInNewWindow}>
-          Open File in New Window...
+          Open Files in New Windows…
         </Menubar.Item>
         <Menubar.Separator />
         <Menubar.Item
