@@ -14,8 +14,8 @@ export type OperationGate =
   | "csv-initialize"
   | "csv-dispose";
 
-export async function armOperationGate(name: OperationGate): Promise<void> {
-  await invokeInApp<void>("e2e_arm_operation_gate", { name });
+export async function armOperationGate(name: OperationGate, filePath?: string): Promise<void> {
+  await invokeInApp<void>("e2e_arm_operation_gate", { name, filePath: filePath ?? null });
 }
 
 export async function waitForOperationGate(name: OperationGate): Promise<void> {

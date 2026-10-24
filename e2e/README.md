@@ -7,7 +7,7 @@ the autosave/naming path.
 On Linux, install the WebDriver prerequisites once:
 
 ```sh
-sudo apt-get install locales openbox webkit2gtk-driver x11-utils xclip xvfb
+sudo apt-get install dbus-daemon locales openbox webkit2gtk-driver x11-utils xclip xvfb
 sudo locale-gen en_US.UTF-8
 cargo install tauri-driver --version 2.0.6 --locked
 ```
@@ -41,7 +41,7 @@ Do not replace `pnpm run e2e:build` with a direct
 `tauri.e2e.conf.json`; the resulting binary can launch with the normal hidden
 window/global-bridge settings and appear as an unpainted dark shell to WDIO.
 
-For a headless Linux runner, use `pnpm run e2e:ci` after the build. The command
+For a headless Linux runner, use `pnpm run e2e:ci` after the build. The Linux wrapper gives each suite a private D-Bus session so the single-instance plugin cannot forward test launches to a running desktop copy. The command
 starts Openbox inside Xvfb so native window-state tests have a real window
 manager. If `tauri-driver` is installed outside Cargo's default location, set
 `TAURI_DRIVER_PATH` before running the test.
@@ -125,6 +125,13 @@ file. **Raising `maxInstances`, adding `specFileRetries`, or grouping spec paths
 into nested arrays breaks it.** Specs must seed their own data; state may only
 be shared between tests inside the same file — and even that is discouraged,
 because an early failure then cascades.
+
+The harness selects `main` through `browser.tauri.switchWindow()` during
+bootstrap to disable the Tauri service's automatic focus following. Specs then
+select WebDriver handles explicitly. Without this, a DOM query in a background
+window can redirect the next action to the native focused window. The test-only
+capability covers both `main` and `editor-*`, so surviving windows remain
+observable after the original primary window closes.
 
 ## Rules
 

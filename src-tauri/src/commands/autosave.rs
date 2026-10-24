@@ -46,12 +46,25 @@ pub fn autosave_activate_untitled(
     language_hint: String,
     eol: String,
     encoding: String,
+    replace_current: Option<bool>,
 ) -> Result<(), String> {
     let format = TextFormat {
         eol: Eol::parse(&eol)?,
         encoding: CharacterEncoding::parse(&encoding)?,
     };
-    registry.activate_untitled(window.label(), language_hint, format);
+    if replace_current.unwrap_or(false) {
+        // Explicit New Slate follows a successful flush and must replace a
+        // saved slate registration; initial/reactive activation stays idempotent.
+        registry.register(
+            window.label(),
+            None,
+            FileSource::Slates,
+            language_hint,
+            format,
+        );
+    } else {
+        registry.activate_untitled(window.label(), language_hint, format);
+    }
     windows.release_active(window.label());
     Ok(())
 }
@@ -244,7 +257,8 @@ pub async fn autosave_submit_content(
 
                 // Notify the frontend of the new path so it can update
                 // activeDocument and the title bar.
-                let _ = window.emit(
+                let _ = window.emit_to(
+                    window.label(),
                     AUTOSAVE_DOCUMENT_CREATED_EVENT,
                     DocumentCreatedPayload {
                         path: result.path,
@@ -289,6 +303,7 @@ pub async fn autosave_flush_before_switch(
     windows: tauri::State<'_, WindowRegistry>,
     content: String,
     generation: u64,
+    keep_active: Option<bool>,
 ) -> Result<(), String> {
     let window_label = window.label().to_string();
 
@@ -314,7 +329,9 @@ pub async fn autosave_flush_before_switch(
 
     // Only flush slate files
     if !matches!(doc_info.source, FileSource::Slates) || !doc_info.is_dirty {
-        registry.unregister(&window_label);
+        if !keep_active.unwrap_or(false) {
+            registry.unregister(&window_label);
+        }
         return Ok(());
     }
 
@@ -322,7 +339,7 @@ pub async fn autosave_flush_before_switch(
     let (save_content, save_generation) = if doc_info.csv_table_active {
         // Serialize directly from CsvSession
         match csv_registry.try_flush_for_autosave(&window_label) {
-            Some((version, text)) => (text, version),
+            Some((_version, text)) => (text, doc_info.generation),
             None => (content.clone(), generation),
         }
     } else {
@@ -394,7 +411,8 @@ pub async fn autosave_flush_before_switch(
                 // Emit document-created so FE can update its state
                 // (though the FE is about to switch documents, it may
                 // still need the path for sidebar consistency).
-                let _ = window.emit(
+                let _ = window.emit_to(
+                    window.label(),
                     AUTOSAVE_DOCUMENT_CREATED_EVENT,
                     DocumentCreatedPayload {
                         path: result.path,
@@ -407,8 +425,10 @@ pub async fn autosave_flush_before_switch(
         }
     }
 
-    // Unregister — the next file will re-register
-    registry.unregister(&window_label);
+    // A prepared switch retains autosave until ownership activation succeeds.
+    if !keep_active.unwrap_or(false) {
+        registry.unregister(&window_label);
+    }
     Ok(())
 }
 
@@ -598,7 +618,8 @@ pub(crate) async fn flush_before_exit(
     let Some(request_id) = registry.begin_close_content_request(&label) else {
         return Ok(());
     };
-    let _ = window.emit(
+    let _ = window.emit_to(
+        window.label(),
         AUTOSAVE_FLUSH_BEFORE_CLOSE_EVENT,
         ContentRequestPayload { request_id },
     );

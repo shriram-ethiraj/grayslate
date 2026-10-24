@@ -1,6 +1,10 @@
 import type { RecentFileRecord } from "$lib/files/recentFiles";
 
-export type UnsavedChangesChoice = "save" | "discard" | "cancel";
+export type UnsavedChangesChoice = "save" | "discard" | "cancel" | "new-window";
+export type UnsavedChangesAlternative =
+    | "open-in-new-window"
+    | "open-all-in-new-windows"
+    | "create-in-new-window";
 
 /**
  * Discriminated union covering every app-level dialog.  Only one dialog can be
@@ -14,36 +18,59 @@ export type AppDialogState =
     | { type: "keyboard-shortcuts" }
     | { type: "delete"; file: RecentFileRecord }
     | { type: "rename"; file: RecentFileRecord }
-    | { type: "unsaved-changes"; resolve: (choice: UnsavedChangesChoice) => void };
+    | {
+        type: "unsaved-changes";
+        alternative?: UnsavedChangesAlternative;
+        resolve: (choice: UnsavedChangesChoice) => void;
+    };
 
 export const appDialogsState = $state<{ active: AppDialogState }>({
     active: { type: "none" },
 });
 
 export function openAboutAppDialog(): void {
+    if (appDialogsState.active.type === "unsaved-changes") return;
     appDialogsState.active = { type: "about" };
 }
 
 export function openSettingsAppDialog(): void {
+    if (appDialogsState.active.type === "unsaved-changes") return;
     appDialogsState.active = { type: "settings" };
 }
 
 export function openKeyboardShortcutsAppDialog(): void {
+    if (appDialogsState.active.type === "unsaved-changes") return;
     appDialogsState.active = { type: "keyboard-shortcuts" };
 }
 
 export function openDeleteFileDialog(file: RecentFileRecord): void {
+    if (appDialogsState.active.type === "unsaved-changes") return;
     appDialogsState.active = { type: "delete", file };
 }
 
 export function openRenameFileDialog(file: RecentFileRecord): void {
+    if (appDialogsState.active.type === "unsaved-changes") return;
     appDialogsState.active = { type: "rename", file };
 }
 
-export function openUnsavedChangesDialog(resolve: (choice: UnsavedChangesChoice) => void): void {
-    appDialogsState.active = { type: "unsaved-changes", resolve };
+export function openUnsavedChangesDialog(
+    resolve: (choice: UnsavedChangesChoice) => void,
+    alternative?: UnsavedChangesAlternative,
+): void {
+    appDialogsState.active = { type: "unsaved-changes", alternative, resolve };
 }
 
 export function closeAppDialog(): void {
     appDialogsState.active = { type: "none" };
+    for (const resolve of dialogWaiters) resolve();
+    dialogWaiters.clear();
+}
+
+const dialogWaiters = new Set<() => void>();
+
+/** A queued transition must not replace Settings, Rename, or another prompt. */
+export async function waitForAppDialogSlot(): Promise<void> {
+    while (appDialogsState.active.type !== "none") {
+        await new Promise<void>((resolve) => dialogWaiters.add(resolve));
+    }
 }

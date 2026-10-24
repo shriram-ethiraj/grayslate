@@ -201,12 +201,13 @@ mod tests {
     #[test]
     fn ts_lang_extensions_real_file() {
         // Regression: languageExtensions.ts previously produced FALLBACK.
-        // The JsTs regex extractor now covers this case.
+        // The current loader registry starts with a named type alias, which
+        // takes precedence over the exported function later in the file.
         let content = include_str!(
             "../../../src/lib/editor/config/languageExtensions.ts"
         );
         let stem = suggest_stem(content, "typescript");
-        assert_eq!(stem.as_deref(), Some("get-language-extension"), "got: {stem:?}");
+        assert_eq!(stem.as_deref(), Some("language-extension-loader"), "got: {stem:?}");
     }
 
     #[test]

@@ -14,7 +14,7 @@
 	const title = $derived(
 		fileCount === 1
 			? "Open in Grayslate"
-			: `Add ${fileCount} files to Grayslate`,
+			: `Open ${fileCount} files in Grayslate`,
 	);
 	const description = $derived(
 		appDialogsState.active.type !== "none"
@@ -23,7 +23,7 @@
 				: "Release now — they’ll be queued until the dialog closes"
 			: fileCount === 1
 				? "Release anywhere in this window"
-				: "Release anywhere — the last file opens",
+				: "The last file opens here; the others open in separate windows",
 	);
 
 	function handleDragDrop(event: DragDropEvent): void {

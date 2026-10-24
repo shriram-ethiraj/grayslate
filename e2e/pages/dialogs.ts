@@ -39,6 +39,9 @@ export const unsavedChanges = {
   async cancel(): Promise<void> {
     await clickTestId("unsaved-cancel");
   },
+  async newWindow(): Promise<void> {
+    await clickTestId("unsaved-new-window");
+  },
 };
 
 // ── Delete confirmation ────────────────────────────────────────────────────
@@ -131,6 +134,10 @@ export const encodingConfirmation = {
   },
   async accept(): Promise<void> {
     await clickTestId("encoding-confirmation-accept");
+  },
+  async cancel(): Promise<void> {
+    await pressEscape();
+    await waitForTestId("encoding-confirmation-dialog", { reverse: true });
   },
 };
 

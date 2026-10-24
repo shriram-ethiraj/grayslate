@@ -178,6 +178,11 @@ export function makeConfig(suites?: SuiteName[]): WebdriverIO.Config {
         );
       }
       await browser.switchToWindow(handles[0]!);
+      // Mark selection as explicit in the Tauri service too. Raw WebDriver
+      // switches alone leave its auto-focus hook enabled: inspecting a
+      // background window can silently jump back to the native focused one,
+      // causing a subsequent Close click to destroy the wrong window.
+      await browser.tauri.switchWindow("main");
       // Give the app a predictable, generous viewport. At the default size the
       // sidebar header's controls overlap the search input.
       await browser.setWindowSize(1440, 900).catch(() => {

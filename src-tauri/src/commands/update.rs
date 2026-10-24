@@ -557,7 +557,11 @@ async fn request_install_approval(
         request_id,
         restore_update_dialog: window_label == initiating_window_label,
     };
-    if let Err(error) = window.emit(UPDATE_INSTALL_PREFLIGHT_EVENT, payload.clone()) {
+    if let Err(error) = window.emit_to(
+        window.label(),
+        UPDATE_INSTALL_PREFLIGHT_EVENT,
+        payload.clone(),
+    ) {
         operations.clear_install_approval(&window_label, request_id);
         return Err(UpdateCommandError::new(
             "preflight-failed",
@@ -592,7 +596,11 @@ async fn request_install_approval(
             // A newly-created renderer may not have registered its listener
             // when the first event was sent. Reusing the same request token is
             // safe because the frontend de-duplicates it.
-            let _ = window.emit(UPDATE_INSTALL_PREFLIGHT_EVENT, payload.clone());
+            let _ = window.emit_to(
+                window.label(),
+                UPDATE_INSTALL_PREFLIGHT_EVENT,
+                payload.clone(),
+            );
             last_emitted_at = std::time::Instant::now();
         }
     }

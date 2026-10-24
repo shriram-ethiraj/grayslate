@@ -9,32 +9,45 @@ use tauri::{Emitter, Manager};
 use url::Url;
 
 use crate::{
-    document::{classify_existing_document, DocumentDescriptor, DocumentRegistry, DocumentRights},
+    document::{
+        classify_existing_document, AuthorizedDocument, DocumentDescriptor, DocumentRegistry,
+        DocumentRights,
+    },
     storage::AppStorage,
     window::WindowRegistry,
 };
 
 use super::{file::MAX_FILE_SIZE, RECENT_FILES_UPDATED_EVENT};
 
+pub const MAX_FILES_PER_OPEN_REQUEST: usize = 50;
+
 pub const EXTERNAL_OPEN_PENDING_EVENT: &str = "files://external-open-pending";
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExternalOpenRequest {
-    pub document: Option<DocumentDescriptor>,
+    pub request_id: String,
+    pub preserve_current: bool,
+    pub duplicate_count: usize,
+    pub limit_skipped_count: usize,
+    pub documents: Vec<DocumentDescriptor>,
     pub requested_count: usize,
     pub accepted_count: usize,
     pub newly_tracked_count: usize,
     pub skipped_count: usize,
+    pub routing_failure_count: usize,
 }
 
 #[derive(Default)]
 pub struct ExternalOpenState {
     pending: Mutex<HashMap<String, VecDeque<ExternalOpenRequest>>>,
+    in_flight: Mutex<HashMap<String, ExternalOpenRequest>>,
     dropped: Mutex<DroppedPathQueue>,
+    prepared: tokio::sync::Notify,
 }
 
 struct DroppedPathBatch {
+    preserve_current: bool,
     window_label: String,
     paths: Vec<PathBuf>,
 }
@@ -97,25 +110,52 @@ impl ExternalOpenState {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let pending = all_pending.get_mut(window_label)?;
-        let mut merged = pending.pop_front()?;
-        for request in pending.drain(..) {
-            if request.document.is_some() {
-                merged.document = request.document;
-            }
-            merged.requested_count += request.requested_count;
-            merged.accepted_count += request.accepted_count;
-            merged.newly_tracked_count += request.newly_tracked_count;
-            merged.skipped_count += request.skipped_count;
+        let request = pending.pop_front();
+        if pending.is_empty() {
+            all_pending.remove(window_label);
         }
-        all_pending.remove(window_label);
-        Some(merged)
+        if let Some(request) = &request {
+            self.in_flight
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .insert(window_label.to_string(), request.clone());
+        }
+        request
     }
 
-    pub fn cleanup_window(&self, window_label: &str) {
-        self.pending
+    fn complete(&self, window_label: &str, request_id: &str) {
+        let mut in_flight = self.in_flight.lock().unwrap_or_else(|p| p.into_inner());
+        if in_flight
+            .get(window_label)
+            .is_some_and(|request| request.request_id == request_id)
+        {
+            in_flight.remove(window_label);
+        }
+    }
+
+    pub fn cleanup_window(&self, window_label: &str) -> Vec<Vec<PathBuf>> {
+        let mut pending = self.pending.lock().unwrap_or_else(|p| p.into_inner());
+        let mut requests = Vec::new();
+        if let Some(request) = self
+            .in_flight
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .remove(window_label);
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(window_label)
+        {
+            requests.push(request);
+        }
+        requests.extend(pending.remove(window_label).unwrap_or_default());
+        requests
+            .into_iter()
+            .filter(|request| request.preserve_current)
+            .map(|request| {
+                request
+                    .documents
+                    .into_iter()
+                    .map(|document| PathBuf::from(document.display_path))
+                    .collect()
+            })
+            .collect()
     }
 
     /// Returns true only for the caller responsible for starting the worker.
@@ -140,8 +180,26 @@ impl ExternalOpenState {
         let batch = dropped.batches.pop_front();
         if batch.is_none() {
             dropped.worker_running = false;
+            self.prepared.notify_waiters();
         }
         batch
+    }
+
+    async fn wait_for_preparation(&self) {
+        loop {
+            let prepared = self.prepared.notified();
+            tokio::pin!(prepared);
+            prepared.as_mut().enable();
+            if !self
+                .dropped
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .worker_running
+            {
+                return;
+            }
+            prepared.await;
+        }
     }
 
     #[cfg(feature = "e2e")]
@@ -172,7 +230,11 @@ pub fn enqueue_cli_activation(
         .into_iter()
         .filter_map(|argument| argument_to_path(&argument, cwd))
         .collect::<Vec<_>>();
-    enqueue_path_activation(app, paths);
+    if activation_states_ready(app) {
+        enqueue_paths_to_preferred_window(app, paths);
+    } else {
+        enqueue_path_activation(app, paths);
+    }
 }
 
 pub fn enqueue_initial_activation(app: &tauri::AppHandle) {
@@ -206,6 +268,7 @@ fn activation_states_ready(app: &tauri::AppHandle) -> bool {
     app.try_state::<AppStorage>().is_some()
         && app.try_state::<DocumentRegistry>().is_some()
         && app.try_state::<ExternalOpenState>().is_some()
+        && app.try_state::<WindowRegistry>().is_some()
 }
 
 fn stage_and_drain_if_ready(
@@ -243,12 +306,15 @@ pub fn flush_staged_path_activations(app: &tauri::AppHandle) {
     }
 }
 
-fn enqueue_paths_to_preferred_window(app: &tauri::AppHandle, paths: Vec<PathBuf>) {
-    let label = app
-        .state::<WindowRegistry>()
-        .preferred_window_label(app)
-        .unwrap_or_else(|| "main".to_string());
-    enqueue_paths(app, &label, paths);
+pub fn enqueue_paths_to_preferred_window(app: &tauri::AppHandle, paths: Vec<PathBuf>) {
+    enqueue_native_batch(
+        app,
+        DroppedPathBatch {
+            window_label: String::new(),
+            preserve_current: true,
+            paths,
+        },
+    );
 }
 
 #[cfg(any(target_os = "macos", test))]
@@ -260,7 +326,8 @@ fn opened_urls_to_paths(urls: impl IntoIterator<Item = Url>) -> Vec<PathBuf> {
 
 #[cfg(target_os = "macos")]
 pub fn enqueue_opened_urls(app: &tauri::AppHandle, urls: Vec<Url>) {
-    enqueue_path_activation(app, opened_urls_to_paths(urls));
+    let paths = opened_urls_to_paths(urls);
+    enqueue_path_activation(app, paths);
 }
 
 /// Accept file paths supplied by Tauri's native drag/drop window event.
@@ -269,25 +336,68 @@ pub fn enqueue_opened_urls(app: &tauri::AppHandle, urls: Vec<Url>) {
 /// accepts arbitrary paths would let untrusted webview code forge a drop and
 /// grant itself filesystem access without a native user gesture.
 pub fn enqueue_dropped_paths(app: &tauri::AppHandle, window_label: &str, paths: Vec<PathBuf>) {
-    if paths.is_empty() {
+    enqueue_native_batch(
+        app,
+        DroppedPathBatch {
+            window_label: window_label.to_string(),
+            preserve_current: false,
+            paths,
+        },
+    );
+}
+
+fn enqueue_native_batch(app: &tauri::AppHandle, batch: DroppedPathBatch) {
+    if batch.paths.is_empty() {
         return;
     }
-
     let state = app.state::<ExternalOpenState>();
-    let should_start_worker = state.push_dropped(DroppedPathBatch {
-        window_label: window_label.to_string(),
-        paths,
-    });
-    if !should_start_worker {
+    if !state.push_dropped(batch) {
         return;
     }
-
     let worker_app = app.clone();
     tauri::async_runtime::spawn_blocking(move || loop {
         let Some(batch) = worker_app.state::<ExternalOpenState>().pop_dropped() else {
             return;
         };
-        enqueue_paths(&worker_app, &batch.window_label, batch.paths);
+        let label = if batch.preserve_current {
+            #[cfg(target_os = "macos")]
+            if worker_app
+                .state::<WindowRegistry>()
+                .preferred_window_label(&worker_app)
+                .is_none()
+            {
+                let _ = crate::window::reopen_or_create_main_window(&worker_app);
+            }
+            worker_app
+                .state::<WindowRegistry>()
+                .preferred_window_label(&worker_app)
+        } else {
+            worker_app
+                .get_webview_window(&batch.window_label)
+                .map(|_| batch.window_label.clone())
+        };
+        let Some(label) = label else {
+            continue;
+        };
+        let mut request = prepare_document_batch(&worker_app, &label, batch.paths.clone());
+        request.preserve_current = batch.preserve_current;
+        // Do not recreate grants/queues for a window destroyed during preparation.
+        // The registry lock serializes this check with Destroyed cleanup.
+        let queued = worker_app
+            .state::<WindowRegistry>()
+            .while_window_live(&label, || {
+                worker_app
+                    .state::<ExternalOpenState>()
+                    .push(&label, request);
+            });
+        if queued {
+            let _ = worker_app.emit_to(&*label, EXTERNAL_OPEN_PENDING_EVENT, ());
+        } else {
+            worker_app.state::<DocumentRegistry>().revoke_window(&label);
+            if batch.preserve_current {
+                worker_app.state::<ExternalOpenState>().push_dropped(batch);
+            }
+        }
     });
 }
 
@@ -316,35 +426,35 @@ fn argument_to_path(argument: &str, cwd: &Path) -> Option<PathBuf> {
     })
 }
 
-fn enqueue_paths(app: &tauri::AppHandle, window_label: &str, paths: Vec<PathBuf>) {
+struct PreparedPaths {
+    documents: Vec<AuthorizedDocument>,
+    requested_count: usize,
+    newly_tracked_count: usize,
+    skipped_count: usize,
+    duplicate_count: usize,
+    limit_skipped_count: usize,
+}
+
+fn prepare_paths(app: &tauri::AppHandle, window_label: &str, paths: Vec<PathBuf>) -> PreparedPaths {
     if paths.is_empty() {
-        return;
+        return PreparedPaths {
+            documents: Vec::new(),
+            requested_count: 0,
+            newly_tracked_count: 0,
+            skipped_count: 0,
+            duplicate_count: 0,
+            limit_skipped_count: 0,
+        };
     }
 
     let requested_count = paths.len();
     let storage = app.state::<AppStorage>();
     let documents = app.state::<DocumentRegistry>();
-    let mut candidates = Vec::new();
-    let mut accepted_paths = HashSet::new();
-
-    // Iterate from the end so duplicate paths keep their final OS ordering.
-    // Reverse once more before tracking so recency also follows OS ordering.
-    for path in paths.into_iter().rev() {
-        let Ok((canonical, source)) = classify_existing_document(app, &storage, &path) else {
-            continue;
-        };
-        if !accepted_paths.insert(canonical.clone()) {
-            continue;
-        }
-        let Ok(metadata) = std::fs::metadata(&canonical) else {
-            continue;
-        };
-        if metadata.len() > MAX_FILE_SIZE {
-            continue;
-        }
-        candidates.push((canonical, source));
-    }
-    candidates.reverse();
+    let (candidates, duplicate_count, limit_skipped_count) = select_candidates(paths, |path| {
+        let (canonical, source) = classify_existing_document(app, &storage, path).ok()?;
+        let metadata = std::fs::metadata(&canonical).ok()?;
+        (metadata.len() <= MAX_FILE_SIZE).then_some((canonical, source))
+    });
 
     let mut accepted = Vec::new();
     let mut newly_tracked_count = 0;
@@ -360,49 +470,117 @@ fn enqueue_paths(app: &tauri::AppHandle, window_label: &str, paths: Vec<PathBuf>
         }
     }
 
-    let document = accepted.last().and_then(|(path, source)| {
-        documents
-            .grant_existing(
-                window_label,
-                path,
-                *source,
-                DocumentRights::tracked(*source),
-            )
-            .map(|document| document.descriptor())
-            .map_err(|error| {
-                eprintln!("[External Open] Failed to authorize an incoming file: {error}");
-                error
-            })
-            .ok()
-    });
+    let granted = accepted
+        .iter()
+        .filter_map(|(path, source)| {
+            documents
+                .grant_existing(
+                    window_label,
+                    path,
+                    *source,
+                    DocumentRights::tracked(*source),
+                )
+                .map_err(|error| {
+                    eprintln!("[External Open] Failed to authorize an incoming file: {error}");
+                    error
+                })
+                .ok()
+        })
+        .collect::<Vec<_>>();
 
-    let accepted_count = accepted.len();
-    let skipped_count = requested_count.saturating_sub(accepted_count);
+    let accepted_count = granted.len();
+    let skipped_count =
+        requested_count.saturating_sub(accepted_count + duplicate_count + limit_skipped_count);
     if newly_tracked_count > 0 {
         let _ = app.emit(RECENT_FILES_UPDATED_EVENT, ());
     }
 
-    app.state::<ExternalOpenState>().push(
-        window_label,
-        ExternalOpenRequest {
-            document,
-            requested_count,
-            accepted_count,
-            newly_tracked_count,
-            skipped_count,
-        },
-    );
-    if let Some(window) = app.get_webview_window(window_label) {
-        let _ = window.emit(EXTERNAL_OPEN_PENDING_EVENT, ());
+    PreparedPaths {
+        documents: granted,
+        requested_count,
+        newly_tracked_count,
+        skipped_count,
+        duplicate_count,
+        limit_skipped_count,
     }
 }
 
+pub(crate) async fn prepare_document_batch_async(
+    app: tauri::AppHandle,
+    window_label: String,
+    paths: Vec<PathBuf>,
+) -> Result<ExternalOpenRequest, String> {
+    tauri::async_runtime::spawn_blocking(move || prepare_document_batch(&app, &window_label, paths))
+        .await
+        .map_err(|error| format!("File preparation failed: {error}"))
+}
+
+pub(crate) fn prepare_document_batch(
+    app: &tauri::AppHandle,
+    window_label: &str,
+    paths: Vec<PathBuf>,
+) -> ExternalOpenRequest {
+    let prepared = prepare_paths(app, window_label, paths);
+    ExternalOpenRequest {
+        request_id: uuid::Uuid::now_v7().to_string(),
+        preserve_current: false,
+        duplicate_count: prepared.duplicate_count,
+        limit_skipped_count: prepared.limit_skipped_count,
+        accepted_count: prepared.documents.len(),
+        documents: prepared
+            .documents
+            .into_iter()
+            .map(|document| document.descriptor())
+            .collect(),
+        requested_count: prepared.requested_count,
+        newly_tracked_count: prepared.newly_tracked_count,
+        skipped_count: prepared.skipped_count,
+        routing_failure_count: 0,
+    }
+}
+
+/// Deduplicate validated identities before imposing the per-request allowance.
+/// Keeping the last occurrence preserves the existing OS ordering contract.
+fn select_candidates<T>(
+    paths: Vec<PathBuf>,
+    mut validate: impl FnMut(&Path) -> Option<(PathBuf, T)>,
+) -> (Vec<(PathBuf, T)>, usize, usize) {
+    let mut candidates = Vec::new();
+    let mut seen = HashSet::new();
+    let mut duplicates = 0;
+    for path in paths.into_iter().rev() {
+        let Some((canonical, value)) = validate(&path) else {
+            continue;
+        };
+        if !seen.insert(canonical.clone()) {
+            duplicates += 1;
+            continue;
+        }
+        candidates.push((canonical, value));
+    }
+    candidates.reverse();
+    let overflow = candidates.len().saturating_sub(MAX_FILES_PER_OPEN_REQUEST);
+    candidates.truncate(MAX_FILES_PER_OPEN_REQUEST);
+    (candidates, duplicates, overflow)
+}
+
 #[tauri::command]
-pub fn take_external_open_request(
+pub fn complete_external_open_request(
     window: tauri::Window,
     state: tauri::State<'_, ExternalOpenState>,
-) -> Option<ExternalOpenRequest> {
-    state.pop(window.label())
+    request_id: String,
+) {
+    state.complete(window.label(), &request_id);
+}
+
+#[tauri::command]
+pub async fn take_external_open_request(
+    window: tauri::Window,
+    state: tauri::State<'_, ExternalOpenState>,
+) -> Result<Option<ExternalOpenRequest>, String> {
+    // A cold launch must observe native input before considering last-file restoration.
+    state.wait_for_preparation().await;
+    Ok(state.pop(window.label()))
 }
 
 #[cfg(test)]
@@ -417,19 +595,88 @@ mod tests {
         skipped_count: usize,
     ) -> ExternalOpenRequest {
         ExternalOpenRequest {
-            document: path.map(|display_path| DocumentDescriptor {
-                document_id: display_path.to_string(),
-                generation: 1,
-                display_path: display_path.to_string(),
-                file_name: display_path.to_string(),
-                source: "local".to_string(),
-                writable: true,
-            }),
+            request_id: uuid::Uuid::now_v7().to_string(),
+            preserve_current: false,
+            duplicate_count: 0,
+            limit_skipped_count: 0,
+            documents: path
+                .into_iter()
+                .map(|display_path| DocumentDescriptor {
+                    document_id: display_path.to_string(),
+                    generation: 1,
+                    display_path: display_path.to_string(),
+                    file_name: display_path.to_string(),
+                    source: "local".to_string(),
+                    writable: true,
+                })
+                .collect(),
             requested_count,
             accepted_count,
             newly_tracked_count,
             skipped_count,
+            routing_failure_count: 0,
         }
+    }
+
+    #[test]
+    fn file_allowance_is_fifty_per_request_not_a_process_window_limit() {
+        for count in [49usize, 50, 51, 100, 50] {
+            let paths = (0..count)
+                .map(|i| PathBuf::from(format!("file-{i}")))
+                .collect();
+            let (accepted, duplicates, overflow) =
+                select_candidates(paths, |path| Some((path.to_path_buf(), ())));
+            assert_eq!(accepted.len(), count.min(50));
+            assert_eq!(duplicates, 0);
+            assert_eq!(overflow, count.saturating_sub(50));
+            assert_eq!(accepted.first().unwrap().0, PathBuf::from("file-0"));
+            assert_eq!(
+                accepted.last().unwrap().0,
+                PathBuf::from(format!("file-{}", count.min(50) - 1))
+            );
+        }
+    }
+
+    #[test]
+    fn duplicates_and_invalid_paths_do_not_consume_the_allowance() {
+        let mut paths = vec![PathBuf::from("file-0"), PathBuf::from("missing")];
+        paths.extend((0..51).map(|i| PathBuf::from(format!("file-{i}"))));
+        let (accepted, duplicates, overflow) = select_candidates(paths, |path| {
+            (path != Path::new("missing")).then(|| (path.to_path_buf(), ()))
+        });
+        assert_eq!(accepted.len(), 50);
+        assert_eq!(duplicates, 1);
+        assert_eq!(overflow, 1);
+        let (accepted, duplicates, _) = select_candidates(
+            ["a", "b", "a", "c", "b"].map(PathBuf::from).to_vec(),
+            |path| Some((path.to_path_buf(), ())),
+        );
+        assert_eq!(
+            accepted
+                .iter()
+                .map(|(path, _)| path.clone())
+                .collect::<Vec<_>>(),
+            ["a", "c", "b"].map(PathBuf::from)
+        );
+        assert_eq!(duplicates, 2);
+    }
+
+    #[test]
+    fn closing_receiver_replays_only_unacknowledged_os_requests() {
+        let state = ExternalOpenState::default();
+        let mut os = request(Some("os.txt"), 1, 1, 1, 0);
+        os.preserve_current = true;
+        state.push("main", os.clone());
+        state.pop("main");
+        state.push("main", request(Some("drop.txt"), 1, 1, 1, 0));
+        assert_eq!(
+            state.cleanup_window("main"),
+            vec![vec![PathBuf::from("os.txt")]]
+        );
+        state.push("main", os.clone());
+        state.pop("main");
+        state.complete("main", &os.request_id);
+        assert!(state.cleanup_window("main").is_empty());
     }
 
     #[test]
@@ -511,22 +758,31 @@ mod tests {
     }
 
     #[test]
-    fn pending_requests_merge_counts_and_keep_the_last_document() {
+    fn pending_requests_remain_fifo() {
         let state = ExternalOpenState::default();
         state.push("main", request(Some("first.txt"), 2, 1, 1, 1));
         state.push("main", request(None, 1, 0, 0, 1));
         state.push("main", request(Some("last.txt"), 3, 3, 2, 0));
 
-        let merged = state.pop("main").expect("queued requests should merge");
-        assert_eq!(merged.requested_count, 6);
-        assert_eq!(merged.accepted_count, 4);
-        assert_eq!(merged.newly_tracked_count, 3);
-        assert_eq!(merged.skipped_count, 2);
+        let first = state
+            .pop("main")
+            .expect("first request should remain queued");
+        assert_eq!(first.requested_count, 2);
         assert_eq!(
-            merged.document.map(|document| document.display_path),
-            Some("last.txt".to_string())
+            first
+                .documents
+                .first()
+                .map(|document| document.display_path.as_str()),
+            Some("first.txt")
         );
-        assert!(state.pop("main").is_none());
+        assert_eq!(
+            state.pop("main").map(|request| request.requested_count),
+            Some(1)
+        );
+        assert_eq!(
+            state.pop("main").map(|request| request.requested_count),
+            Some(3)
+        );
     }
 
     #[test]
@@ -538,14 +794,14 @@ mod tests {
         assert_eq!(
             state
                 .pop("editor-1")
-                .and_then(|request| request.document)
+                .and_then(|request| request.documents.into_iter().next())
                 .map(|document| document.display_path),
             Some("other.txt".to_string())
         );
         assert_eq!(
             state
                 .pop("main")
-                .and_then(|request| request.document)
+                .and_then(|request| request.documents.into_iter().next())
                 .map(|document| document.display_path),
             Some("main.txt".to_string())
         );
@@ -555,10 +811,12 @@ mod tests {
     fn dropped_batches_are_fifo_and_only_start_one_worker() {
         let state = ExternalOpenState::default();
         assert!(state.push_dropped(DroppedPathBatch {
+            preserve_current: false,
             window_label: "first".to_string(),
             paths: vec![PathBuf::from("first.txt")],
         }));
         assert!(!state.push_dropped(DroppedPathBatch {
+            preserve_current: false,
             window_label: "second".to_string(),
             paths: vec![PathBuf::from("second.txt")],
         }));
@@ -574,6 +832,7 @@ mod tests {
         assert!(state.pop_dropped().is_none());
 
         assert!(state.push_dropped(DroppedPathBatch {
+            preserve_current: false,
             window_label: "third".to_string(),
             paths: vec![PathBuf::from("third.txt")],
         }));

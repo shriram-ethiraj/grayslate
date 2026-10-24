@@ -114,6 +114,7 @@
       delimiter: "",
       errors: 0,
       liveMirrorEnabled: false,
+      version: 0,
     }),
     onMirrorReset,
     onMirrorUpdate,
@@ -176,6 +177,7 @@
       delimiter: "",
       errors: 0,
       liveMirrorEnabled: false,
+      version: 0,
     };
     csvEditorState.dispose();
   }
@@ -512,6 +514,7 @@
       delimiter: delimiterLabel,
       errors: snapshot.errors.length,
       liveMirrorEnabled: snapshot.liveMirrorEnabled,
+      version: snapshot.version,
     };
   });
 

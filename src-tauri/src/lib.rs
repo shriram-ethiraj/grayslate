@@ -92,9 +92,7 @@ pub fn run() {
     // render drop feedback; it cannot authorize paths itself.
     let builder = builder.on_window_event(|window, event| match event {
         tauri::WindowEvent::Focused(true) => {
-            if let Some(registry) = window.app_handle().try_state::<window::WindowRegistry>() {
-                registry.note_focused(window.label());
-            }
+            window::record_focused_window(window.app_handle(), window.label());
             #[cfg(target_os = "macos")]
             menu::sync_native_menu_for_window(window.app_handle(), window.label());
         }
@@ -155,7 +153,12 @@ pub fn run() {
                 .app_handle()
                 .try_state::<commands::external_open::ExternalOpenState>()
             {
-                state.cleanup_window(window.label());
+                for paths in state.cleanup_window(window.label()) {
+                    commands::external_open::enqueue_paths_to_preferred_window(
+                        window.app_handle(),
+                        paths,
+                    );
+                }
             }
             if let Some(state) = window
                 .app_handle()
@@ -254,7 +257,12 @@ pub fn run() {
             commands::file::cancel_file_read,
             window::cancel_document_open,
             window::claim_document_open,
+            window::complete_window_startup,
+            window::complete_document_open,
+            window::wait_document_open,
+            commands::external_open::complete_external_open_request,
             window::create_editor_window,
+            window::focus_current_window,
             commands::file::delete_file,
             commands::file::duplicate_file,
             commands::file::untrack_local_file,

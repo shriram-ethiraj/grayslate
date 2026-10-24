@@ -8,8 +8,6 @@
   import Minus from "~icons/lucide/minus";
   import X from "~icons/lucide/x";
   import { toast } from "$lib/components/ui/sonner";
-  import { notifyFileAlreadyOpen } from "$lib/files/recentFiles";
-
   import { editorState } from "$lib/state/editor.svelte";
   import {
     decreaseEditorFontSize,
@@ -29,6 +27,7 @@
     openKeyboardShortcutsAppDialog,
     openSettingsAppDialog,
   } from "$lib/state/appDialogs.svelte";
+  import { enqueueDocumentTransition } from "$lib/state/documentTransitions";
   import { confirmBeforeLeavingDocument } from "$lib/state/unsavedChangesGuard.svelte";
   import {
     handleFocusedTextEdit,
@@ -49,7 +48,6 @@
   import {
     createBlankWindow,
     emitToCurrentWindow,
-    pickDocumentIntoNewWindow,
   } from "$lib/windowing";
 
   const appWindow = getCurrentWindow();
@@ -130,7 +128,6 @@
   let unlistenWordWrap: (() => void) | undefined;
   let unlistenViewAction: (() => void) | undefined;
   let unlistenNewWindow: (() => void) | undefined;
-  let unlistenOpenFileNewWindow: (() => void) | undefined;
 
   // --- Linux / WebKitGTK first-click fix ---
   // WebKitGTK swallows the first pointerdown as a "focus the webview" event,
@@ -161,20 +158,25 @@
     unlistenCloseRequested = await appWindow.onCloseRequested(async (event) => {
       event.preventDefault();
 
-      const canClose = await confirmBeforeLeavingDocument();
-      if (!canClose) {
-        return;
-      }
+      await enqueueDocumentTransition(async () => {
+        const canClose = await confirmBeforeLeavingDocument();
+        if (!canClose) {
+          return;
+        }
 
-      // A failed flush deliberately keeps the window open so text is never
-      // discarded because its selected encoding cannot be written.
-      markE2EClosing();
-      await invoke("prepare_close").catch((error: unknown) => {
-        markE2EReady();
-        console.error("Close: prepare_close failed:", error);
-        toast.error(typeof error === "string"
-          ? error
-          : "Could not save this slate. The window was kept open.");
+        // A failed flush deliberately keeps the window open so text is never
+        // discarded because its selected encoding cannot be written.
+        markE2EClosing();
+        await (async () => {
+          await editorState.flushCurrentSlate?.();
+          await invoke("prepare_close");
+        })().catch((error: unknown) => {
+          markE2EReady();
+          console.error("Close: prepare_close failed:", error);
+          toast.error(typeof error === "string"
+            ? error
+            : "Could not save this slate. The window was kept open.");
+        });
       });
     });
 
@@ -200,10 +202,6 @@
 
       unlistenNewWindow = await appWindow.listen("menu://new-window", () => {
         void handleNewWindow();
-      });
-
-      unlistenOpenFileNewWindow = await appWindow.listen("menu://open-file-new-window", () => {
-        void handleOpenInNewWindow();
       });
 
       unlistenEditAction = await appWindow.listen<EditAction>(
@@ -239,7 +237,6 @@
     unlistenWordWrap?.();
     unlistenViewAction?.();
     unlistenNewWindow?.();
-    unlistenOpenFileNewWindow?.();
     unlistenResize?.();
     unlistenCloseRequested?.();
   });
@@ -277,20 +274,7 @@
   }
 
   async function handleOpenInNewWindow() {
-    try {
-      const picked = await pickDocumentIntoNewWindow();
-      if (
-        picked?.result.kind === "focused-existing" &&
-        (
-          editorState.currentDocumentId === picked.document.documentId ||
-          editorState.currentFilePath === picked.document.displayPath
-        )
-      ) {
-        notifyFileAlreadyOpen(picked.document.fileName || picked.document.displayPath);
-      }
-    } catch (error) {
-      toast.error(typeof error === "string" ? error : "Could not open the file in a new window.");
-    }
+    await emitToCurrentWindow("menu://open-file-new-window");
   }
 
   async function handleSave() {
@@ -626,11 +610,11 @@
         </Menubar.Item>
         <Menubar.Separator />
         <Menubar.Item data-testid="menu-open-file" onclick={handleOpen}>
-          Open File...
+          Open Files…
           <Menubar.Shortcut>{formatForDisplay("Mod+O")}</Menubar.Shortcut>
         </Menubar.Item>
         <Menubar.Item data-testid="menu-open-file-new-window" onclick={handleOpenInNewWindow}>
-          Open File in New Window...
+          Open Files in New Windows…
         </Menubar.Item>
         <Menubar.Separator />
         <Menubar.Item

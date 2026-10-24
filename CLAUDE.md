@@ -129,6 +129,7 @@ When generating code or proposing architectural changes, adhere to the following
 > ### CRITICAL: NEVER AUTO-COMMIT
 > **Do not run `git commit` under ANY circumstances.** Not as a "helpful" final step, not in autopilot mode, not to "save" progress. This applies even if you have a commit message template or Co-authored-by trailer available. Stage changes with `git add` if needed, but STOP THERE. The developer commits manually after reviewing staged changes.
 
+- **Branch naming:** Never prefix branch names with `codex/`. Use a conventional change-type prefix such as `feat/`, `fix/`, `bug/`, or `chore/`.
 - Keep `.gitignore` respected (e.g., `node_modules`, `target`, `.svelte-kit`).
 - Verify code works with `pnpm run check` (runs `svelte-check`), `cargo test --manifest-path src-tauri/Cargo.toml` (workspace tests, including `crates/grayslate-langdetect` and `crates/grayslate-langnaming`, which have substantial unit coverage), and compiles with `pnpm run tauri build`.
 - The frontend (Svelte/TypeScript) has no automated test suite (no vitest/playwright configured) — frontend changes need manual verification in the running app.

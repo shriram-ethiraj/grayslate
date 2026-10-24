@@ -890,7 +890,9 @@ pub(crate) fn dispatch_save_actions(app_handle: &tauri::AppHandle, actions: Vec<
             } => {
                 if let Some(window) = app_handle.get_webview_window(&window_label) {
                     let payload = ContentRequestPayload { request_id };
-                    if let Err(e) = window.emit(AUTOSAVE_REQUEST_CONTENT_EVENT, payload) {
+                    if let Err(e) =
+                        window.emit_to(window.label(), AUTOSAVE_REQUEST_CONTENT_EVENT, payload)
+                    {
                         eprintln!("Autosave: failed to emit content request: {}", e);
                         registry.clear_in_flight(&window_label);
                     }
@@ -992,8 +994,11 @@ fn handle_csv_direct_save(
                     eprintln!("{}", e);
                     registry.fail_save(window_label, generation, e.clone());
                     if let Some(window) = app_handle.get_webview_window(window_label) {
-                        let _ = window
-                            .emit(AUTOSAVE_SAVE_FAILED_EVENT, SaveFailedPayload { message: e });
+                        let _ = window.emit_to(
+                            window.label(),
+                            AUTOSAVE_SAVE_FAILED_EVENT,
+                            SaveFailedPayload { message: e },
+                        );
                     }
                 }
             }
@@ -1002,7 +1007,11 @@ fn handle_csv_direct_save(
             let message = "Autosave could not read the active CSV table.".to_string();
             registry.fail_save(window_label, generation, message.clone());
             if let Some(window) = app_handle.get_webview_window(window_label) {
-                let _ = window.emit(AUTOSAVE_SAVE_FAILED_EVENT, SaveFailedPayload { message });
+                let _ = window.emit_to(
+                    window.label(),
+                    AUTOSAVE_SAVE_FAILED_EVENT,
+                    SaveFailedPayload { message },
+                );
             }
         }
     }

@@ -13,7 +13,8 @@ import {
   pressMod,
   typeText,
 } from "../driver/keys.js";
-import { countElements, readCellText } from "../driver/probe.js";
+import { countElements, isSelectorUncovered, readCellText } from "../driver/probe.js";
+import { dismissTransientOverlays } from "../driver/interact.js";
 import { waitFor } from "../driver/wait.js";
 import {
   byTestId,
@@ -33,12 +34,20 @@ import {
  */
 
 export async function enter(): Promise<void> {
-  await clickTestId("action-table-view");
+  await requestEnter();
   await waitForTestId("csv-table", { timeoutMs: TIMEOUTS.heavy });
 }
 
 /** Start table initialization without polling WebDriver concurrently. */
 export async function requestEnter(): Promise<void> {
+  // A tooltip from the preceding toolbar/menu action can cover this toggle.
+  // Move out and observe its dismissal before the click, rather than relying
+  // on an intercepted click and the retry helper to recover.
+  await dismissTransientOverlays();
+  await waitFor(() => isSelectorUncovered("[data-testid='action-table-view']"), {
+    timeoutMs: TIMEOUTS.ui,
+    message: "The CSV table toggle remained covered by another surface.",
+  });
   await clickTestId("action-table-view");
 }
 

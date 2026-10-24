@@ -39,11 +39,16 @@ export interface DocumentDescriptor {
 }
 
 export interface ExternalOpenRequest {
-  document: DocumentDescriptor | null;
+  requestId: string;
+  preserveCurrent: boolean;
+  duplicateCount: number;
+  limitSkippedCount: number;
+  documents: DocumentDescriptor[];
   requestedCount: number;
   acceptedCount: number;
   newlyTrackedCount: number;
   skippedCount: number;
+  routingFailureCount: number;
 }
 
 export interface RecentFileRecord {
@@ -87,6 +92,7 @@ export interface OpenFilePathPayload {
   path: string;
   source?: RecentFileSource;
   lineNumber?: number;
+  reservationId?: string;
 }
 
 export interface SearchOptions {

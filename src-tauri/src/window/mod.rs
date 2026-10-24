@@ -5,13 +5,13 @@ use std::{
     sync::Mutex,
 };
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::http::HeaderValue;
-use tauri::{Manager, WebviewWindow};
+use tauri::{Emitter, Manager, WebviewWindow};
 use url::Url;
 use uuid::Uuid;
 
-use crate::document::{DocumentAccess, DocumentDescriptor, DocumentRegistry};
+use crate::document::{AuthorizedDocument, DocumentAccess, DocumentDescriptor, DocumentRegistry};
 use crate::storage::{AppStorage, SETTING_SIDEBAR_OPEN, SETTING_SIDEBAR_WIDTH, SETTING_THEME};
 
 const PERMISSIONS_POLICY: &str =
@@ -33,6 +33,7 @@ enum StoredLaunchIntent {
     Document {
         document: DocumentDescriptor,
         reservation_id: String,
+        line_number: Option<usize>,
     },
 }
 
@@ -48,6 +49,10 @@ struct WindowRegistryState {
     path_owners: HashMap<PathBuf, String>,
     reservations: HashMap<String, OpenReservation>,
     reserved_paths: HashMap<PathBuf, String>,
+    startup_window_available: bool,
+    ready_paths: HashMap<String, PathBuf>,
+    loading_tickets: HashMap<String, (String, PathBuf)>,
+    pending_navigation: HashMap<String, (PathBuf, Option<usize>, bool)>,
 }
 
 #[derive(Clone, Debug)]
@@ -70,6 +75,7 @@ pub struct PrimaryWindowPromotion {
 #[derive(Default)]
 pub struct WindowRegistry {
     inner: Mutex<WindowRegistryState>,
+    changed: tokio::sync::Notify,
 }
 
 #[derive(Debug, Serialize)]
@@ -80,16 +86,25 @@ pub enum OpenDisposition {
         reservation_id: String,
     },
     FocusedExisting,
+    ExistingOwner,
 }
 
 #[derive(Debug, Serialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum CreateWindowResult {
     #[serde(rename_all = "camelCase")]
-    Created {
-        window_label: String,
-    },
-    FocusedExisting,
+    Created { window_label: String },
+    #[serde(rename_all = "camelCase")]
+    FocusedExisting { window_label: String },
+}
+
+#[derive(Clone, Copy, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum OpenPurpose {
+    #[default]
+    Open,
+    Reload,
+    SaveAs,
 }
 
 #[derive(Debug, Serialize)]
@@ -101,10 +116,43 @@ pub enum WindowLaunchIntent {
     Document {
         document: DocumentDescriptor,
         reservation_id: String,
+        line_number: Option<usize>,
     },
 }
 
 impl WindowRegistry {
+    pub fn while_window_live(&self, label: &str, action: impl FnOnce()) -> bool {
+        let state = self.inner.lock().unwrap_or_else(|p| p.into_inner());
+        if !state.live_windows.iter().any(|live| live == label) {
+            return false;
+        }
+        action();
+        true
+    }
+
+    pub fn active_path(&self, label: &str) -> Option<PathBuf> {
+        self.inner
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .active_paths
+            .get(label)
+            .cloned()
+    }
+
+    pub fn validate_open(&self, label: &str, id: &str, path: &Path) -> Result<(), String> {
+        let state = self.inner.lock().unwrap_or_else(|p| p.into_inner());
+        if !state.reservations.get(id).is_some_and(|reservation| {
+            reservation.window_label == label && reservation.path == path
+        }) || state
+            .path_owners
+            .get(path)
+            .is_some_and(|owner| owner != label)
+        {
+            return Err("Document open authorization is invalid or expired.".to_string());
+        }
+        Ok(())
+    }
+
     pub fn register_window(&self, window_label: &str, inherit_from: Option<&str>) {
         let mut state = self
             .inner
@@ -115,6 +163,9 @@ impl WindowRegistry {
         }
         if state.primary_window.is_none() {
             state.primary_window = Some(window_label.to_string());
+        }
+        if window_label == "main" {
+            state.startup_window_available = true;
         }
         if let Some(layout) =
             inherit_from.and_then(|source| state.sidebar_layouts.get(source).cloned())
@@ -142,6 +193,24 @@ impl WindowRegistry {
             .primary_window
             .as_deref()
             == Some(window_label)
+    }
+
+    pub fn take_startup_window_for_external_open(&self) -> bool {
+        let mut state = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        std::mem::take(&mut state.startup_window_available)
+    }
+
+    pub fn complete_startup(&self, window_label: &str) {
+        if window_label != "main" {
+            return;
+        }
+        self.inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .startup_window_available = false;
     }
 
     pub fn resolve_sidebar_layout(
@@ -290,6 +359,11 @@ impl WindowRegistry {
             return Err("Document open authorization is invalid or expired.".to_string());
         };
         state.reserved_paths.remove(&reservation.path);
+        state.ready_paths.remove(window_label);
+        state.loading_tickets.insert(
+            window_label.to_string(),
+            (reservation_id.to_string(), path.to_path_buf()),
+        );
         if let Some(previous_path) = state
             .active_paths
             .insert(window_label.to_string(), path.to_path_buf())
@@ -316,6 +390,14 @@ impl WindowRegistry {
                 state.reserved_paths.remove(&reservation.path);
             }
         }
+        if state
+            .loading_tickets
+            .get(window_label)
+            .is_some_and(|(id, _)| id == reservation_id)
+        {
+            state.loading_tickets.remove(window_label);
+        }
+        self.changed.notify_waiters();
     }
 
     pub fn release_active(&self, window_label: &str) {
@@ -326,6 +408,10 @@ impl WindowRegistry {
         if let Some(path) = state.active_paths.remove(window_label) {
             state.path_owners.remove(&path);
         }
+        state.ready_paths.remove(window_label);
+        state.loading_tickets.remove(window_label);
+        state.pending_navigation.remove(window_label);
+        self.changed.notify_waiters();
     }
 
     pub fn release_path(&self, window_label: &str, path: &Path) {
@@ -336,16 +422,33 @@ impl WindowRegistry {
         if state.active_paths.get(window_label).map(PathBuf::as_path) == Some(path) {
             state.active_paths.remove(window_label);
             state.path_owners.remove(path);
+            state.ready_paths.remove(window_label);
+            state.loading_tickets.remove(window_label);
+            state.pending_navigation.remove(window_label);
+            self.changed.notify_waiters();
         }
     }
 
     pub fn owner_for_path(&self, path: &Path) -> Option<String> {
+        let state = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        state.path_owners.get(path).cloned().or_else(|| {
+            state
+                .reserved_paths
+                .get(path)
+                .and_then(|id| state.reservations.get(id))
+                .map(|reservation| reservation.window_label.clone())
+        })
+    }
+
+    fn path_has_pending_reservation(&self, path: &Path) -> bool {
         self.inner
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .path_owners
-            .get(path)
-            .cloned()
+            .reserved_paths
+            .contains_key(path)
     }
 
     pub fn adopt_active_path(&self, window_label: &str, path: &Path) -> Result<(), String> {
@@ -358,6 +461,13 @@ impl WindowRegistry {
                 return Err(owner.clone());
             }
         }
+        if let Some(id) = state.reserved_paths.get(path) {
+            if let Some(reservation) = state.reservations.get(id) {
+                if reservation.window_label != window_label {
+                    return Err(reservation.window_label.clone());
+                }
+            }
+        }
         if let Some(previous_path) = state
             .active_paths
             .insert(window_label.to_string(), path.to_path_buf())
@@ -367,6 +477,10 @@ impl WindowRegistry {
         state
             .path_owners
             .insert(path.to_path_buf(), window_label.to_string());
+        state
+            .ready_paths
+            .insert(window_label.to_string(), path.to_path_buf());
+        self.changed.notify_waiters();
         Ok(())
     }
 
@@ -379,6 +493,9 @@ impl WindowRegistry {
             return;
         }
         state.path_owners.remove(old_path);
+        state
+            .ready_paths
+            .insert(window_label.to_string(), new_path.to_path_buf());
         state
             .active_paths
             .insert(window_label.to_string(), new_path.to_path_buf());
@@ -393,6 +510,10 @@ impl WindowRegistry {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         state.launch_intents.remove(window_label);
+        state.ready_paths.remove(window_label);
+        state.loading_tickets.remove(window_label);
+        state.pending_navigation.remove(window_label);
+        self.changed.notify_waiters();
         if let Some(path) = state.active_paths.remove(window_label) {
             state.path_owners.remove(&path);
         }
@@ -414,6 +535,9 @@ impl WindowRegistry {
         state.live_windows.retain(|label| label != window_label);
         state.focus_order.retain(|label| label != window_label);
         state.sidebar_layouts.remove(window_label);
+        if window_label == "main" {
+            state.startup_window_available = false;
+        }
 
         if state.primary_window.as_deref() != Some(window_label) {
             return None;
@@ -434,9 +558,23 @@ impl WindowRegistry {
 
 pub fn focus_window(app: &tauri::AppHandle, window_label: &str) {
     if let Some(window) = app.get_webview_window(window_label) {
+        record_focused_window(app, window_label);
         let _ = window.show();
         let _ = window.unminimize();
         let _ = window.set_focus();
+    }
+}
+
+pub fn record_focused_window(app: &tauri::AppHandle, label: &str) {
+    if let Some(registry) = app.try_state::<WindowRegistry>() {
+        registry.note_focused(label);
+        if let (Some(path), Some(storage)) =
+            (registry.active_path(label), app.try_state::<AppStorage>())
+        {
+            if let Some(path) = path.to_str() {
+                let _ = storage.set_setting(crate::storage::SETTING_LAST_ACTIVE_FILE, Some(path));
+            }
+        }
     }
 }
 
@@ -457,8 +595,13 @@ pub fn reopen_or_create_main_window(app: &tauri::AppHandle) -> Result<(), String
         }
     }
 
-    let config = main_window_config(app)?;
+    let mut config = main_window_config(app)?;
+    // Closed labels keep revoked document grants. Give each recreated receiver
+    // a new identity so late work from its predecessor cannot regain access.
+    config.label = format!("{SECONDARY_WINDOW_PREFIX}{}", Uuid::now_v7());
     let window = build_configured_window(app, config)?;
+    app.state::<WindowRegistry>()
+        .register_window(window.label(), None);
     apply_macos_window_styling_to(&window);
     show_window(&window)?;
     Ok(())
@@ -523,13 +666,15 @@ fn build_configured_window(
 
 fn create_secondary_window(
     app: &tauri::AppHandle,
-    source_window: &tauri::Window,
+    source_window: &WebviewWindow,
     window_label: &str,
     title: &str,
+    focus: bool,
 ) -> Result<WebviewWindow, String> {
     let mut config = main_window_config(app)?;
     config.label = window_label.to_string();
     config.title = title.to_string();
+    config.focus = focus;
     let window = build_configured_window(app, config)?;
     app.state::<WindowRegistry>()
         .register_window(window_label, Some(source_window.label()));
@@ -548,18 +693,26 @@ fn create_secondary_window(
     #[cfg(target_os = "macos")]
     apply_macos_window_styling_to(&window);
 
-    show_window(&window)?;
-
+    if let Err(error) = window.show() {
+        let _ = window.destroy();
+        return Err(error.to_string());
+    }
+    if focus {
+        focus_window(app, window.label());
+    }
     Ok(window)
 }
 
 fn show_window(window: &WebviewWindow) -> Result<(), String> {
     window.show().map_err(|error| error.to_string())?;
-    window.set_focus().map_err(|error| error.to_string())
+    let _ = window.set_focus();
+    Ok(())
 }
 
+// Tauri requires an async command for Windows-safe WebView2 creation.
+// Registry helpers release their locks before entering the native builder.
 #[tauri::command]
-pub fn create_editor_window(
+pub async fn create_editor_window(
     app: tauri::AppHandle,
     window: tauri::Window,
     registry: tauri::State<'_, WindowRegistry>,
@@ -567,6 +720,8 @@ pub fn create_editor_window(
     updates: tauri::State<'_, crate::commands::update::UpdateOperationState>,
     document_id: Option<String>,
     document_generation: Option<u64>,
+    line_number: Option<usize>,
+    focus_existing: Option<bool>,
 ) -> Result<CreateWindowResult, String> {
     if updates.is_installing() {
         return Err(
@@ -582,50 +737,26 @@ pub fn create_editor_window(
         _ => return Err("Document ID and generation must be provided together.".to_string()),
     };
 
-    if let Some(document) = source_document.as_ref() {
-        if let Some(owner) = registry.owner_for_path(&document.path) {
-            focus_window(&app, &owner);
-            return Ok(CreateWindowResult::FocusedExisting);
-        }
+    if let Some(document) = source_document {
+        let source_webview = app
+            .get_webview_window(window.label())
+            .ok_or_else(|| "The source window is no longer available.".to_string())?;
+        return create_document_window(
+            &app,
+            &source_webview,
+            registry.inner(),
+            documents.inner(),
+            document,
+            line_number,
+            focus_existing.unwrap_or(true),
+        );
     }
 
     let window_label = format!("{SECONDARY_WINDOW_PREFIX}{}", Uuid::now_v7());
-    let (intent, title) = if let Some(document) = source_document {
-        let reservation_id = match registry.reserve(&window_label, &document.path) {
-            Ok(reservation_id) => reservation_id,
-            Err(owner) => {
-                focus_window(&app, &owner);
-                return Ok(CreateWindowResult::FocusedExisting);
-            }
-        };
-        let target_document = match documents.grant_existing(
-            &window_label,
-            &document.path,
-            document.source,
-            document.rights,
-        ) {
-            Ok(document) => document,
-            Err(error) => {
-                let _ = registry.cleanup_window(&window_label);
-                documents.revoke_window(&window_label);
-                return Err(error);
-            }
-        };
-        let descriptor = target_document.descriptor();
-        let title = format_window_title(&descriptor.file_name, false);
-        (
-            StoredLaunchIntent::Document {
-                document: descriptor,
-                reservation_id,
-            },
-            title,
-        )
-    } else {
-        (
-            StoredLaunchIntent::Blank,
-            NEW_SLATE_WINDOW_TITLE.to_string(),
-        )
-    };
+    let (intent, title) = (
+        StoredLaunchIntent::Blank,
+        NEW_SLATE_WINDOW_TITLE.to_string(),
+    );
 
     registry
         .inner
@@ -634,7 +765,11 @@ pub fn create_editor_window(
         .launch_intents
         .insert(window_label.clone(), intent);
 
-    if let Err(error) = create_secondary_window(&app, &window, &window_label, &title) {
+    let source_webview = app
+        .get_webview_window(window.label())
+        .ok_or_else(|| "The source window is no longer available.".to_string())?;
+    if let Err(error) = create_secondary_window(&app, &source_webview, &window_label, &title, true)
+    {
         let _ = registry.cleanup_window(&window_label);
         documents.revoke_window(&window_label);
         return Err(error);
@@ -643,27 +778,260 @@ pub fn create_editor_window(
     Ok(CreateWindowResult::Created { window_label })
 }
 
+pub(crate) fn create_document_window(
+    app: &tauri::AppHandle,
+    source_window: &WebviewWindow,
+    registry: &WindowRegistry,
+    documents: &DocumentRegistry,
+    document: AuthorizedDocument,
+    line_number: Option<usize>,
+    focus_existing: bool,
+) -> Result<CreateWindowResult, String> {
+    if app
+        .state::<crate::commands::update::UpdateOperationState>()
+        .is_installing()
+    {
+        return Err(
+            "A new window cannot be opened while an update is being installed.".to_string(),
+        );
+    }
+    if let Some(owner) = live_owner_for_path(app, registry, documents, &document.path) {
+        navigate_owner(
+            app,
+            registry,
+            &owner,
+            &document.path,
+            line_number,
+            focus_existing,
+        );
+        return Ok(CreateWindowResult::FocusedExisting {
+            window_label: owner,
+        });
+    }
+
+    let window_label = format!("{SECONDARY_WINDOW_PREFIX}{}", Uuid::now_v7());
+    let reservation_id = match registry.reserve(&window_label, &document.path) {
+        Ok(id) => id,
+        Err(owner) => {
+            navigate_owner(
+                app,
+                registry,
+                &owner,
+                &document.path,
+                line_number,
+                focus_existing,
+            );
+            return Ok(CreateWindowResult::FocusedExisting {
+                window_label: owner,
+            });
+        }
+    };
+    let target_document = match documents.grant_existing(
+        &window_label,
+        &document.path,
+        document.source,
+        document.rights,
+    ) {
+        Ok(document) => document,
+        Err(error) => {
+            registry.cancel_open(&window_label, &reservation_id);
+            documents.revoke_window(&window_label);
+            return Err(error);
+        }
+    };
+    let descriptor = target_document.descriptor();
+    let title = format_window_title(&descriptor.file_name, false);
+    registry
+        .inner
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .launch_intents
+        .insert(
+            window_label.clone(),
+            StoredLaunchIntent::Document {
+                document: descriptor,
+                reservation_id,
+                line_number,
+            },
+        );
+
+    if let Err(error) =
+        create_secondary_window(app, source_window, &window_label, &title, focus_existing)
+    {
+        let _ = registry.cleanup_window(&window_label);
+        documents.revoke_window(&window_label);
+        return Err(error);
+    }
+    Ok(CreateWindowResult::Created { window_label })
+}
+
+fn navigate_owner(
+    app: &tauri::AppHandle,
+    registry: &WindowRegistry,
+    owner: &str,
+    path: &Path,
+    line_number: Option<usize>,
+    focus: bool,
+) {
+    let mut state = registry.inner.lock().unwrap_or_else(|p| p.into_inner());
+    let ready = state
+        .ready_paths
+        .get(owner)
+        .is_some_and(|ready| ready == path)
+        && !state.reserved_paths.contains_key(path);
+    if !ready {
+        let pending = state
+            .pending_navigation
+            .entry(owner.to_string())
+            .or_insert_with(|| (path.to_path_buf(), None, false));
+        if pending.0 != path {
+            *pending = (path.to_path_buf(), None, false);
+        }
+        if line_number.is_some() {
+            pending.1 = line_number;
+        }
+        pending.2 |= focus;
+    }
+    drop(state);
+    if ready {
+        if let Some(line) = line_number {
+            let _ = app.emit_to(owner, "files://navigate-line", line);
+        }
+    }
+    if focus {
+        focus_window(app, owner);
+    }
+}
+
+/// The renderer acknowledges readiness only after installing its editor session.
+/// Requests that arrive while the native window or document is loading wait here.
+#[tauri::command]
+pub fn complete_document_open(
+    app: tauri::AppHandle,
+    window: tauri::Window,
+    registry: tauri::State<'_, WindowRegistry>,
+    documents: tauri::State<'_, DocumentRegistry>,
+    document_id: String,
+    document_generation: u64,
+) -> Result<Option<usize>, String> {
+    let document = documents.resolve(
+        window.label(),
+        &document_id,
+        document_generation,
+        DocumentAccess::Read,
+    )?;
+    let mut state = registry.inner.lock().unwrap_or_else(|p| p.into_inner());
+    if state.active_paths.get(window.label()) != Some(&document.path) {
+        return Err("The document is no longer active.".to_string());
+    }
+    state
+        .ready_paths
+        .insert(window.label().to_string(), document.path.clone());
+    state.loading_tickets.remove(window.label());
+    registry.changed.notify_waiters();
+    let pending = state
+        .pending_navigation
+        .remove(window.label())
+        .filter(|(path, _, _)| path == &document.path);
+    drop(state);
+    if let Some((_, line, focus)) = pending {
+        if focus {
+            focus_window(&app, window.label());
+        }
+        return Ok(line);
+    }
+    Ok(None)
+}
+
+/// Wait on lifecycle notifications, not a timing guess about renderer startup.
+/// The caller must hold its own grant for the document; a window label alone
+/// never authorizes inspection of another document.
+#[tauri::command]
+pub async fn wait_document_open(
+    window: tauri::Window,
+    registry: tauri::State<'_, WindowRegistry>,
+    documents: tauri::State<'_, DocumentRegistry>,
+    document_id: String,
+    document_generation: u64,
+    target_window: String,
+) -> Result<(), String> {
+    let document = documents.resolve(
+        window.label(),
+        &document_id,
+        document_generation,
+        DocumentAccess::Read,
+    )?;
+    loop {
+        let changed = registry.changed.notified();
+        tokio::pin!(changed);
+        changed.as_mut().enable();
+        {
+            let state = registry.inner.lock().unwrap_or_else(|p| p.into_inner());
+            if state.ready_paths.get(&target_window) == Some(&document.path) {
+                return Ok(());
+            }
+            let opening = state
+                .reserved_paths
+                .get(&document.path)
+                .and_then(|id| state.reservations.get(id))
+                .is_some_and(|reservation| reservation.window_label == target_window);
+            let activating = state
+                .loading_tickets
+                .get(&target_window)
+                .is_some_and(|(_, path)| path == &document.path);
+            if !opening && !activating {
+                return Err("The target window could not open the file.".to_string());
+            }
+        }
+        changed.await;
+    }
+}
+
+fn live_owner_for_path(
+    app: &tauri::AppHandle,
+    registry: &WindowRegistry,
+    documents: &DocumentRegistry,
+    path: &Path,
+) -> Option<String> {
+    loop {
+        let owner = registry.owner_for_path(path)?;
+        if registry.path_has_pending_reservation(path) || app.get_webview_window(&owner).is_some() {
+            return Some(owner);
+        }
+
+        // Native destruction and the frontend's next open request can race.
+        // Remove a label that Tauri no longer knows about before deciding that
+        // its old active path or reservation still owns the document.
+        let _ = registry.cleanup_window(&owner);
+        documents.revoke_window(&owner);
+    }
+}
+
 #[tauri::command]
 pub fn take_window_launch_intent(
     window: tauri::Window,
     registry: tauri::State<'_, WindowRegistry>,
 ) -> WindowLaunchIntent {
-    let intent = registry
+    let mut state = registry
         .inner
         .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .launch_intents
-        .remove(window.label());
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let intent = state.launch_intents.remove(window.label());
+    drop(state);
     match intent {
         Some(StoredLaunchIntent::Blank) => WindowLaunchIntent::Blank,
         Some(StoredLaunchIntent::Document {
             document,
             reservation_id,
+            line_number,
         }) => WindowLaunchIntent::Document {
             document,
             reservation_id,
+            line_number,
         },
-        None if window.label() == "main" => WindowLaunchIntent::PrimaryStartup,
+        None if window.label() == "main" || registry.is_primary(window.label()) => {
+            WindowLaunchIntent::PrimaryStartup
+        }
         None => WindowLaunchIntent::Blank,
     }
 }
@@ -676,6 +1044,9 @@ pub fn claim_document_open(
     documents: tauri::State<'_, DocumentRegistry>,
     document_id: String,
     document_generation: u64,
+    focus_existing: Option<bool>,
+    purpose: Option<OpenPurpose>,
+    line_number: Option<usize>,
 ) -> Result<OpenDisposition, String> {
     let document = documents.resolve(
         window.label(),
@@ -686,11 +1057,36 @@ pub fn claim_document_open(
         // the new-file grant while still revalidating existing documents.
         DocumentAccess::Write,
     )?;
-    match registry.reserve(window.label(), &document.path) {
-        Ok(reservation_id) => Ok(OpenDisposition::OpenHere { reservation_id }),
-        Err(owner) => {
-            focus_window(&app, &owner);
-            Ok(OpenDisposition::FocusedExisting)
+    loop {
+        if let Some(owner) =
+            live_owner_for_path(&app, registry.inner(), documents.inner(), &document.path)
+        {
+            if owner == window.label() && purpose.unwrap_or_default() != OpenPurpose::Open {
+                return registry
+                    .reserve(window.label(), &document.path)
+                    .map(|reservation_id| OpenDisposition::OpenHere { reservation_id })
+                    .map_err(|_| "Document ownership changed.".to_string());
+            }
+            if focus_existing.unwrap_or(true) {
+                navigate_owner(
+                    &app,
+                    registry.inner(),
+                    &owner,
+                    &document.path,
+                    line_number,
+                    true,
+                );
+                return Ok(OpenDisposition::FocusedExisting);
+            }
+            return Ok(OpenDisposition::ExistingOwner);
+        }
+        match registry.reserve(window.label(), &document.path) {
+            Ok(reservation_id) => return Ok(OpenDisposition::OpenHere { reservation_id }),
+            Err(_) => {
+                // Ownership changed between the liveness check and reserve.
+                // Retry so the winner is validated before it is focused.
+                continue;
+            }
         }
     }
 }
@@ -702,6 +1098,39 @@ pub fn cancel_document_open(
     reservation_id: String,
 ) {
     registry.cancel_open(window.label(), &reservation_id);
+    // A cancelled reload keeps the old session. Deliver navigation that arrived
+    // during that reload instead of losing it with the cancelled reservation.
+    let mut state = registry.inner.lock().unwrap_or_else(|p| p.into_inner());
+    let pending = state.pending_navigation.get(window.label()).cloned();
+    if let Some((path, line, focus)) = pending {
+        if !state.reserved_paths.contains_key(&path)
+            && !state.loading_tickets.contains_key(window.label())
+        {
+            state.pending_navigation.remove(window.label());
+            let ready = state.ready_paths.get(window.label()) == Some(&path);
+            drop(state);
+            if ready {
+                navigate_owner(
+                    window.app_handle(),
+                    registry.inner(),
+                    window.label(),
+                    &path,
+                    line,
+                    focus,
+                );
+            }
+        }
+    }
+}
+
+#[tauri::command]
+pub fn focus_current_window(app: tauri::AppHandle, window: tauri::Window) {
+    focus_window(&app, window.label());
+}
+
+#[tauri::command]
+pub fn complete_window_startup(window: tauri::Window, registry: tauri::State<'_, WindowRegistry>) {
+    registry.complete_startup(window.label());
 }
 
 fn sanitize_title_part(value: &str) -> String {
@@ -848,6 +1277,44 @@ mod tests {
     }
 
     #[test]
+    fn save_validation_rejects_foreign_expired_and_superseded_tickets() {
+        let registry = WindowRegistry::default();
+        let path = Path::new("/tmp/a.txt");
+        let first = registry.reserve("main", path).unwrap();
+        assert!(registry.validate_open("main", &first, path).is_ok());
+        assert!(registry.validate_open("other", &first, path).is_err());
+        let second = registry.reserve("main", Path::new("/tmp/b.txt")).unwrap();
+        assert!(registry.validate_open("main", &first, path).is_err());
+        registry.cancel_open("main", &second);
+        assert!(registry
+            .validate_open("main", &second, Path::new("/tmp/b.txt"))
+            .is_err());
+    }
+
+    #[test]
+    fn adoption_cannot_steal_a_pending_open_and_window_count_is_unbounded() {
+        let registry = WindowRegistry::default();
+        let path = Path::new("/tmp/pending.txt");
+        let ticket = registry.reserve("owner", path).unwrap();
+        assert!(registry.adopt_active_path("other", path).is_err());
+        registry.cancel_open("owner", &ticket);
+        assert!(registry.adopt_active_path("other", path).is_ok());
+        for i in 0..75 {
+            registry.register_window(&format!("editor-{i}"), None);
+        }
+        assert_eq!(registry.inner.lock().unwrap().live_windows.len(), 75);
+    }
+
+    #[test]
+    fn destroyed_windows_cannot_receive_late_native_batches() {
+        let registry = WindowRegistry::default();
+        registry.register_window("main", None);
+        assert!(registry.while_window_live("main", || {}));
+        registry.cleanup_window("main");
+        assert!(!registry.while_window_live("main", || panic!("dead window accepted a batch")));
+    }
+
+    #[test]
     fn bundled_navigation_allows_only_the_configured_app_origin() {
         assert!(is_allowed_app_navigation(
             &url("tauri://localhost/index.html"),
@@ -946,6 +1413,31 @@ mod tests {
         assert_eq!(registry.reserve("second", path), Err("first".to_string()));
         registry.release_active("first");
         assert!(registry.reserve("second", path).is_ok());
+    }
+
+    #[test]
+    fn pending_reservation_is_reported_as_the_path_owner() {
+        let registry = WindowRegistry::default();
+        let path = Path::new("/tmp/loading.txt");
+        let reservation = registry.reserve("loading-window", path).unwrap();
+        assert_eq!(
+            registry.owner_for_path(path).as_deref(),
+            Some("loading-window")
+        );
+        registry.cancel_open("loading-window", &reservation);
+        assert!(registry.owner_for_path(path).is_none());
+    }
+
+    #[test]
+    fn startup_window_can_be_consumed_only_once() {
+        let registry = WindowRegistry::default();
+        registry.register_window("main", None);
+        assert!(registry.take_startup_window_for_external_open());
+        assert!(!registry.take_startup_window_for_external_open());
+
+        registry.register_window("main", None);
+        registry.complete_startup("main");
+        assert!(!registry.take_startup_window_for_external_open());
     }
 
     #[test]

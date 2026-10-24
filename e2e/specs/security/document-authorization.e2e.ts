@@ -23,6 +23,9 @@ describe("Rust-owned document authorization", () => {
       // and relied on that string not containing the word.
       const attempts: [string, Record<string, unknown>][] = [
         ["read_file_content", { ...FORGED_GRANT, requestId: 99, path: victim }],
+        ["claim_document_open", { ...FORGED_GRANT, purpose: "reload" }],
+        ["complete_document_open", { ...FORGED_GRANT }],
+        ["wait_document_open", { ...FORGED_GRANT, targetWindow: "main" }],
         ["write_file_content", { ...FORGED_GRANT, content: "attacker-controlled", path: victim }],
         ["delete_file", { ...FORGED_GRANT, path: victim, source: "slates" }],
         [
