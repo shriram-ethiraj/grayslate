@@ -79,7 +79,7 @@ export const downloads: readonly DownloadTarget[] = [
     format: "AppImage",
     downloadSubtitle: "Standalone",
     architecture: "x86_64",
-    href: `${LATEST_RELEASE_URL}/download/grayslate-linux-x86_64.AppImage`,
+    href: `${LATEST_RELEASE_URL}/download/grayslate-x86_64.AppImage`,
     fallbackHref: LATEST_RELEASE_URL,
     installCommand: `curl -fsSL ${PACKAGES_URL}/install.sh | sh`,
     installLabel: "Install on Debian / Fedora",

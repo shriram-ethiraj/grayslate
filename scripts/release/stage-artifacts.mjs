@@ -42,8 +42,8 @@ const targetDefinitions = {
         [".dmg", `Grayslate-${version}-macos-universal-homebrew.dmg`],
     ],
     "linux-x86_64-direct": [
-        [".AppImage", `Grayslate-${version}-linux-x86_64.AppImage`],
-        [".AppImage.sig", `Grayslate-${version}-linux-x86_64.AppImage.sig`],
+        [".AppImage", `Grayslate-${version}-x86_64.AppImage`],
+        [".AppImage.sig", `Grayslate-${version}-x86_64.AppImage.sig`],
     ],
     "linux-x86_64-system": [
         [".deb", `Grayslate-${version}-linux-x86_64.deb`],
