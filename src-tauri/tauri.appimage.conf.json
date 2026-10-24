@@ -1,4 +1,7 @@
 {
+  "build": {
+    "beforeBundleCommand": "node scripts/release/prepare-appimage.mjs"
+  },
   "bundle": {
     "linux": {
       "deb": {

@@ -132,7 +132,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install --no-install-recommends libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf rpm
+          sudo apt-get install --no-install-recommends libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf rpm xvfb xauth x11-utils
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
       - name: Install Rust targets
@@ -144,6 +144,15 @@ jobs:
           --target "${{ matrix.tauri_target }}"
           --bundles "${{ matrix.bundles }}"
           ${{ matrix.system_config }}
+      - name: Verify AppImage permissions and startup
+        if: matrix.bundles == 'appimage'
+        shell: bash
+        run: |
+          shopt -s nullglob
+          images=("${{ matrix.bundle_root }}"/appimage/*.AppImage)
+          test "${#images[@]}" -eq 1
+          node scripts/release/verify-appimage.mjs "${images[0]}"
+          xvfb-run -a bash scripts/release/smoke-appimage.sh "${images[0]}"
       - name: Stage deterministic artifact names
         shell: bash
         run: >-

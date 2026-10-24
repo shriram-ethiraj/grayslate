@@ -111,11 +111,11 @@ Future versions then arrive through your normal system package manager and
 Linux graphical update tools.
 
 Prefer a standalone file? Download the
-[AppImage](https://github.com/shriram-ethiraj/grayslate/releases/latest/download/grayslate-linux-x86_64.AppImage), then run:
+[AppImage](https://github.com/shriram-ethiraj/grayslate/releases/latest/download/grayslate-x86_64.AppImage), then run:
 
 ```bash
-chmod +x grayslate-linux-x86_64.AppImage
-./grayslate-linux-x86_64.AppImage
+chmod +x grayslate-x86_64.AppImage
+./grayslate-x86_64.AppImage
 ```
 
 Standalone versioned DEB/RPM files, all other artifacts, and checksums remain

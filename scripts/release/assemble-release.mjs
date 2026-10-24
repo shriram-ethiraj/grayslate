@@ -18,7 +18,7 @@ if (!version || !repository) {
 
 const assets = {
     "macos-universal": `Grayslate-${version}-macos-universal.app.tar.gz`,
-    "linux-x86_64": `Grayslate-${version}-linux-x86_64.AppImage`,
+    "linux-x86_64": `Grayslate-${version}-x86_64.AppImage`,
     "windows-x86_64": `Grayslate-${version}-windows-x86_64-setup.exe`,
     "windows-aarch64": `Grayslate-${version}-windows-aarch64-setup.exe`,
 };
@@ -34,8 +34,8 @@ const stableAliases = new Map([
         "grayslate-windows-aarch64-setup.exe",
     ],
     [
-        `Grayslate-${version}-linux-x86_64.AppImage`,
-        "grayslate-linux-x86_64.AppImage",
+        `Grayslate-${version}-x86_64.AppImage`,
+        "grayslate-x86_64.AppImage",
     ],
     [`Grayslate-${version}-linux-x86_64.deb`, "grayslate-linux-x86_64.deb"],
     [`Grayslate-${version}-linux-x86_64.rpm`, "grayslate-linux-x86_64.rpm"],
