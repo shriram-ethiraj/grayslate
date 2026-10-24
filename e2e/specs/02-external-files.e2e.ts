@@ -8,7 +8,7 @@ import {
   releaseOperationGate,
   waitForOperationGate,
 } from "../driver/operationGate.js";
-import { waitForAppStable, waitForFile } from "../driver/wait.js";
+import { waitFor, waitForAppStable, waitForFile } from "../driver/wait.js";
 import {
   dropPaths,
   externalRoot,
@@ -248,6 +248,17 @@ describe("External files", () => {
         await titleBar.closeWindow();
       }
       await browser.switchToWindow(mainHandle);
+
+      // Close clicks only request teardown. Until the native windows disappear,
+      // the target can still have an owner and a drop will reuse that window
+      // instead of asking to replace the dirty receiving document.
+      await waitFor(
+        async () => {
+          const remaining = await browser.getWindowHandles();
+          return remaining.length === 1 && remaining[0] === mainHandle;
+        },
+        { message: "The secondary document owners did not close before reopening the dropped file." },
+      );
 
       await dropPaths([target]);
       await dialogs.unsavedChanges.waitForOpen();
