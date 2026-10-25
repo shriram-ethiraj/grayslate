@@ -38,6 +38,8 @@ jobs:
         run: pnpm run e2e:check
       - name: Test release-build verification
         run: pnpm run test:verify-release-build
+      - name: Test release packaging scripts
+        run: pnpm run test:release-scripts
 
   build-e2e:
     name: Build test-only packaged app

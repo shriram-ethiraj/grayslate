@@ -35,7 +35,7 @@ Platform CTAs use GitHub's stable latest-release asset URLs. Each public release
 - `grayslate-macos-universal.dmg`
 - `grayslate-windows-x86_64-setup.exe`
 - `grayslate-windows-aarch64-setup.exe`
-- `grayslate-linux-x86_64.AppImage`
+- `grayslate-x86_64.AppImage`
 - `grayslate-linux-x86_64.deb`
 - `grayslate-linux-x86_64.rpm`
 

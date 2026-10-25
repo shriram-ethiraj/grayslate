@@ -1,16 +1,21 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import {
     cp,
+    chmod,
     mkdtemp,
     mkdir,
     readFile,
     readdir,
     rm,
+    stat,
     writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
+import { prepareAppRun } from "./prepare-appimage.mjs";
+import { verifyAppDir } from "./verify-appimage.mjs";
 
 const version = "1.2.3";
 let moduleRun = 0;
@@ -130,6 +135,11 @@ test("release scripts stage and assemble every updater platform", async () => {
             "windows-x86_64",
         ]);
         assert.match(
+            latest.platforms["linux-x86_64"].url,
+            /Grayslate-1\.2\.3-x86_64\.AppImage$/u,
+        );
+        assert.equal(latest.platforms["linux-x86_64"].signature, "linux-signature");
+        assert.match(
             latest.platforms["windows-aarch64"].url,
             /windows-aarch64-setup\.exe$/u,
         );
@@ -148,8 +158,8 @@ test("release scripts stage and assemble every updater platform", async () => {
                 "grayslate-windows-aarch64-setup.exe",
             ],
             [
-                `Grayslate-${version}-linux-x86_64.AppImage`,
-                "grayslate-linux-x86_64.AppImage",
+                `Grayslate-${version}-x86_64.AppImage`,
+                "grayslate-x86_64.AppImage",
             ],
             [`Grayslate-${version}-linux-x86_64.deb`, "grayslate-linux-x86_64.deb"],
             [`Grayslate-${version}-linux-x86_64.rpm`, "grayslate-linux-x86_64.rpm"],
@@ -166,6 +176,53 @@ test("release scripts stage and assemble every updater platform", async () => {
             assert.match(checksums, new RegExp(`  ${alias.replaceAll(".", "\\.")}$`, "mu"));
         }
         assert.ok((await readFile(join(assets, "grayslate.rb"), "utf8")).includes(version));
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("AppImage preparation handles a fresh cache and repairs cached 0770 permissions", { skip: process.platform === "win32" }, async () => {
+    const root = await mkdtemp(join(tmpdir(), "grayslate-apprun-test-"));
+    try {
+        const data = Buffer.from("launcher fixture");
+        const sha256 = createHash("sha256").update(data).digest("hex");
+        let downloads = 0;
+        const download = async () => { downloads += 1; return data; };
+        const directory = join(root, "tauri");
+        const launcher = join(directory, "AppRun-x86_64");
+        await prepareAppRun(directory, { download, sha256 });
+        assert.deepEqual(await readFile(launcher), data);
+        assert.equal((await stat(launcher)).mode & 0o777, 0o755);
+        await chmod(launcher, 0o770);
+        await prepareAppRun(directory, { download, sha256 });
+        assert.equal((await stat(launcher)).mode & 0o777, 0o755);
+        assert.equal(downloads, 1);
+        await writeFile(launcher, "unexpected launcher");
+        await assert.rejects(prepareAppRun(directory, { download, sha256 }), /checksum/u);
+        await rm(launcher);
+        await assert.rejects(prepareAppRun(directory, { download, sha256: "wrong checksum" }), /checksum/u);
+        await assert.rejects(stat(launcher), { code: "ENOENT" });
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("AppImage verification rejects inaccessible or missing packaged executables", { skip: process.platform === "win32" }, async () => {
+    const root = await mkdtemp(join(tmpdir(), "grayslate-appimage-permissions-test-"));
+    try {
+        const names = ["AppRun", "AppRun.wrapped", "usr/bin/Grayslate"];
+        for (const name of names) {
+            await fixture(root, name);
+            await chmod(join(root, name), 0o755);
+        }
+        await verifyAppDir(root);
+        for (const name of names) {
+            await chmod(join(root, name), 0o770);
+            await assert.rejects(verifyAppDir(root), /ordinary users/u);
+            await chmod(join(root, name), 0o755);
+        }
+        await rm(join(root, "AppRun.wrapped"));
+        await assert.rejects(verifyAppDir(root), { code: "ENOENT" });
     } finally {
         await rm(root, { recursive: true, force: true });
     }
